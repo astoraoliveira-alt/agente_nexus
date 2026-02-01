@@ -35,9 +35,14 @@ const adminNavItems = [
 ];
 
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant } = useApp();
+  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
+
+  const handleLogout = () => {
+    localStorage.removeItem('davos_session');
+    window.location.href = '/login';
+  };
 
   return (
     <aside
@@ -172,20 +177,36 @@ export function AppSidebar() {
         </Button>
 
         {/* User Info */}
-        <div className={cn(
-          'flex items-center gap-3 px-3 py-2',
-          collapsed && 'justify-center'
-        )}>
+        <button
+          onClick={() => openSlideOver('user-profile')}
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent transition-colors',
+            collapsed && 'justify-center'
+          )}
+        >
           <div className="w-8 h-8 bg-sidebar-accent flex items-center justify-center text-sidebar-foreground text-sm font-medium">
             {currentUser?.avatar || 'U'}
           </div>
           {!collapsed && (
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 text-left">
               <p className="text-sm font-medium text-sidebar-foreground truncate">{currentUser?.name}</p>
               <p className="text-xs text-sidebar-foreground/60 truncate capitalize">{currentUser?.role?.replace('_', ' ')}</p>
             </div>
           )}
-        </div>
+        </button>
+
+        {/* Logout Button */}
+        <Button
+          variant="ghost"
+          onClick={handleLogout}
+          className={cn(
+            'w-full justify-start gap-3 px-3 text-sidebar-foreground/80 hover:bg-destructive hover:text-destructive-foreground',
+            collapsed && 'justify-center'
+          )}
+        >
+          <LogOut className="h-5 w-5" />
+          {!collapsed && <span>Sair</span>}
+        </Button>
       </div>
     </aside>
   );
