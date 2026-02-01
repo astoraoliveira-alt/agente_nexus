@@ -11,6 +11,8 @@ import Agents from "./pages/Agents";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Users from "./pages/Users";
+import Profiles from "./pages/Profiles";
+import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +25,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            <Route path="/login" element={<Login />} />
             <Route path="/" element={<Index />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/consumption" element={<Consumption />} />
@@ -30,6 +33,7 @@ const App = () => (
             <Route path="/alerts" element={<Alerts />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/users" element={<Users />} />
+            <Route path="/profiles" element={<Profiles />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

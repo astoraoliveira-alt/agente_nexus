@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { mockConsumption, mockAgents } from '@/lib/mock-data';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { HeatmapChart, generateMockHeatmapData } from '@/components/consumption/HeatmapChart';
 import {
   Select,
   SelectContent,
@@ -39,6 +40,8 @@ export default function Consumption() {
 
   const consumptionPercentage = (mockConsumption.llmTokens / mockConsumption.planLimit.llmTokens) * 100;
   const projectedUsage = (consumptionPercentage / 20) * 30; // Simple projection based on 20 days elapsed
+
+  const heatmapData = useMemo(() => generateMockHeatmapData(), []);
 
   const pieData = [
     { name: 'LLM', value: mockConsumption.costBreakdown.llm },
@@ -203,6 +206,7 @@ export default function Consumption() {
           <Tabs defaultValue="timeline" className="space-y-4">
             <TabsList>
               <TabsTrigger value="timeline">Linha do Tempo</TabsTrigger>
+              <TabsTrigger value="heatmap">Horários de Pico</TabsTrigger>
               <TabsTrigger value="by-agent">Por Agente</TabsTrigger>
               <TabsTrigger value="by-channel">Por Canal</TabsTrigger>
               <TabsTrigger value="cost">Análise de Custo</TabsTrigger>
@@ -254,6 +258,15 @@ export default function Consumption() {
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="heatmap" className="space-y-4">
+              <div className="kpi-card">
+                <HeatmapChart data={heatmapData} title="Distribuição de Conversas por Horário" />
+                <p className="text-sm text-muted-foreground mt-4">
+                  Visualize os horários com maior volume de conversas para otimizar a alocação de recursos.
+                </p>
               </div>
             </TabsContent>
 
