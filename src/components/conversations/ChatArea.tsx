@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { Send, Paperclip, Smile, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft } from 'lucide-react';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useApp } from '@/contexts/AppContext';
+import { EmojiPicker } from '@/components/chat/EmojiPicker';
+import { AttachmentPicker } from '@/components/chat/AttachmentPicker';
+import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -242,23 +245,40 @@ export function ChatArea({ conversation }: ChatAreaProps) {
       {/* Input Area */}
       <div className="p-4 border-t border-border bg-card">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon">
-            <Paperclip className="h-5 w-5" />
-          </Button>
+          <AttachmentPicker 
+            onAttach={(type, file) => {
+              if (file) {
+                toast.success(`Anexo adicionado: ${file.name}`);
+              }
+            }} 
+          />
           
           <input
             type="text"
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && messageInput.trim()) {
+                toast.success('Mensagem enviada (mock)');
+                setMessageInput('');
+              }
+            }}
             placeholder="Digite sua mensagem..."
             className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
           />
           
-          <Button variant="ghost" size="icon">
-            <Smile className="h-5 w-5" />
-          </Button>
+          <EmojiPicker onSelect={(emoji) => setMessageInput(prev => prev + emoji)} />
           
-          <Button size="icon" className="bg-accent hover:bg-accent/90">
+          <Button 
+            size="icon" 
+            className="bg-accent hover:bg-accent/90"
+            onClick={() => {
+              if (messageInput.trim()) {
+                toast.success('Mensagem enviada (mock)');
+                setMessageInput('');
+              }
+            }}
+          >
             <Send className="h-5 w-5" />
           </Button>
         </div>

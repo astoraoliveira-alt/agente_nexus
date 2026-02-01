@@ -6,6 +6,7 @@ import {
   Settings, 
   Bell,
   Users,
+  Shield,
   Moon,
   Sun,
   ChevronLeft,
@@ -29,6 +30,7 @@ const mainNavItems = [
 
 const adminNavItems = [
   { title: 'Usuários', url: '/users', icon: Users },
+  { title: 'Perfis', url: '/profiles', icon: Shield },
   { title: 'Configurações', url: '/settings', icon: Settings },
 ];
 
