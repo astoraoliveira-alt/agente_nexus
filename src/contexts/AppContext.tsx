@@ -17,9 +17,9 @@ interface AppContextType {
   
   // Slide over panel
   slideOverOpen: boolean;
-  slideOverContent: 'conversation-details' | 'agent-config' | 'consumption-details' | null;
+  slideOverContent: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile' | null;
   slideOverData: any;
-  openSlideOver: (content: 'conversation-details' | 'agent-config' | 'consumption-details', data?: any) => void;
+  openSlideOver: (content: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile', data?: any) => void;
   closeSlideOver: () => void;
   
   // Conversation actions
@@ -37,7 +37,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [slideOverOpen, setSlideOverOpen] = useState(false);
-  const [slideOverContent, setSlideOverContent] = useState<'conversation-details' | 'agent-config' | 'consumption-details' | null>(null);
+  const [slideOverContent, setSlideOverContent] = useState<'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile' | null>(null);
   const [slideOverData, setSlideOverData] = useState<any>(null);
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
-  const openSlideOver = (content: 'conversation-details' | 'agent-config' | 'consumption-details', data?: any) => {
+  const openSlideOver = (content: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile', data?: any) => {
     setSlideOverContent(content);
     setSlideOverData(data);
     setSlideOverOpen(true);

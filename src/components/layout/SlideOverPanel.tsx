@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { ConversationDetailsPanel } from '@/components/panels/ConversationDetailsPanel';
 import { AgentConfigPanel } from '@/components/panels/AgentConfigPanel';
 import { ConsumptionDetailsPanel } from '@/components/panels/ConsumptionDetailsPanel';
+import { UserProfilePanel } from '@/components/panels/UserProfilePanel';
 
 export function SlideOverPanel() {
   const { slideOverOpen, slideOverContent, slideOverData, closeSlideOver } = useApp();
@@ -17,6 +18,8 @@ export function SlideOverPanel() {
         return <AgentConfigPanel data={slideOverData} />;
       case 'consumption-details':
         return <ConsumptionDetailsPanel data={slideOverData} />;
+      case 'user-profile':
+        return <UserProfilePanel />;
       default:
         return null;
     }
@@ -30,6 +33,8 @@ export function SlideOverPanel() {
         return 'Configuração do Agente';
       case 'consumption-details':
         return 'Detalhes de Consumo';
+      case 'user-profile':
+        return 'Meu Perfil';
       default:
         return '';
     }
