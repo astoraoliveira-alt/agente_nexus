@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Activity, Settings2, Zap } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Activity, Settings2, Zap, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { Agent } from '@/lib/mock-data';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useState } from 'react';
+import { mockAgentGovernance, mockAIPolicies } from '@/lib/mock-extended-data';
 
 interface AgentConfigPanelProps {
   data: Agent;
@@ -17,6 +18,20 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
   const [maxTokens, setMaxTokens] = useState([2048]);
 
   if (!data) return null;
+
+  const governance = mockAgentGovernance.find(g => g.agentId === data.id);
+  const linkedPolicies = governance?.policies.map(pId => mockAIPolicies.find(p => p.id === pId)).filter(Boolean) || [];
+
+  const getRiskBadge = (level: string) => {
+    switch (level) {
+      case 'high':
+        return <Badge variant="destructive">Alto Risco</Badge>;
+      case 'medium':
+        return <Badge className="bg-warning text-warning-foreground">Médio</Badge>;
+      default:
+        return <Badge variant="secondary">Baixo</Badge>;
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -69,6 +84,52 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
       </div>
 
       <Separator />
+
+      {/* Governance Info */}
+      {governance && (
+        <>
+          <div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4" />
+              Governança de IA
+            </h4>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Nível de Risco</span>
+                {getRiskBadge(governance.riskLevel)}
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Tipo de Uso</span>
+                <Badge variant="outline" className="capitalize">{governance.usageType}</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm">Autonomia</span>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((level) => (
+                    <div 
+                      key={level}
+                      className={`w-4 h-4 ${level <= governance.autonomyLevel ? 'bg-accent' : 'bg-muted'}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              {linkedPolicies.length > 0 && (
+                <div className="pt-2">
+                  <span className="text-xs text-muted-foreground">Políticas vinculadas:</span>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {linkedPolicies.map(policy => (
+                      <Badge key={policy?.id} variant="outline" className="text-xs">
+                        {policy?.name}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <Separator />
+        </>
+      )}
 
       {/* Usage Stats */}
       <div>

@@ -11,7 +11,11 @@ import {
   Sun,
   ChevronLeft,
   ChevronRight,
-  LogOut
+  LogOut,
+  Building2,
+  ShieldCheck,
+  Workflow,
+  Brain
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -26,6 +30,7 @@ const mainNavItems = [
   { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: 3 },
   { title: 'Consumo', url: '/consumption', icon: BarChart3 },
   { title: 'Agentes', url: '/agents', icon: Bot },
+  { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
 
 const adminNavItems = [
@@ -34,8 +39,17 @@ const adminNavItems = [
   { title: 'Configurações', url: '/settings', icon: Settings },
 ];
 
+const governanceNavItems = [
+  { title: 'Governança IA', url: '/governance', icon: ShieldCheck },
+  { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
+];
+
+const platformNavItems = [
+  { title: 'Empresas', url: '/companies', icon: Building2 },
+];
+
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver } = useApp();
+  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
 
@@ -43,6 +57,9 @@ export function AppSidebar() {
     localStorage.removeItem('davos_session');
     window.location.href = '/login';
   };
+
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'tenant_admin';
 
   return (
     <aside
@@ -114,14 +131,66 @@ export function AppSidebar() {
           </ul>
         </div>
 
+        {/* Governance Section */}
+        {hasPermission('governance.view') && (
+          <div className="px-3 mt-4">
+            {!collapsed && (
+              <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Governança</p>
+            )}
+            <ul className="space-y-1">
+              {governanceNavItems.map((item) => (
+                <li key={item.url}>
+                  <NavLink
+                    to={item.url}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      collapsed && 'justify-center'
+                    )}
+                    activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                  >
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    {!collapsed && <span>{item.title}</span>}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Admin Section */}
-        {(currentUser?.role === 'super_admin' || currentUser?.role === 'tenant_admin') && (
-          <div className="px-3 mt-6">
+        {isAdmin && (
+          <div className="px-3 mt-4">
             {!collapsed && (
               <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Admin</p>
             )}
             <ul className="space-y-1">
               {adminNavItems.map((item) => (
+                <li key={item.url}>
+                  <NavLink
+                    to={item.url}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      collapsed && 'justify-center'
+                    )}
+                    activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                  >
+                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    {!collapsed && <span>{item.title}</span>}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Platform Admin Section (Super Admin Only) */}
+        {isSuperAdmin && (
+          <div className="px-3 mt-4">
+            {!collapsed && (
+              <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Admin Davos</p>
+            )}
+            <ul className="space-y-1">
+              {platformNavItems.map((item) => (
                 <li key={item.url}>
                   <NavLink
                     to={item.url}

@@ -14,6 +14,10 @@ import Users from "./pages/Users";
 import Profiles from "./pages/Profiles";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import Companies from "./pages/Companies";
+import Governance from "./pages/Governance";
+import Flows from "./pages/Flows";
+import DecisionLogs from "./pages/DecisionLogs";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +38,10 @@ const App = () => (
             <Route path="/settings" element={<Settings />} />
             <Route path="/users" element={<Users />} />
             <Route path="/profiles" element={<Profiles />} />
+            <Route path="/companies" element={<Companies />} />
+            <Route path="/governance" element={<Governance />} />
+            <Route path="/flows" element={<Flows />} />
+            <Route path="/decision-logs" element={<DecisionLogs />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
