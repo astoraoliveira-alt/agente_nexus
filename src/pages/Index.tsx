@@ -1,7 +1,8 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, CheckCircle2, Workflow } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { mockKPIs, mockAlerts, mockConsumption, mockAgents } from '@/lib/mock-data';
+import { mockSuccessMetrics } from '@/lib/mock-extended-data';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -57,12 +58,46 @@ export default function Index() {
             />
             
             <KPICard
-              title="Tempo de Resposta"
-              value={mockKPIs.avgResponseTime}
-              subtitle="Média hoje"
-              icon={Clock}
-              trend={{ value: 8, isPositive: true }}
+              title="Taxa de Sucesso"
+              value={`${mockSuccessMetrics.overallSuccessRate}%`}
+              subtitle={`${mockSuccessMetrics.successfulConversations.toLocaleString()} resolvidas`}
+              icon={CheckCircle2}
+              variant="accent"
+              trend={{ value: 3.2, isPositive: true }}
+              onClick={() => navigate('/flows')}
             />
+          </div>
+
+          {/* Success Metrics Row */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="kpi-card">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                <Clock className="h-4 w-4" />
+                <span className="text-xs">Tempo Médio Resolução</span>
+              </div>
+              <p className="text-2xl font-bold">{(mockSuccessMetrics.avgTimeToResolution / 60).toFixed(1)}min</p>
+            </div>
+            <div className="kpi-card">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                <Users className="h-4 w-4" />
+                <span className="text-xs">Intervenções Humanas</span>
+              </div>
+              <p className="text-2xl font-bold">{mockSuccessMetrics.humanInterventions.toLocaleString()}</p>
+            </div>
+            <div className="kpi-card">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                <Workflow className="h-4 w-4" />
+                <span className="text-xs">Fluxos Ativos</span>
+              </div>
+              <p className="text-2xl font-bold">{mockSuccessMetrics.byFlow.length}</p>
+            </div>
+            <div className="kpi-card">
+              <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                <TrendingUp className="h-4 w-4" />
+                <span className="text-xs">Total Conversas</span>
+              </div>
+              <p className="text-2xl font-bold">{mockSuccessMetrics.totalConversations.toLocaleString()}</p>
+            </div>
           </div>
 
           {/* Charts Row */}

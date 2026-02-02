@@ -1,5 +1,19 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Tenant, Conversation, mockUsers, mockTenants, mockConversations } from '@/lib/mock-data';
+import { ALL_PERMISSIONS, DEFAULT_ROLES, Role } from '@/lib/types';
+import { mockRoles, mockUserRoles } from '@/lib/mock-extended-data';
+
+export type SlideOverContentType = 
+  | 'conversation-details' 
+  | 'agent-config' 
+  | 'consumption-details' 
+  | 'user-profile'
+  | 'company-details'
+  | 'policy-details'
+  | 'incident-details'
+  | 'flow-details'
+  | 'decision-log-details'
+  | 'agent-governance';
 
 interface AppContextType {
   // Theme
@@ -9,6 +23,8 @@ interface AppContextType {
   // User & Auth
   currentUser: User | null;
   currentTenant: Tenant | null;
+  userPermissions: string[];
+  hasPermission: (permission: string) => boolean;
   
   // Conversations
   conversations: Conversation[];
@@ -17,9 +33,9 @@ interface AppContextType {
   
   // Slide over panel
   slideOverOpen: boolean;
-  slideOverContent: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile' | null;
+  slideOverContent: SlideOverContentType | null;
   slideOverData: any;
-  openSlideOver: (content: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile', data?: any) => void;
+  openSlideOver: (content: SlideOverContentType, data?: any) => void;
   closeSlideOver: () => void;
   
   // Conversation actions
@@ -32,13 +48,53 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [currentUser] = useState<User>(mockUsers[2]); // Pedro Santos - Operator
-  const [currentTenant] = useState<Tenant>(mockTenants[0]); // Banco Digital Alpha
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [slideOverOpen, setSlideOverOpen] = useState(false);
-  const [slideOverContent, setSlideOverContent] = useState<'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile' | null>(null);
+  const [slideOverContent, setSlideOverContent] = useState<SlideOverContentType | null>(null);
   const [slideOverData, setSlideOverData] = useState<any>(null);
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
+
+  // Initialize user from session
+  useEffect(() => {
+    const session = localStorage.getItem('davos_session');
+    if (session) {
+      try {
+        const parsed = JSON.parse(session);
+        const user = mockUsers.find(u => u.id === parsed.userId);
+        if (user) {
+          setCurrentUser(user);
+          const tenant = mockTenants.find(t => t.id === user.tenantId);
+          setCurrentTenant(tenant || mockTenants[0]);
+          
+          // Load user permissions based on role
+          const userRole = mockUserRoles.find(ur => ur.userId === user.id);
+          if (userRole) {
+            const role = mockRoles.find(r => r.id === userRole.roleId);
+            if (role) {
+              setUserPermissions(role.permissions);
+            }
+          }
+        } else {
+          // Default fallback
+          setCurrentUser(mockUsers[0]);
+          setCurrentTenant(mockTenants[0]);
+          setUserPermissions(ALL_PERMISSIONS.map(p => p.id)); // Super admin has all
+        }
+      } catch {
+        setCurrentUser(mockUsers[0]);
+        setCurrentTenant(mockTenants[0]);
+        setUserPermissions(ALL_PERMISSIONS.map(p => p.id));
+      }
+    } else {
+      // No session - use default super admin for demo
+      setCurrentUser(mockUsers[0]);
+      setCurrentTenant(mockTenants[0]);
+      setUserPermissions(ALL_PERMISSIONS.map(p => p.id));
+    }
+  }, []);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -50,7 +106,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 
-  const openSlideOver = (content: 'conversation-details' | 'agent-config' | 'consumption-details' | 'user-profile', data?: any) => {
+  const hasPermission = (permission: string): boolean => {
+    // Super admin always has all permissions
+    if (currentUser?.role === 'super_admin') return true;
+    return userPermissions.includes(permission);
+  };
+
+  const openSlideOver = (content: SlideOverContentType, data?: any) => {
     setSlideOverContent(content);
     setSlideOverData(data);
     setSlideOverOpen(true);
@@ -65,6 +127,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const takeOverConversation = (conversationId: string) => {
+    if (!currentUser) return;
+    
     setConversations(prev =>
       prev.map(conv =>
         conv.id === conversationId
@@ -163,6 +227,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         toggleDarkMode,
         currentUser,
         currentTenant,
+        userPermissions,
+        hasPermission,
         conversations,
         selectedConversation,
         setSelectedConversation,

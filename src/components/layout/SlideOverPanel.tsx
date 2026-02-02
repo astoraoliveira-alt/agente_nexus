@@ -1,11 +1,30 @@
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useApp } from '@/contexts/AppContext';
+import { useApp, SlideOverContentType } from '@/contexts/AppContext';
 import { cn } from '@/lib/utils';
 import { ConversationDetailsPanel } from '@/components/panels/ConversationDetailsPanel';
 import { AgentConfigPanel } from '@/components/panels/AgentConfigPanel';
 import { ConsumptionDetailsPanel } from '@/components/panels/ConsumptionDetailsPanel';
 import { UserProfilePanel } from '@/components/panels/UserProfilePanel';
+import { CompanyDetailsPanel } from '@/components/panels/CompanyDetailsPanel';
+import { PolicyDetailsPanel } from '@/components/panels/PolicyDetailsPanel';
+import { IncidentDetailsPanel } from '@/components/panels/IncidentDetailsPanel';
+import { FlowDetailsPanel } from '@/components/panels/FlowDetailsPanel';
+import { DecisionLogDetailsPanel } from '@/components/panels/DecisionLogDetailsPanel';
+import { AgentGovernancePanel } from '@/components/panels/AgentGovernancePanel';
+
+const PANEL_TITLES: Record<SlideOverContentType, string> = {
+  'conversation-details': 'Detalhes da Conversa',
+  'agent-config': 'Configuração do Agente',
+  'consumption-details': 'Detalhes de Consumo',
+  'user-profile': 'Meu Perfil',
+  'company-details': 'Detalhes da Empresa',
+  'policy-details': 'Política de IA',
+  'incident-details': 'Detalhes do Incidente',
+  'flow-details': 'Detalhes do Fluxo',
+  'decision-log-details': 'Log de Decisão',
+  'agent-governance': 'Governança do Agente',
+};
 
 export function SlideOverPanel() {
   const { slideOverOpen, slideOverContent, slideOverData, closeSlideOver } = useApp();
@@ -20,24 +39,25 @@ export function SlideOverPanel() {
         return <ConsumptionDetailsPanel data={slideOverData} />;
       case 'user-profile':
         return <UserProfilePanel />;
+      case 'company-details':
+        return <CompanyDetailsPanel data={slideOverData} />;
+      case 'policy-details':
+        return <PolicyDetailsPanel data={slideOverData} />;
+      case 'incident-details':
+        return <IncidentDetailsPanel data={slideOverData} />;
+      case 'flow-details':
+        return <FlowDetailsPanel data={slideOverData} />;
+      case 'decision-log-details':
+        return <DecisionLogDetailsPanel data={slideOverData} />;
+      case 'agent-governance':
+        return <AgentGovernancePanel data={slideOverData} />;
       default:
         return null;
     }
   };
 
   const getTitle = () => {
-    switch (slideOverContent) {
-      case 'conversation-details':
-        return 'Detalhes da Conversa';
-      case 'agent-config':
-        return 'Configuração do Agente';
-      case 'consumption-details':
-        return 'Detalhes de Consumo';
-      case 'user-profile':
-        return 'Meu Perfil';
-      default:
-        return '';
-    }
+    return slideOverContent ? PANEL_TITLES[slideOverContent] : '';
   };
 
   return (
@@ -54,7 +74,7 @@ export function SlideOverPanel() {
       {/* Panel */}
       <div
         className={cn(
-          'fixed top-0 right-0 h-full w-[420px] bg-card border-l border-border shadow-2xl z-50 transition-transform duration-300 flex flex-col',
+          'fixed top-0 right-0 h-full w-[480px] bg-card border-l border-border shadow-2xl z-50 transition-transform duration-300 flex flex-col',
           slideOverOpen ? 'translate-x-0' : 'translate-x-full'
         )}
       >
