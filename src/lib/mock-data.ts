@@ -16,44 +16,7 @@ export interface User {
   avatar?: string;
 }
 
-export interface Agent {
-  id: string;
-  name: string;
-  tenantId: string;
-  status: 'active' | 'inactive';
-  channels: ('text' | 'voice')[];
-  totalConversations: number;
-  activeConversations: number;
-}
-
-export interface Message {
-  id: string;
-  conversationId: string;
-  content: string;
-  type: 'text' | 'audio' | 'image';
-  sender: 'user' | 'ai' | 'human';
-  senderName?: string;
-  timestamp: Date;
-  audioUrl?: string;
-  imageUrl?: string;
-  transcription?: string;
-}
-
-export interface Conversation {
-  id: string;
-  tenantId: string;
-  agentId: string;
-  userId: string;
-  userName: string;
-  userAvatar?: string;
-  channel: 'text' | 'voice';
-  status: 'ai_active' | 'human_active' | 'closed';
-  assignedOperator?: string;
-  lastMessage: string;
-  lastMessageTime: Date;
-  unreadCount: number;
-  messages: Message[];
-}
+import { AILifecycleStage, AIRiskAssessment, Agent, Message, Conversation } from './types';
 
 export interface ConsumptionData {
   tenantId: string;
@@ -118,22 +81,172 @@ export const mockUsers: User[] = [
   { id: 'user-2', name: 'Ana Rodrigues', email: 'ana@bancoalpha.com', role: 'tenant_admin', tenantId: 'tenant-1', avatar: 'AR' },
   { id: 'user-3', name: 'Pedro Santos', email: 'pedro@bancoalpha.com', role: 'operator', tenantId: 'tenant-1', avatar: 'PS' },
   { id: 'user-4', name: 'Marina Costa', email: 'marina@bancoalpha.com', role: 'operator', tenantId: 'tenant-1', avatar: 'MC' },
+  // Tenant 2 Users
+  { id: 'user-t2-1', name: 'Roberto Justos', email: 'roberto@seguradora.com', role: 'tenant_admin', tenantId: 'tenant-2', avatar: 'RJ' },
+  { id: 'user-t2-2', name: 'Julia Paes', email: 'julia@seguradora.com', role: 'operator', tenantId: 'tenant-2', avatar: 'JP' },
 ];
 
 // Mock Agents
 export const mockAgents: Agent[] = [
-  { id: 'agent-1', name: 'Atendimento Geral', tenantId: 'tenant-1', status: 'active', channels: ['text', 'voice'], totalConversations: 15234, activeConversations: 47 },
-  { id: 'agent-2', name: 'Suporte Técnico', tenantId: 'tenant-1', status: 'active', channels: ['text'], totalConversations: 8921, activeConversations: 23 },
-  { id: 'agent-3', name: 'Vendas', tenantId: 'tenant-1', status: 'active', channels: ['text', 'voice'], totalConversations: 5673, activeConversations: 12 },
-  { id: 'agent-4', name: 'Cobrança', tenantId: 'tenant-1', status: 'inactive', channels: ['voice'], totalConversations: 3421, activeConversations: 0 },
+  {
+    id: 'agent-1',
+    name: 'Atendimento Geral',
+    tenantId: 'tenant-1',
+    status: 'active',
+    channels: ['text', 'voice'],
+    totalConversations: 15234,
+    activeConversations: 47,
+    maxConcurrentConversations: 100, // Enterprise Limit
+    riskLevel: 'medium',
+    riskScore: 45,
+    policies: ['Privacidade de Dados', 'Tom de Voz Corporativo'],
+    lifecycleStage: 'production',
+    autonomyLevel: 4, // High autonomy
+    riskAssessment: {
+      lastAssessmentDate: new Date('2024-01-20'),
+      nextReviewDate: new Date('2024-07-20'),
+      methodology: 'ISO_23894_B',
+      riskScore: 45,
+      residualRiskLevel: 'medium',
+      mitigationStatus: 'verified'
+    },
+    integration: {
+      n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-1',
+      n8n_workflow_id: 'wf-alpha-001',
+      voice_provider: 'retell'
+    },
+    brainConfig: {
+      systemPrompt: 'Você é um assistente virtual do Banco Alpha. Seu objetivo é ajudar clientes com dúvidas gerais sobre conta corrente, cartões e pagamentos. Mantenha sempre um tom profissional, empático e direto. Se não souber a resposta, transfira para um humano.',
+      modelId: 'gpt-4o',
+      temperature: 0.3
+    },
+    voiceConfig: {
+      provider: 'retell',
+      retellAgentId: 'agent_123456789',
+      voiceId: 'voice_abc123',
+      ambientSound: 'clean'
+    },
+    tenantSlug: 'banco-alpha'
+  },
+  {
+    id: 'agent-2',
+    name: 'Suporte Técnico',
+    tenantId: 'tenant-1',
+    status: 'active',
+    channels: ['text'],
+    totalConversations: 8921,
+    activeConversations: 23,
+    maxConcurrentConversations: 50,
+    riskLevel: 'low',
+    riskScore: 12,
+    policies: ['Protocolo de Erro'],
+    lifecycleStage: 'production',
+    autonomyLevel: 5, // Full autonomy
+    riskAssessment: {
+      lastAssessmentDate: new Date('2024-02-10'),
+      nextReviewDate: new Date('2024-08-10'),
+      methodology: 'ISO_23894_B',
+      riskScore: 12,
+      residualRiskLevel: 'low',
+      mitigationStatus: 'implemented'
+    },
+    integration: {
+      n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-2',
+      n8n_workflow_id: 'wf-alpha-002',
+      voice_provider: null
+    },
+    brainConfig: {
+      systemPrompt: 'Você é um especialista em suporte técnico nível 2. Use terminologia técnica quando necessário, mas explique conceitos complexos de forma simples.',
+      modelId: 'gpt-4o',
+      temperature: 0.2
+    },
+    voiceConfig: {
+      provider: 'none'
+    },
+    tenantSlug: 'banco-alpha'
+  },
+  {
+    id: 'agent-3',
+    name: 'Vendas',
+    tenantId: 'tenant-1',
+    status: 'active',
+    channels: ['text', 'voice'],
+    totalConversations: 5673,
+    activeConversations: 12,
+    maxConcurrentConversations: 30, // Lower due to high risk
+    riskLevel: 'high',
+    riskScore: 78,
+    policies: ['Ofertas e Descontos', 'Compliance Financeiro'],
+    lifecycleStage: 'validation', // Locked in validation
+    autonomyLevel: 2, // Low autonomy, needs human oversight
+    riskAssessment: {
+      lastAssessmentDate: new Date('2024-03-01'),
+      nextReviewDate: new Date('2024-04-01'),
+      methodology: 'NIST_AI_RMF',
+      riskScore: 78,
+      residualRiskLevel: 'high',
+      mitigationStatus: 'planned'
+    },
+    integration: {
+      n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-3',
+      voice_provider: 'retell'
+    },
+    tenantSlug: 'banco-alpha'
+  },
+  {
+    id: 'agent-4',
+    name: 'Cobrança',
+    tenantId: 'tenant-1',
+    status: 'inactive',
+    channels: ['voice'],
+    totalConversations: 3421,
+    activeConversations: 0,
+    maxConcurrentConversations: 20,
+    riskLevel: 'high',
+    riskScore: 85,
+    policies: ['Lei Geral de Proteção de Dados', 'Cobrança Ética'],
+    lifecycleStage: 'retired',
+    autonomyLevel: 1, // Scripted only
+    integration: {
+      n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-4',
+      voice_provider: 'retell'
+    },
+    tenantSlug: 'banco-alpha'
+  },
+  // Data for Tenant 2 (Seguradora Beta) for isolation testing
+  {
+    id: 'agent-t2-1',
+    name: 'Sinistros Auto',
+    tenantId: 'tenant-2',
+    status: 'active',
+    channels: ['text'],
+    totalConversations: 120,
+    activeConversations: 5,
+    maxConcurrentConversations: 50,
+    riskLevel: 'medium',
+    riskScore: 50,
+    policies: ['Verificação de Apólice'],
+    lifecycleStage: 'development',
+    autonomyLevel: 3,
+    integration: {
+      n8n_webhook_url: 'https://n8n.davos.nexus/webhook/seguradora-beta/agent/agent-t2-1',
+      voice_provider: null
+    },
+    tenantSlug: 'seguradora-beta'
+  },
 ];
 
+// Updated Agent 1
+mockAgents[0].tenantSlug = 'banco-alpha';
+
 // Generate mock messages for a conversation
-const generateMockMessages = (conversationId: string): Message[] => {
+const generateMockMessages = (conversationId: string, tenantId: string = 'tenant-1', tenantSlug: string = 'banco-alpha'): Message[] => {
   const messages: Message[] = [
     {
       id: `${conversationId}-msg-1`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Olá, preciso de ajuda com minha conta.',
       type: 'text',
       sender: 'user',
@@ -142,6 +255,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-2`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Olá! Sou o assistente virtual do Banco Alpha. Como posso ajudá-lo hoje?',
       type: 'text',
       sender: 'ai',
@@ -150,6 +265,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-3`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Não consigo acessar o aplicativo, aparece uma mensagem de erro.',
       type: 'text',
       sender: 'user',
@@ -158,6 +275,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-4`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Entendo sua frustração. Pode me informar qual mensagem de erro está aparecendo? Isso vai me ajudar a identificar o problema mais rapidamente.',
       type: 'text',
       sender: 'ai',
@@ -166,6 +285,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-5`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: '',
       type: 'audio',
       sender: 'user',
@@ -176,6 +297,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-6`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Obrigado pela informação. Esse erro geralmente ocorre quando há muitas tentativas de login. Vou transferir você para um atendente que pode resolver isso rapidamente.',
       type: 'text',
       sender: 'ai',
@@ -184,6 +307,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-7`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: '🔄 Conversa transferida para atendente humano',
       type: 'text',
       sender: 'ai',
@@ -192,6 +317,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-8`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Olá! Meu nome é Pedro, vou te ajudar com esse problema de acesso. Já identifiquei o bloqueio na sua conta. Vou desbloquear agora.',
       type: 'text',
       sender: 'human',
@@ -201,6 +328,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-9`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Ótimo, muito obrigado!',
       type: 'text',
       sender: 'user',
@@ -209,6 +338,8 @@ const generateMockMessages = (conversationId: string): Message[] => {
     {
       id: `${conversationId}-msg-10`,
       conversationId,
+      tenantId,
+      tenantSlug,
       content: 'Pronto! Sua conta foi desbloqueada. Pode tentar acessar novamente. Se precisar de mais alguma coisa, estou à disposição.',
       type: 'text',
       sender: 'human',
@@ -224,6 +355,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-1',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-1',
     userId: 'client-1',
     userName: 'João Oliveira',
@@ -233,7 +365,7 @@ export const mockConversations: Conversation[] = [
     lastMessage: 'Pronto! Sua conta foi desbloqueada.',
     lastMessageTime: new Date(Date.now() - 60000),
     unreadCount: 0,
-    messages: generateMockMessages('conv-1'),
+    messages: generateMockMessages('conv-1', 'tenant-1', 'banco-alpha'),
   },
   {
     id: 'conv-2',

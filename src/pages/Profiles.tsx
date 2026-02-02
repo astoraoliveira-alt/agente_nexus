@@ -16,11 +16,11 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
+import { useApp } from '@/contexts/AppContext';
 
 interface Permission {
   id: string;
@@ -36,6 +36,7 @@ interface Profile {
   usersCount: number;
   permissions: string[];
   isSystem: boolean;
+  tenantId?: string | null;
 }
 
 const PERMISSIONS: Permission[] = [
@@ -89,15 +90,17 @@ const MOCK_PROFILES: Profile[] = [
 ];
 
 export default function Profiles() {
+  const { currentTenant } = useApp();
   const [search, setSearch] = useState('');
   const [profiles, setProfiles] = useState(MOCK_PROFILES);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [newProfile, setNewProfile] = useState({ name: '', description: '', permissions: [] as string[] });
 
-  const filteredProfiles = profiles.filter(p => 
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.description.toLowerCase().includes(search.toLowerCase())
+  const filteredProfiles = profiles.filter(p =>
+    (p.isSystem || p.tenantId === currentTenant?.id || p.tenantId === null) &&
+    (p.name.toLowerCase().includes(search.toLowerCase()) ||
+      p.description.toLowerCase().includes(search.toLowerCase()))
   );
 
   const groupedPermissions = PERMISSIONS.reduce((acc, perm) => {
@@ -108,7 +111,7 @@ export default function Profiles() {
 
   const handleSaveProfile = () => {
     if (editingProfile) {
-      setProfiles(prev => prev.map(p => 
+      setProfiles(prev => prev.map(p =>
         p.id === editingProfile.id ? { ...editingProfile } : p
       ));
       toast.success('Perfil atualizado com sucesso');
@@ -206,6 +209,9 @@ export default function Profiles() {
                       {profile.isSystem && (
                         <Badge variant="secondary" className="text-xs">Sistema</Badge>
                       )}
+                      {!profile.isSystem && profile.tenantId === currentTenant?.id && (
+                        <Badge variant="outline" className="text-xs border-primary/20 text-primary">Customizado</Badge>
+                      )}
                     </div>
                   </div>
                   <DropdownMenu>
@@ -274,14 +280,14 @@ export default function Profiles() {
             <DialogHeader>
               <DialogTitle>{editingProfile ? 'Editar Perfil' : 'Novo Perfil'}</DialogTitle>
             </DialogHeader>
-            
+
             <div className="space-y-6 py-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Nome do Perfil</Label>
                   <Input
                     value={editingProfile?.name || newProfile.name}
-                    onChange={(e) => editingProfile 
+                    onChange={(e) => editingProfile
                       ? setEditingProfile({ ...editingProfile, name: e.target.value })
                       : setNewProfile({ ...newProfile, name: e.target.value })
                     }
@@ -292,7 +298,7 @@ export default function Profiles() {
                   <Label>Descrição</Label>
                   <Input
                     value={editingProfile?.description || newProfile.description}
-                    onChange={(e) => editingProfile 
+                    onChange={(e) => editingProfile
                       ? setEditingProfile({ ...editingProfile, description: e.target.value })
                       : setNewProfile({ ...newProfile, description: e.target.value })
                     }
@@ -308,7 +314,7 @@ export default function Profiles() {
                     <h4 className="text-sm font-medium text-muted-foreground">{category}</h4>
                     <div className="grid grid-cols-2 gap-2">
                       {perms.map(perm => (
-                        <label 
+                        <label
                           key={perm.id}
                           className="flex items-start gap-3 p-3 bg-muted/50 hover:bg-muted cursor-pointer transition-colors"
                         >

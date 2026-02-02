@@ -1,21 +1,61 @@
-import { useState } from 'react';
-import { 
-  ShieldCheck, FileText, AlertTriangle, Activity, 
-  Search, Plus, Eye, Pencil, ExternalLink 
+import { useState, useRef } from 'react';
+import {
+  ShieldCheck, FileText, AlertTriangle, Activity,
+  Search, Plus, Eye, Pencil, ExternalLink, MoreVertical, Trash2, Paperclip, X,
+  Bold, Italic, List
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { mockAIPolicies, mockAIIncidents, mockAgentGovernance } from '@/lib/mock-extended-data';
 import { mockAgents } from '@/lib/mock-data';
+import { AIPolicy, AIIncident, IncidentAttachment } from '@/lib/types';
+import { toast } from 'sonner';
 
 export default function Governance() {
   const { openSlideOver } = useApp();
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
+
+
+  // State for Policies & Incidents
+  const [policies, setPolicies] = useState<AIPolicy[]>(mockAIPolicies);
+  const [incidents, setIncidents] = useState<AIIncident[]>(mockAIIncidents);
+
+  // Policy Dialog State
+  const [isPolicyDialogOpen, setIsPolicyDialogOpen] = useState(false);
+  const [editingPolicy, setEditingPolicy] = useState<AIPolicy | null>(null);
+  const [policyForm, setPolicyForm] = useState<Partial<AIPolicy>>({
+    name: '',
+    version: '1.0',
+    isActive: true,
+    rules: { canDo: [], cannotDo: [], transferConditions: [] }
+  });
 
   const getRiskBadge = (level: string) => {
     switch (level) {
@@ -37,7 +77,7 @@ export default function Governance() {
       case 'medium':
         return <Badge className="bg-warning text-warning-foreground">Médio</Badge>;
       default:
-        return <Badge variant="secondary">Baixo</Badge>;
+        return <Badge variant="secondary">Baixo Risco</Badge>;
     }
   };
 
@@ -52,15 +92,185 @@ export default function Governance() {
     }
   };
 
-  const openIncidents = mockAIIncidents.filter(i => i.status !== 'resolved').length;
+  const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
   const activeAgents = mockAgents.filter(a => a.status === 'active').length;
   const highRiskAgents = mockAgentGovernance.filter(g => g.riskLevel === 'high').length;
 
+  const handleOpenPolicyDialog = (policy?: AIPolicy) => {
+    if (policy) {
+      setEditingPolicy(policy);
+      setPolicyForm(policy);
+    } else {
+      setEditingPolicy(null);
+      setPolicyForm({
+        name: '',
+        version: '1.0',
+        isActive: true,
+        rules: { canDo: [], cannotDo: [], transferConditions: [] }
+      });
+    }
+    setIsPolicyDialogOpen(true);
+  };
+
+  const handleSavePolicy = () => {
+    if (editingPolicy) {
+      setPolicies(prev => prev.map(p => p.id === editingPolicy.id ? { ...p, ...policyForm } as AIPolicy : p));
+      toast.success('Política atualizada');
+    } else {
+      const newPolicy = {
+        ...policyForm,
+        id: `policy-${Date.now()}`,
+        tenantId: 'tenant-1',
+        createdAt: new Date(),
+      } as AIPolicy;
+      setPolicies(prev => [...prev, newPolicy]);
+      toast.success('Política criada');
+    }
+    setIsPolicyDialogOpen(false);
+  };
+
+  const handleDeletePolicy = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPolicies(prev => prev.filter(p => p.id !== id));
+    toast.success('Política removida');
+  };
+
+  // Incident Dialog State
+  const [isIncidentDialogOpen, setIsIncidentDialogOpen] = useState(false);
+  const [editingIncident, setEditingIncident] = useState<AIIncident | null>(null);
+  const [incidentForm, setIncidentForm] = useState<Partial<AIIncident>>({
+    title: '',
+    description: '',
+    severity: 'medium',
+    status: 'open',
+    agentId: '',
+    attachments: [],
+  });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertFormat = (format: 'bold' | 'italic' | 'list') => {
+    if (!descriptionRef.current) return;
+
+    const textarea = descriptionRef.current;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = incidentForm.description || '';
+
+    let newText = '';
+    let newCursorPos = 0;
+
+    switch (format) {
+      case 'bold':
+        newText = text.substring(0, start) + '**' + text.substring(start, end) + '**' + text.substring(end);
+        newCursorPos = end + 4;
+        break;
+      case 'italic':
+        newText = text.substring(0, start) + '_' + text.substring(start, end) + '_' + text.substring(end);
+        newCursorPos = end + 2;
+        break;
+      case 'list':
+        const header = text.substring(0, start);
+        const isOnNewLine = header.endsWith('\n') || header === '';
+        const prefix = isOnNewLine ? '- ' : '\n- ';
+        newText = text.substring(0, start) + prefix + text.substring(start, end) + text.substring(end);
+        newCursorPos = end + prefix.length;
+        break;
+    }
+
+    setIncidentForm(prev => ({ ...prev, description: newText }));
+
+    // Restore focus and cursor (async to allow render)
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  const handleOpenIncidentDialog = (incident?: AIIncident) => {
+    if (incident) {
+      setEditingIncident(incident);
+      setIncidentForm({
+        ...incident,
+        attachments: incident.attachments || [], // Ensure array exists
+      });
+    } else {
+      setEditingIncident(null);
+      setIncidentForm({
+        title: '',
+        description: '',
+        severity: 'medium',
+        status: 'open',
+        agentId: '',
+        attachments: [],
+      });
+    }
+    setIsIncidentDialogOpen(true);
+  };
+
+  const handleSaveIncident = () => {
+    if (editingIncident) {
+      setIncidents(prev => prev.map(i => i.id === editingIncident.id ? { ...i, ...incidentForm } as AIIncident : i));
+      toast.success('Incidente atualizado');
+    } else {
+      const newIncident = {
+        ...incidentForm,
+        id: `incident-${Date.now()}`,
+        tenantId: 'tenant-1',
+        createdAt: new Date(),
+        reportedBy: 'Admin', // In real app, current user
+        attachments: incidentForm.attachments || [],
+      } as AIIncident;
+      setIncidents(prev => [...prev, newIncident]);
+      toast.success('Incidente registrado');
+    }
+    setIsIncidentDialogOpen(false);
+  };
+
+  const handleDeleteIncident = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIncidents(prev => prev.filter(i => i.id !== id));
+    toast.success('Incidente removido');
+  };
+
+  const handleResolveIncident = (id: string) => {
+    setIncidents(prev => prev.map(i => i.id === id ? { ...i, status: 'resolved', resolvedAt: new Date() } : i));
+    toast.success('Incidente resolvido');
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const newAttachments: IncidentAttachment[] = Array.from(e.target.files).map(file => ({
+        id: `att-${Date.now()}-${Math.random()}`,
+        name: file.name,
+        url: URL.createObjectURL(file), // Mock URL
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        uploadedAt: new Date(),
+      }));
+
+      setIncidentForm(prev => ({
+        ...prev,
+        attachments: [...(prev.attachments || []), ...newAttachments]
+      }));
+    }
+    // Reset input
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setIncidentForm(prev => ({
+      ...prev,
+      attachments: (prev.attachments || []).filter(a => a.id !== id)
+    }));
+  };
+
   return (
     <MainLayout>
-      <div className="h-full overflow-y-auto">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-background border-b border-border">
+        <div className="sticky top-0 z-10 bg-background border-b border-border flex-none">
           <div className="px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -75,17 +285,17 @@ export default function Governance() {
             </div>
           </div>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="px-6">
+          <div className="px-6">
             <TabsList>
               <TabsTrigger value="overview">Visão Geral</TabsTrigger>
               <TabsTrigger value="policies">Políticas</TabsTrigger>
               <TabsTrigger value="incidents">Incidentes</TabsTrigger>
               <TabsTrigger value="risk">Classificação de Risco</TabsTrigger>
             </TabsList>
-          </Tabs>
+          </div>
         </div>
 
-        <div className="p-6">
+        <div className="flex-1 overflow-y-auto p-6">
           <TabsContent value="overview" className="mt-0 space-y-6">
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -94,9 +304,9 @@ export default function Governance() {
                   <FileText className="h-5 w-5 text-accent" />
                   <span className="text-sm text-muted-foreground">Políticas Ativas</span>
                 </div>
-                <p className="text-3xl font-bold">{mockAIPolicies.filter(p => p.isActive).length}</p>
+                <p className="text-3xl font-bold">{policies.filter(p => p.isActive).length}</p>
               </div>
-              
+
               <div className="kpi-card">
                 <div className="flex items-center gap-3 mb-2">
                   <AlertTriangle className="h-5 w-5 text-warning" />
@@ -104,7 +314,7 @@ export default function Governance() {
                 </div>
                 <p className="text-3xl font-bold">{openIncidents}</p>
               </div>
-              
+
               <div className="kpi-card">
                 <div className="flex items-center gap-3 mb-2">
                   <Activity className="h-5 w-5 text-green-500" />
@@ -112,7 +322,7 @@ export default function Governance() {
                 </div>
                 <p className="text-3xl font-bold">{activeAgents}</p>
               </div>
-              
+
               <div className="kpi-card">
                 <div className="flex items-center gap-3 mb-2">
                   <ShieldCheck className="h-5 w-5 text-destructive" />
@@ -128,23 +338,28 @@ export default function Governance() {
               <div className="kpi-card">
                 <h3 className="font-semibold mb-4">Incidentes Recentes</h3>
                 <div className="space-y-3">
-                  {mockAIIncidents.slice(0, 3).map((incident) => (
-                    <div 
-                      key={incident.id} 
+                  {incidents.slice(0, 3).map((incident) => (
+                    <div
+                      key={incident.id}
                       className="flex items-start gap-3 p-3 bg-muted hover:bg-muted/80 cursor-pointer"
                       onClick={() => openSlideOver('incident-details', incident)}
                     >
-                      <AlertTriangle className={`h-4 w-4 mt-0.5 ${
-                        incident.severity === 'critical' ? 'text-destructive' :
+                      <AlertTriangle className={`h-4 w-4 mt-0.5 ${incident.severity === 'critical' ? 'text-destructive' :
                         incident.severity === 'high' ? 'text-orange-500' :
-                        'text-warning'
-                      }`} />
+                          'text-warning'
+                        }`} />
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{incident.title}</p>
                         <p className="text-xs text-muted-foreground truncate">{incident.description}</p>
                         <div className="flex gap-2 mt-2">
                           {getSeverityBadge(incident.severity)}
                           {getIncidentStatusBadge(incident.status)}
+                          {incident.attachments && incident.attachments.length > 0 && (
+                            <Badge variant="outline" className="text-xs text-muted-foreground flex gap-1 items-center">
+                              <Paperclip className="h-3 w-3" />
+                              {incident.attachments.length}
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -156,9 +371,9 @@ export default function Governance() {
               <div className="kpi-card">
                 <h3 className="font-semibold mb-4">Políticas Ativas</h3>
                 <div className="space-y-3">
-                  {mockAIPolicies.filter(p => p.isActive).map((policy) => (
-                    <div 
-                      key={policy.id} 
+                  {policies.filter(p => p.isActive).map((policy) => (
+                    <div
+                      key={policy.id}
                       className="flex items-start gap-3 p-3 bg-muted hover:bg-muted/80 cursor-pointer"
                       onClick={() => openSlideOver('policy-details', policy)}
                     >
@@ -186,14 +401,14 @@ export default function Governance() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Buscar políticas..." className="pl-10" />
               </div>
-              <Button className="bg-accent hover:bg-accent/90">
+              <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenPolicyDialog()}>
                 <Plus className="h-4 w-4 mr-2" />
-                Nova Política
+                Novo Política
               </Button>
             </div>
 
             <div className="grid gap-4">
-              {mockAIPolicies.map((policy) => (
+              {policies.map((policy) => (
                 <div key={policy.id} className="kpi-card">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -215,9 +430,30 @@ export default function Governance() {
                         </p>
                       </div>
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => openSlideOver('policy-details', policy)}>
-                      <ExternalLink className="h-4 w-4" />
-                    </Button>
+
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="icon" onClick={() => openSlideOver('policy-details', policy)}>
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleOpenPolicyDialog(policy)}>
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Editar
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem className="text-destructive" onClick={(e) => handleDeletePolicy(policy.id, e)}>
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Excluir
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-4 mt-4">
@@ -237,6 +473,46 @@ export default function Governance() {
                 </div>
               ))}
             </div>
+
+            {/* Policy Dialog */}
+            <Dialog open={isPolicyDialogOpen} onOpenChange={setIsPolicyDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editingPolicy ? 'Editar Política' : 'Nova Política'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Nome</Label>
+                    <Input value={policyForm.name} onChange={(e) => setPolicyForm({ ...policyForm, name: e.target.value })} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Versão</Label>
+                      <Input value={policyForm.version} onChange={(e) => setPolicyForm({ ...policyForm, version: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Status</Label>
+                      <Select
+                        value={policyForm.isActive ? 'active' : 'inactive'}
+                        onValueChange={(v) => setPolicyForm({ ...policyForm, isActive: v === 'active' })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="active">Ativa</SelectItem>
+                          <SelectItem value="inactive">Inativa</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button variant="outline" onClick={() => setIsPolicyDialogOpen(false)}>Cancelar</Button>
+                    <Button className="bg-accent hover:bg-accent/90" onClick={handleSavePolicy}>
+                      {editingPolicy ? 'Salvar' : 'Criar'}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="incidents" className="mt-0 space-y-4">
@@ -245,7 +521,7 @@ export default function Governance() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input placeholder="Buscar incidentes..." className="pl-10" />
               </div>
-              <Button className="bg-accent hover:bg-accent/90">
+              <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenIncidentDialog()}>
                 <Plus className="h-4 w-4 mr-2" />
                 Registrar Incidente
               </Button>
@@ -260,20 +536,29 @@ export default function Governance() {
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Severidade</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Status</th>
                     <th className="text-left py-3 px-4 font-medium text-muted-foreground">Data</th>
+                    <th className="text-right py-3 px-4 font-medium text-muted-foreground">Ações</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {mockAIIncidents.map((incident) => {
+                  {incidents.map((incident) => {
                     const agent = mockAgents.find(a => a.id === incident.agentId);
                     return (
-                      <tr 
-                        key={incident.id} 
+                      <tr
+                        key={incident.id}
                         className="border-b border-border hover:bg-muted/50 cursor-pointer"
                         onClick={() => openSlideOver('incident-details', incident)}
                       >
                         <td className="py-3 px-4">
                           <p className="font-medium">{incident.title}</p>
                           <p className="text-xs text-muted-foreground truncate max-w-xs">{incident.description}</p>
+                          {incident.attachments && incident.attachments.length > 0 && (
+                            <div className="flex gap-1 mt-1">
+                              <Badge variant="secondary" className="text-[10px] h-5 px-1.5 flex gap-1">
+                                <Paperclip className="h-2.5 w-2.5" />
+                                {incident.attachments.length}
+                              </Badge>
+                            </div>
+                          )}
                         </td>
                         <td className="py-3 px-4 text-sm">{agent?.name || '-'}</td>
                         <td className="py-3 px-4">{getSeverityBadge(incident.severity)}</td>
@@ -281,12 +566,180 @@ export default function Governance() {
                         <td className="py-3 px-4 text-sm text-muted-foreground">
                           {incident.createdAt.toLocaleDateString('pt-BR')}
                         </td>
+                        <td className="py-3 px-4 text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenIncidentDialog(incident); }}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleResolveIncident(incident.id); }}>
+                                <Activity className="h-4 w-4 mr-2" />
+                                Resolver
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={(e) => handleDeleteIncident(incident.id, e)}>
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
+
+            {/* Incident Dialog */}
+            <Dialog open={isIncidentDialogOpen} onOpenChange={setIsIncidentDialogOpen}>
+              <DialogContent className="max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>{editingIncident ? 'Editar Incidente' : 'Novo Incidente'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Título</Label>
+                    <Input value={incidentForm.title} onChange={(e) => setIncidentForm({ ...incidentForm, title: e.target.value })} placeholder="Resumo do problema" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Descrição Detalhada</Label>
+                    <div className="border border-input rounded-md bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                      <div className="flex items-center gap-1 p-1 border-b border-border bg-muted/20">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => insertFormat('bold')}
+                          title="Negrito (Markdown)"
+                          type="button"
+                        >
+                          <Bold className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => insertFormat('italic')}
+                          title="Itálico (Markdown)"
+                          type="button"
+                        >
+                          <Italic className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => insertFormat('list')}
+                          title="Lista (Markdown)"
+                          type="button"
+                        >
+                          <List className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <Textarea
+                        ref={descriptionRef}
+                        value={incidentForm.description}
+                        onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
+                        placeholder="Descreva o incidente detalhadamente. Suporta Markdown basico (**negrito**, _itálico_, - lista)."
+                        className="min-h-[150px] border-0 focus-visible:ring-0 resize-y rounded-t-none font-mono text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Agente Relacionado</Label>
+                      <Select
+                        value={incidentForm.agentId}
+                        onValueChange={(v) => setIncidentForm({ ...incidentForm, agentId: v })}
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                        <SelectContent>
+                          {mockAgents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Severidade</Label>
+                      <Select
+                        value={incidentForm.severity}
+                        onValueChange={(v: any) => setIncidentForm({ ...incidentForm, severity: v })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="low">Baixa</SelectItem>
+                          <SelectItem value="medium">Média</SelectItem>
+                          <SelectItem value="high">Alta</SelectItem>
+                          <SelectItem value="critical">Crítica</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Attachments Section */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <div className="flex justify-between items-center">
+                      <Label>Evidências e Anexos</Label>
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        multiple
+                        onChange={handleFileSelect}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Paperclip className="h-3 w-3 mr-2" />
+                        Adicionar Arquivo
+                      </Button>
+                    </div>
+
+                    {incidentForm.attachments && incidentForm.attachments.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-2 bg-muted/30 p-2 rounded-md">
+                        {incidentForm.attachments.map((file) => (
+                          <div key={file.id} className="flex items-center justify-between p-2 bg-background border border-border rounded text-sm relative group">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                              <FileText className="h-4 w-4 text-primary flex-shrink-0" />
+                              <span className="truncate max-w-[200px]">{file.name}</span>
+                              <span className="text-xs text-muted-foreground">({(file.size / 1024).toFixed(0)}KB)</span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={() => handleRemoveAttachment(file.id)}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-4 bg-muted/20 border border-dashed border-border rounded-md">
+                        <p className="text-xs text-muted-foreground">Nenhum anexo adicionado</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <Button variant="outline" onClick={() => setIsIncidentDialogOpen(false)}>Cancelar</Button>
+                    <Button className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" onClick={handleSaveIncident}>
+                      {editingIncident ? 'Salvar Incidente' : 'Registrar Incidente'}
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="risk" className="mt-0 space-y-4">
@@ -294,10 +747,10 @@ export default function Governance() {
               {mockAgentGovernance.map((gov) => {
                 const agent = mockAgents.find(a => a.id === gov.agentId);
                 if (!agent) return null;
-                
+
                 return (
-                  <div 
-                    key={gov.agentId} 
+                  <div
+                    key={gov.agentId}
                     className="kpi-card cursor-pointer hover:shadow-lg transition-all"
                     onClick={() => openSlideOver('agent-governance', { governance: gov, agent })}
                   >
@@ -314,12 +767,12 @@ export default function Governance() {
                         <span className="text-sm text-muted-foreground">Tipo de Uso</span>
                         <Badge variant="outline" className="capitalize">{gov.usageType}</Badge>
                       </div>
-                      
+
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-muted-foreground">Autonomia</span>
                         <div className="flex gap-1">
                           {[1, 2, 3, 4, 5].map((level) => (
-                            <div 
+                            <div
                               key={level}
                               className={`w-4 h-4 ${level <= gov.autonomyLevel ? 'bg-accent' : 'bg-muted'}`}
                             />
@@ -338,7 +791,7 @@ export default function Governance() {
             </div>
           </TabsContent>
         </div>
-      </div>
+      </Tabs>
     </MainLayout>
   );
 }

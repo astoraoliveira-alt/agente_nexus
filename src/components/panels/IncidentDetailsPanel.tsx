@@ -57,16 +57,14 @@ export function IncidentDetailsPanel({ data }: IncidentDetailsPanelProps) {
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
-        <div className={`w-14 h-14 flex items-center justify-center ${
-          data.severity === 'critical' ? 'bg-destructive/10' :
-          data.severity === 'high' ? 'bg-orange-100 dark:bg-orange-950/30' :
-          'bg-warning/10'
-        }`}>
-          <AlertTriangle className={`h-7 w-7 ${
-            data.severity === 'critical' ? 'text-destructive' :
-            data.severity === 'high' ? 'text-orange-600' :
-            'text-warning'
-          }`} />
+        <div className={`w-14 h-14 flex items-center justify-center ${data.severity === 'critical' ? 'bg-destructive/10' :
+            data.severity === 'high' ? 'bg-orange-100 dark:bg-orange-950/30' :
+              'bg-warning/10'
+          }`}>
+          <AlertTriangle className={`h-7 w-7 ${data.severity === 'critical' ? 'text-destructive' :
+              data.severity === 'high' ? 'text-orange-600' :
+                'text-warning'
+            }`} />
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-lg">{data.title}</h3>
@@ -84,7 +82,42 @@ export function IncidentDetailsPanel({ data }: IncidentDetailsPanelProps) {
       {/* Description */}
       <div>
         <h4 className="text-sm font-medium text-muted-foreground mb-2">Descrição</h4>
-        <p className="text-sm bg-muted p-3">{data.description}</p>
+        <div className="text-sm bg-muted p-3 rounded-md whitespace-pre-wrap">
+          {(() => {
+            if (!data.description) return <span className="text-muted-foreground italic">Sem descrição.</span>;
+
+            // Simple Markdown Parser (Bold, Italic, Lists)
+            const lines = data.description.split('\n');
+            return lines.map((line, index) => {
+              // List Item
+              if (line.trim().startsWith('- ')) {
+                return (
+                  <div key={index} className="flex gap-2 ml-2">
+                    <span className="text-primary font-bold">•</span>
+                    <span>
+                      {line.substring(2).split(/(\*\*.*?\*\*|_.*?_)/g).map((part, i) => {
+                        if (part.startsWith('**') && part.endsWith('**')) return <strong key={i}>{part.slice(2, -2)}</strong>;
+                        if (part.startsWith('_') && part.endsWith('_')) return <em key={i}>{part.slice(1, -1)}</em>;
+                        return part;
+                      })}
+                    </span>
+                  </div>
+                );
+              }
+
+              // Normal Line
+              return (
+                <div key={index} className="min-h-[20px]">
+                  {line.split(/(\*\*.*?\*\*|_.*?_)/g).map((part, i) => {
+                    if (part.startsWith('**') && part.endsWith('**')) return <strong key={i}>{part.slice(2, -2)}</strong>;
+                    if (part.startsWith('_') && part.endsWith('_')) return <em key={i}>{part.slice(1, -1)}</em>;
+                    return part;
+                  })}
+                </div>
+              );
+            });
+          })()}
+        </div>
       </div>
 
       <Separator />
@@ -143,7 +176,7 @@ export function IncidentDetailsPanel({ data }: IncidentDetailsPanelProps) {
       {/* Actions */}
       {data.status !== 'resolved' && (
         <div className="flex gap-3">
-          <Button 
+          <Button
             className="flex-1 bg-accent hover:bg-accent/90"
             onClick={handleResolve}
             disabled={isResolving || !actionTaken}

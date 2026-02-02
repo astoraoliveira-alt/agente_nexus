@@ -12,6 +12,7 @@ import { IncidentDetailsPanel } from '@/components/panels/IncidentDetailsPanel';
 import { FlowDetailsPanel } from '@/components/panels/FlowDetailsPanel';
 import { DecisionLogDetailsPanel } from '@/components/panels/DecisionLogDetailsPanel';
 import { AgentGovernancePanel } from '@/components/panels/AgentGovernancePanel';
+import { PlaygroundPanel } from '@/components/panels/PlaygroundPanel';
 
 const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'conversation-details': 'Detalhes da Conversa',
@@ -24,6 +25,7 @@ const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'flow-details': 'Detalhes do Fluxo',
   'decision-log-details': 'Log de Decisão',
   'agent-governance': 'Governança do Agente',
+  'agent-playground': 'Simulador de Agente & Prompt',
 };
 
 export function SlideOverPanel() {
@@ -51,6 +53,8 @@ export function SlideOverPanel() {
         return <DecisionLogDetailsPanel data={slideOverData} />;
       case 'agent-governance':
         return <AgentGovernancePanel data={slideOverData} />;
+      case 'agent-playground':
+        return <PlaygroundPanel agent={slideOverData} />;
       default:
         return null;
     }
@@ -74,7 +78,8 @@ export function SlideOverPanel() {
       {/* Panel */}
       <div
         className={cn(
-          'fixed top-0 right-0 h-full w-[480px] bg-card border-l border-border shadow-2xl z-50 transition-transform duration-300 flex flex-col',
+          'fixed top-0 right-0 h-full bg-card border-l border-border shadow-2xl z-50 transition-transform duration-300 flex flex-col',
+          slideOverContent === 'agent-playground' ? 'w-[800px]' : 'w-[480px]',
           slideOverOpen ? 'translate-x-0' : 'translate-x-full'
         )}
       >

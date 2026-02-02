@@ -1,9 +1,9 @@
-import { 
-  LayoutDashboard, 
-  MessageSquare, 
-  BarChart3, 
-  Bot, 
-  Settings, 
+import {
+  LayoutDashboard,
+  MessageSquare,
+  BarChart3,
+  Bot,
+  Settings,
   Bell,
   Users,
   Shield,
@@ -15,7 +15,8 @@ import {
   Building2,
   ShieldCheck,
   Workflow,
-  Brain
+  Brain,
+  CreditCard
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -46,6 +47,7 @@ const governanceNavItems = [
 
 const platformNavItems = [
   { title: 'Empresas', url: '/companies', icon: Building2 },
+  { title: 'Planos de Serviço', url: '/plans', icon: CreditCard },
 ];
 
 export function AppSidebar() {
@@ -90,9 +92,28 @@ export function AppSidebar() {
 
       {/* Tenant Info */}
       {!collapsed && currentTenant && (
-        <div className="px-4 py-3 border-b border-sidebar-border">
-          <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider">Tenant</p>
-          <p className="text-sm font-medium text-sidebar-foreground truncate">{currentTenant.name}</p>
+        <div className={cn(
+          "px-4 py-3 border-b border-sidebar-border transition-colors",
+          (isSuperAdmin && currentUser?.tenantId !== currentTenant.id) && "bg-amber-100 dark:bg-amber-900/30"
+        )}>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className={cn(
+                "text-xs uppercase tracking-wider",
+                (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+                  ? "text-amber-700 dark:text-amber-400 font-bold"
+                  : "text-sidebar-foreground/60"
+              )}>
+                {(isSuperAdmin && currentUser?.tenantId !== currentTenant.id) ? "Operando como" : "Tenant"}
+              </p>
+              <p className={cn(
+                "text-sm font-medium truncate",
+                (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+                  ? "text-amber-950 dark:text-amber-100"
+                  : "text-sidebar-foreground"
+              )}>{currentTenant.name}</p>
+            </div>
+          </div>
         </div>
       )}
 
