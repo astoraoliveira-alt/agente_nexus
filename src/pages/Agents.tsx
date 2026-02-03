@@ -1,6 +1,6 @@
 import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { mockAgents } from '@/lib/mock-data';
+import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,14 +27,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Agent, AILifecycleStage } from '@/lib/types'; // Importing types
+import { Agent, AILifecycleStage } from '@/lib/types';
 
 export default function Agents() {
-  const { openSlideOver } = useApp();
+  const { openSlideOver, currentTenant } = useApp();
   const [search, setSearch] = useState('');
-  const [agents, setAgents] = useState(mockAgents);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
 
@@ -51,6 +51,20 @@ export default function Agents() {
   const filteredAgents = agents.filter(agent =>
     agent.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  useEffect(() => {
+    async function loadAgents() {
+      if (currentTenant) {
+        try {
+          const data = await api.getAgents(currentTenant.id);
+          setAgents(data);
+        } catch (error) {
+          toast.error('Erro ao carregar agentes');
+        }
+      }
+    }
+    loadAgents();
+  }, [currentTenant]);
 
   const handleOpenDialog = (agent?: Agent) => {
     if (agent) {
@@ -72,20 +86,30 @@ export default function Agents() {
     setIsDialogOpen(true);
   };
 
-  const handleSave = () => {
-    if (editingAgent) {
-      setAgents(prev => prev.map(a => a.id === editingAgent.id ? { ...a, ...formData } as Agent : a));
-      toast.success('Agente atualizado com sucesso');
-    } else {
-      const newAgent = {
-        ...formData,
-        id: `agent-${Date.now()}`,
-        policies: [],
-      } as Agent;
-      setAgents(prev => [...prev, newAgent]);
-      toast.success('Agente criado com sucesso');
+  const handleSave = async () => {
+    if (!currentTenant) return;
+
+    try {
+      if (editingAgent) {
+        // Update
+        const updated = await api.updateAgent(editingAgent.id, formData);
+        setAgents(prev => prev.map(a => a.id === updated.id ? updated : a));
+        toast.success('Agente atualizado com sucesso');
+      } else {
+        // Create
+        const newAgentRef: Partial<Agent> = {
+          ...formData,
+          tenantId: currentTenant.id
+        };
+        const created = await api.createAgent(newAgentRef);
+        setAgents(prev => [created, ...prev]);
+        toast.success('Agente criado com sucesso');
+      }
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao salvar agente');
     }
-    setIsDialogOpen(false);
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -141,7 +165,6 @@ export default function Agents() {
                     <div>
                       <h3 className="font-semibold">{agent.name}</h3>
                       <div className="flex items-center gap-2">
-                        <p className="text-xs text-muted-foreground">{agent.id}</p>
                         {agent.lifecycleStage === 'development' && (
                           <Badge variant="outline" className="h-4 text-[10px] py-0 border-blue-400/30 text-blue-500 bg-blue-500/5">
                             SANDBOX
@@ -307,6 +330,17 @@ export default function Agents() {
             </DialogHeader>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               <Tabs defaultValue="general" className="w-full">
+                <div className="bg-amber-500/10 border border-amber-500/20 p-3 mb-6 rounded-md flex items-start gap-3">
+                  <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-semibold text-amber-500">Persistência em Tempo Real</h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Essas configurações (Prompt, Risco, Autonomia) <strong>são a única fonte de verdade</strong> para os agentes.
+                      Qualquer alteração aqui impacta imediatamente o comportamento do N8N na próxima interação.
+                    </p>
+                  </div>
+                </div>
+
                 <TabsList className="grid w-full grid-cols-3 mb-6 bg-muted/50 p-1">
                   <TabsTrigger value="general" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">
                     Geral & Governança

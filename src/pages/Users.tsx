@@ -1,6 +1,6 @@
 import { Users as UsersIcon, Plus, Search, MoreVertical, Shield, Mail, ArrowRight, Pencil, Trash2 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { mockUsers, User } from '@/lib/mock-data';
+import { User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -26,13 +26,14 @@ import {
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
+import { api } from '@/services/api';
 
 export default function Users() {
   const { currentTenant } = useApp();
   const [search, setSearch] = useState('');
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const [users, setUsers] = useState<User[]>([]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -42,9 +43,24 @@ export default function Users() {
     role: 'operator',
   });
 
+  useEffect(() => {
+    async function loadUsers() {
+      if (currentTenant) {
+        try {
+          const data = await api.getUsers(currentTenant.id);
+          setUsers(data);
+        } catch (error) {
+          console.error('Failed to fetch users:', error);
+          toast.error('Erro ao carregar usuários');
+        }
+      }
+    }
+    loadUsers();
+  }, [currentTenant]);
+
   const tenantUsers = users.filter(u =>
-    u.tenantId === currentTenant?.id &&
-    u.name.toLowerCase().includes(search.toLowerCase())
+    u.name?.toLowerCase().includes(search.toLowerCase()) ||
+    u.email?.toLowerCase().includes(search.toLowerCase())
   );
 
   const handleOpenDialog = (user?: User) => {
@@ -63,25 +79,28 @@ export default function Users() {
   };
 
   const handleSaveUser = () => {
+    // TODO: Implement API create/update
     if (editingUser) {
       setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData } as User : u));
-      toast.success(`Usuário ${formData.name} atualizado`);
+      toast.success(`Usuário ${formData.name} atualizado (UI Only)`);
     } else {
       const newUser = {
         ...formData,
         id: `user-${Date.now()}`,
         tenantId: currentTenant?.id || 'tenant-1',
         avatar: formData.name?.substring(0, 2).toUpperCase(),
+        isActive: true
       } as User;
       setUsers(prev => [...prev, newUser]);
-      toast.success(`Usuário ${newUser.name} criado`);
+      toast.success(`Usuário ${newUser.name} criado (UI Only)`);
     }
     setIsDialogOpen(false);
   };
 
   const handleDeleteUser = (id: string) => {
+    // TODO: Implement API delete
     setUsers(prev => prev.filter(u => u.id !== id));
-    toast.success('Usuário removido');
+    toast.success('Usuário removido (UI Only)');
   };
 
   const getRoleBadge = (role: string) => {

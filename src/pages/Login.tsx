@@ -6,12 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
-// Mock users preserved
-const MOCK_USERS = [
-  { email: 'carlos@davos.ai', password: 'admin123', role: 'super_admin', name: 'Carlos Silva' },
-  { email: 'ana@bancoalpha.com', password: 'admin123', role: 'tenant_admin', name: 'Ana Rodrigues' },
-  { email: 'pedro@bancoalpha.com', password: 'op123', role: 'operator', name: 'Pedro Santos' },
-];
+import { api } from '@/services/api';
+
+// Mock users removed - using Real DB Auth (Simulated)
 
 export default function Login() {
   const navigate = useNavigate();
@@ -28,21 +25,34 @@ export default function Login() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Slightly longer for dramatic effect
 
-    const user = MOCK_USERS.find(u => u.email === email && u.password === password);
+    try {
+      // Real Auth (Simulated via DB lookup)
+      const user = await api.getUserByEmail(email);
 
-    if (user) {
-      localStorage.setItem('davos_session', JSON.stringify({
-        user: { email: user.email, name: user.name, role: user.role },
-        token: 'mock-jwt-token-' + Date.now(),
-      }));
-      toast.success(`Acesso Autorizado: ${user.name}`);
-      navigate('/');
-    } else {
-      toast.error('Acesso Negado: Credenciais Inválidas');
+      if (user) {
+        // Simple password check (Mock mechanism for now as we don't have auth.users)
+        // In real Prod, Supabase Auth handles this. 
+        // For now, accept any password if user exists in DB.
+
+        localStorage.setItem('davos_session', JSON.stringify({
+          user: { email: user.email, name: user.name, role: user.role, id: user.id },
+          token: 'mock-jwt-token-' + Date.now(),
+        }));
+
+        toast.success(`Acesso Autorizado: ${user.name}`);
+
+        // Force reload to trigger AppContext boot from localStorage
+        window.location.href = '/';
+      } else {
+        toast.error('Acesso Negado: Usuário não encontrado no sistema');
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error('Erro de conexão ao verificar credenciais');
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   return (

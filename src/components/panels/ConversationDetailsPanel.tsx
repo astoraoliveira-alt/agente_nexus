@@ -1,5 +1,5 @@
-import { User, Bot, MessageSquare, Clock, Phone, Hash, Calendar } from 'lucide-react';
-import { Conversation, mockAgents } from '@/lib/mock-data';
+import { User, Bot, MessageSquare, Clock, Phone, Calendar } from 'lucide-react';
+import { Conversation } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { formatDistanceToNow } from 'date-fns';
@@ -12,7 +12,7 @@ interface ConversationDetailsPanelProps {
 export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps) {
   if (!data) return null;
 
-  const agent = mockAgents.find(a => a.id === data.agentId);
+  // const agent = mockAgents.find(a => a.id === data.agentId);
 
   return (
     <div className="p-6 space-y-6">
@@ -25,7 +25,6 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
           </div>
           <div>
             <p className="font-medium">{data.userName}</p>
-            <p className="text-sm text-muted-foreground">ID: {data.userId}</p>
           </div>
         </div>
       </div>
@@ -38,21 +37,21 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-sm">Status Atual</span>
-            <Badge 
+            <Badge
               variant={data.status === 'human_active' ? 'default' : 'secondary'}
               className={data.status === 'human_active' ? 'bg-success' : 'bg-accent'}
             >
               {data.status === 'ai_active' ? 'IA Ativa' : 'Humano Ativo'}
             </Badge>
           </div>
-          
+
           {data.assignedOperator && (
             <div className="flex items-center justify-between">
               <span className="text-sm">Atendente</span>
               <span className="text-sm font-medium">{data.assignedOperator}</span>
             </div>
           )}
-          
+
           <div className="flex items-center justify-between">
             <span className="text-sm">Canal</span>
             <div className="flex items-center gap-1">
@@ -77,8 +76,7 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
             <Bot className="h-5 w-5 text-accent" />
           </div>
           <div>
-            <p className="font-medium">{agent?.name || 'Agente Desconhecido'}</p>
-            <p className="text-sm text-muted-foreground">ID: {data.agentId}</p>
+            <p className="font-medium">Agente de Atendimento</p>
           </div>
         </div>
       </div>
@@ -89,18 +87,14 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
       <div>
         <h3 className="text-sm font-medium text-muted-foreground mb-3">Metadados</h3>
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-sm">
-            <Hash className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">ID:</span>
-            <span className="font-mono">{data.id}</span>
-          </div>
-          
+          {/* ID Removed */}
+
           <div className="flex items-center gap-2 text-sm">
             <Clock className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Última atividade:</span>
             <span>{formatDistanceToNow(data.lastMessageTime, { addSuffix: true, locale: ptBR })}</span>
           </div>
-          
+
           <div className="flex items-center gap-2 text-sm">
             <MessageSquare className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">Mensagens:</span>
@@ -124,7 +118,7 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
               </p>
             </div>
           </div>
-          
+
           {data.status === 'human_active' && (
             <div className="flex items-start gap-2 text-sm">
               <div className="w-2 h-2 mt-1.5 bg-success" />

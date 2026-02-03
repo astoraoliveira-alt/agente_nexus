@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Tenant, Conversation, mockUsers, mockTenants, mockConversations } from '@/lib/mock-data';
-import { ALL_PERMISSIONS, DEFAULT_ROLES, Role } from '@/lib/types';
-import { mockRoles, mockUserRoles } from '@/lib/mock-extended-data';
+import { User, Tenant, Conversation } from '@/lib/types'; // Using real types
+import { api } from '@/services/api';
 
 export type SlideOverContentType =
   | 'conversation-details'
@@ -61,58 +60,86 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [slideOverData, setSlideOverData] = useState<any>(null);
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
 
-  // Initialize user from session
+  // Initialize user from Database (Simulated Auth)
   useEffect(() => {
-    const session = localStorage.getItem('davos_session');
-    if (session) {
+    async function boot() {
       try {
-        const parsed = JSON.parse(session);
-        const user = mockUsers.find(u => u.id === parsed.userId);
+        console.log('🔄 Booting App Context...');
+
+        let user: User | null = null;
+        const session = localStorage.getItem('davos_session');
+
+        if (session) {
+          try {
+            const parsed = JSON.parse(session);
+            if (parsed.user?.email) {
+              user = await api.getUserByEmail(parsed.user.email);
+              console.log('🔓 Session Found:', user?.email);
+            }
+          } catch (e) {
+            console.error('Invalid Session', e);
+          }
+        }
+
+        // Fallback if no session or invalid session
+        if (!user) {
+          console.log('⚠️ No session. Fetching default Super Admin...');
+          user = await api.getInitialUser();
+        }
+
+        console.log('👤 Final Bootstrap User:', user);
+
         if (user) {
           setCurrentUser(user);
-          // Initial load: prefer user's home tenant
-          const tenant = mockTenants.find(t => t.id === user.tenantId);
-          setCurrentTenant(tenant || mockTenants[0]);
 
-          // Load user permissions based on role
-          const userRole = mockUserRoles.find(ur => ur.userId === user.id);
-          if (userRole) {
-            const role = mockRoles.find(r => r.id === userRole.roleId);
-            if (role) {
-              setUserPermissions(role.permissions);
+          // 2. Fetch Tenant
+          if (user.tenantId) {
+            const tenant = await api.getTenant(user.tenantId);
+            console.log('🏢 Tenant Fetched:', tenant);
+            if (tenant) {
+              setCurrentTenant(tenant);
             }
           }
+
+          // 3. Permissions (Simple Role Mapping)
+          // In real app, we would fetch role permissions from DB
+          console.log('🛡️ Analyzing Role:', user.role);
+          if (user.role === 'super_admin' || user.role === 'tenant_admin') {
+            console.log('✅ Granting ALL permissions');
+            setUserPermissions(['all']);
+          } else {
+            console.log('⚠️ Granting VIEW_ONLY permissions');
+            setUserPermissions(['view_only']);
+          }
         } else {
-          // Default fallback
-          setCurrentUser(mockUsers[0]);
-          setCurrentTenant(mockTenants[0]);
-          setUserPermissions(ALL_PERMISSIONS.map(p => p.id)); // Super admin has all
+          console.warn('⚠️ No user found in getInitialUser()');
         }
-      } catch {
-        setCurrentUser(mockUsers[0]);
-        setCurrentTenant(mockTenants[0]);
-        setUserPermissions(ALL_PERMISSIONS.map(p => p.id));
+      } catch (err) {
+        console.error('❌ Boot Error:', err);
       }
-    } else {
-      // No session - use default super admin for demo
-      setCurrentUser(mockUsers[0]);
-      setCurrentTenant(mockTenants[0]);
-      setUserPermissions(ALL_PERMISSIONS.map(p => p.id));
     }
+
+    boot();
   }, []);
 
   // Filter data when tenant changes
   useEffect(() => {
-    if (currentTenant) {
-      // Filter conversations by tenant
-      const tenantConversations = mockConversations.filter(c => c.tenantId === currentTenant.id);
-      setConversations(tenantConversations);
+    async function loadConversations() {
+      if (currentTenant) {
+        try {
+          const tenantConversations = await api.getConversations(currentTenant.id);
+          setConversations(tenantConversations);
 
-      // If selected conversation is not in this tenant, deselect it
-      if (selectedConversation && selectedConversation.tenantId !== currentTenant.id) {
-        setSelectedConversation(null);
+          // If selected conversation is not in this tenant, deselect it
+          if (selectedConversation && selectedConversation.tenantId !== currentTenant.id) {
+            setSelectedConversation(null);
+          }
+        } catch (error) {
+          console.error("Failed to load conversations:", error);
+        }
       }
     }
+    loadConversations();
   }, [currentTenant]);
 
   useEffect(() => {
@@ -131,17 +158,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return userPermissions.includes(permission);
   };
 
-  const switchTenant = (tenantId: string) => {
-    // Only allow if Super Admin OR if user belongs to that tenant (simple check for now)
-    // In a real app, we check if user has access to that tenant.
-
-    const targetTenant = mockTenants.find(t => t.id === tenantId);
+  const switchTenant = async (tenantId: string) => {
+    // In real app, we check if user has access to that tenant.
+    const targetTenant = await api.getTenant(tenantId);
     if (!targetTenant) return;
 
-    // TODO: Verify permission (skipped for demo fluidity)
     setCurrentTenant(targetTenant);
-
-    // Toast or feedback could be here
     console.log(`Switched to tenant: ${targetTenant.name}`);
   };
 
@@ -159,9 +181,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }, 300);
   };
 
-  const takeOverConversation = (conversationId: string) => {
-    if (!currentUser) return;
+  const takeOverConversation = async (conversationId: string) => {
+    if (!currentUser || !currentTenant) return;
 
+    // Optimistic UI Update
     setConversations(prev =>
       prev.map(conv =>
         conv.id === conversationId
@@ -174,6 +197,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               {
                 id: `${conv.id}-takeover-${Date.now()}`,
                 conversationId,
+                tenantId: currentTenant.id,
+                tenantSlug: currentTenant.slug,
                 content: `🔄 ${currentUser.name} assumiu a conversa`,
                 type: 'text' as const,
                 sender: 'ai' as const,
@@ -192,9 +217,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
         assignedOperator: currentUser.name,
       } : null);
     }
+
+    try {
+      await api.assignConversation(conversationId, currentUser.id);
+      await api.sendMessage(conversationId, `🔄 ${currentUser.name} assumiu a conversa`, 'ai');
+    } catch (error) {
+      console.error(error);
+      // In real app, revert state here
+    }
   };
 
-  const returnToAI = (conversationId: string) => {
+  const returnToAI = async (conversationId: string) => {
+    if (!currentTenant) return;
+
     setConversations(prev =>
       prev.map(conv =>
         conv.id === conversationId
@@ -207,6 +242,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               {
                 id: `${conv.id}-return-${Date.now()}`,
                 conversationId,
+                tenantId: currentTenant.id,
+                tenantSlug: currentTenant.slug,
                 content: '🤖 IA retomou o atendimento',
                 type: 'text' as const,
                 sender: 'ai' as const,
@@ -225,9 +262,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         assignedOperator: undefined,
       } : null);
     }
+
+    try {
+      await api.assignConversation(conversationId, null);
+      await api.sendMessage(conversationId, '🤖 IA retomou o atendimento', 'ai');
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const transferConversation = (conversationId: string, operatorName: string) => {
+  const transferConversation = async (conversationId: string, operatorName: string) => {
+    if (!currentTenant) return;
     const previousOperator = conversations.find(c => c.id === conversationId)?.assignedOperator || 'IA';
 
     setConversations(prev =>
@@ -241,6 +286,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               {
                 id: `${conv.id}-transfer-${Date.now()}`,
                 conversationId,
+                tenantId: currentTenant.id,
+                tenantSlug: currentTenant.slug,
                 content: `🔀 Conversa transferida de ${previousOperator} para ${operatorName}`,
                 type: 'text' as const,
                 sender: 'ai' as const,
@@ -251,6 +298,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           : conv
       )
     );
+
+    try {
+      // Ideally we need operatorId here, but for now just logging the event message
+      await api.sendMessage(conversationId, `🔀 Conversa transferida de ${previousOperator} para ${operatorName}`, 'ai');
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   return (

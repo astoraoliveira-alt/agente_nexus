@@ -22,6 +22,18 @@ export interface UserRole {
   roleId: string;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  tenantId: string;
+  avatar?: string;
+  isActive?: boolean;
+}
+
+export type Tenant = Company;
+
 // ============ ISO 42001: AI Management System Types ============
 export interface AIResponsibles {
   systemOwnerId: string; // The executive accountable for AI use
@@ -572,3 +584,35 @@ export const DEFAULT_ROLES: Role[] = [
     tenantId: null,
   },
 ];
+
+// ============ N8N Context Fetch Contract ============
+/**
+ * Payload retornado pelo endpoint /internal/agents/context
+ * Esta é a ÚNICA fonte de verdade para o N8N.
+ */
+export interface AgentContextResponse {
+  agent_config: {
+    system_prompt: string;
+    model_id: string;
+    temperature: number;
+    autonomy_level: number;
+    max_concurrency: number;
+  };
+  tenant_config: {
+    plan_tier: 'fixed' | 'flex' | 'unlimited';
+    privacy: {
+      anonymization_enabled: boolean;
+      retention_days: number;
+    };
+  };
+  flow_contract?: {
+    flow_id: string;
+    current_stage: FlowStage;
+    expected_outcome: string;
+  };
+  governance: {
+    risk_level: 'low' | 'medium' | 'high';
+    policies: string[];
+    lifecycle_stage: AILifecycleStage;
+  };
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Shield, Plus, Search, MoreVertical, Check, X, Users, Settings as SettingsIcon } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -59,7 +59,7 @@ const MOCK_PROFILES: Profile[] = [
     id: 'profile-1',
     name: 'Administrador',
     description: 'Acesso total ao sistema',
-    usersCount: 2,
+    usersCount: 0,
     permissions: PERMISSIONS.map(p => p.id),
     isSystem: true,
   },
@@ -67,7 +67,7 @@ const MOCK_PROFILES: Profile[] = [
     id: 'profile-2',
     name: 'Operador',
     description: 'Atendimento e visualização de conversas',
-    usersCount: 8,
+    usersCount: 0,
     permissions: ['conversations.view', 'conversations.takeover', 'conversations.transfer', 'agents.view'],
     isSystem: true,
   },
@@ -75,7 +75,7 @@ const MOCK_PROFILES: Profile[] = [
     id: 'profile-3',
     name: 'Supervisor',
     description: 'Monitoramento e relatórios',
-    usersCount: 3,
+    usersCount: 0,
     permissions: ['conversations.view', 'agents.view', 'consumption.view', 'consumption.export', 'users.view'],
     isSystem: false,
   },
@@ -83,11 +83,15 @@ const MOCK_PROFILES: Profile[] = [
     id: 'profile-4',
     name: 'Analista',
     description: 'Acesso a relatórios e métricas',
-    usersCount: 5,
+    usersCount: 0,
     permissions: ['consumption.view', 'consumption.export', 'agents.view'],
     isSystem: false,
   },
 ];
+
+import { api } from '@/services/api';
+
+// ... (existing imports)
 
 export default function Profiles() {
   const { currentTenant } = useApp();
@@ -96,6 +100,27 @@ export default function Profiles() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | null>(null);
   const [newProfile, setNewProfile] = useState({ name: '', description: '', permissions: [] as string[] });
+
+  useEffect(() => {
+    async function fetchCounts() {
+      if (!currentTenant) return;
+      try {
+        const users = await api.getUsers(currentTenant.id);
+
+        const adminCount = users.filter((u: any) => u.role === 'tenant_admin').length;
+        const operatorCount = users.filter((u: any) => u.role === 'operator').length;
+
+        setProfiles(prev => prev.map(p => {
+          if (p.name === 'Administrador') return { ...p, usersCount: adminCount };
+          if (p.name === 'Operador') return { ...p, usersCount: operatorCount };
+          return { ...p, usersCount: 0 }; // Others have 0 for now as strict roles are only those 2
+        }));
+      } catch (e) {
+        console.error("Error loading profile counts", e);
+      }
+    }
+    fetchCounts();
+  }, [currentTenant]);
 
   const filteredProfiles = profiles.filter(p =>
     (p.isSystem || p.tenantId === currentTenant?.id || p.tenantId === null) &&

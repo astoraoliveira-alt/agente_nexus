@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Workflow, Plus, Search, ArrowRight,
   Phone, MessageSquare, CheckCircle2, TrendingUp, Clock, Users,
@@ -42,16 +42,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useApp } from '@/contexts/AppContext';
-import { mockFlows, mockSuccessMetrics } from '@/lib/mock-extended-data';
-import { mockAgents } from '@/lib/mock-data';
-import { ConversationalFlow, FlowStageType, FlowStage } from '@/lib/types';
+import { mockSuccessMetrics } from '@/lib/mock-extended-data';
+import { ConversationalFlow, FlowStageType, FlowStage, Agent } from '@/lib/types';
 import { toast } from 'sonner';
+import { api } from '@/services/api';
 
 export default function Flows() {
-  const { openSlideOver } = useApp();
+  const { openSlideOver, currentTenant } = useApp();
   const [activeTab, setActiveTab] = useState('flows');
   const [search, setSearch] = useState('');
-  const [flows, setFlows] = useState<ConversationalFlow[]>(mockFlows);
+
+  // Data State
+  const [flows, setFlows] = useState<ConversationalFlow[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingFlow, setEditingFlow] = useState<ConversationalFlow | null>(null);
@@ -68,6 +71,26 @@ export default function Flows() {
   });
 
   const [activeDialogTab, setActiveDialogTab] = useState('general');
+
+  // Load Data
+  useEffect(() => {
+    async function loadData() {
+      if (currentTenant) {
+        try {
+          const [flowsData, agentsData] = await Promise.all([
+            api.getFlows(currentTenant.id),
+            api.getAgents(currentTenant.id)
+          ]);
+          setFlows(flowsData);
+          setAgents(agentsData);
+        } catch (error) {
+          console.error(error);
+          toast.error("Erro ao carregar dados dos fluxos");
+        }
+      }
+    }
+    loadData();
+  }, [currentTenant]);
 
   const filteredFlows = flows.filter(f =>
     f.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -95,27 +118,35 @@ export default function Flows() {
     setIsDialogOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.name || !formData.objective) {
       toast.error('Preencha os campos obrigatórios');
       return;
     }
 
-    if (editingFlow) {
-      setFlows(prev => prev.map(f => f.id === editingFlow.id ? { ...f, ...formData } as ConversationalFlow : f));
-      toast.success('Contrato de fluxo atualizado');
-    } else {
-      const newFlow = {
-        ...formData,
-        id: `flow-${Date.now()}`,
-        tenant_id: 'tenant-1',
-        tenantSlug: 'banco-alpha',
-        createdAt: new Date(),
-      } as ConversationalFlow;
-      setFlows(prev => [...prev, newFlow]);
-      toast.success('Novo contrato de fluxo criado');
+    if (!currentTenant) return;
+
+    try {
+      if (editingFlow) {
+        // Update
+        const updated = await api.updateFlow(editingFlow.id, formData);
+        setFlows(prev => prev.map(f => f.id === updated.id ? updated : f));
+        toast.success('Contrato de fluxo atualizado');
+      } else {
+        // Create
+        const newFlowRef: Partial<ConversationalFlow> = {
+          ...formData,
+          tenant_id: currentTenant.id
+        };
+        const created = await api.createFlow(newFlowRef);
+        setFlows(prev => [...prev, created]);
+        toast.success('Novo contrato de fluxo criado');
+      }
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao salvar fluxo');
     }
-    setIsDialogOpen(false);
   };
 
   const getStageIcon = (type: FlowStageType) => {
@@ -248,7 +279,7 @@ export default function Flows() {
               {/* Flows Grid */}
               <div className="grid grid-cols-1 gap-6">
                 {filteredFlows.map((flow) => {
-                  const agents = flow.linked_agents.map(id => mockAgents.find(a => a.id === id)).filter(Boolean);
+                  const linkedAgents = (flow.linked_agents || []).map(id => agents.find(a => a.id === id)).filter(Boolean);
                   const metrics = mockSuccessMetrics.byFlow.find(m => m.flowId === flow.id);
 
                   return (
@@ -279,7 +310,7 @@ export default function Flows() {
                             <div>
                               <Label className="text-[10px] uppercase text-muted-foreground font-bold">Agentes Vinculados</Label>
                               <div className="flex flex-wrap gap-1 mt-1">
-                                {agents.map(a => (
+                                {linkedAgents.map(a => (
                                   <Badge key={a?.id} variant="outline" className="text-[9px] py-0">{a?.name}</Badge>
                                 ))}
                               </div>
@@ -557,6 +588,13 @@ export default function Flows() {
                     <p className="text-xs text-muted-foreground">Isolamento de jornada e regras de orquestração para Agentes e N8N.</p>
                   </div>
                 </div>
+                <div className="mt-4 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-sm flex gap-2">
+                  <Settings2 className="h-4 w-4 text-amber-600 shrink-0" />
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-tight">
+                    <strong>Contrato de Execução:</strong> Este fluxo é lido em tempo real pelo N8N a cada passo da conversa.
+                    Alterações nas etapas ou regras de escalonamento afetam imediatamente a lógica de todos os agentes vinculados.
+                  </p>
+                </div>
               </DialogHeader>
 
               <Tabs value={activeDialogTab} onValueChange={setActiveDialogTab} className="flex-1 flex flex-col overflow-hidden">
@@ -769,7 +807,7 @@ export default function Flows() {
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
-                        {mockAgents.map((agent) => (
+                        {agents.map((agent) => (
                           <div
                             key={agent.id}
                             className={`p-3 border rounded-sm flex items-center justify-between cursor-pointer transition-colors ${formData.linked_agents?.includes(agent.id)
