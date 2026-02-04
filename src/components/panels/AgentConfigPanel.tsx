@@ -66,14 +66,14 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
       <div>
         <h4 className="text-sm font-medium text-muted-foreground mb-3">Canais Suportados</h4>
         <div className="flex gap-2">
-          <Badge 
+          <Badge
             variant={data.channels.includes('text') ? 'default' : 'outline'}
             className={data.channels.includes('text') ? 'bg-accent' : ''}
           >
             <MessageSquare className="h-3 w-3 mr-1" />
             Texto
           </Badge>
-          <Badge 
+          <Badge
             variant={data.channels.includes('voice') ? 'default' : 'outline'}
             className={data.channels.includes('voice') ? 'bg-accent' : ''}
           >
@@ -106,7 +106,7 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
                 <span className="text-sm">Autonomia</span>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map((level) => (
-                    <div 
+                    <div
                       key={level}
                       className={`w-4 h-4 ${level <= governance.autonomyLevel ? 'bg-accent' : 'bg-muted'}`}
                     />
@@ -148,40 +148,69 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
 
       <Separator />
 
+      {/* Integration Configuration */}
+      <div>
+        <h4 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+          <Zap className="h-4 w-4" />
+          Integração & Tipo
+        </h4>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm">Tipo de Agente</Label>
+            <div className="mt-1 flex items-center gap-2">
+              <Badge variant="outline" className="capitalize">
+                {data.type || 'conversational'}
+              </Badge>
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-sm">N8N Webhook URL</Label>
+            <div className="mt-1 p-2 bg-muted rounded text-xs break-all font-mono">
+              {data.integrationConfig?.n8n_webhook_url || 'N/A'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Separator />
+
       {/* LLM Settings (Mock) */}
       <div>
         <h4 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
           <Settings2 className="h-4 w-4" />
           Configurações do Modelo
         </h4>
-        
+
         <div className="space-y-4">
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-sm">Temperatura</Label>
-              <span className="text-sm text-muted-foreground">{temperature[0]}</span>
+              <span className="text-sm text-muted-foreground">{data.brainConfig?.temperature || 0.7}</span>
             </div>
             <Slider
-              value={temperature}
-              onValueChange={setTemperature}
+              value={[data.brainConfig?.temperature || 0.7]}
               max={1}
               step={0.1}
-              className="w-full"
+              disabled
+              className="w-full opacity-70"
             />
+            <p className="text-[10px] text-muted-foreground mt-1">Configurável na aba 'Configurar'.</p>
           </div>
-          
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label className="text-sm">Max Tokens</Label>
-              <span className="text-sm text-muted-foreground">{maxTokens[0]}</span>
+              <span className="text-sm text-muted-foreground">{data.brainConfig?.maxTokens || 2048}</span>
             </div>
             <Slider
-              value={maxTokens}
-              onValueChange={setMaxTokens}
+              value={[data.brainConfig?.maxTokens || 2048]}
               max={4096}
               step={256}
-              className="w-full"
+              disabled
+              className="w-full opacity-70"
             />
+            <p className="text-[10px] text-muted-foreground mt-1">Configurável na aba 'Configurar'.</p>
           </div>
         </div>
       </div>

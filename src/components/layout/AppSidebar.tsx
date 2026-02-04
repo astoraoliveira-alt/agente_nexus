@@ -31,7 +31,6 @@ const mainNavItems = [
   { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: 3 },
   { title: 'Consumo', url: '/consumption', icon: BarChart3 },
   { title: 'Agentes', url: '/agents', icon: Bot },
-  { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
 
 const adminNavItems = [
@@ -43,6 +42,7 @@ const adminNavItems = [
 const governanceNavItems = [
   { title: 'Governança IA', url: '/governance', icon: ShieldCheck },
   { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
+  { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
 
 const platformNavItems = [
@@ -93,23 +93,25 @@ export function AppSidebar() {
       {/* Tenant Info */}
       {!collapsed && currentTenant && (
         <div className={cn(
-          "px-4 py-3 border-b border-sidebar-border transition-colors",
-          (isSuperAdmin && currentUser?.tenantId !== currentTenant.id) && "bg-amber-100 dark:bg-amber-900/30"
+          "px-4 py-4 mx-2 mt-2 rounded-md border transition-all duration-200",
+          (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+            ? "bg-amber-100/10 border-amber-500/30" // Impersonation Mode
+            : "bg-sidebar-accent border-sidebar-border" // Normal Mode
         )}>
           <div className="flex items-center justify-between">
-            <div>
+            <div className="min-w-0">
               <p className={cn(
-                "text-xs uppercase tracking-wider",
+                "text-[10px] uppercase tracking-wider mb-0.5",
                 (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
-                  ? "text-amber-700 dark:text-amber-400 font-bold"
-                  : "text-sidebar-foreground/60"
+                  ? "text-amber-500 font-bold"
+                  : "text-sidebar-foreground/60 font-bold"
               )}>
-                {(isSuperAdmin && currentUser?.tenantId !== currentTenant.id) ? "Operando como" : "Tenant"}
+                {(isSuperAdmin && currentUser?.tenantId !== currentTenant.id) ? "Operando como" : "Cliente Conectado"}
               </p>
               <p className={cn(
-                "text-sm font-medium truncate",
+                "text-sm font-bold truncate",
                 (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
-                  ? "text-amber-950 dark:text-amber-100"
+                  ? "text-amber-400"
                   : "text-sidebar-foreground"
               )}>{currentTenant.name}</p>
             </div>

@@ -116,11 +116,28 @@ export const api = {
             .select('id, agent_id, status')
             .eq('tenant_id', tenantId);
 
-        // 3. Map & Aggregate
+        // 3. Fetch Token Usage Stats (RPC)
+        let usageMap: Record<string, { tokens: number, cost: number }> = {};
+        try {
+            const { data: usageData, error: usageError } = await supabase
+                .rpc('get_agent_usage_stats', { p_tenant_id: tenantId });
+
+            if (!usageError && usageData) {
+                usageData.forEach((u: any) => {
+                    usageMap[u.agent_id] = { tokens: u.total_tokens || 0, cost: u.total_cost || 0 };
+                });
+            }
+        } catch (e) {
+            console.warn('Failed to fetch usage stats (RPC missing?):', e);
+        }
+
+        // 4. Map & Aggregate
         return agentsData.map(dbAgent => {
             const agentConvs = conversationsData?.filter((c: any) => c.agent_id === dbAgent.id) || [];
             const activeCount = agentConvs.filter((c: any) => c.status !== 'closed').length;
             const totalCount = agentConvs.length;
+
+            const usage = usageMap[dbAgent.id] || { tokens: 0, cost: 0 };
 
             return {
                 id: dbAgent.id,
@@ -138,10 +155,18 @@ export const api = {
                 policies: dbAgent.applied_policies || [],
                 brainConfig: dbAgent.brain_config,
                 voiceConfig: dbAgent.voice_config,
-                // Legacy mapping
+                // New Fields
+                type: dbAgent.type || 'conversational',
+                integrationConfig: dbAgent.integration_config || {},
+                // Usage Metrics
+                usage: {
+                    totalTokens: Number(usage.tokens),
+                    totalCost: Number(usage.cost)
+                },
+                // Legacy mapping (kept for backward compatibility if needed)
                 integration: {
                     voice_provider: dbAgent.voice_config?.provider === 'none' ? null : dbAgent.voice_config?.provider,
-                    n8n_webhook_url: `https://n8n.webhook/${dbAgent.id}` // Dynamic gen
+                    n8n_webhook_url: dbAgent.integration_config?.n8n_webhook_url || `https://n8n.webhook/${dbAgent.id}`
                 }
             };
         }) as Agent[];
@@ -160,7 +185,9 @@ export const api = {
             channels: agent.channels || [],
             brain_config: agent.brainConfig || {},
             voice_config: agent.voiceConfig || {},
-            applied_policies: agent.policies || []
+            applied_policies: agent.policies || [],
+            type: agent.type || 'conversational',
+            integration_config: agent.integrationConfig || {}
         };
 
         const { data, error } = await supabase
@@ -182,6 +209,8 @@ export const api = {
         if (updates.autonomyLevel) dbPayload.autonomy_level = updates.autonomyLevel;
         if (updates.brainConfig) dbPayload.brain_config = updates.brainConfig;
         if (updates.voiceConfig) dbPayload.voice_config = updates.voiceConfig;
+        if (updates.type) dbPayload.type = updates.type;
+        if (updates.integrationConfig) dbPayload.integration_config = updates.integrationConfig;
 
         const { data, error } = await supabase
             .from('agents')
@@ -191,7 +220,38 @@ export const api = {
             .single();
 
         if (error) throw error;
-        return data as unknown as Agent;
+
+        // Map response back to CamelCase (Frontend Model)
+        return {
+            ...data,
+            tenantId: data.tenant_id,
+            totalConversations: data.total_conversations || 0,
+            activeConversations: data.active_conversations || 0,
+            maxConcurrentConversations: data.max_concurrency,
+            riskLevel: data.risk_level,
+            riskScore: data.risk_score,
+            lifecycleStage: data.lifecycle_stage,
+            autonomyLevel: data.autonomy_level,
+            policies: data.applied_policies || [],
+            brainConfig: data.brain_config,
+            voiceConfig: data.voice_config,
+            type: data.type,
+            integrationConfig: data.integration_config || {},
+            // Legacy mapping
+            integration: {
+                voice_provider: data.voice_config?.provider === 'none' ? null : data.voice_config?.provider,
+                n8n_webhook_url: data.integration_config?.n8n_webhook_url || `https://n8n.webhook/${data.id}`
+            }
+        } as unknown as Agent;
+    },
+
+    async deleteAgent(agentId: string): Promise<void> {
+        const { error } = await supabase
+            .from('agents')
+            .delete()
+            .eq('id', agentId);
+
+        if (error) throw error;
     },
 
     // =============================================
@@ -288,41 +348,83 @@ export const api = {
     async getConversations(tenantId: string): Promise<Conversation[]> {
         const { data, error } = await supabase
             .from('conversations')
-            .select('*, messages(*)')
+            .select('*, messages(*), agents(name, type)') // Join agents to get name + type
             .eq('tenant_id', tenantId)
             .order('last_message_at', { ascending: false });
 
         if (error) throw error;
 
-        return data.map(c => ({
-            id: c.id,
-            tenantId: c.tenant_id,
-            agentId: c.agent_id,
-            userId: c.user_identifier,
-            userName: c.user_name,
-            channel: c.channel,
-            status: c.status,
-            assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined, // Simplify for now
-            lastMessage: c.messages?.[0]?.content || '',
-            lastMessageTime: new Date(c.last_message_at),
-            unreadCount: 0,
-            messages: (c.messages || []).map((m: any) => ({
-                ...m,
-                timestamp: new Date(m.created_at || new Date()), // Map DB created_at to App timestamp
-                sender: m.sender_type, // Map DB sender_type to App sender
-                type: m.message_type // Map DB message_type to App type
-            }))
-        })) as Conversation[];
+        return data.map(c => {
+            // 1. Map & Sort Messages (Oldest First - WhatsApp Style)
+            const sortedMessages = (c.messages || []).map((m: any) => {
+                let cleanContent = m.content;
+                // Resilience: Parse JSON content if N8N sent raw object
+                try {
+                    if (m.content && m.content.trim().startsWith('{')) {
+                        const parsed = JSON.parse(m.content);
+                        if (parsed.content) cleanContent = parsed.content;
+                    }
+                } catch (e) { /* Not JSON, ignore */ }
+
+                return {
+                    ...m,
+                    content: cleanContent,
+                    timestamp: new Date(m.created_at || new Date()),
+                    sender: m.sender_type as 'user' | 'ai' | 'human',
+                    type: m.message_type as 'text' | 'image' | 'audio'
+                };
+            }).sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime());
+
+            // 2. Determine Effective Last Message Time (Self-Healing)
+            // Use the last message in the array (newest)
+            const conversationTime = new Date(c.last_message_at);
+            const newestMessage = sortedMessages.length > 0 ? sortedMessages[sortedMessages.length - 1] : null;
+            const effectiveTime = (newestMessage && newestMessage.timestamp > conversationTime) ? newestMessage.timestamp : conversationTime;
+
+            return {
+                id: c.id,
+                tenantId: c.tenant_id,
+                agentId: c.agent_id,
+                agentName: c.agents?.name || 'Agente Desconhecido',
+                agentType: c.agents?.type as any, // 'embedded' | 'whatsapp' ...
+                userId: c.user_identifier,
+                userName: c.user_name,
+                channel: c.channel,
+                status: c.status,
+                assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
+                lastMessage: newestMessage?.content || '',
+                lastMessageTime: effectiveTime,
+                unreadCount: 0,
+                messages: sortedMessages
+            };
+        }) as Conversation[];
     },
 
-    async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai', type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
+    async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
+        // Fetch conversation to get tenant_id AND agent config (for Webhook)
+        const { data: conv } = await supabase
+            .from('conversations')
+            .select(`
+                tenant_id, 
+                agents (
+                    type,
+                    integration_config
+                )
+            `)
+            .eq('id', conversationId)
+            .single();
+
+        if (!conv) throw new Error('Conversation not found');
+
         const { error } = await supabase
             .from('messages')
             .insert({
                 conversation_id: conversationId,
+                tenant_id: conv.tenant_id,
                 content,
-                sender_type: sender, // DB column is sender_type
-                message_type: type, // DB column is message_type
+                sender_type: sender,
+                sender_name: senderName,
+                message_type: type,
                 created_at: new Date().toISOString()
             });
 
@@ -333,6 +435,58 @@ export const api = {
             .from('conversations')
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
+
+        // 3. Trigger N8N Webhook (Delivery to Landing Page)
+        if (sender === 'human') {
+            // Extract URL from Agent Config (Dynamic) or Fallback to Env
+            const agentConfig = conv.agents as any; // Type casting for quick fix or update Interface
+
+            // STRICT CHECK: Only trigger N8N if Agent Type is 'whatsapp'
+            if (agentConfig?.type === 'whatsapp') {
+                const dynamicUrl = agentConfig?.integration_config?.n8n_webhook_url;
+                const n8nUrl = dynamicUrl || import.meta.env.VITE_N8N_WEBHOOK_URL;
+
+                if (n8nUrl) {
+                    try {
+                        console.log('📡 Relaying message to N8N (Dynamic):', n8nUrl);
+                        fetch(n8nUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: 'send_message',
+                                conversation_id: conversationId,
+                                content: content,
+                                sender: 'human',
+                                sender_name: senderName,
+                                tenant_id: conv.tenant_id
+                            })
+                        }).catch(err => console.error('❌ N8N Webhook Error:', err));
+                    } catch (e) {
+                        console.warn('Failed to call N8N:', e);
+                    }
+                } else {
+                    console.warn('⚠️ No N8N Webhook URL configured for this agent.');
+                }
+            } else {
+                console.log('ℹ️ Agent type is not whatsapp, skipping N8N webhook.');
+            }
+        }
+    },
+
+    async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
+        const { error } = await supabase
+            .from('audit_logs')
+            .insert({
+                tenant_id: tenantId,
+                actor_id: actorId,
+                actor_name: actorName,
+                action,
+                target_type: targetType,
+                target_id: targetId,
+                details
+            });
+
+        if (error) console.error('Failed to log audit:', error);
     },
 
     async updateConversationStatus(conversationId: string, status: string): Promise<void> {
@@ -344,12 +498,27 @@ export const api = {
         if (error) throw error;
     },
 
-    async assignConversation(conversationId: string, operatorId: string | null): Promise<void> {
-        const updates: any = {
-            assigned_operator_id: operatorId
-        };
+    async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {
+        // 1. Fetch current conversation to get Tenant ID for Audit
+        const { data: conv } = await supabase.from('conversations').select('tenant_id, assigned_operator_id').eq('id', conversationId).single();
+        if (!conv) throw new Error('Conversation not found');
+
+        const updates: any = {};
+        let auditAction = '';
+        let auditDetails = '';
+
         if (operatorId) {
+            // TAKEOVER
+            updates.assigned_operator_id = operatorId;
             updates.status = 'human_active';
+            auditAction = 'conversation.takeover';
+            auditDetails = `Operador ${operatorName} assumiu a conversa`;
+        } else {
+            // RETURN TO AI
+            updates.assigned_operator_id = null;
+            updates.status = 'ai_active';
+            auditAction = 'conversation.resume_ai';
+            auditDetails = 'Conversa devolvida para a IA';
         }
 
         const { error } = await supabase
@@ -358,5 +527,11 @@ export const api = {
             .eq('id', conversationId);
 
         if (error) throw error;
+
+        // 2. Log Audit (Fire and forget)
+        if (operatorName && operatorId) {
+            // If returning to AI, actor is still the operator who clicked the button
+            await this.logAudit(conv.tenant_id, operatorId, operatorName, auditAction, 'conversation', conversationId, auditDetails);
+        }
     }
 };

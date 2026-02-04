@@ -45,6 +45,7 @@ interface AppContextType {
   takeOverConversation: (conversationId: string) => void;
   returnToAI: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
+  sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -122,8 +123,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     boot();
   }, []);
 
-  // Filter data when tenant changes
+  // Filter data when tenant changes & Poll every 5s
   useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
     async function loadConversations() {
       if (currentTenant) {
         try {
@@ -131,16 +134,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setConversations(tenantConversations);
 
           // If selected conversation is not in this tenant, deselect it
+          // Note: We don't want to deselect if it's just a refresh, only if tenant changed strictly.
+          // But strict tenant isolation is handled by the API query eq('tenant_id').
+          // Simpler: If selected exists but isn't found in new list (e.g. deleted), handle it.
+          // For now, we keep the simple check.
           if (selectedConversation && selectedConversation.tenantId !== currentTenant.id) {
             setSelectedConversation(null);
+          } else if (selectedConversation) {
+            // Update the selected conversation object in place with new messages
+            const updated = tenantConversations.find(c => c.id === selectedConversation.id);
+            if (updated) {
+              // Only update if there are changes (e.g. message count) to avoid re-renders?
+              // React SetState is somewhat smart, but let's just update to be sure we get new messages.
+              setSelectedConversation(updated);
+            }
           }
+
         } catch (error) {
           console.error("Failed to load conversations:", error);
         }
       }
     }
+
+    // Initial Load
     loadConversations();
-  }, [currentTenant]);
+
+    // Polling
+    intervalId = setInterval(loadConversations, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [currentTenant, selectedConversation?.id]); // Dep on ID, not full obj, to avoid loop
+
 
   useEffect(() => {
     if (isDarkMode) {
@@ -201,7 +225,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                 tenantSlug: currentTenant.slug,
                 content: `🔄 ${currentUser.name} assumiu a conversa`,
                 type: 'text' as const,
-                sender: 'ai' as const,
+                sender: 'ai' as const, // System message usually from AI/System
                 timestamp: new Date(),
               },
             ],
@@ -219,7 +243,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      await api.assignConversation(conversationId, currentUser.id);
+      // Pass operatorName for Audit Log
+      await api.assignConversation(conversationId, currentUser.id, currentUser.name);
+      // System message
       await api.sendMessage(conversationId, `🔄 ${currentUser.name} assumiu a conversa`, 'ai');
     } catch (error) {
       console.error(error);
@@ -228,7 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const returnToAI = async (conversationId: string) => {
-    if (!currentTenant) return;
+    if (!currentTenant || !currentUser) return;
 
     setConversations(prev =>
       prev.map(conv =>
@@ -264,7 +290,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      await api.assignConversation(conversationId, null);
+      // Pass currentUser.name as the 'actor' for the audit log (even though operatorId is null for the assignment target)
+      // We need to slightly trick the API or update calls.
+      // api.assignConversation(id, null, actorName) -> actorName used for log.
+      await api.assignConversation(conversationId, null, currentUser.name);
       await api.sendMessage(conversationId, '🤖 IA retomou o atendimento', 'ai');
     } catch (error) {
       console.error(error);
@@ -307,6 +336,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const sendMessage = async (conversationId: string, content: string, type: 'text' | 'image' | 'audio' = 'text') => {
+    if (!currentUser || !currentTenant) return;
+
+    // 1. Optimistic Update
+    const tempId = `temp-${Date.now()}`;
+    const newMessage = {
+      id: tempId,
+      conversationId,
+      tenantId: currentTenant.id,
+      tenantSlug: currentTenant.slug,
+      content,
+      type,
+      sender: 'human' as const, // Always human when sending from UI
+      senderName: currentUser.name,
+      timestamp: new Date()
+    };
+
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === conversationId
+          ? {
+            ...conv,
+            lastMessage: type === 'text' ? content : 'Anexo enviado',
+            lastMessageTime: new Date(),
+            messages: [...conv.messages, newMessage]
+          }
+          : conv
+      )
+    );
+
+    // Also update selected if applicable
+    if (selectedConversation?.id === conversationId) {
+      setSelectedConversation(prev => prev ? {
+        ...prev,
+        messages: [...prev.messages, newMessage]
+      } : null);
+    }
+
+    // 2. API Call
+    try {
+      await api.sendMessage(conversationId, content, 'human', currentUser.name, type);
+    } catch (error) {
+      console.error("Message send failed:", error);
+      // Revert optimistic update (simplified)
+      // logic to remove message would go here
+    }
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -328,6 +405,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         returnToAI,
         transferConversation,
         switchTenant,
+        sendMessage,
       }}
     >
       {children}

@@ -37,7 +37,7 @@ export default function Login() {
 
         localStorage.setItem('davos_session', JSON.stringify({
           user: { email: user.email, name: user.name, role: user.role, id: user.id },
-          token: 'mock-jwt-token-' + Date.now(),
+          token: 'mock-jwt-' + crypto.randomUUID(),
         }));
 
         toast.success(`Acesso Autorizado: ${user.name}`);
@@ -190,15 +190,15 @@ export default function Login() {
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-muted-foreground">
               <span className="opacity-50">ADMIN:</span>
-              <span className="text-foreground hover:text-accent select-all cursor-copy">carlos@davos.ai</span>
+              <span className="text-foreground hover:text-accent select-all cursor-copy">{import.meta.env.VITE_DEMO_EMAIL}</span>
 
               <span className="opacity-50">PASS:</span>
-              <span className="text-foreground hover:text-accent select-all cursor-copy">admin123</span>
+              <span className="text-foreground hover:text-accent select-all cursor-copy">{import.meta.env.VITE_DEMO_PASSWORD}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-muted-foreground mt-2 pt-2 border-t border-border/50">
               <span className="opacity-50">TENANT:</span>
-              <span className="text-foreground hover:text-accent select-all cursor-copy">ana@bancoalpha.com</span>
+              <span className="text-foreground hover:text-accent select-all cursor-copy">{import.meta.env.VITE_DEMO_TENANT}</span>
             </div>
           </div>
         </div>

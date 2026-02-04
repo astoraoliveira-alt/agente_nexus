@@ -186,6 +186,7 @@
 }
 
 @layer components {
+
   /* KPI Card styles */
   .kpi-card {
     @apply bg-card border border-border p-6 transition-all duration-200 hover:border-accent/50;
@@ -202,7 +203,7 @@
 
   /* Chat bubble base */
   .chat-bubble {
-    @apply px-4 py-2 max-w-[80%] break-words;
+    @apply px-4 py-2 break-words whitespace-pre-wrap;
   }
 
   .chat-bubble-user {

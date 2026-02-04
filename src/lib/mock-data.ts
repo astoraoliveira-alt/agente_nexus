@@ -16,7 +16,9 @@ export interface User {
   avatar?: string;
 }
 
-import { AILifecycleStage, AIRiskAssessment, Agent, Message, Conversation } from './types';
+// Re-export types for convenience
+export type { AILifecycleStage, AIRiskAssessment, Agent, Message, Conversation } from './types';
+import { Agent, Message, Conversation } from './types';
 
 export interface ConsumptionData {
   tenantId: string;
@@ -370,6 +372,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-2',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-1',
     userId: 'client-2',
     userName: 'Maria Fernandes',
@@ -383,6 +386,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-3',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-2',
     userId: 'client-3',
     userName: 'Roberto Almeida',
@@ -396,6 +400,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-4',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-1',
     userId: 'client-4',
     userName: 'Carla Mendes',
@@ -410,6 +415,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-5',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-3',
     userId: 'client-5',
     userName: 'Lucas Ribeiro',
@@ -423,6 +429,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-6',
     tenantId: 'tenant-1',
+    tenantSlug: 'banco-alpha',
     agentId: 'agent-1',
     userId: 'client-6',
     userName: 'Fernanda Lima',

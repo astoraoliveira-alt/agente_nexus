@@ -39,10 +39,12 @@ WHERE id = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 -- 3. AGENTS
 -- =============================================
 -- Agent 1: Atendimento Geral (Alpha)
-INSERT INTO agents (id, tenant_id, name, status, risk_level, risk_score, lifecycle_stage, autonomy_level, active_conversations, total_conversations, channels, brain_config, voice_config) VALUES
+INSERT INTO agents (id, tenant_id, name, status, risk_level, risk_score, lifecycle_stage, autonomy_level, active_conversations, total_conversations, channels, brain_config, voice_config, type, integration_config) VALUES
 ('aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa', 'd290f1ee-6c54-4b01-90e6-d701748f0851', 'Atendimento Geral', 'active', 'medium', 45, 'production', 4, 47, 15234, ARRAY['text', 'voice'],
  '{"systemPrompt": "Você é um assistente virtual do Banco Alpha...", "modelId": "gpt-4o", "temperature": 0.3}'::jsonb,
- '{"provider": "retell", "retellAgentId": "agent_123456789", "ambientSound": "clean"}'::jsonb);
+ '{"provider": "retell", "retellAgentId": "agent_123456789", "ambientSound": "clean"}'::jsonb,
+ 'embedded',
+ '{"n8n_webhook_url": "https://n8n.davosconsulting.com.br/webhook-test/0dc18717-3edf-4611-b458-802afe1f3e2e"}'::jsonb);
 
 -- Agent 2: Suporte Técnico (Alpha)
 INSERT INTO agents (id, tenant_id, name, status, risk_level, risk_score, lifecycle_stage, autonomy_level, active_conversations, total_conversations, channels, brain_config, voice_config) VALUES

@@ -159,6 +159,7 @@ export interface AgentBrainConfig {
   systemPrompt: string;
   modelId: 'gpt-4o' | 'claude-3-5-sonnet' | 'gpt-4o-mini';
   temperature: number;
+  maxTokens?: number;
 }
 
 export interface AgentVoiceConfig {
@@ -194,6 +195,18 @@ export interface Agent {
   // Integration (Functional Contract)
   brainConfig?: AgentBrainConfig;
   voiceConfig?: AgentVoiceConfig;
+
+  // New Integration Fields
+  type?: 'embedded' | 'whatsapp' | 'conversational';
+  integrationConfig?: {
+    n8n_webhook_url?: string;
+  };
+
+  // Usage Metrics (Aggregated)
+  usage?: {
+    totalTokens: number;
+    totalCost: number;
+  };
 
   // Legacy Integration (To be deprecated/migrated to voiceConfig)
   integration?: {
@@ -401,6 +414,8 @@ export interface Conversation {
   userId: string;
   userName: string;
   userAvatar?: string;
+  agentName?: string;
+  agentType?: 'embedded' | 'whatsapp' | 'conversational';
   channel: 'text' | 'voice';
   status: 'ai_active' | 'human_active' | 'closed';
   assignedOperator?: string;

@@ -105,6 +105,13 @@ CREATE TABLE agents (
     -- Voice Config (Retell / ElevenLabs)
     voice_config JSONB DEFAULT '{}'::jsonb,
 
+    -- Integration Config (N8N Webhooks, API Keys)
+    -- { "n8n_webhook_url": "..." }
+    integration_config JSONB DEFAULT '{}'::jsonb,
+
+    -- Agent Type (Platform Context)
+    type VARCHAR(50) DEFAULT 'conversational' CHECK (type IN ('embedded', 'whatsapp', 'conversational')),
+
     channels TEXT[], -- Array of strings ['text', 'voice']
     applied_policies TEXT[], -- Array of Policy IDs/Names
 

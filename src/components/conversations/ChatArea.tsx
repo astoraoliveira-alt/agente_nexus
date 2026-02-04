@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy } from 'lucide-react';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -79,11 +80,28 @@ function AudioMessage({ message }: AudioMessageProps) {
 }
 
 export function ChatArea({ conversation }: ChatAreaProps) {
-  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, currentUser } = useApp();
+  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Auto-scroll to bottom whenever messages change
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [conversation?.messages]);
+
+  // Permissions & Restrictions
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
+  const isAgentActive = conversation?.status === 'ai_active';
+  const isHumanActive = conversation?.status === 'human_active';
+  const isReadOnly = conversation?.agentType === 'embedded'; // Landing Page restriction
+
+  const handleTakeover = () => {
+    if (isReadOnly) return;
+    takeOverConversation(conversation.id);
+  };
 
   if (!conversation) {
     return (
@@ -151,27 +169,38 @@ export function ChatArea({ conversation }: ChatAreaProps) {
 
         <div className="flex items-center gap-2">
           {/* Control Buttons */}
-          {conversation.status === 'ai_active' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => takeOverConversation(conversation.id)}
-              className="text-success border-success hover:bg-success hover:text-success-foreground"
-            >
-              <UserPlus className="h-4 w-4 mr-2" />
-              Assumir Conversa
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => returnToAI(conversation.id)}
-              className="text-accent border-accent hover:bg-accent hover:text-accent-foreground"
-            >
-              <Bot className="h-4 w-4 mr-2" />
-              IA Continua
-            </Button>
-          )}
+          {/* Control Buttons */}
+          <div className="flex items-center gap-2">
+            {isReadOnly ? (
+              <Badge
+                variant="outline"
+                className="gap-1 border-dashed text-muted-foreground bg-muted/50"
+              >
+                <Info className="h-3 w-3" />
+                Somente Leitura
+              </Badge>
+            ) : isHumanActive ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => returnToAI(conversation.id)}
+                className="text-accent border-accent hover:bg-accent hover:text-accent-foreground"
+              >
+                <Bot className="h-4 w-4 mr-2" />
+                IA Continua
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTakeover}
+                className="text-success border-success hover:bg-success hover:text-success-foreground"
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                Assumir Conversa
+              </Button>
+            )}
+          </div>
 
           {/* Transfer Dialog */}
           <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
@@ -233,98 +262,148 @@ export function ChatArea({ conversation }: ChatAreaProps) {
             key={message.id}
             className={cn(
               'flex',
-              message.sender === 'user' ? 'justify-end' : 'justify-start'
+              message.sender === 'user' ? 'justify-start' : 'justify-end'
             )}
           >
-            <div className="flex items-end gap-2 max-w-[80%]">
-              {message.sender !== 'user' && (
-                <div className={cn(
-                  'w-8 h-8 flex items-center justify-center flex-shrink-0',
-                  message.sender === 'ai' ? 'bg-accent' : 'bg-success'
-                )}>
-                  {message.sender === 'ai' ? (
-                    <Bot className="h-4 w-4 text-accent-foreground" />
-                  ) : (
-                    <User className="h-4 w-4 text-success-foreground" />
-                  )}
-                </div>
-              )}
+            <div className={cn(
+              "flex items-end gap-2 max-w-[80%]",
+              message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
+            )}>
+              {/* Avatar Logic: 
+                  If User (Left): Avatar is First (handled by flex-row)
+                  If Agent (Right): Avatar is First in DOM but Last visually due to flex-row-reverse 
+              */}
+
+              <div className={cn(
+                'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
+                message.sender === 'ai' ? 'bg-accent/10' :
+                  message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
+              )}>
+                {message.sender === 'ai' ? (
+                  <Bot className="h-4 w-4 text-accent" />
+                ) : message.sender === 'human' ? (
+                  <User className="h-4 w-4 text-success" />
+                ) : (
+                  <User className="h-4 w-4 text-muted-foreground" />
+                )}
+              </div>
 
               <div>
-                {message.sender === 'human' && message.senderName && (
-                  <p className="text-xs text-muted-foreground mb-1">{message.senderName}</p>
-                )}
+                <div className="flex items-center gap-2 mb-1 px-1">
+                  {/* Sender Name Label */}
+                  {message.sender === 'human' && message.senderName && (
+                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
+                  )}
+                  {message.sender === 'ai' && (
+                    <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
+                  )}
+                  {message.sender === 'user' && (
+                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
+                  )}
+                </div>
 
                 <div className={cn(
-                  'chat-bubble',
-                  message.sender === 'user' && 'chat-bubble-user',
-                  message.sender === 'ai' && 'chat-bubble-ai',
-                  message.sender === 'human' && 'chat-bubble-human'
+                  'chat-bubble shadow-sm relative group/bubble',
+                  message.sender === 'user' && 'chat-bubble-user rounded-bl-sm',
+                  message.sender === 'ai' && 'chat-bubble-ai rounded-br-sm',
+                  message.sender === 'human' && 'chat-bubble-human rounded-br-sm'
                 )}>
+                  {/* Copy Button (Visible on Hover) */}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "absolute -top-3 h-6 w-6 rounded-full shadow-md opacity-0 group-hover/bubble:opacity-100 transition-opacity bg-background border border-border",
+                      message.sender === 'user' ? "-left-2" : "-right-2"
+                    )}
+                    onClick={() => {
+                      const textToCopy = message.content || message.transcription || '';
+                      if (textToCopy) {
+                        navigator.clipboard.writeText(textToCopy);
+                        toast.success('Mensagem copiada!');
+                      }
+                    }}
+                  >
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+
                   {message.type === 'audio' ? (
                     <AudioMessage message={message} />
                   ) : message.type === 'image' ? (
-                    <img src={message.imageUrl} alt="" className="max-w-full" />
+                    <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
                   ) : (
-                    <p className="text-sm">{message.content}</p>
+                    <p className="text-sm custom-markdown leading-relaxed">{message.content}</p>
                   )}
                 </div>
 
-                <p className="text-xs text-muted-foreground mt-1">
+                <p className={cn(
+                  "text-[10px] text-muted-foreground/60 mt-1",
+                  message.sender !== 'user' ? "text-right" : "text-left"
+                )}>
                   {format(message.timestamp, 'HH:mm', { locale: ptBR })}
                 </p>
               </div>
-
-              {message.sender === 'user' && (
-                <div className="w-8 h-8 bg-muted flex items-center justify-center flex-shrink-0">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                </div>
-              )}
             </div>
           </div>
         ))}
+        {/* Invisible element to auto-scroll to */}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* Input Area */}
       <div className="p-4 border-t border-border bg-card">
-        <div className="flex items-center gap-2">
-          <AttachmentPicker
-            onAttach={(type, file) => {
-              if (file) {
-                toast.success(`Anexo adicionado: ${file.name}`);
-              }
-            }}
-          />
+        {isReadOnly ? (
+          <div className="flex items-center justify-center p-3 bg-muted/50 rounded-md border border-dashed border-border text-sm text-muted-foreground gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Esta conversa é somente leitura (Agente Incorporado).
+          </div>
+        ) : conversation.status === 'ai_active' ? (
+          <div className="flex items-center justify-center p-2 bg-muted/30 rounded-md border border-dashed border-border text-sm text-muted-foreground">
+            <Bot className="h-4 w-4 mr-2" />
+            A IA está respondendo. Clique em "Assumir Conversa" para interagir.
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <AttachmentPicker
+              onAttach={(type, file) => {
+                if (file) {
+                  toast.success(`Anexo adicionado: ${file.name}`);
+                  // Implement media upload here if needed
+                }
+              }}
+            />
 
-          <input
-            type="text"
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && messageInput.trim()) {
-                toast.success('Mensagem enviada (mock)');
-                setMessageInput('');
-              }
-            }}
-            placeholder="Digite sua mensagem..."
-            className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
-          />
+            <input
+              type="text"
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && messageInput.trim()) {
+                  sendMessage(conversation.id, messageInput);
+                  setMessageInput('');
+                }
+              }}
+              placeholder="Digite sua mensagem como operador..."
+              className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
+              autoFocus
+            />
 
-          <EmojiPicker onSelect={(emoji) => setMessageInput(prev => prev + emoji)} />
+            <EmojiPicker onSelect={(emoji) => setMessageInput(prev => prev + emoji)} />
 
-          <Button
-            size="icon"
-            className="bg-accent hover:bg-accent/90"
-            onClick={() => {
-              if (messageInput.trim()) {
-                toast.success('Mensagem enviada (mock)');
-                setMessageInput('');
-              }
-            }}
-          >
-            <Send className="h-5 w-5" />
-          </Button>
-        </div>
+            <Button
+              size="icon"
+              className="bg-accent hover:bg-accent/90"
+              onClick={() => {
+                if (messageInput.trim()) {
+                  sendMessage(conversation.id, messageInput);
+                  setMessageInput('');
+                }
+              }}
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          </div>
+        )}
       </div>
     </div >
   );

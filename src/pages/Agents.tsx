@@ -1,7 +1,8 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -66,7 +67,27 @@ export default function Agents() {
     loadAgents();
   }, [currentTenant]);
 
-  const handleOpenDialog = (agent?: Agent) => {
+  const handleCloneAgent = async (agent: Agent) => {
+    if (!currentTenant) return;
+
+    try {
+      const { id, createdAt, updatedAt, ...agentData } = agent as any;
+      const clonedAgent: Partial<Agent> = {
+        ...agentData,
+        name: `${agent.name} (CÓPIA)`,
+        status: 'active', // Clone starts active or maybe strict copy? Let's keep strict copy but ensure clean state
+      };
+
+      const created = await api.createAgent(clonedAgent);
+      setAgents(prev => [created, ...prev]);
+      toast.success('Agente clonado com sucesso');
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao clonar agente');
+    }
+  };
+
+  const handleOpenDialog = (agent: Agent | null = null) => {
     if (agent) {
       setEditingAgent(agent);
       setFormData(agent);
@@ -112,10 +133,20 @@ export default function Agents() {
     }
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
-    setAgents(prev => prev.filter(a => a.id !== id));
-    toast.success('Agente removido');
+
+    // Confirm deletion
+    if (!window.confirm("Tem certeza que deseja excluir este agente?")) return;
+
+    try {
+      await api.deleteAgent(id);
+      setAgents(prev => prev.filter(a => a.id !== id));
+      toast.success('Agente removido');
+    } catch (error) {
+      console.error("Failed to delete agent:", error);
+      toast.error('Erro ao remover agente');
+    }
   };
 
   return (
@@ -154,8 +185,7 @@ export default function Agents() {
             {filteredAgents.map((agent) => (
               <div
                 key={agent.id}
-                className="kpi-card cursor-pointer hover:shadow-lg transition-all group relative"
-                onClick={() => openSlideOver('agent-config', agent)}
+                className="kpi-card hover:shadow-lg transition-all relative cursor-default"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
@@ -193,6 +223,10 @@ export default function Agents() {
                           <Pencil className="h-4 w-4 mr-2" />
                           Editar
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCloneAgent(agent); }}>
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicar
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
                           <Trash2 className="h-4 w-4 mr-2" />
@@ -205,6 +239,22 @@ export default function Agents() {
 
                 {/* Governance Risk Badge */}
                 <div className="flex flex-wrap gap-2 mb-3">
+                  {/* Agent Type Badge (New) */}
+                  <Badge variant="outline" className={cn(
+                    "text-xs gap-1 border-0 brightness-110 saturate-125", // brightness/saturate for pop
+                    agent.type === 'whatsapp' ? 'bg-[#25D366]/10 text-[#075E54] dark:text-[#25D366]' :
+                      agent.type === 'embedded' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
+                        'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
+                  )}>
+                    {agent.type === 'whatsapp' ? <MessageCircle className="h-3 w-3" /> :
+                      agent.type === 'embedded' ? <Globe className="h-3 w-3" /> :
+                        <MessageSquare className="h-3 w-3" />
+                    }
+                    {agent.type === 'whatsapp' ? 'WhatsApp API' :
+                      agent.type === 'embedded' ? 'Embarcado' :
+                        'Conversacional'}
+                  </Badge>
+
                   {/* Risk Badge */}
                   {agent.riskLevel && (
                     <Badge variant="outline" className={`
@@ -273,7 +323,7 @@ export default function Agents() {
                   )}
                 </div>
 
-                {/* Functional Stats (Load/Capacity) */}
+                {/* Functional Stats (Load/Capacity/Cost) */}
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div className="p-3 bg-muted rounded-md relative overflow-hidden">
                     {/* Capacity Bar */}
@@ -287,16 +337,31 @@ export default function Agents() {
                     </p>
                     <p className="text-xs text-muted-foreground">Capacidade em Uso</p>
                   </div>
+
                   <div className="p-3 bg-muted rounded-md">
-                    <p className="text-xl font-bold">{agent.totalConversations.toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground">Total Vitalício</p>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-lg font-bold">
+                          {agent.usage?.totalCost
+                            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4 }).format(agent.usage.totalCost)
+                            : 'R$ 0,0000'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Custo Estimado</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-mono font-medium text-muted-foreground">
+                          {(agent.usage?.totalTokens || 0).toLocaleString()} tks
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Consumo</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Action */}
                 <Button
-                  variant="ghost"
-                  className="w-full group-hover:bg-accent group-hover:text-accent-foreground"
+                  variant="outline"
+                  className="w-full hover:bg-accent hover:text-accent-foreground border-primary/20"
                   onClick={(e) => {
                     e.stopPropagation();
                     openSlideOver('agent-config', agent);
@@ -308,7 +373,7 @@ export default function Agents() {
 
                 <Button
                   variant="outline"
-                  className="w-full mt-2 group-hover:bg-primary group-hover:text-primary-foreground border-primary/20"
+                  className="w-full mt-2 hover:bg-primary hover:text-primary-foreground border-primary/20"
                   onClick={(e) => {
                     e.stopPropagation();
                     openSlideOver('agent-playground', agent);
@@ -553,6 +618,53 @@ export default function Agents() {
                       ></textarea>
                     </div>
                   </div>
+                  {/* Integration Config (N8N) */}
+                  <div className="space-y-4 border border-border p-4 rounded-md bg-muted/20">
+                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
+                      <Workflow className="h-4 w-4" />
+                      Orquestração (N8N)
+                    </h4>
+
+                    <div className="grid grid-cols-1 gap-4">
+                      {/* Agent Type */}
+                      <div className="space-y-2">
+                        <Label>Tipo de Agente</Label>
+                        <Select
+                          value={formData.type || 'conversational'}
+                          onValueChange={(v: any) => setFormData({ ...formData, type: v })}
+                        >
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="conversational">Conversacional (Padrão)</SelectItem>
+                            <SelectItem value="embedded">Agente Embarcado (Landing Page / Widget)</SelectItem>
+                            <SelectItem value="whatsapp">WhatsApp Business API</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[10px] text-muted-foreground">
+                          Define como a plataforma interage com este agente. Agentes 'Embarcados' são somente leitura para operadores.
+                        </p>
+                      </div>
+
+                      {/* Webhook URL */}
+                      <div className="space-y-2">
+                        <Label>N8N Webhook URL (Callback)</Label>
+                        <Input
+                          placeholder="https://n8n.your-domain.com/webhook/..."
+                          value={formData.integrationConfig?.n8n_webhook_url || ''}
+                          onChange={(e) => setFormData({
+                            ...formData,
+                            integrationConfig: {
+                              ...formData.integrationConfig,
+                              n8n_webhook_url: e.target.value
+                            }
+                          })}
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                          URL do workflow N8N que receberá as mensagens enviadas pelos operadores (Human-in-the-Loop).
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </TabsContent>
 
                 {/* Voice & Integration Tab */}
@@ -628,48 +740,7 @@ export default function Agents() {
                   </div>
 
                   {/* Integration Config (N8N) */}
-                  <div className="space-y-4 border border-border p-4 rounded-md bg-muted/20">
-                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
-                      <Workflow className="h-4 w-4" />
-                      Orquestração (N8N)
-                    </h4>
 
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase font-bold text-muted-foreground">Webhook (WhatsApp/Text)</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              readOnly
-                              value={`https://n8n.davos.nexus/webhook/tenant-slug/${editingAgent?.id || 'new-agent'}/message.received`}
-                              className="bg-muted font-mono text-[10px] h-8"
-                            />
-                            <Button variant="outline" size="sm" className="h-8" onClick={() => {
-                              const url = `https://n8n.davos.nexus/webhook/tenant-slug/${editingAgent?.id || 'new-agent'}/message.received`;
-                              navigator.clipboard.writeText(url);
-                              toast.success('URL copiada');
-                            }}>Copy</Button>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <Label className="text-[10px] uppercase font-bold text-muted-foreground">Webhook (Voice/Retell)</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              readOnly
-                              value={`https://n8n.davos.nexus/webhook/tenant-slug/${editingAgent?.id || 'new-agent'}/call.started`}
-                              className="bg-muted font-mono text-[10px] h-8"
-                            />
-                            <Button variant="outline" size="sm" className="h-8" onClick={() => {
-                              const url = `https://n8n.davos.nexus/webhook/tenant-slug/${editingAgent?.id || 'new-agent'}/call.started`;
-                              navigator.clipboard.writeText(url);
-                              toast.success('URL copiada');
-                            }}>Copy</Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </TabsContent>
               </Tabs>
             </div>
