@@ -194,6 +194,29 @@ CREATE TABLE agent_flows (
 -- 6. CONVERSATIONS & MESSAGES
 -- =============================================
 
+CREATE TABLE IF NOT EXISTS contacts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES companies(id),
+    name VARCHAR(255) NOT NULL,
+    identifier VARCHAR(255) NOT NULL UNIQUE, -- Phone (WhatsApp) or Email
+    email VARCHAR(255),
+    phone VARCHAR(255),
+    avatar_url VARCHAR(1024),
+    
+    -- Categorization
+    tags TEXT[] DEFAULT '{}',
+    channel VARCHAR(50), -- Source Channel: 'embedded', 'whatsapp', 'conversational'
+    
+    -- Metadata (N8N context, etc)
+    extra_info JSONB DEFAULT '{}'::jsonb,
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_tenant ON contacts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_identifier ON contacts(identifier);
+
 CREATE TABLE conversations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),

@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 export default function Conversations() {
   const { conversations, selectedConversation, setSelectedConversation } = useApp();
   const [isListCollapsed, setIsListCollapsed] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   return (
     <MainLayout>
@@ -23,6 +24,8 @@ export default function Conversations() {
             conversations={conversations}
             selectedId={selectedConversation?.id || null}
             onSelect={setSelectedConversation}
+            searchTerm={searchTerm}
+            onSearchChange={setSearchTerm}
           />
         </div>
 
@@ -42,7 +45,10 @@ export default function Conversations() {
         </Button>
 
         {/* Chat Area */}
-        <ChatArea conversation={selectedConversation} />
+        <ChatArea
+          conversation={selectedConversation}
+          highlightTerm={searchTerm}
+        />
       </div>
     </MainLayout>
   );

@@ -1,19 +1,168 @@
 import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, CheckCircle2, Workflow } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
-import { mockKPIs, mockAlerts, mockConsumption, mockAgents } from '@/lib/mock-data';
-import { mockSuccessMetrics } from '@/lib/mock-extended-data';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/services/api';
+import { format, subDays, startOfDay, endOfDay, eachDayOfInterval } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function Index() {
-  const { openSlideOver } = useApp();
+  const { currentTenant, openSlideOver } = useApp();
   const navigate = useNavigate();
 
-  const consumptionPercentage = (mockConsumption.llmTokens / mockConsumption.planLimit.llmTokens) * 100;
+  // 1. Fetch Data
+  const { data: conversations, isLoading: loadingConvs } = useQuery({
+    queryKey: ['conversations', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getConversations(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+    refetchInterval: 10000,
+  });
+
+  const { data: consumption, isLoading: loadingConsumption } = useQuery({
+    queryKey: ['consumption', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getConsumptionMetrics(currentTenant.id, 30) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const { data: agents, isLoading: loadingAgents } = useQuery({
+    queryKey: ['agents', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getAgents(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const { data: incidents, isLoading: loadingIncidents } = useQuery({
+    queryKey: ['incidents', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getIncidents(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const { data: evaluations, isLoading: loadingEvaluations } = useQuery({
+    queryKey: ['evaluations', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getEvaluations(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const { data: users, isLoading: loadingUsers } = useQuery({
+    queryKey: ['users', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getUsers(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const { data: contacts, isLoading: loadingContacts } = useQuery({
+    queryKey: ['contacts', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getContacts(currentTenant.id) : Promise.resolve([]),
+    enabled: !!currentTenant,
+  });
+
+  const isLoading = loadingConvs || loadingConsumption || loadingAgents || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
+
+  // 2. Calculate KPIs
+  const activeConversations = conversations?.filter(c => c.status !== 'closed').length || 0;
+  const totalConversations = conversations?.length || 0;
+  const activeAlerts = incidents?.filter(i => i.status !== 'resolved').length || 0;
+
+  // AI Trust Score
+  const avgTrustScoreNumeric = evaluations && evaluations.length > 0
+    ? evaluations.reduce((acc, e) => acc + e.score, 0) / evaluations.length
+    : 0;
+  const avgTrustScore = avgTrustScoreNumeric.toFixed(1);
+
+  const trustHealth = avgTrustScoreNumeric >= 80 ? { label: 'Bom', variant: 'success' as const } :
+    avgTrustScoreNumeric >= 50 ? { label: 'Regular', variant: 'warning' as const } :
+      { label: 'Ruim', variant: 'critical' as const };
+
+  // Consumption Logic
+  const limits = currentTenant?.limits || { llmTokens: 5000000, messages: 50000, sttMinutes: 600, ttsMinutes: 600 };
+  const totalTokens = consumption?.filter(m => m.metricType === 'tokens').reduce((acc, m) => acc + m.value, 0) || 0;
+  const consumptionLimit = (limits.llmTokens as number) || 5000000;
+  const consumptionPercentage = Math.min((totalTokens / consumptionLimit) * 100, 100);
+
+  // Success Rate & Resolution Time
+  const closedConvs = conversations?.filter(c => c.status === 'closed') || [];
+  const successfulConvs = closedConvs.filter(c => {
+    // A conversation is successful if it's closed and has no critical incident linked
+    const hasCriticalIncident = incidents?.some(i => i.conversationId === c.id && i.severity === 'critical');
+    return !hasCriticalIncident;
+  });
+  const successRate = closedConvs.length > 0 ? ((successfulConvs.length / closedConvs.length) * 100).toFixed(1) : '100';
+
+  const avgResTimeSeconds = closedConvs.length > 0
+    ? closedConvs.reduce((acc, c) => {
+      const start = new Date(c.createdAt).getTime();
+      const end = new Date(c.lastMessageTime).getTime();
+      if (isNaN(start) || isNaN(end)) return acc;
+      return acc + Math.max(0, end - start);
+    }, 0) / (closedConvs.length * 1000)
+    : 0;
+  const avgResTimeMin = (avgResTimeSeconds / 60).toFixed(1);
+
+  const humanInterventions = conversations?.filter(c => c.assignedOperator || c.status === 'human_active').length || 0;
+
+  // Incident Metrics
+  const incidentsAbertos = incidents?.filter(i => i.status === 'open').length || 0;
+  const incidentsInvestigando = incidents?.filter(i => i.status === 'investigating').length || 0;
+  const incidentsResolvidos = incidents?.filter(i => i.status === 'resolved').length || 0;
+  const totalIncidents = incidents?.length || 0;
+
+  // Contact Metrics
+  const totalContacts = contacts?.length || 0;
+  const lastWeek = subDays(new Date(), 7);
+  const newContactsThisWeek = contacts?.filter(c => new Date(c.createdAt) >= lastWeek).length || 0;
+
+  const leadQuenteCount = contacts?.filter(c => c.lifecycleStatus === 'Lead Quente').length || 0;
+  const interesseMedioCount = contacts?.filter(c => c.lifecycleStatus === 'Interesse Médio').length || 0;
+  const interesseBaixoCount = contacts?.filter(c => (c.lifecycleStatus === 'Interesse Baixo' || c.lifecycleStatus === 'lead' || !c.lifecycleStatus)).length || 0;
+
+  // 3. Prepare Chart Data
+  // Daily Usage (Last 30 days)
+  const last30Days = eachDayOfInterval({
+    start: subDays(new Date(), 29),
+    end: new Date(),
+  });
+
+  const dailyUsageData = last30Days.map(date => {
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const dayTokens = consumption?.filter(m =>
+      m.metricType === 'tokens' && format(new Date(m.timestamp), 'yyyy-MM-dd') === dateStr
+    ).reduce((acc, m) => acc + m.value, 0) || 0;
+
+    return {
+      date: format(date, 'dd/MM'),
+      tokens: dayTokens,
+    };
+  });
+
+  // Consumption by Agent
+  const consumptionByAgent = agents?.map(agent => {
+    const agentTokens = consumption?.filter(m => m.agentId === agent.id && m.metricType === 'tokens')
+      .reduce((acc, m) => acc + m.value, 0) || 0;
+    return {
+      agentName: agent.name,
+      tokens: agentTokens,
+    };
+  }).sort((a, b) => b.tokens - a.tokens).slice(0, 5) || [];
+
+  if (isLoading) {
+    return (
+      <MainLayout>
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Skeleton className="h-80 w-full" />
+            <Skeleton className="h-80 w-full" />
+          </div>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -31,72 +180,170 @@ export default function Index() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KPICard
               title="Conversas Ativas"
-              value={mockKPIs.activeConversations}
+              value={activeConversations}
               subtitle="Neste momento"
               icon={MessageSquare}
               variant="accent"
-              trend={{ value: 12, isPositive: true }}
+              trend={{ value: 0, isPositive: true }}
               onClick={() => navigate('/conversations')}
             />
-            
+
             <KPICard
               title="Consumo do Plano"
               value={`${consumptionPercentage.toFixed(0)}%`}
-              subtitle={`${(mockConsumption.llmTokens / 1000000).toFixed(2)}M de ${(mockConsumption.planLimit.llmTokens / 1000000)}M tokens`}
+              subtitle={`${(totalTokens / 1000).toFixed(0)}k de ${consumptionLimit >= 1000000 ? `${(consumptionLimit / 1000000).toFixed(0)}M` : `${(consumptionLimit / 1000).toFixed(0)}k`} tokens`}
               icon={BarChart3}
               variant={consumptionPercentage > 80 ? 'critical' : consumptionPercentage > 60 ? 'warning' : 'default'}
               onClick={() => navigate('/consumption')}
             />
-            
+
             <KPICard
-              title="Alertas Ativos"
-              value={mockKPIs.activeAlerts}
-              subtitle="Requerem atenção"
-              icon={Bell}
-              variant={mockKPIs.activeAlerts > 0 ? 'warning' : 'default'}
-              onClick={() => navigate('/alerts')}
+              title="AI Trust Score (Média)"
+              value={avgTrustScore}
+              subtitle={`Saúde: ${trustHealth.label} (${evaluations?.length || 0} auditorias)`}
+              icon={Zap}
+              variant={trustHealth.variant}
+              onClick={() => navigate('/quality')}
             />
-            
+
             <KPICard
               title="Taxa de Sucesso"
-              value={`${mockSuccessMetrics.overallSuccessRate}%`}
-              subtitle={`${mockSuccessMetrics.successfulConversations.toLocaleString()} resolvidas`}
+              value={`${successRate}%`}
+              subtitle={`${successfulConvs.length.toLocaleString()} resolvidas`}
               icon={CheckCircle2}
               variant="accent"
-              trend={{ value: 3.2, isPositive: true }}
-              onClick={() => navigate('/flows')}
+              trend={{ value: 0, isPositive: true }}
+              onClick={() => navigate('/quality')}
             />
           </div>
 
-          {/* Success Metrics Row */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="kpi-card">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Clock className="h-4 w-4" />
-                <span className="text-xs">Tempo Médio Resolução</span>
+          {/* Detailed Metrics Row */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="kpi-card flex flex-col justify-between cursor-pointer hover:border-destructive/50 transition-all group" onClick={() => navigate('/alerts')}>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <Bell className="h-4 w-4 text-warning" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Gestão de Incidentes</span>
+                  </div>
+                  <Badge variant="outline" className="text-destructive border-destructive/20 bg-destructive/5">Total: {totalIncidents}</Badge>
+                </div>
+
+                <div className="flex items-baseline gap-2">
+                  <p className="text-4xl font-bold text-destructive">{incidentsAbertos + incidentsInvestigando}</p>
+                  <span className="text-sm text-muted-foreground">Pendentes</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-2 border-t border-border/50">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-muted-foreground">Abertos</span>
+                      <span className="font-bold text-destructive">{incidentsAbertos}</span>
+                    </div>
+                    <Progress value={(incidentsAbertos / (totalIncidents || 1)) * 100} className="h-1 bg-destructive/10 [&>div]:bg-destructive" />
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-muted-foreground">Análise</span>
+                      <span className="font-bold text-warning">{incidentsInvestigando}</span>
+                    </div>
+                    <Progress value={(incidentsInvestigando / (totalIncidents || 1)) * 100} className="h-1 bg-warning/10 [&>div]:bg-warning" />
+                  </div>
+
+                  <div className="col-span-2 space-y-1">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="text-muted-foreground">Resolvidos</span>
+                      <span className="font-bold text-success">{incidentsResolvidos}</span>
+                    </div>
+                    <Progress value={(incidentsResolvidos / (totalIncidents || 1)) * 100} className="h-1 bg-success/10 [&>div]:bg-success" />
+                  </div>
+                </div>
               </div>
-              <p className="text-2xl font-bold">{(mockSuccessMetrics.avgTimeToResolution / 60).toFixed(1)}min</p>
             </div>
+
+            <div className="kpi-card flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Users className="h-4 w-4 text-primary" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Usuários Cadastrados</span>
+                </div>
+                <p className="text-4xl font-bold text-primary">{users?.length || 0}</p>
+                <p className="text-xs text-muted-foreground mt-1">Colaboradores vinculados à empresa</p>
+              </div>
+            </div>
+
+            <div className="kpi-card flex flex-col justify-between cursor-pointer hover:border-accent/50 transition-all group" onClick={() => navigate('/contacts')}>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <TrendingUp className="h-4 w-4 text-accent" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Base de Contatos</span>
+                  </div>
+                  <Badge variant="outline" className="text-success border-success/20 bg-success/5">+{newContactsThisWeek} sem</Badge>
+                </div>
+
+                <div className="flex items-baseline gap-2">
+                  <p className="text-4xl font-bold text-accent">{totalContacts}</p>
+                  <span className="text-sm text-muted-foreground">Contatos</span>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-border/50">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
+                      <span className="text-muted-foreground">Quentes</span>
+                    </div>
+                    <span className="font-bold">{leadQuenteCount}</span>
+                  </div>
+                  <Progress value={(leadQuenteCount / (totalContacts || 1)) * 100} className="h-1 bg-orange-500/10 [&>div]:bg-orange-500" />
+
+                  <div className="flex items-center justify-between text-[10px]">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      <span className="text-muted-foreground">Médio</span>
+                    </div>
+                    <span className="font-bold">{interesseMedioCount}</span>
+                  </div>
+                  <Progress value={(interesseMedioCount / (totalContacts || 1)) * 100} className="h-1 bg-blue-500/10 [&>div]:bg-blue-500" />
+                </div>
+              </div>
+            </div>
+
+            <div className="kpi-card flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-muted-foreground mb-1">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Tempo Médio Resolução</span>
+                </div>
+                <p className="text-4xl font-bold">{avgResTimeMin}min</p>
+                <p className="text-xs text-muted-foreground mt-1">Média de conversas finalizadas</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Legacy General Metrics Row (Consolidated) */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="kpi-card">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Users className="h-4 w-4" />
+                <Bot className="h-4 w-4" />
                 <span className="text-xs">Intervenções Humanas</span>
               </div>
-              <p className="text-2xl font-bold">{mockSuccessMetrics.humanInterventions.toLocaleString()}</p>
+              <p className="text-2xl font-bold">{humanInterventions.toLocaleString()}</p>
             </div>
             <div className="kpi-card">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <Workflow className="h-4 w-4" />
-                <span className="text-xs">Fluxos Ativos</span>
+                <span className="text-xs">Agentes em Produção</span>
               </div>
-              <p className="text-2xl font-bold">{mockSuccessMetrics.byFlow.length}</p>
+              <p className="text-2xl font-bold">{agents?.filter(a => a.lifecycleStage === 'production').length || 0}</p>
             </div>
             <div className="kpi-card">
               <div className="flex items-center gap-2 text-muted-foreground mb-1">
                 <TrendingUp className="h-4 w-4" />
-                <span className="text-xs">Total Conversas</span>
+                <span className="text-xs">Total Conversas (Mês)</span>
               </div>
-              <p className="text-2xl font-bold">{mockSuccessMetrics.totalConversations.toLocaleString()}</p>
+              <p className="text-2xl font-bold">{totalConversations.toLocaleString()}</p>
             </div>
           </div>
 
@@ -105,24 +352,24 @@ export default function Index() {
             {/* Usage Over Time */}
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Consumo nos Últimos 30 Dias</h3>
-                <Badge variant="secondary">Janeiro 2026</Badge>
+                <h3 className="font-semibold">Consumo nos Últimos 30 Dias (Tokens)</h3>
+                <Badge variant="secondary">{format(new Date(), 'MMMM yyyy', { locale: ptBR })}</Badge>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={mockConsumption.dailyUsage}>
+                  <LineChart data={dailyUsageData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="hsl(var(--muted-foreground))" 
-                      fontSize={12}
+                    <XAxis
+                      dataKey="date"
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={10}
                       tickLine={false}
                     />
-                    <YAxis 
-                      stroke="hsl(var(--muted-foreground))" 
-                      fontSize={12}
+                    <YAxis
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={10}
                       tickLine={false}
-                      tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+                      tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
                     />
                     <Tooltip
                       contentStyle={{
@@ -132,10 +379,10 @@ export default function Index() {
                       }}
                       labelStyle={{ color: 'hsl(var(--foreground))' }}
                     />
-                    <Line 
-                      type="monotone" 
-                      dataKey="tokens" 
-                      stroke="hsl(var(--accent))" 
+                    <Line
+                      type="monotone"
+                      dataKey="tokens"
+                      stroke="hsl(var(--accent))"
                       strokeWidth={2}
                       dot={false}
                     />
@@ -148,7 +395,7 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Consumo por Agente</h3>
-                <button 
+                <button
                   className="text-sm text-accent hover:underline"
                   onClick={() => navigate('/consumption')}
                 >
@@ -157,22 +404,22 @@ export default function Index() {
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mockConsumption.byAgent} layout="vertical">
+                  <BarChart data={consumptionByAgent} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis 
-                      type="number" 
-                      stroke="hsl(var(--muted-foreground))" 
-                      fontSize={12}
+                    <XAxis
+                      type="number"
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={10}
                       tickLine={false}
-                      tickFormatter={(value) => `${(value / 1000000).toFixed(1)}M`}
+                      tickFormatter={(value) => value >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
                     />
-                    <YAxis 
-                      type="category" 
-                      dataKey="agentName" 
-                      stroke="hsl(var(--muted-foreground))" 
-                      fontSize={12}
+                    <YAxis
+                      type="category"
+                      dataKey="agentName"
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={10}
                       tickLine={false}
-                      width={120}
+                      width={100}
                     />
                     <Tooltip
                       contentStyle={{
@@ -196,7 +443,7 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Agentes Ativos</h3>
-                <button 
+                <button
                   className="text-sm text-accent hover:underline"
                   onClick={() => navigate('/agents')}
                 >
@@ -204,9 +451,9 @@ export default function Index() {
                 </button>
               </div>
               <div className="space-y-3">
-                {mockAgents.filter(a => a.status === 'active').slice(0, 4).map((agent) => (
-                  <div 
-                    key={agent.id} 
+                {agents?.filter(a => a.status === 'active').slice(0, 4).map((agent) => (
+                  <div
+                    key={agent.id}
                     className="flex items-center justify-between p-3 bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
                     onClick={() => openSlideOver('agent-config', agent)}
                   >
@@ -214,14 +461,17 @@ export default function Index() {
                       <div className="w-8 h-8 bg-accent/10 flex items-center justify-center">
                         <Bot className="h-4 w-4 text-accent" />
                       </div>
-                      <div>
-                        <p className="font-medium text-sm">{agent.name}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-sm truncate">{agent.name}</p>
                         <p className="text-xs text-muted-foreground">{agent.activeConversations} ativas</p>
                       </div>
                     </div>
-                    <div className="status-dot status-online" />
+                    <div className={`status-dot ${agent.status === 'active' ? 'status-online' : 'status-offline'}`} />
                   </div>
                 ))}
+                {(!agents || agents.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum agente ativo</p>
+                )}
               </div>
             </div>
 
@@ -229,7 +479,7 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Alertas Recentes</h3>
-                <button 
+                <button
                   className="text-sm text-accent hover:underline"
                   onClick={() => navigate('/alerts')}
                 >
@@ -237,21 +487,24 @@ export default function Index() {
                 </button>
               </div>
               <div className="space-y-3">
-                {mockAlerts.slice(0, 3).map((alert) => (
-                  <div 
-                    key={alert.id} 
+                {incidents?.slice(0, 3).map((alert) => (
+                  <div
+                    key={alert.id}
                     className="flex items-start gap-3 p-3 bg-muted"
                   >
-                    <div className={`w-2 h-2 mt-1.5 ${
-                      alert.type === 'critical' ? 'bg-destructive' :
-                      alert.type === 'warning' ? 'bg-warning' : 'bg-info'
-                    }`} />
+                    <div className={`w-2 h-2 mt-1.5 flex-shrink-0 ${alert.severity === 'critical' ? 'bg-destructive' :
+                      alert.severity === 'high' ? 'bg-orange-500' :
+                        alert.severity === 'medium' ? 'bg-warning' : 'bg-info'
+                      }`} />
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-sm truncate">{alert.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">{alert.message}</p>
+                      <p className="text-xs text-muted-foreground truncate">{alert.description}</p>
                     </div>
                   </div>
                 ))}
+                {(!incidents || incidents.length === 0) && (
+                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum alerta recente</p>
+                )}
               </div>
             </div>
 
@@ -259,57 +512,44 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Uso do Plano</h3>
-                <Badge variant="secondary">Enterprise</Badge>
+                <Badge variant="secondary" className="capitalize">{currentTenant?.plan || 'Flex'}</Badge>
               </div>
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span>Tokens LLM</span>
                     <span className="text-muted-foreground">
-                      {((mockConsumption.llmTokens / mockConsumption.planLimit.llmTokens) * 100).toFixed(0)}%
+                      {consumptionPercentage.toFixed(0)}%
                     </span>
                   </div>
-                  <Progress 
-                    value={(mockConsumption.llmTokens / mockConsumption.planLimit.llmTokens) * 100} 
+                  <Progress
+                    value={consumptionPercentage}
                     className="h-2"
                   />
                 </div>
-                
+
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span>Mensagens</span>
                     <span className="text-muted-foreground">
-                      {((mockConsumption.messagesProcessed / mockConsumption.planLimit.messages) * 100).toFixed(0)}%
+                      {Math.min(((consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0) / (limits.messages || 50000)) * 100, 100).toFixed(0)}%
                     </span>
                   </div>
-                  <Progress 
-                    value={(mockConsumption.messagesProcessed / mockConsumption.planLimit.messages) * 100} 
+                  <Progress
+                    value={((consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0) / (limits.messages || 50000)) * 100}
                     className="h-2"
                   />
                 </div>
-                
+
                 <div>
                   <div className="flex justify-between text-sm mb-1">
-                    <span>STT (minutos)</span>
+                    <span>Voz (STT/TTS)</span>
                     <span className="text-muted-foreground">
-                      {((mockConsumption.sttMinutes / mockConsumption.planLimit.sttMinutes) * 100).toFixed(0)}%
+                      {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 600)) * 100, 100).toFixed(0)}%
                     </span>
                   </div>
-                  <Progress 
-                    value={(mockConsumption.sttMinutes / mockConsumption.planLimit.sttMinutes) * 100} 
-                    className="h-2"
-                  />
-                </div>
-                
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>TTS (minutos)</span>
-                    <span className="text-muted-foreground">
-                      {((mockConsumption.ttsMinutes / mockConsumption.planLimit.ttsMinutes) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <Progress 
-                    value={(mockConsumption.ttsMinutes / mockConsumption.planLimit.ttsMinutes) * 100} 
+                  <Progress
+                    value={((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 600)) * 100}
                     className="h-2"
                   />
                 </div>

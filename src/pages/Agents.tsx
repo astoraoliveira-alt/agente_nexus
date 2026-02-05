@@ -114,7 +114,7 @@ export default function Agents() {
       if (editingAgent) {
         // Update
         const updated = await api.updateAgent(editingAgent.id, formData);
-        setAgents(prev => prev.map(a => a.id === updated.id ? updated : a));
+        setAgents(prev => prev.map(a => a.id === updated.id ? { ...a, ...updated } : a));
         toast.success('Agente atualizado com sucesso');
       } else {
         // Create

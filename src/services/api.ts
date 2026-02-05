@@ -1,6 +1,5 @@
-
 import { supabase } from '@/lib/supabase';
-import { Agent, Company, ConversationalFlow, User, Conversation } from '@/lib/types';
+import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact } from '@/lib/types';
 
 // =============================================
 // AUTH & CONTEXT (BOOT)
@@ -10,15 +9,26 @@ export const api = {
     // Simulating Auth by fetching the first Super Admin or specific email
     // In real app, Supabase Auth handles this.
     async getInitialUser(): Promise<User | null> {
-        // Fallback: Try to fetch Super Admin if no ID is provided (legacy boot)
-        const { data, error } = await supabase
+        // 1. Try to find an Operator first (Best for Demo/Support View)
+        let { data, error } = await supabase
             .from('users')
             .select('*')
-            .eq('role', 'super_admin')
+            .eq('role', 'operator')
+            .eq('is_active', true)
             .limit(1)
             .single();
 
-        if (error) return null;
+        // 2. Fallback to Super Admin if no operator found
+        if (!data) {
+            ({ data, error } = await supabase
+                .from('users')
+                .select('*')
+                .eq('role', 'super_admin')
+                .limit(1)
+                .single());
+        }
+
+        if (error || !data) return null;
 
         return {
             ...data,
@@ -76,55 +86,257 @@ export const api = {
     },
 
     async getTenant(tenantId: string): Promise<Company | null> {
-        const { data, error } = await supabase
+        // 1. Fetch Company
+        const { data: company, error: companyError } = await supabase
             .from('companies')
             .select('*')
             .eq('id', tenantId)
             .single();
 
-        if (error) {
-            console.error('Error fetching tenant:', error);
+        if (companyError || !company) {
+            console.error('Error fetching tenant:', companyError);
             return null;
         }
 
+        // 2. Fetch Plan Prices (Separate to be resilient to join issues)
+        const { data: plan } = await supabase
+            .from('plans')
+            .select('*')
+            .eq('id', company.plan_tier)
+            .single();
+
         return {
-            ...data,
-            planId: data.plan_tier, // Mapping for compatibility
-            createdAt: new Date(data.created_at),
-            limits: data.plan_details?.limits || {},
-            settings: data.privacy_settings || {}
+            ...company,
+            planId: company.plan_tier,
+            createdAt: new Date(company.created_at),
+            planDetails: company.plan_details, // Fix: Map DB snake_case to CamelCase
+            limits: company.plan_details?.limits || {},
+            settings: company.privacy_settings || {},
+            planName: plan?.name, // Fix: Map Plan Name
+            planPrices: plan ? {
+                basePrice: Number(plan.base_price),
+                llmTokenPrice: Number(plan.llm_token_price),
+                messagePrice: Number(plan.message_price),
+                sttMinutePrice: Number(plan.stt_minute_price),
+                ttsMinutePrice: Number(plan.tts_minute_price)
+            } : undefined
         } as unknown as Company;
+    },
+
+    // =============================================
+    // PLANS
+    // =============================================
+    async getPlans(): Promise<PlanCatalog[]> {
+        const { data, error } = await supabase
+            .from('plans')
+            .select('*')
+            .order('base_price', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching plans:', error);
+            return [];
+        }
+
+        return data.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            type: p.type,
+            description: p.description,
+            basePrice: Number(p.base_price),
+            llmTokenPrice: Number(p.llm_token_price),
+            messagePrice: Number(p.message_price),
+            sttMinutePrice: Number(p.stt_minute_price),
+            ttsMinutePrice: Number(p.tts_minute_price),
+            defaultLimits: p.default_limits
+        }));
+    },
+
+    async createPlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
+        const dbPlan = {
+            id: plan.id,
+            name: plan.name,
+            type: plan.type,
+            description: plan.description,
+            base_price: plan.basePrice,
+            llm_token_price: plan.llmTokenPrice,
+            message_price: plan.messagePrice,
+            stt_minute_price: plan.sttMinutePrice,
+            tts_minute_price: plan.ttsMinutePrice,
+            default_limits: plan.defaultLimits,
+            updated_at: new Date()
+        };
+
+        const { data, error } = await supabase
+            .from('plans')
+            .insert(dbPlan)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error creating plan:', error);
+            return null;
+        }
+
+        return plan;
+    },
+
+    async updatePlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
+        const dbPlan = {
+            name: plan.name,
+            type: plan.type,
+            description: plan.description,
+            base_price: plan.basePrice,
+            llm_token_price: plan.llmTokenPrice,
+            message_price: plan.messagePrice,
+            stt_minute_price: plan.sttMinutePrice,
+            tts_minute_price: plan.ttsMinutePrice,
+            default_limits: plan.defaultLimits,
+            updated_at: new Date()
+        };
+
+        const { error } = await supabase
+            .from('plans')
+            .update(dbPlan)
+            .eq('id', plan.id);
+
+        if (error) {
+            console.error('Error updating plan:', error);
+            return null;
+        }
+
+        return plan;
     },
 
     // =============================================
     // AGENTS
     // =============================================
+    async getCompanies(): Promise<(Company & { _count?: { agents: number; users: number; tokens: number } })[]> {
+        const { data, error } = await supabase
+            .rpc('get_companies_overview');
+
+        if (error) {
+            console.error('Error fetching companies overview:', error);
+            return [];
+        }
+
+        return data.map((c: any) => ({
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            status: c.status,
+            planId: c.plan_tier,
+            createdAt: new Date(c.created_at),
+            limits: c.plan_details?.limits || {},
+            settings: c.privacy_settings || {},
+            plan: c.plan_tier, // Use the ID directly, legacy mapping was causing 'free' fallback
+            planName: c.plan_name || 'Free', // The real name from the DB
+            privacySettings: c.privacy_settings || {},
+            planPrices: c.plan_prices || {}, // New Field
+            _count: {
+                agents: c.agents_count || 0,
+                users: c.users_count || 0,
+                tokens: c.total_tokens || 0,
+                messages: c.total_messages || 0 // New Field
+            }
+        })) as unknown as (Company & { _count: { agents: number; users: number; tokens: number; messages: number }; planPrices: any })[];
+    },
+
+    async createCompany(company: Partial<Company>): Promise<Company | null> {
+        const dbCompany = {
+            name: company.name,
+            slug: company.slug,
+            plan_tier: company.planId,
+            status: company.status,
+            plan_details: { limits: company.limits },
+            privacy_settings: company.privacySettings || company.settings
+            // created_at is default now()
+        };
+
+        const { data, error } = await supabase
+            .from('companies')
+            .insert(dbCompany)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error creating company:', error);
+            throw error;
+        }
+
+        return { ...company, id: data.id } as Company;
+    },
+
+    async updateCompany(company: Partial<Company> & { id: string }): Promise<Company | null> {
+        // Prepare DB Payload
+        const dbCompany: any = {};
+        if (company.name) dbCompany.name = company.name;
+        if (company.slug) dbCompany.slug = company.slug;
+        if (company.planId) dbCompany.plan_tier = company.planId;
+        if (company.status) dbCompany.status = company.status;
+
+        // Handle Nested JSON Updates (Merge instead of Replace if possible, or just replace)
+        if (company.planDetails) dbCompany.plan_details = company.planDetails; // Sending full object back
+        if (company.privacySettings) dbCompany.privacy_settings = company.privacySettings;
+        if (company.settings) dbCompany.privacy_settings = company.settings;
+
+        const { error } = await supabase
+            .from('companies')
+            .update(dbCompany)
+            .eq('id', company.id);
+
+        if (error) {
+            console.error('Error updating company:', error);
+            throw error;
+        }
+
+        return company as Company;
+    },
+
+    async getAgentUsageStats(tenantId: string): Promise<any[]> {
+        const { data, error } = await supabase
+            .rpc('get_agent_usage_stats', { p_tenant_id: tenantId });
+
+        if (error) {
+            console.error('Error fetching agent usage stats:', error);
+            return [];
+        }
+
+        return data.map((u: any) => ({
+            agentId: u.agent_id,
+            totalTokens: Number(u.total_tokens),
+            totalCost: Number(u.total_cost)
+        }));
+    },
+
     async getAgents(tenantId: string): Promise<Agent[]> {
-        // 1. Fetch Agents
-        const { data: agentsData, error: agentsError } = await supabase
-            .from('agents')
-            .select('*')
-            .eq('tenant_id', tenantId)
-            .order('created_at', { ascending: false });
+        // 1. Fetch Agents and Tenant Info (for Plan Prices consistency)
+        const [{ data: agentsData, error: agentsError }, tenantInfo] = await Promise.all([
+            supabase
+                .from('agents')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .order('created_at', { ascending: false }),
+            this.getTenant(tenantId)
+        ]);
 
         if (agentsError) throw agentsError;
 
         // 2. Fetch Conversation Stats (Realtime Aggregation)
-        // Note: In high-scale prod, this should be a Materialized View or RPC
         const { data: conversationsData } = await supabase
             .from('conversations')
             .select('id, agent_id, status')
             .eq('tenant_id', tenantId);
 
-        // 3. Fetch Token Usage Stats (RPC)
-        let usageMap: Record<string, { tokens: number, cost: number }> = {};
+        // 3. Fetch Token & Message Usage Stats (RPC)
+        let usageMap: Record<string, any> = {};
         try {
             const { data: usageData, error: usageError } = await supabase
                 .rpc('get_agent_usage_stats', { p_tenant_id: tenantId });
 
             if (!usageError && usageData) {
                 usageData.forEach((u: any) => {
-                    usageMap[u.agent_id] = { tokens: u.total_tokens || 0, cost: u.total_cost || 0 };
+                    // Fields from updated RPC: total_tokens, total_messages, total_stt, total_tts, recorded_cost
+                    usageMap[u.agent_id] = u;
                 });
             }
         } catch (e) {
@@ -137,7 +349,21 @@ export const api = {
             const activeCount = agentConvs.filter((c: any) => c.status !== 'closed').length;
             const totalCount = agentConvs.length;
 
-            const usage = usageMap[dbAgent.id] || { tokens: 0, cost: 0 };
+            const u = usageMap[dbAgent.id] || { total_tokens: 0, total_messages: 0, recorded_cost: 0 };
+
+            // RE-CALCULATE COST (Sync with Consumption Dashboard logic)
+            let totalCost = 0;
+            const prices = tenantInfo?.planPrices;
+            const stage = dbAgent.lifecycle_stage || 'production';
+
+            if (prices && (stage === 'production' || stage === 'monitoring')) {
+                totalCost += (Number(u.total_tokens) / 1000) * (prices.llmTokenPrice || 0);
+                totalCost += Number(u.total_messages) * (prices.messagePrice || 0);
+                totalCost += Number(u.total_stt || 0) * (prices.sttMinutePrice || 0);
+                totalCost += Number(u.total_tts || 0) * (prices.ttsMinutePrice || 0);
+            } else {
+                totalCost = Number(u.recorded_cost || 0);
+            }
 
             return {
                 id: dbAgent.id,
@@ -145,25 +371,27 @@ export const api = {
                 tenantId: dbAgent.tenant_id,
                 status: dbAgent.status,
                 channels: dbAgent.channels || [],
-                totalConversations: totalCount, // Real aggregated count
-                activeConversations: activeCount, // Real aggregated count
+                totalConversations: totalCount,
+                activeConversations: activeCount,
                 maxConcurrentConversations: dbAgent.max_concurrency,
                 riskLevel: dbAgent.risk_level,
                 riskScore: dbAgent.risk_score,
                 lifecycleStage: dbAgent.lifecycle_stage,
                 autonomyLevel: dbAgent.autonomy_level,
                 policies: dbAgent.applied_policies || [],
-                brainConfig: dbAgent.brain_config,
+                brainConfig: {
+                    ...dbAgent.brain_config,
+                    // If budget_share_pct is set in DB but not in typed object, ensure it flows
+                    budgetSharePct: dbAgent.brain_config?.budget_share_pct
+                },
                 voiceConfig: dbAgent.voice_config,
-                // New Fields
                 type: dbAgent.type || 'conversational',
                 integrationConfig: dbAgent.integration_config || {},
                 // Usage Metrics
                 usage: {
-                    totalTokens: Number(usage.tokens),
-                    totalCost: Number(usage.cost)
+                    totalTokens: Number(u.total_tokens),
+                    totalCost: totalCost
                 },
-                // Legacy mapping (kept for backward compatibility if needed)
                 integration: {
                     voice_provider: dbAgent.voice_config?.provider === 'none' ? null : dbAgent.voice_config?.provider,
                     n8n_webhook_url: dbAgent.integration_config?.n8n_webhook_url || `https://n8n.webhook/${dbAgent.id}`
@@ -207,7 +435,13 @@ export const api = {
         if (updates.riskLevel) dbPayload.risk_level = updates.riskLevel;
         if (updates.lifecycleStage) dbPayload.lifecycle_stage = updates.lifecycleStage;
         if (updates.autonomyLevel) dbPayload.autonomy_level = updates.autonomyLevel;
-        if (updates.brainConfig) dbPayload.brain_config = updates.brainConfig;
+        if (updates.brainConfig) {
+            dbPayload.brain_config = {
+                ...updates.brainConfig,
+                // Ensure proper casing for DB if coming from frontend camelCase
+                budget_share_pct: (updates.brainConfig as any).budgetSharePct || updates.brainConfig.budget_share_pct
+            };
+        }
         if (updates.voiceConfig) dbPayload.voice_config = updates.voiceConfig;
         if (updates.type) dbPayload.type = updates.type;
         if (updates.integrationConfig) dbPayload.integration_config = updates.integrationConfig;
@@ -371,7 +605,11 @@ export const api = {
                     content: cleanContent,
                     timestamp: new Date(m.created_at || new Date()),
                     sender: m.sender_type as 'user' | 'ai' | 'human',
-                    type: m.message_type as 'text' | 'image' | 'audio'
+                    type: m.message_type as 'text' | 'image' | 'audio',
+                    // Fix: Map DB snake_case to Frontend camelCase
+                    audioUrl: m.audio_url,
+                    transcription: m.transcription,
+                    imageUrl: m.image_url
                 };
             }).sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime());
 
@@ -388,14 +626,15 @@ export const api = {
                 agentName: c.agents?.name || 'Agente Desconhecido',
                 agentType: c.agents?.type as any, // 'embedded' | 'whatsapp' ...
                 userId: c.user_identifier,
-                userName: c.user_name,
+                userName: c.user_name || 'Cliente Sem Nome',
                 channel: c.channel,
                 status: c.status,
                 assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
                 lastMessage: newestMessage?.content || '',
                 lastMessageTime: effectiveTime,
                 unreadCount: 0,
-                messages: sortedMessages
+                messages: sortedMessages,
+                createdAt: new Date(c.created_at)
             };
         }) as Conversation[];
     },
@@ -405,7 +644,8 @@ export const api = {
         const { data: conv } = await supabase
             .from('conversations')
             .select(`
-                tenant_id, 
+                tenant_id,
+                user_identifier,
                 agents (
                     type,
                     integration_config
@@ -458,7 +698,8 @@ export const api = {
                                 content: content,
                                 sender: 'human',
                                 sender_name: senderName,
-                                tenant_id: conv.tenant_id
+                                tenant_id: conv.tenant_id,
+                                recipient_phone: conv.user_identifier // Optimized: Send phone directly
                             })
                         }).catch(err => console.error('❌ N8N Webhook Error:', err));
                     } catch (e) {
@@ -498,6 +739,35 @@ export const api = {
         if (error) throw error;
     },
 
+    async closeConversation(conversationId: string): Promise<void> {
+        return this.updateConversationStatus(conversationId, 'closed');
+    },
+
+    async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]> {
+        const { data, error } = await supabase
+            .rpc('get_detailed_consumption', {
+                p_tenant_id: tenantId,
+                p_days: days
+            });
+
+        if (error) {
+            console.error('Error fetching consumption:', error);
+            return [];
+        }
+
+        return data.map((row: any) => ({
+            id: row.id,
+            agentId: row.agent_id,
+            agentName: row.agent_name || 'Agente Removido',
+            channel: row.channel,
+            metricType: row.metric_type,
+            value: Number(row.value), // Ensure number
+            cost: Number(row.cost),   // Ensure number
+            timestamp: new Date(row.recorded_at), // Corrected field
+            tenantId: tenantId
+        }));
+    },
+
     async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {
         // 1. Fetch current conversation to get Tenant ID for Audit
         const { data: conv } = await supabase.from('conversations').select('tenant_id, assigned_operator_id').eq('id', conversationId).single();
@@ -533,5 +803,240 @@ export const api = {
             // If returning to AI, actor is still the operator who clicked the button
             await this.logAudit(conv.tenant_id, operatorId, operatorName, auditAction, 'conversation', conversationId, auditDetails);
         }
-    }
+    },
+
+    // =============================================
+    // CONTACTS (CRM)
+    // =============================================
+    async getContacts(tenantId: string): Promise<Contact[]> {
+        const { data, error } = await supabase
+            .from('contacts')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching contacts:', error);
+            return [];
+        }
+
+        return data.map((c: any) => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            name: c.name,
+            identifier: c.identifier,
+            email: c.email,
+            phone: c.phone,
+            avatarUrl: c.avatar_url,
+            tags: c.tags,
+            channel: c.channel,
+            extraInfo: c.extra_info,
+            lifecycleStatus: c.lifecycle_status || 'lead',
+            createdAt: new Date(c.created_at),
+            updatedAt: new Date(c.updated_at)
+        })) as Contact[];
+    },
+
+    async createContact(contact: Partial<Contact>): Promise<Contact | null> {
+        // Prepare DB object
+        const dbContact = {
+            tenant_id: contact.tenantId,
+            name: contact.name,
+            identifier: contact.identifier, // Mandatory
+            email: contact.email,
+            phone: contact.phone,
+            avatar_url: contact.avatarUrl,
+            tags: contact.tags || [],
+            channel: contact.channel,
+            extra_info: contact.extraInfo || {}
+        };
+
+        const { data, error } = await supabase
+            .from('contacts')
+            .insert(dbContact)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error creating contact:', error);
+            throw error;
+        }
+
+        return {
+            id: data.id,
+            tenantId: data.tenant_id,
+            name: data.name,
+            identifier: data.identifier,
+            email: data.email,
+            phone: data.phone,
+            avatarUrl: data.avatar_url,
+            tags: data.tags,
+            extraInfo: data.extra_info,
+            createdAt: new Date(data.created_at)
+        } as Contact;
+    },
+
+    async updateContact(contactId: string, updates: Partial<Contact>): Promise<Contact | null> {
+        const dbUpdates: any = {};
+        if (updates.name) dbUpdates.name = updates.name;
+        if (updates.email) dbUpdates.email = updates.email;
+        if (updates.phone) dbUpdates.phone = updates.phone;
+        if (updates.avatarUrl) dbUpdates.avatar_url = updates.avatarUrl;
+        if (updates.tags) dbUpdates.tags = updates.tags;
+        if (updates.channel) dbUpdates.channel = updates.channel;
+        if (updates.extraInfo) dbUpdates.extra_info = updates.extraInfo;
+        if (updates.lifecycleStatus) dbUpdates.lifecycle_status = updates.lifecycleStatus;
+
+        const { data, error } = await supabase
+            .from('contacts')
+            .update(dbUpdates)
+            .eq('id', contactId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error updating contact:', error);
+            throw error;
+        }
+
+        return {
+            id: data.id,
+            tenantId: data.tenant_id,
+            name: data.name,
+            identifier: data.identifier,
+            email: data.email,
+            phone: data.phone,
+            avatarUrl: data.avatar_url,
+            tags: data.tags,
+            extraInfo: data.extra_info,
+            createdAt: new Date(data.created_at)
+        } as Contact;
+    },
+
+    async deleteContact(contactId: string): Promise<boolean> {
+        const { error } = await supabase
+            .from('contacts')
+            .delete()
+            .eq('id', contactId);
+
+        if (error) {
+            console.error('Error deleting contact:', error);
+            return false;
+        }
+        return true;
+    },
+
+    // =============================================
+    // QUALITY ASSURANCE (EVALUATIONS)
+    // =============================================
+    async getEvaluations(tenantId: string): Promise<import('@/lib/types').Evaluation[]> {
+        const { data, error } = await supabase
+            .from('evaluations')
+            .select('*, agents(name), conversations(created_at, user_name)')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false })
+            .limit(50); // Pagination in future
+
+        if (error) {
+            console.error('Error fetching evaluations:', error);
+            return [];
+        }
+
+        return data.map((e: any) => ({
+            id: e.id,
+            tenantId: e.tenant_id,
+            conversationId: e.conversation_id,
+            agentId: e.agent_id,
+            score: e.score,
+            summary: e.summary,
+            tags: e.tags || [],
+            criteriaResults: e.criteria_results || {},
+            aiModel: e.ai_model,
+            createdAt: new Date(e.created_at),
+            agentName: e.agents?.name,
+            conversationDate: e.conversations?.created_at ? new Date(e.conversations.created_at) : undefined
+        }));
+    },
+
+    async getEvaluationByConversation(conversationId: string): Promise<import('@/lib/types').Evaluation | null> {
+        const { data, error } = await supabase
+            .from('evaluations')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) {
+            console.error('Error fetching evaluation:', error);
+            return null;
+        }
+
+        if (!data) return null;
+
+        return {
+            id: data.id,
+            tenantId: data.tenant_id,
+            conversationId: data.conversation_id,
+            agentId: data.agent_id,
+            score: data.score,
+            summary: data.summary,
+            tags: data.tags || [],
+            criteriaResults: data.criteria_results || {},
+            aiModel: data.ai_model,
+            createdAt: new Date(data.created_at)
+        };
+    },
+
+    async triggerAudit(conversationId: string): Promise<boolean> {
+        const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
+        const finalUrl = baseUrl.endsWith('/audit-conversation') ? baseUrl : `${baseUrl}/audit-conversation`;
+
+        try {
+            const response = await fetch(finalUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    record: {
+                        id: conversationId
+                    }
+                })
+            });
+            return response.ok;
+        } catch (error) {
+            console.error('Error triggering audit:', error);
+            return false;
+        }
+    },
+
+    async getIncidents(tenantId: string): Promise<import('@/lib/types').AIIncident[]> {
+        const { data, error } = await supabase
+            .from('incidents')
+            .select('*, agents(name)')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching incidents:', error);
+            return [];
+        }
+
+        return data.map((i: any) => ({
+            id: i.id,
+            tenantId: i.tenant_id,
+            conversationId: i.conversation_id,
+            agentId: i.agent_id,
+            severity: i.severity,
+            title: i.title,
+            description: i.description,
+            status: i.status,
+            reportedBy: i.reported_by,
+            createdAt: new Date(i.created_at),
+            resolvedAt: i.resolved_at ? new Date(i.resolved_at) : undefined,
+            attachments: i.attachments || [],
+            agentName: i.agents?.name
+        }));
+    },
 };

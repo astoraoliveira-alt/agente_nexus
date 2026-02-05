@@ -1,306 +1,207 @@
-# Agent Nexus Hub - Documentação da Arquitetura da Aplicação
-
-> **DIRETIVA DE MANUTENÇÃO**
-> 🔴 **CRÍTICO:** Este documento serve como a única fonte da verdade para o conteúdo e arquitetura da aplicação.
-> **REGRA:** A cada nova implementação de funcionalidade, página, componente ou mudança lógica significativa, este documento DEVE ser atualizado para refletir o novo estado.
-> Falhar na atualização deste documento resultará em desvio arquitetural e é considerado uma violação de protocolo.
-
----
-
-## 1. Visão Geral e Propósito do Projeto
-
-**Agent Nexus Hub** é um Dashboard SaaS Enterprise projetado para o orquestramento e gerenciamento de agentes de IA conversacional.
-
-### Propósito do Aplicativo
-O sistema atua como uma "Torre de Controle" para operações de Inteligência Artificial, centralizando o gerenciamento de múltiplos agentes em um ambiente multitenant (multi-inquilino). Ele resolve a necessidade crítica de supervisão e configuração de IAs corporativas.
-
-**Objetivos Funcionais Principais:**
-1.  **Observabilidade em Tempo Real**: Monitoramento ao vivo de conversas entre agentes e usuários finais.
-2.  **Transbordo Humano (Human-in-the-Loop)**: Capacidade de operadores humanos assumirem o controle de conversas quando a IA falha ou quando solicitado.
-3.  **Governança e Conformidade (ISO AIMS)**: Gerenciamento centralizado de prompts, configurações de modelos e regras de conformidade (ISO 42001/23894) sem necessidade de deploy de código.
-4.  **Controle Financeiro**: Monitoramento detalhado de consumo de tokens, custos por agente/departamento e alertas de limites.
-5.  **Segurança e Acesso**: Sistema robusto de RBAC (Controle de Acesso Baseado em Função) para gerenciar quem pode ver ou editar agentes e dados sensíveis.
-
-### Stack Tecnológico
-
-- **Framework**: React (Vite)
-- **Linguagem**: TypeScript
-- **Estilização**: Tailwind CSS v4 (Mobile-first, Utility-first)
-- **Componentes UI**: Shadcn UI (Baseado em Radix Primitives)
-- **Gerenciamento de Estado**: 
-  - *Servidor*: React Query (TanStack Query) - para cache e sincronização de dados.
-  - *Global*: React Context (`AppProvider`) - para estados de UI globais (ex: tema, sidebar).
-- **Roteamento**: React Router DOM
-- **Ícones**: Lucide React
+# Agent Nexus Hub - Documentação da Arquitetura (Completa & Detalhada)
+> **Última Atualização:** 04/Fev/2026/17:35
+> **Versão:** 4.0 (Schema Alignment & N8N Contract)
+> **Status:** Mestre (Fonte Única da Verdade)
+> **Fonte Primária:** `database/schema.sql`
 
 ---
 
-## 2. Princípios Arquiteturais e Contexto do Sistema
+## 1. Visão Geral e Estratégia de Produto
 
-Conforme o **SYSTEM CONTEXT** vigente e a implementação realizada, o sistema é uma **Torre de Controle de IA Corporativa Multi-Tenant**. A arquitetura não é apenas conceitual: ela impõe isolamento estrito de dados e comportamento baseado no contexto da organização ativa.
+**Davos Nexus** é uma plataforma SaaS Enterprise ("AI Control Tower") projetada para orquestração, monitoramento seguro e governança de agentes de IA em escala.
 
-### 2.1 Modelo Mental Obrigatório (Hierarquia & Contexto)
+### 1.1 Missão do Sistema
+Resolver a fragmentação do uso de IA corporativa, oferecendo um ponto único para gerenciar IAs que operam no WhatsApp, Telefonia (Voz) e Web, garantindo compliance (ISO 42001 e LGPD) e controle financeiro.
 
-O sistema opera sob um modelo hierárquico rígido onde **o contexto define o dado**.
-
-```mermaid
-graph TD
-    Davos[Davos Plataforma] -->|Super Admin| Tenants[Gestão de Tenants]
-    Tenants -->|Context Switch| TenantA[Empresa A - Contexto Ativo]
-    Tenants --> TenantB[Empresa B - Isolada]
-    
-    subgraph Contexto Operacional [Empresa Ativa]
-        Users[Usuários & RBAC]
-        Agents[Agentes de IA]
-        Governance[Governança & Riscos]
-        Conversations[Conversas & Logs]
-    end
-    
-    TenantA --> Users
-    TenantA --> Agents
-    TenantA --> Governance
-    TenantA --> Conversations
-```
-
-**Regras Absolutas de Isolamento:**
-1.  **Nada é Global:** Exceto o Super Admin e Templates de Sistema.
-2.  **Contexto é Rei:** Toda query de dados, visualização ou ação é filtrada pelo `currentTenant`.
-3.  **Impersonation (Operar Como):** Super Admins podem "entrar" na visão de uma empresa (`/companies` -> "Acessar Ambiente"). O sistema muda visualmente (Header Âmbar) para indicar que o operador está agindo em nome do cliente.
-
-### 2.2 Entidades Core e Definições
-
-#### A. Empresas (Tenants)
-A entidade raiz. Define limites de plano, consumo e configurações globais.
-- **Implementação**: `TenantContext` armazena o ID da empresa ativa.
-- **Troca de Contexto**: Ação explícita que recarrega a aplicação com novos dados.
-
-#### B. Usuários e RBAC (Role-Based Access Control)
-Usuários são estritamente vinculados a **um Tenant** e possuem **um Perfil** dentro dele.
-- **Isolamento**: Um usuário da Empresa A não existe no contexto da Empresa B.
-- **Perfis Implementados**:
-    - **Sistema (Globais)**: Super Admin (Davos).
-    - **Tenant (Locais)**: 
-        - *Admin*: Gestão total da empresa.
-        - *Operador*: Atendimento (`/conversations`), sem gestão.
-        - *Visualizador*: Apenas leitura.
-- **Mecânica**: A UI se adapta dinamicamente (oculta menus/ações) baseada nas permissões do perfil ativo.
-
-#### C. Governança de IA (Sistema Nervoso)
-A governança não é um módulo isolado, é uma camada transversal que dita o comportamento dos agentes.
-- **Políticas**: Regras associadas a agentes (ex: "Protocolo de Erro", "Bloqueio de PII").
-- **Níveis de Risco**: Cada agente possui um `riskLevel` (Baixo, Médio, Alto) visível na listagem.
-- **Logs de Decisão (`/decision-logs`)**: Rastreabilidade completa. Cada ação da IA gera um log ligando:
-  `Decisão` -> `Agente` -> `Política Aplicada` -> `Autonomia Usada`.
-
-#### D. Fluxos e Agentes
-- **Agentes**: Possuem "crachá" de risco, lista de politicas ativas e estágio de ciclo de vida (ISO 42001).
-- **Fluxos**: Jornadas estruturadas que respeitam as mesmas políticas do agente executor.
-
-#### E. Responsáveis (Accountability)
-Novas entidades que garantem a conformidade ISO:
-
-### 2.3 Governança de Dados e Persistência (Supabase)
-
-> 🔴 **REGRA DE OURO:** Toda alteração de estrutura de dados deve ser refletida no arquivo de schema canônico.
-
-1.  **Provedor Oficial**: O banco de dados oficial da plataforma é **Supabase** (PostgreSQL).
-2.  **Source of Truth do Schema**: O arquivo `database/schema.sql` é a **ÚNICA** fonte da verdade para a estrutura do banco de dados.
-    *   **Proibido**: Criar tabelas ou colunas diretamente no dashboard do Supabase sem atualizar este arquivo.
-    *   **Obrigatório**: Qualquer PR ou alteração que envolva banco de dados DEVE incluir a atualização correspondente no `database/schema.sql`.
-    *   **Propósito**: Garantir que o ambiente de desenvolvimento, staging e produção estejam sempre sincronizados e documentados.
-3.  **Fluxo de Migração**:
-    *   Desenvolvimento: Altere o `database/schema.sql`.
-    *   Aplicação: Aplique as mudanças no Supabase via Migration ou SQL Editor copiando do arquivo.
-4.  **Estado Atual da Integração (Fev/2026)**:
-    *   **Autenticação**: Integrada (Login via DB).
-    *   **Agentes & Stats**: Integrados (Cálculo Real-time via `conversations`).
-    *   **Usuários & Perfis**: Integrados (Listagem e Contagem Real).
-    *   **Conversas**: Integradas (Chat Real-time).
-
-- **System Owner**, **Risk Owner**, **Compliance Responsible**.
-- Vinculados ao Tenant para garantir que sempre haja um CPF responsável por cada IA operante.
+### 1.2 Arquitetura Multi-Tenant
+O sistema opera sob isolamento estrito de dados (Row Level Security - RLS).
+- **Tenant (Empresa):** A unidade atômica de isolamento. Todos os queries SQL filtram por `tenant_id`.
+- **Hierarquia de Usuários:**
+  - **Super Admin (Davos):** Visão global, capacidade de "impersonate" (entrar em tenants).
+  - **Tenant Admin:** Gestão total do ambiente da sua empresa.
+  - **Operador:** Focado em atendimento humano (HITL - Human in the Loop).
+  - **Visualizador:** Apenas leitura de dashboards.
 
 ---
 
-## 3. Arquitetura de Persistência e Integração (Backend-as-Source-of-Truth)
+## 2. Stack Tecnológico & Arquitetura de Camadas
 
-> 🔴 **PRINCÍPIO FUNDAMENTAL:** O N8N deve operar sempre como executor sem estado próprio. O Banco de Dados do Davos Nexus é a **Única Fonte de Verdade**. Frontend NUNCA envia configurações de negócio para o N8N.
+A arquitetura elimina a camada tradicional de API Node.js (Middleware CRUD) em favor de um modelo **BaaS (Backend-as-a-Service)** com lógica no banco.
 
-### 3.1 O que DEVE ser persistido (Obrigatório)
-
-Toda configuração que afeta o comportamento, custo ou risco da operação deve residir no banco de dados da plataforma, e não no fluxo do N8N.
-
-| Categoria | Dados Obrigatórios no DB | Proibido no Payload Externo |
+| Camada | Tecnologia | Detalhes Técnicos |
 | :--- | :--- | :--- |
-| **Tenant** | Plano, Limites, Orçamento, Política de Overage, SLA, LGPD Settings, ISO Status | Limites, Flags de Overage |
-| **Agente** | System Prompt, Risk Level, Risk Score, Autonomy Level, Lifecycle Stage, Linked Flows, Policies | Prompt, Regras de Autonomia |
-| **Fluxo** | Estágios, Objetivos, Critérios de Sucesso, Escalation Rules, Outcomes | Definição de Etapas |
-| **Consumo** | Tokens (Agent/Flow/Global), Custos, Saldos | Cálculo de Custo |
-
-### 3.2 Papel do N8N (Stateless Executor)
-
-O N8N atua como um "Air Traffic Controller" burro. Ele não decide, ele executa o que o contexto determina.
-
-1.  **Recebe Evento**: (Message/Call) com IDs mínimos.
-2.  **Busca Contexto**: Chama `POST /internal/agents/context` no Davos Nexus.
-3.  **Recebe Config**: Recebe o Prompt, Risco, Políticas e Estado atual.
-4.  **Executa**: Envia para LLM e devolve output.
-5.  **Reporta**: Devolve o Log de Decisão para o Nexus.
-
-### 3.3 Contrato Estrito de Entrada (Input)
-A única coisa que o mundo externo (WhatsApp, Retell) pode enviar para o sistema são **IDENTIFICADORES**.
-
-```json
-{
-  "tenant_slug": "empresa-alfa",
-  "agent_slug": "suporte-acesso",
-  "conversation_id": "uuid",
-  "channel": "whatsapp"
-  // Payload técnico (mensagem, áudio) é permitido.
-  // Configuração de negócio é PROIBIDA.
-}
-```
-
-### 3.4 Contrato de Busca de Contexto (Context Fetch)
-O N8N deve obrigatoriamente "hidratar" sua execução chamando a plataforma.
-
-**Request (N8N -> Nexus):**
-```json
-POST /internal/agents/context
-{
-  "tenant_slug": "empresa-alfa",
-  "agent_slug": "suporte-acesso",
-  "channel": "whatsapp",
-  "user_id": "client-phone-number"
-}
-```
-
-**Response (Nexus -> N8N):**
-```json
-{
-  "agent_config": {
-    "system_prompt": "Você é um assistente...",
-    "model_id": "gpt-4o",
-    "temperature": 0.5,
-    "autonomy_level": 4
-  },
-  "tenant_config": {
-    "plan_tier": "enterprise",
-    "privacy": { "anonymization": true }
-  },
-  "flow_contract": {
-    "current_stage": "qualification",
-    "expected_outcome": "obter_cpf"
-  },
-  "governance": {
-    "risk_level": "medium",
-    "policies": ["block_pii", "no_competitor_mention"]
-  }
-}
-```
+| **Frontend** | React 18 + Vite | SPA. Estado via TanStack Query. Interfaces via Shadcn/UI. |
+| **Persistência** | PostgreSQL 15+ | Supabase (Hosted). Tabelas relacionais e JSONB. Single Source of Truth. |
+| **Regras (Backend)** | PL/pgSQL RPCs | Funções atômicas para lógica crítica (Billing, CRM, Auth). |
+| **Executor** | N8N (Self-Hosted) | Middleware Stateless. Conecta LLMs e Canais (WhatsApp/Retell). |
+| **IA (Inference)** | OpenAI / Anthropic | Modelos LLM chamados exclusivamente pelo N8N. |
 
 ---
 
-## 4. Segurança, ISO e LGPD
+## 3. Alinhamento Documentação ↔ Banco de Dados
 
-### 4.1 Princípio da Minimização (LGPD)
-- **Requisições Externas**: Carregam apenas IDs opacos sempre que possível.
-- **Configuração Sensível**: Prompts do sistema (que podem conter segredos de negócio) e regras de compliance NUNCA transitam em webhooks públicos, apenas na resposta autenticada do `/context`.
+Referência direta às entidades do `database/schema.sql`.
 
-### 4.2 Governança ISO 42001 / 23894
-A arquitetura garante a separação de deveres:
-
-1.  **Nexus (Governança)**: Define *quem* pode fazer *o quê* e *como*. Mantém o registro imutável.
-2.  **N8N (Orquestração)**: Executa a ação técnica.
-3.  **Frontend (Interface)**: Apenas reflete o estado do banco. **Não contém lógica de negócio**.
-
----
-
-## 5. Aderência Normativa ISO de IA (ISO-READY)
-
-Esta seção formaliza como a arquitetura do Davos Nexus suporta nativamente os requisitos de auditoria.
-
-### 5.1 Responsabilidade e Accountability (ISO/IEC 42001)
-A plataforma impõe a definição de "donos" para cada sistema de IA. Sem dono, a IA não opera.
-
-- **AI System Owner**: Executivo responsável pelo caso de uso (ex: Diretor de Vendas).
-- **AI Risk Owner**: Responsável pela avaliação e mitigação de riscos (ex: CISO/Compliance).
-- **AI Compliance Responsible**: Garante que o uso está dentro das leis locais (LGPD/GDPR).
-
-**Evidência Técnica**: Objeto `AIResponsibles` vinculado à entidade `Company`.
-
-### 5.2 Ciclo de Vida do Agente (AI Lifecycle)
-Todo agente passa por estágios formais de governança, não apenas "ligado/desligado".
-
-| Estágio | Descrição | Permissões |
-|---------|-----------|------------|
-| **Development** | Criação de prompts e testes iniciais. | Sandbox apenas. |
-| **Validation** | Testes de carga e verificação de red-teaming. | Usuários de teste. |
-| **Production** | Operação aberta com monitoramento ativo. | Usuários finais. |
-| **Monitoring** | Estado pós-incidente ou revisão periódica. | Limites reduzidos. |
-| **Retired** | Desativado, mas mantido para histórico/auditoria. | Nenhuma operação. |
-
-**Evidência Técnica**: Campo `lifecycleStage` no `AgentGovernance`.
-
----
-
-## 6. Arquitetura de Conformidade LGPD (Brazil Ready)
-
-### 6.1 Classificação e Papéis
-- **Controlador**: O Cliente (Tenant).
-- **Operador**: A Plataforma Davos Nexus.
-- **Encarregado (DPO)**: Usuário designado no Tenant (`LGPDSettings`).
-
-### 6.2 Ciclo de Vida do Dado Pessoal
-1.  **Coleta**: Classificada na origem (`channel_event`).
-2.  **Retenção**: Definida por política do Tenant (ex: 90 dias).
-3.  **Direitos (DSAR)**: Suporte a `deletion`, `anonymization` e `export` via API interna.
-
----
-
-## 7. Estrutura de Diretórios
-
-O projeto segue uma estrutura moderna e modular de aplicações React:
-
-```mermaid
-graph TD
-    Root --> .agent[/.agent (Agentes & Skills - Cérebro da IA)]
-    Root --> src[/src]
-    src --> components[/components (UI & Funcionalidades)]
-    src --> contexts[/contexts (Estado Global)]
-    src --> hooks[/hooks (React Hooks Customizados)]
-    src --> lib[/lib (Utilitários & Tipagem)]
-    lib --> agent-logic.ts[agent-logic.ts (Regras Funcionais de IA)]
-    src --> pages[/pages (Visualizações de Rota)]
-    src --> App.tsx[App.tsx (Configuração de Rotas)]
-    src --> main.tsx[main.tsx (Ponto de Entrada)]
-```
-
----
-
-## 20. Arquitetura de Endpoints por Agente (Unique API Links)
-
-O Agent Nexus Hub adota o padrão **One Agent, One Endpoint**. Isso garante isolamento, rastreabilidade e facilidade de integração via N8N.
-
-### 20.1 Padrão de URL (Webhooks N8N)
-Cada agente possui endpoints automáticos gerados pelo sistema seguindo o namespace corporativo:
-
-| Canal | URL Sample | Finalidade |
+### 3.1 Entidades Core (Tenancy & Acesso)
+| Entidade (`table`) | Propósito Funcional | Governança & Relação |
 | :--- | :--- | :--- |
-| **WhatsApp/Texto** | `.../{tenant_slug}/{agent_id}/message.received` | Receber mensagens de texto. |
-| **Voz (Retell)** | `.../{tenant_slug}/{agent_id}/call.started` | Início de chamada de voz. |
-| **Status Call** | `.../{tenant_slug}/{agent_id}/call.ended` | Finalização de ciclo de voz. |
+| **`companies`** | O "Cliente". Raiz da hierarquia multi-tenant. | Contém as configurações globais de **Privacidade** (LGPD) e **Responsáveis** (ISO AI Owner, Risk Owner). |
+| **`users`** | Acessos humanos à plataforma. | Estritamente vinculados a um `tenant_id`. Níveis de permissão definem visibilidade de menus. |
+| **`policies`** | Regras de governança (ex: "Proibir menção a concorrentes"). | Atuam como **Guarda-Corpos (Guardrails)**. Podem ser vinculadas a múltiplos Agentes. |
+
+### 3.2 Entidades Operacionais (O Motor)
+| Entidade (`table`) | Propósito Funcional | Governança & Relação |
+| :--- | :--- | :--- |
+| **`agents`** | A unidade auditável de IA (O "Funcionário Digital"). | Possui **Risco** (`risk_level`), **Estágio** (`lifecycle_stage`) e **Configuração Cognitiva** (`brain_config`). É a entidade que gera custos. |
+| **`flows`** | Contratos de jornada (ex: "Triagem", "Venda"). | Jornadas estruturadas. Diferente de um "Prompt solto", um fluxo tem **Objetivo** e **Critérios de Sucesso** auditáveis. |
+| **`flow_stages`** | Etapas discretas do fluxo (Steps). | Define **quem atua** (`actor`: ai/human) e regras de **escalonamento** (ex: "Se falhar 3x, chame humano"). |
+| **`conversations`** | Sessão de interação contínua. | Vincula `user` (cliente) ↔ `agent` (bot). Mantém o estado atual (`status`: ai_active/human_active). |
+| **`messages`** | Log imutável da interação. | Registra o conteúdo (`content`), remetente (`sender_type`) e metadados ricos (áudio, transcrição). Base para auditoria. |
+
+### 3.3 Entidades de Controle & Segurança
+| Entidade (`table`) | Propósito Funcional | Governança & Relação |
+| :--- | :--- | :--- |
+| **`consumption_metrics`** | Registro financeiro granular. | Fonte da verdade para faturamento. Registra tokens e minutos de voz. **NÃO manipulável** pelo usuário. |
+| **`audit_logs`** | Trilha de auditoria de segurança. | Quem mudou o que e quando (diff `before` -> `after`). Essencial para conformidade SOC2/ISO. |
+| **`incidents`** | Registro de falhas de IA ou segurança. | Incidentes de alucinação ou vazamento de dados devem ser formalizados aqui para análise de risco. |
 
 ---
 
-## 21. Fluxo de Dados e Integração (Event-Driven)
+## 4. Agentes como Unidade de Governança (ISO 42001)
 
-```mermaid
-graph LR
-    User[(Usuário Final)] -->|WhatsApp/Voz| Gateway[N8N / Retell]
-    Gateway -->|ID Only| Nexus[Davos Nexus API]
-    Nexus -->|Context Fetch| DB[(Database)]
-    DB -->|Prompt/Rules| Nexus
-    Nexus -->|Action Context| Gateway
-    Gateway -->|Inference| AI[Modelo IA]
-```
+Na arquitetura do Nexus, um **Agente** não é apenas um prompt, é um Ativo Corporativo sujeito a auditoria.
+
+### 4.1 Campos de Controle (Tabela `agents`)
+Estes campos alteram o comportamento e a profundidade da supervisão exigida.
+
+1.  **`risk_level`** (`low`, `medium`, `high`, `critical`):
+    -   *Impacto:* Agentes de alto risco exigem aprovação humana para deploy (`lifecycle_stage`) e geram logs de auditoria mais detalhados.
+2.  **`lifecycle_stage`** (Ciclo de Vida Formal):
+    -   `development`: Sandbox. Só responde a números de teste.
+    -   `validation`: Teste de carga e Red Teaming.
+    -   `production`: Live para clientes finais.
+    -   `retired`: Desativado, mantido apenas para histórico (Compliance).
+3.  **`autonomy_level`** (1-5):
+    -   Nível 1: Apenas responde perguntas (RAG).
+    -   Nível 5: Executa ações no mundo real (API Calls) sem supervisão.
+
+---
+
+## 5. Ciclo de Vida da Conversa
+
+A conversa é uma Máquina de Estados finita gerida pelo Banco de Dados.
+
+### 5.1 Nascimento (Inbound)
+1.  **Evento Externo:** Webhook do WhatsApp/Voz chega ao N8N.
+2.  **Identificação:** N8N extrai telefone/email.
+3.  **Resolução (RPC):** `get_or_create_conversation` busca uma sessão aberta.
+    -   Se não houver, cria nova.
+    -   Sincroniza dados do cliente na tabela `contacts`.
+
+### 5.2 Evolução de Estados (`conversation_status`)
+-   **`ai_active`**: Estado padrão. O N8N consulta o banco, vê esta flag e **processa** a mensagem com LLM.
+-   **`human_active`**: Gatilho de **Intervenção Manual**.
+    -   *Como ativa:* Regra de negócio (ex: cliente pede atendente) ou botão no Dashboard.
+    -   *Efeito:* O N8N consulta o banco, vê esta flag e **interrompe** a execução automática. O operador assume via Chat UI.
+-   **`closed`**: Conversa finalizada. Arquivada para histórico.
+
+### 5.3 Memória e Histórico
+- O N8N **não mantém estado**.
+- A cada nova mensagem, ele busca o contexto chamando `get_agent_context` (RPC), que remonta o histórico recente da tabela `messages`.
+
+---
+
+## 6. Fluxos Conversacionais (Flows) – Operacional
+
+`flows` e `flow_stages` não são apenas documentação, são contratos executáveis.
+
+### 6.1 Estrutura do Contrato
+-   **Flow:** Define o objetivo macro (ex: "Recuperação de Carrinho").
+-   **Stages:** O passo-a-passo (1. Saudação -> 2. Oferta -> 3. Checkout).
+
+### 6.2 Execução Híbrida
+-   O banco armazena em qual estágio a conversa está (`current_stage_id` em `conversations`).
+-   O estágio define o **Ator** (`actor`):
+    -   `ai`: N8N processa.
+    -   `human`: N8N transborda para fila humana.
+    -   `both`: Copiloto (IA sugere, Humano aprova).
+-   O N8N lê o estágio atual para saber qual Prompt ou Tool deve carregar.
+
+---
+
+## 7. Consumo e Billing (Financeiro)
+
+O modelo de cobrança é desacoplado da execução técnica.
+
+### 7.1 Eventos Geradores de Custo
+1.  **Tokens (LLM):** Input + Output gerados na OpenAI/Anthropic.
+2.  **Mensagens (Canal):** Custo de API do WhatsApp (Business API).
+3.  **Voz (Minutos):** Tempo de processamento STT (Ouvir) e TTS (Falar).
+
+### 7.2 Fluxo de Registro (Auditável)
+1.  **Execução:** N8N realiza a chamada técnica (OpenAI API).
+2.  **Reporte:** N8N extrai os metadados de uso (ex: `usage.total_tokens`).
+3.  **Gravação Segura:** N8N chama RPC `record_usage` passando os valores.
+4.  **Cálculo:** O banco grava os valores brutos. O cálculo financeiro (R$) ocorre na camada de aplicação (Dashboard) baseada no `plan_tier` da empresa no momento da consulta, ou pré-calculado na inserção dependendo da configuração.
+
+> **Importante:** O N8N não sabe quanto custa um token. Ele apenas reporta "Gastei 150 tokens". A plataforma aplica a tabela de preços.
+
+---
+
+## 8. Segurança e Auditoria
+
+### 8.1 Trilha de Auditoria (`audit_logs`)
+Qualquer alteração crítica gera um registro imutável.
+-   **O que é auditado:** Mudança de Prompt, Troca de Modelo de IA, Alteração de Plano, Acesso de "Impersonation".
+-   **Detalhes:** Armazena o JSON `state_before` e `state_after` para diff.
+
+### 8.2 Gestão de Incidentes
+Se uma IA alucinar ou violar uma política:
+1.  Operador reporta na UI ou sistema detecta anomalia.
+2.  Cria-se registro em `incidents`.
+3.  Afeta o `risk_score` do agente.
+4.  Dispara alertas para o `Risk Owner` (ISO Accountability).
+
+---
+
+## 9. Contrato de Integração N8N (Formal)
+
+O N8N é um executor "burro" e stateless.
+
+### 9.1 ✅ O que o N8N DEVE fazer
+1.  **Receber Eventos:** Webhooks de canais externos.
+2.  **Pedir Contexto:** Chamar `POST /rpc/get_agent_context` para saber como agir.
+3.  **Executar IA:** Chamar a API da OpenAI/Anthropic com o prompt recebido do banco.
+4.  **Reportar:** Salvar a mensagem (`append_message`) e o consumo (`record_usage`).
+
+### 9.2 ❌ O que o N8N NÃO DEVE fazer
+1.  **Armazenar Prompts:** O "System Prompt" NUNCA deve ser hardcoded no nó do N8N. Deve vir do banco.
+2.  **Decidir Preços:** Não calcular custos no fluxo.
+3.  **Manter Estado:** Não usar variáveis globais do N8N para memória de conversa. Usar o banco.
+4.  **Acessar Tabelas Diretamente:** Não fazer `SELECT * FROM users`. Usar apenas as RPCs autorizadas.
+
+### 9.3 Dados Trafegados
+-   **N8N -> Nexus:** IDs (Tenant, Agent, User), Texto do Usuário, Metadados de Uso.
+-   **Nexus -> N8N:** Prompt do Sistema, Histórico de Mensagens, Configuração de Voz.
+
+---
+
+## 10. Inteligência de Leads & CRM (Extensão Pro)
+
+A plataforma evoluiu de um log de conversas para um CRM Inteligente que qualifica leads automaticamente.
+
+### 10.1 Fluxo de Qualificação Automática
+Sempre que uma conversa é auditada via `save_evaluation`, o sistema executa:
+1.  **Mapeamento de Contato:** Localiza o `contact` via `user_identifier`.
+2.  **Qualificação por Score:**
+    *   **Score >= 80:** "Lead Quente" 🔥
+    *   **Score >= 50:** "Interesse Médio" 💧
+    *   **Outros:** "Interesse Baixo" 🌫️
+3.  **Enriquecimento Híbrido:** Anexa as tags geradas pela IA (`p_tags`) diretamente ao perfil do contato.
+
+### 10.2 Visualização Kanban (CRM Dashboard)
+- **Interface:** Localizada em `/crm`, oferece uma visualização moderna em colunas baseada no `lifecycle_status`.
+- **Dinâmica:** Cards interativos que mostram canais de origem, tags de interesse e data de ativação, facilitando a tomada de decisão comercial.
+
+---
+> **Fim da Documentação**

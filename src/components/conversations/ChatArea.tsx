@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy } from 'lucide-react';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import {
 
 interface ChatAreaProps {
   conversation: Conversation | null;
+  highlightTerm?: string;
 }
 
 interface AudioMessageProps {
@@ -35,62 +36,163 @@ interface AudioMessageProps {
 
 function AudioMessage({ message }: AudioMessageProps) {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying);
-    // Mock audio effect
-    if (!isPlaying && message.audioUrl) {
-      const audio = new Audio(message.audioUrl);
-      audio.play().catch(e => console.log("Mock audio play error (expected if empty):", e));
+  // Use a stable reference for the Audio object
+  const audioInstance = useMemo(() => {
+    if (!message.audioUrl) return null;
+
+    let src = message.audioUrl;
+    if (!src.startsWith('http') && !src.startsWith('data:')) {
+      src = `data:audio/mpeg;base64,${message.audioUrl}`;
     }
-  }
+
+    const audio = new Audio(src);
+    console.log("🔊 Audio Instance Created:", message.id);
+    return audio;
+  }, [message.audioUrl, message.id]);
+
+  useEffect(() => {
+    if (!audioInstance) return;
+
+    const onLoadedMetadata = () => {
+      console.log("✅ Metadata Loaded. Duration:", audioInstance.duration);
+      setDuration(audioInstance.duration);
+      setError(null);
+    };
+
+    const onTimeUpdate = () => setCurrentTime(audioInstance.currentTime);
+    const onEnded = () => {
+      setIsPlaying(false);
+      setCurrentTime(0);
+    };
+    const onError = (e: Event) => {
+      const err = (e.target as HTMLAudioElement).error;
+      // Suppress initial load errors, they might resolve or be irrelevant if user hasn't clicked play
+      console.warn("⚠️ Audio Load Warning (might act normally):", err);
+      setError("Erro ao carregar");
+      setIsPlaying(false);
+    };
+
+    audioInstance.addEventListener('loadedmetadata', onLoadedMetadata);
+    audioInstance.addEventListener('timeupdate', onTimeUpdate);
+    audioInstance.addEventListener('ended', onEnded);
+    audioInstance.addEventListener('error', onError);
+
+    // Explicitly load
+    audioInstance.load();
+
+    return () => {
+      audioInstance.pause();
+      audioInstance.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audioInstance.removeEventListener('timeupdate', onTimeUpdate);
+      audioInstance.removeEventListener('ended', onEnded);
+      audioInstance.removeEventListener('error', onError);
+    };
+  }, [audioInstance]);
+
+  const togglePlay = async () => {
+    if (!audioInstance) {
+      console.error("⚠️ No Audio Instance found in togglePlay");
+      return;
+    }
+
+    try {
+      if (isPlaying) {
+        audioInstance.pause();
+        setIsPlaying(false);
+      } else {
+        console.log("▶️ Playing...");
+        await audioInstance.play();
+        setIsPlaying(true);
+      }
+    } catch (e) {
+      console.error("❌ Play Method Error:", e);
+      toast.error("Falha ao iniciar reprodução.");
+      setIsPlaying(false);
+    }
+  };
+
+  const formatTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   return (
-    <div className="space-y-2 min-w-[200px]">
-      <div className="flex items-center gap-3 bg-foreground/5 p-2 rounded-md border border-foreground/10">
+    <div className="space-y-2 min-w-[280px]">
+      {/* Player Container with higher contrast background */}
+      <div className="flex items-center gap-3 bg-black/20 dark:bg-white/10 p-3 rounded-lg backdrop-blur-sm border border-white/10">
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 rounded-full bg-accent/20 text-accent hover:bg-accent/30"
+          className="h-10 w-10 shrink-0 rounded-full bg-white text-primary hover:bg-white/90 shadow-sm"
           onClick={togglePlay}
         >
           {isPlaying ? (
-            <Pause className="h-4 w-4" />
+            <Pause className="h-5 w-5 fill-current" />
           ) : (
-            <Play className="h-4 w-4 ml-0.5" />
+            <Play className="h-5 w-5 ml-1 fill-current" />
           )}
         </Button>
-        <div className="flex-1 space-y-1">
-          <div className="h-1 bg-foreground/20 rounded-full overflow-hidden">
-            <div className={`h-full bg-accent ${isPlaying ? 'animate-[pulse_1s_ease-in-out_infinite]' : 'w-1/3'}`} />
+
+        <div className="flex-1 space-y-1.5">
+          {/* Progress Bar */}
+          <div className="h-1.5 bg-white/30 rounded-full overflow-hidden w-full">
+            <div
+              className="h-full bg-white transition-all duration-100 ease-linear rounded-full"
+              style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
+            />
           </div>
-          <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{isPlaying ? '0:05' : '0:00'}</span>
-            <span>0:12</span>
+
+          <div className="flex justify-between text-[11px] font-medium text-white/90 px-0.5">
+            <span>{formatTime(currentTime)}</span>
+            <span>{formatTime(duration)}</span>
           </div>
         </div>
       </div>
-      {message.transcription && (
-        <div className="text-xs italic text-muted-foreground border-l-2 border-accent/20 pl-2">
-          "{message.transcription}"
-        </div>
-      )}
     </div>
   );
 }
 
-export function ChatArea({ conversation }: ChatAreaProps) {
-  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser } = useApp();
+// Helper for highlighting
+const HighlightText = ({ text, term }: { text: string; term?: string }) => {
+  if (!term || !text) return <>{text}</>;
+
+  const parts = text.split(new RegExp(`(${term})`, 'gi'));
+  return (
+    <span>
+      {parts.map((part, i) =>
+        part.toLowerCase() === term.toLowerCase() ? (
+          <span key={i} className="bg-yellow-200 text-black px-0.5 rounded-sm font-semibold">{part}</span>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+};
+
+export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
+  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
+    // 1. Silent Refresh Strategy
+    // If the user is Searching (highlightTerm active), we DO NOT auto-scroll.
+    // This allows them to read history without being yanked to the bottom on every poll.
+    if (highlightTerm) return;
+
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [conversation?.messages]);
+  }, [conversation?.messages, highlightTerm]);
 
   // Permissions & Restrictions
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
@@ -132,21 +234,29 @@ export function ChatArea({ conversation }: ChatAreaProps) {
           <div className="w-10 h-10 bg-muted flex items-center justify-center">
             <User className="h-5 w-5 text-muted-foreground" />
           </div>
-          <h3 className="font-medium flex items-center gap-2">
-            {conversation.userName}
-            {conversation.channel === 'voice' && (
-              <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 text-[10px] font-bold uppercase border border-purple-500/20">
-                Voice Call
-              </span>
-            )}
-          </h3>
+          <div className="flex flex-col min-w-0">
+            <h3 className="font-medium flex items-center gap-2 truncate">
+              {conversation.userName}
+              {conversation.channel === 'voice' && (
+                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 text-[10px] font-bold uppercase border border-purple-500/20 flex-shrink-0">
+                  Voice Call
+                </span>
+              )}
+            </h3>
+            <span className="text-[10px] text-muted-foreground font-mono leading-none">{conversation.userId}</span>
+          </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 'status-dot',
-                conversation.status === 'ai_active' ? 'bg-accent' : 'bg-success'
+                conversation.status === 'ai_active' ? 'bg-accent' :
+                  conversation.status === 'closed' ? 'bg-muted-foreground' : 'bg-success'
               )} />
-              <span>{conversation.status === 'ai_active' ? 'IA Ativa' : `${conversation.assignedOperator}`}</span>
+              <span>
+                {conversation.status === 'ai_active' ? 'IA Ativa' :
+                  conversation.status === 'closed' ? 'Conversa Fechada' :
+                    (conversation.assignedOperator || 'Operador Humano')}
+              </span>
             </div>
 
             {conversation.voiceStatus && (
@@ -247,7 +357,14 @@ export function ChatArea({ conversation }: ChatAreaProps) {
                 Ver Detalhes
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem
+                className="text-destructive"
+                onClick={() => {
+                  if (confirm('Tem certeza que deseja encerrar esta conversa?')) {
+                    closeConversation(conversation.id);
+                  }
+                }}
+              >
                 Encerrar Conversa
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -328,11 +445,20 @@ export function ChatArea({ conversation }: ChatAreaProps) {
                   </Button>
 
                   {message.type === 'audio' ? (
-                    <AudioMessage message={message} />
+                    <div className="space-y-2">
+                      <AudioMessage message={message} />
+                      {message.transcription && (
+                        <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
+                          <HighlightText text={message.transcription} term={highlightTerm} />
+                        </div>
+                      )}
+                    </div>
                   ) : message.type === 'image' ? (
                     <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
                   ) : (
-                    <p className="text-sm custom-markdown leading-relaxed">{message.content}</p>
+                    <p className="text-sm custom-markdown leading-relaxed">
+                      <HighlightText text={message.content} term={highlightTerm} />
+                    </p>
                   )}
                 </div>
 

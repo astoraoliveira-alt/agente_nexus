@@ -20,10 +20,11 @@ interface ConversationListProps {
   conversations: Conversation[];
   selectedId: string | null;
   onSelect: (conversation: Conversation) => void;
+  searchTerm: string;
+  onSearchChange: (temp: string) => void;
 }
 
-export function ConversationList({ conversations, selectedId, onSelect }: ConversationListProps) {
-  const [searchTerm, setSearchTerm] = useState('');
+export function ConversationList({ conversations, selectedId, onSelect, searchTerm, onSearchChange }: ConversationListProps) {
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
 
   // 1. Extract Unique Agents for Filter
@@ -33,12 +34,34 @@ export function ConversationList({ conversations, selectedId, onSelect }: Conver
   }, [conversations]);
 
   // 2. Filter Logic
+  // 2. Filter Logic
   const filteredConversations = useMemo(() => {
+    if (!searchTerm) {
+      return agentFilter
+        ? conversations.filter(c => c.agentName === agentFilter)
+        : conversations;
+    }
+
+    const term = searchTerm.toLowerCase();
+
     return conversations.filter(c => {
-      const matchesSearch = c.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.lastMessage.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
-      return matchesSearch && matchesAgent;
+      if (!matchesAgent) return false;
+
+      // Check User Name
+      if (c.userName.toLowerCase().includes(term)) return true;
+
+      // Check Last Message
+      if (c.lastMessage.toLowerCase().includes(term)) return true;
+
+      // Check Content in ALL messages history
+      const hasMessageMatch = c.messages.some(m => {
+        const contentMatch = m.content?.toLowerCase().includes(term);
+        const transMatch = m.transcription?.toLowerCase().includes(term);
+        return contentMatch || transMatch;
+      });
+
+      return hasMessageMatch;
     });
   }, [conversations, searchTerm, agentFilter]);
 
@@ -87,12 +110,12 @@ export function ConversationList({ conversations, selectedId, onSelect }: Conver
             type="text"
             placeholder="Buscar por nome ou mensagem..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pl-3 pr-8 py-2 bg-muted/50 border border-transparent focus:border-accent rounded-md text-sm focus:outline-none transition-all placeholder:text-muted-foreground/50"
           />
           {searchTerm && (
             <button
-              onClick={() => setSearchTerm('')}
+              onClick={() => onSearchChange('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />
@@ -126,14 +149,18 @@ export function ConversationList({ conversations, selectedId, onSelect }: Conver
                   {/* Status indicator */}
                   <div className={cn(
                     'absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card',
-                    conv.status === 'ai_active' ? 'bg-accent' : 'bg-success'
+                    conv.status === 'ai_active' ? 'bg-accent' :
+                      conv.status === 'closed' ? 'bg-muted-foreground' : 'bg-success'
                   )} />
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className={cn("font-medium truncate", selectedId === conv.id && "text-accent")}>{conv.userName}</span>
+                    <div className="flex flex-col min-w-0">
+                      <span className={cn("font-medium truncate", selectedId === conv.id && "text-accent")}>{conv.userName}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{conv.userId}</span>
+                    </div>
                     <span className="text-[10px] text-muted-foreground flex-shrink-0">
                       {formatDistanceToNow(conv.lastMessageTime, { addSuffix: false, locale: ptBR })}
                     </span>
@@ -145,6 +172,14 @@ export function ConversationList({ conversations, selectedId, onSelect }: Conver
                       <Bot className="h-2.5 w-2.5" />
                       {conv.agentName || 'Agente'}
                     </Badge>
+                    {conv.status === 'closed' && (
+                      <Badge
+                        variant="secondary"
+                        className="h-5 px-1.5 text-[10px] font-medium bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-transparent hover:bg-gray-300 dark:hover:bg-gray-700"
+                      >
+                        Fechada
+                      </Badge>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-muted-foreground/80">

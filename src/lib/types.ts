@@ -82,6 +82,9 @@ export interface TenantPlan {
   tenantId: string;
   planId: string;
   type: 'fixed' | 'flex' | 'unlimited';
+  allocation_mode?: 'flexible' | 'custom'; // New field for Smart Usage Allocation
+  monthly_limit_brl?: number; // Added for consumption budget
+
 
   // Current Contract Values (Can override catalog)
   customBasePrice?: number;
@@ -139,7 +142,8 @@ export interface Company {
   isoStatus?: TenantISOStatus;
 
   // Legacy compatibility (will be derived from planDetails)
-  plan: 'free' | 'pro' | 'enterprise'; // Deprecated in favor of planId
+  plan: 'free' | 'pro' | 'enterprise' | string; // Deprecated in favor of planId
+  planName?: string;
   limits: {
     llmTokens: number;
     messages: number;
@@ -153,13 +157,28 @@ export interface Company {
     retentionDays: number;
     anonymizationEnabled: boolean;
   };
+  planPrices?: {
+    basePrice: number;
+    llmTokenPrice: number;
+    messagePrice: number;
+    sttMinutePrice: number;
+    ttsMinutePrice: number;
+  };
+  _count?: {
+    agents: number;
+    users: number;
+    tokens: number;
+    messages: number;
+  };
 }
 
 export interface AgentBrainConfig {
-  systemPrompt: string;
-  modelId: 'gpt-4o' | 'claude-3-5-sonnet' | 'gpt-4o-mini';
-  temperature: number;
-  maxTokens?: number;
+  systemPrompt?: string;
+  modelId?: string; // 'gpt-4' | 'claude-3-opus'
+  temperature?: number;
+  maxTokens?: number; // Added based on recent conv history
+  knowledgeBaseId?: string;
+  budget_share_pct?: number; // Smart Usage Allocation
 }
 
 export interface AgentVoiceConfig {
@@ -423,6 +442,7 @@ export interface Conversation {
   lastMessageTime: Date;
   unreadCount: number;
   messages: Message[];
+  createdAt: Date;
   isSimulation?: boolean; // Phase 2: Playground
   voiceStatus?: 'listening' | 'processing' | 'speaking' | 'idle'; // Phase 3: Realtime Status
 }
@@ -431,6 +451,22 @@ export interface ExtendedConversation extends Conversation {
   origin: 'inbound' | 'outbound';
   flowId?: string;
   decisionLogs: AIDecisionLog[];
+}
+
+export interface Contact {
+  id: string;
+  tenantId: string;
+  name: string;
+  identifier: string; // Phone or Email
+  email?: string;
+  phone?: string; // Explicit phone field
+  avatarUrl?: string;
+  tags?: string[];
+  channel?: 'embedded' | 'whatsapp' | 'conversational';
+  extraInfo?: Record<string, any>; // JSONB
+  lifecycleStatus?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ============ All Permissions ============
@@ -600,34 +636,26 @@ export const DEFAULT_ROLES: Role[] = [
   },
 ];
 
-// ============ N8N Context Fetch Contract ============
-/**
- * Payload retornado pelo endpoint /internal/agents/context
- * Esta é a ÚNICA fonte de verdade para o N8N.
- */
-export interface AgentContextResponse {
-  agent_config: {
-    system_prompt: string;
-    model_id: string;
-    temperature: number;
-    autonomy_level: number;
-    max_concurrency: number;
-  };
-  tenant_config: {
-    plan_tier: 'fixed' | 'flex' | 'unlimited';
-    privacy: {
-      anonymization_enabled: boolean;
-      retention_days: number;
-    };
-  };
-  flow_contract?: {
-    flow_id: string;
-    current_stage: FlowStage;
-    expected_outcome: string;
-  };
-  governance: {
-    risk_level: 'low' | 'medium' | 'high';
-    policies: string[];
-    lifecycle_stage: AILifecycleStage;
-  };
+// ============ Quality Assurance (Auditor) Types ============
+export interface EvaluationCriteria {
+  empathy: number;
+  efficiency: number;
+  compliance: number;
+}
+
+export interface Evaluation {
+  id: string;
+  tenantId: string;
+  conversationId: string;
+  agentId: string;
+  score: number;
+  summary: string;
+  tags: string[];
+  criteriaResults: EvaluationCriteria;
+  aiModel?: string;
+  createdAt: Date;
+
+  // Joins (Optional)
+  agentName?: string;
+  conversationDate?: Date;
 }

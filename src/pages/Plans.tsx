@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import {
     CreditCard, Plus, Search, Edit2, Trash2, Check, X, AlertCircle, Info, TrendingUp, DollarSign, Zap, MessageSquare, Mic, Volume2, Users, Bot
 } from 'lucide-react';
-import {
-    mockPlanCatalog
-} from '@/lib/mock-extended-data';
+import { api } from '@/services/api';
 import { PlanCatalog } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +13,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogTrigger,
     DialogFooter
 } from '@/components/ui/dialog';
@@ -50,29 +49,40 @@ const DEFAULT_PLAN_CONFIG: Partial<PlanCatalog> = {
 };
 
 export default function Plans() {
-    const [plans, setPlans] = useState<PlanCatalog[]>(mockPlanCatalog);
+    const [plans, setPlans] = useState<PlanCatalog[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingPlan, setEditingPlan] = useState<PlanCatalog | null>(null);
     const [newPlan, setNewPlan] = useState<Partial<PlanCatalog>>(DEFAULT_PLAN_CONFIG);
+
+    useEffect(() => {
+        loadPlans();
+    }, []);
+
+    const loadPlans = async () => {
+        const data = await api.getPlans();
+        setPlans(data);
+    };
 
     const filteredPlans = plans.filter(p =>
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.type.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const handleSavePlan = () => {
+    const handleSavePlan = async () => {
         if (editingPlan) {
-            setPlans(prev => prev.map(p => p.id === editingPlan.id ? editingPlan : p));
+            await api.updatePlan(editingPlan);
             toast.success('Plano atualizado com sucesso');
         } else {
-            const plan: PlanCatalog = {
-                ...newPlan as PlanCatalog,
-                id: `plan-${Date.now()}`,
-            };
-            setPlans(prev => [...prev, plan]);
+            const planToCreate = {
+                ...newPlan,
+                id: `plan-${Date.now()}` // Backend could generate this too, but keeping client-side ID for simplicity per mock
+            } as PlanCatalog;
+
+            await api.createPlan(planToCreate);
             toast.success('Plano criado no catálogo global');
         }
+        await loadPlans();
         setDialogOpen(false);
         setEditingPlan(null);
         setNewPlan(DEFAULT_PLAN_CONFIG);
@@ -238,6 +248,9 @@ export default function Plans() {
                     <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                             <DialogTitle>{editingPlan ? 'Configurar Plano do Catálogo' : 'Definir Novo Plano de Serviço'}</DialogTitle>
+                            <DialogDescription>
+                                Configure os detalhes técnicos, precificação e limites operacionais do plano.
+                            </DialogDescription>
                         </DialogHeader>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 py-4">

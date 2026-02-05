@@ -20,6 +20,9 @@ import Governance from "./pages/Governance";
 import Flows from "./pages/Flows";
 import DecisionLogs from "./pages/DecisionLogs";
 import Plans from "./pages/Plans";
+import Contacts from "./pages/Contacts";
+import LeadCRM from "@/pages/LeadCRM";
+import Quality from "./pages/Quality";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +37,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/" element={<Index />} />
+            <Route path="/lead-crm" element={<LeadCRM />} />
             <Route path="/conversations" element={<Conversations />} />
             <Route path="/consumption" element={<Consumption />} />
             <Route path="/agents" element={<Agents />} />
@@ -46,6 +50,8 @@ const App = () => (
             <Route path="/flows" element={<Flows />} />
             <Route path="/decision-logs" element={<DecisionLogs />} />
             <Route path="/plans" element={<Plans />} />
+            <Route path="/contacts" element={<Contacts />} />
+            <Route path="/quality" element={<Quality />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

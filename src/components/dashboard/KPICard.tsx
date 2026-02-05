@@ -10,26 +10,27 @@ interface KPICardProps {
     value: number;
     isPositive: boolean;
   };
-  variant?: 'default' | 'accent' | 'warning' | 'critical';
+  variant?: 'default' | 'accent' | 'warning' | 'critical' | 'success';
   onClick?: () => void;
 }
 
-export function KPICard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  trend, 
+export function KPICard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  trend,
   variant = 'default',
-  onClick 
+  onClick
 }: KPICardProps) {
   return (
-    <div 
+    <div
       className={cn(
         'kpi-card cursor-pointer',
         variant === 'accent' && 'border-l-4 border-l-accent',
         variant === 'warning' && 'border-l-4 border-l-warning',
         variant === 'critical' && 'border-l-4 border-l-destructive',
+        variant === 'success' && 'border-l-4 border-l-success',
         onClick && 'hover:shadow-lg'
       )}
       onClick={onClick}
@@ -40,17 +41,19 @@ export function KPICard({
           variant === 'default' && 'bg-muted',
           variant === 'accent' && 'bg-accent/10',
           variant === 'warning' && 'bg-warning/10',
-          variant === 'critical' && 'bg-destructive/10'
+          variant === 'critical' && 'bg-destructive/10',
+          variant === 'success' && 'bg-success/10'
         )}>
           <Icon className={cn(
             'h-5 w-5',
             variant === 'default' && 'text-foreground',
             variant === 'accent' && 'text-accent',
             variant === 'warning' && 'text-warning',
-            variant === 'critical' && 'text-destructive'
+            variant === 'critical' && 'text-destructive',
+            variant === 'success' && 'text-success'
           )} />
         </div>
-        
+
         {trend && (
           <div className={cn(
             'flex items-center gap-1 text-sm',
@@ -65,7 +68,7 @@ export function KPICard({
           </div>
         )}
       </div>
-      
+
       <div>
         <p className="text-3xl font-bold mb-1">{value}</p>
         <p className="text-sm text-muted-foreground">{title}</p>

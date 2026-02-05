@@ -1,0 +1,128 @@
+{
+    "name": "Audit Agent (Davos Nexus)",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "audit-conversation",
+                "options": {}
+            },
+            "name": "Supabase Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT get_conversation_transcript($1) as transcript;",
+                "additionalFields": {
+                    "queryParams": "={{ $json.body.record.id }}"
+                }
+            },
+            "name": "Get Transcript",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 1,
+            "position": [
+                450,
+                300
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+                    "name": "Supabase DB"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "model": "gpt-4-turbo-preview",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "You are a Senior AI Auditor for an Enterprise SaaS. Your job is to evaluate customer support conversations performed by AI Agents.\n\nAnalyze the transcript provided by the user. You must return a valid JSON object with the following fields:\n- score (integer 0-100): General quality score.\n- summary (string): Brief explanation of the interaction (max 2 sentences).\n- tags (array of strings): Tags like 'churn_risk', 'success', 'complaint', 'technical_issue', 'sales_opportunity', 'neutral'.\n- criteria_results (object): Score the following aspects from 1-5:\n  - empathy\n  - solution_efficiency\n  - compliance (did it follow safety rules)\n\nAnalyze critically. If the AI hallucinated or was rude, score < 40."
+                        },
+                        {
+                            "content": "Conversation Transcript:\n{{ $json.transcript }}"
+                        }
+                    ]
+                },
+                "jsonOutput": true
+            },
+            "name": "LLM Auditor",
+            "type": "n8n-nodes-base.openai",
+            "typeVersion": 1,
+            "position": [
+                650,
+                300
+            ],
+            "credentials": {
+                "openAiApi": {
+                    "id": "YOUR_OPENAI_CREDENTIAL_ID",
+                    "name": "OpenAI Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT save_evaluation($1, $2, $3, $4, $5, $6);",
+                "additionalFields": {
+                    "queryParams": "={{ $('Supabase Webhook').item.json.body.record.id }}, {{ $json.score }}, {{ $json.summary }}, {{ $json.tags }}, {{ $json.criteria_results }}, gpt-4-turbo"
+                }
+            },
+            "name": "Save Evaluation",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 1,
+            "position": [
+                850,
+                300
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+                    "name": "Supabase DB"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Supabase Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Get Transcript",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Transcript": {
+            "main": [
+                [
+                    {
+                        "node": "LLM Auditor",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "LLM Auditor": {
+            "main": [
+                [
+                    {
+                        "node": "Save Evaluation",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

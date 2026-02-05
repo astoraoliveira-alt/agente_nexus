@@ -13,7 +13,11 @@ export type SlideOverContentType =
   | 'flow-details'
   | 'decision-log-details'
   | 'agent-governance'
-  | 'agent-playground';
+  | 'agent-playground'
+  | 'evaluation-details'
+  | 'iso-report'
+  | 'contact-details'
+  | null;
 
 interface AppContextType {
   // Theme
@@ -44,6 +48,7 @@ interface AppContextType {
   // Conversation actions
   takeOverConversation: (conversationId: string) => void;
   returnToAI: (conversationId: string) => void;
+  closeConversation: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
   sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
 }
@@ -336,6 +341,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const closeConversation = async (conversationId: string) => {
+    if (!currentTenant) return;
+
+    // Optimistic UI Update
+    setConversations(prev =>
+      prev.map(conv =>
+        conv.id === conversationId
+          ? { ...conv, status: 'closed' as const }
+          : conv
+      )
+    );
+
+    if (selectedConversation?.id === conversationId) {
+      setSelectedConversation(prev => prev ? { ...prev, status: 'closed' } : null);
+    }
+
+    try {
+      await api.closeConversation(conversationId);
+      // 🔥 Automate Quality Audit Trigger
+      await api.triggerAudit(conversationId);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
   const sendMessage = async (conversationId: string, content: string, type: 'text' | 'image' | 'audio' = 'text') => {
     if (!currentUser || !currentTenant) return;
 
@@ -403,6 +433,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         closeSlideOver,
         takeOverConversation,
         returnToAI,
+        closeConversation,
         transferConversation,
         switchTenant,
         sendMessage,

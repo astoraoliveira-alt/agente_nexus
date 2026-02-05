@@ -22,6 +22,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -32,7 +33,6 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import {
-  mockCompanies,
   mockTenantPlans,
   mockTenantISOStatus,
   mockAuditLogs,
@@ -42,38 +42,68 @@ import {
 import { mockUsers, mockAgents } from '@/lib/mock-data';
 import { Company, AuditLog, PlanCatalog } from '@/lib/types';
 import { useApp } from '@/contexts/AppContext';
+import { api } from '@/services/api'; // Import API
 import { getTenantAggregatedStats, calculateISOStatus } from '@/lib/consumption-logic';
+import { useEffect } from 'react';
 
 export default function Companies() {
   const { openSlideOver, switchTenant } = useApp();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
-  const [companies, setCompanies] = useState(mockCompanies);
+  const [companies, setCompanies] = useState<Company[]>([]); // Init empty
+  const [availablePlans, setAvailablePlans] = useState<PlanCatalog[]>([]); // Plans from DB
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
   const [newCompany, setNewCompany] = useState<Partial<Company>>({
     name: '',
     slug: '',
-    planId: mockPlanCatalog[0].id,
+    planId: '',
     plan: 'free',
     status: 'trial',
-    limits: mockPlanCatalog[0].defaultLimits,
+    limits: { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 },
   });
+
+  // Fetch Real Companies and Plans
+  useEffect(() => {
+    const loadData = async () => {
+      const [companiesData, plansData] = await Promise.all([
+        api.getCompanies(),
+        api.getPlans()
+      ]);
+      if (companiesData) setCompanies(companiesData);
+      if (plansData) {
+        setAvailablePlans(plansData);
+        // Set default plan for new company form
+        if (plansData.length > 0) {
+          setNewCompany(prev => ({
+            ...prev,
+            planId: plansData[0].id,
+            limits: plansData[0].defaultLimits
+          }));
+        }
+      }
+    };
+    loadData();
+  }, []);
 
   const filteredCompanies = companies.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.slug.toLowerCase().includes(search.toLowerCase())
   );
 
-  const getPlanBadge = (plan: string) => {
-    switch (plan) {
-      case 'enterprise':
-        return <Badge className="bg-accent">Enterprise</Badge>;
-      case 'pro':
-        return <Badge variant="secondary">Pro</Badge>;
-      default:
-        return <Badge variant="outline">Free</Badge>;
+  const getPlanBadge = (company: Company | undefined) => {
+    if (!company) return null;
+    const planName = company.planName || company.plan || 'Free';
+
+    // Dynamic styling based on common plan names
+    const lowerPlan = planName.toLowerCase();
+    if (lowerPlan.includes('enterprise')) {
+      return <Badge className="bg-accent">{planName}</Badge>;
     }
+    if (lowerPlan.includes('pro') || lowerPlan.includes('flex')) {
+      return <Badge variant="secondary">{planName}</Badge>;
+    }
+    return <Badge variant="outline">{planName}</Badge>;
   };
 
   const getStatusBadge = (status: string) => {
@@ -114,61 +144,53 @@ export default function Companies() {
     }
   };
 
-  const getStats = (companyId: string) => {
-    return getTenantAggregatedStats(companyId, mockConsumptionMetrics, mockAgents, mockUsers);
+  const getStats = (company: Company & { _count?: { agents: number; users: number; tokens: number } }) => {
+    // Legacy support or fallback
+    if (company._count) {
+      return {
+        usersCount: company._count.users,
+        agentsCount: company._count.agents,
+        tokensCount: company._count.tokens // Now using real aggregated tokens
+      };
+    }
+    return getTenantAggregatedStats(company.id, mockConsumptionMetrics, mockAgents, mockUsers);
   };
 
-  const handleSaveCompany = () => {
-    if (editingCompany) {
-      // Audit Log for changes
-      const audit: AuditLog = {
-        id: `audit-${Date.now()}`,
-        timestamp: new Date(),
-        tenantId: editingCompany.id,
-        actorId: 'user-1',
-        actorName: 'Super Admin',
-        action: 'tenant.update',
-        targetType: 'tenant',
-        targetId: editingCompany.id,
-        before: mockCompanies.find(c => c.id === editingCompany.id),
-        after: editingCompany,
-        details: `Alteração técnica nos dados da empresa ${editingCompany.name}`,
-      };
+  const handleSaveCompany = async () => {
+    try {
+      if (editingCompany) {
+        await api.updateCompany(editingCompany);
+        toast.success('Empresa atualizada com sucesso');
+      } else {
+        const companyToCreate = {
+          ...newCompany,
+          // Ensure defaults
+          planId: newCompany.planId || availablePlans[0]?.id,
+          status: newCompany.status || 'trial',
+          settings: {
+            aiNoticeMessage: 'Esta conversa utiliza IA para auxiliar no atendimento.',
+            retentionDays: 90,
+            anonymizationEnabled: false,
+          }
+        };
+        await api.createCompany(companyToCreate);
+        toast.success('Empresa criada com sucesso');
+      }
 
-      console.log('Audit generated:', audit);
-      setCompanies(prev => prev.map(c => c.id === editingCompany.id ? editingCompany : c));
-      toast.success('Empresa atualizada (Gera log de auditoria)');
-    } else {
-      const company: Company = {
-        id: `tenant-${Date.now()}`,
-        name: newCompany.name || '',
-        slug: newCompany.slug || '',
-        planId: 'plan-free',
-        plan: newCompany.plan as 'free' | 'pro' | 'enterprise',
-        status: newCompany.status as 'active' | 'suspended' | 'trial',
-        createdAt: new Date(),
-        limits: newCompany.limits || mockPlanCatalog[0].defaultLimits,
-        privacySettings: {
-          tenantId: `tenant-${Date.now()}`,
-          aiDisclosureMessage: 'Esta conversa utiliza IA para auxiliar no atendimento.',
-          retentionDays: 90,
-          anonymizationEnabled: false,
-        },
-        settings: {
-          aiNoticeMessage: 'Esta conversa utiliza IA para auxiliar no atendimento.',
-          retentionDays: 90,
-          anonymizationEnabled: false,
-        },
-      };
-      setCompanies(prev => [...prev, company]);
-      toast.success('Empresa criada com Identificador Único');
+      // Reload data
+      const data = await api.getCompanies();
+      setCompanies(data);
+
+      setDialogOpen(false);
+      setEditingCompany(null);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao salvar empresa');
     }
-    setDialogOpen(false);
-    setEditingCompany(null);
   };
 
   const handlePlanChange = (planId: string) => {
-    const plan = mockPlanCatalog.find(p => p.id === planId);
+    const plan = availablePlans.find(p => p.id === planId);
     if (!plan) return;
 
     const limits = plan.defaultLimits;
@@ -205,10 +227,17 @@ export default function Companies() {
     setNewCompany({
       name: '',
       slug: '',
-      planId: mockPlanCatalog[0].id,
+      planId: availablePlans[0]?.id || '',
       plan: 'free',
       status: 'trial',
-      limits: mockPlanCatalog[0].defaultLimits
+      limits: availablePlans[0]?.defaultLimits || {
+        llmTokens: 0,
+        messages: 0,
+        sttMinutes: 0,
+        ttsMinutes: 0,
+        agents: 0,
+        users: 0
+      }
     });
     setDialogOpen(true);
   };
@@ -309,21 +338,23 @@ export default function Companies() {
                 </div>
 
                 <div className="flex gap-2 mb-4">
-                  {getPlanBadge(company.plan)}
+                  {getPlanBadge(company)}
                   {getStatusBadge(company.status)}
                 </div>
 
                 <div className="grid grid-cols-3 gap-2 mb-4 text-center">
                   <div className="bg-muted p-2">
-                    <p className="text-lg font-bold">{getStats(company.id).usersCount}</p>
+                    <p className="text-lg font-bold">{getStats(company).usersCount}</p>
                     <p className="text-[10px] text-muted-foreground">Usuários</p>
                   </div>
                   <div className="bg-muted p-2">
-                    <p className="text-lg font-bold">{getStats(company.id).agentsCount}</p>
+                    <p className="text-lg font-bold">{getStats(company).agentsCount}</p>
                     <p className="text-[10px] text-muted-foreground">Agentes</p>
                   </div>
                   <div className="bg-muted p-2">
-                    <p className="text-lg font-bold">{(getStats(company.id).tokensCount / 1000000).toFixed(1)}M</p>
+                    <p className="text-lg font-bold">
+                      {(getStats(company).tokensCount / 1000).toFixed(1)}k
+                    </p>
                     <p className="text-[10px] text-muted-foreground">Tokens AI</p>
                   </div>
                 </div>
@@ -357,6 +388,9 @@ export default function Companies() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingCompany ? 'Editar Empresa' : 'Nova Empresa'}</DialogTitle>
+              <DialogDescription>
+                Configure os dados básicos, plano de serviço e limites da empresa cliente.
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-6 py-4">
@@ -396,7 +430,7 @@ export default function Companies() {
                       <SelectValue placeholder="Selecione um plano..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockPlanCatalog.map(plan => (
+                      {availablePlans.map(plan => (
                         <SelectItem key={plan.id} value={plan.id}>
                           {plan.name} ({plan.type.toUpperCase()})
                         </SelectItem>

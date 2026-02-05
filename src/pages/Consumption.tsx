@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
-import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { mockAgents, mockTenants } from '@/lib/mock-data';
-import { mockConsumptionMetrics, mockPeakUsageMatrix } from '@/lib/mock-extended-data';
+import { mockPeakUsageMatrix } from '@/lib/mock-extended-data';
 import { calculateProjection, isMetricBillable } from '@/lib/consumption-logic';
 import { useApp } from '@/contexts/AppContext';
+import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -36,14 +37,40 @@ import {
 const COLORS = ['hsl(192, 91%, 36%)', 'hsl(222, 47%, 35%)', 'hsl(142, 76%, 36%)', 'hsl(38, 92%, 50%)'];
 
 export default function Consumption() {
-  const { openSlideOver } = useApp();
+  const { openSlideOver, currentTenant } = useApp();
   const [period, setPeriod] = useState('30d');
   const [agentFilter, setAgentFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
+  const [realMetrics, setRealMetrics] = useState<any[]>([]);
+  const [realAgents, setRealAgents] = useState<any[]>([]); // New State for Agents
+
+  // Fetch Real Data
+  useEffect(() => {
+    if (currentTenant) {
+      const fetchData = async () => {
+        console.log('Fetching data for consumption view:', currentTenant.id);
+        const [metricsData, agentsData] = await Promise.all([
+          api.getConsumptionMetrics(currentTenant.id, 60),
+          api.getAgents(currentTenant.id)
+        ]);
+
+        if (metricsData && metricsData.length > 0) {
+          console.log('Consumption Data Received:', metricsData);
+          setRealMetrics(metricsData);
+        } else {
+          console.log('No Consumption Data Received');
+        }
+        if (agentsData) {
+          setRealAgents(agentsData);
+        }
+      };
+      fetchData();
+    }
+  }, [currentTenant]);
 
   // Unified Metrics Calculation (Etapa 1 & 6)
   const filteredMetrics = useMemo(() => {
-    let data = [...mockConsumptionMetrics];
+    let data = [...realMetrics];
     const now = new Date();
 
     // Period Filter
@@ -57,7 +84,23 @@ export default function Consumption() {
     if (channelFilter !== 'all') data = data.filter(m => m.channel === channelFilter);
 
     return data;
-  }, [period, agentFilter, channelFilter]);
+  }, [period, agentFilter, channelFilter, realMetrics]);
+
+  // Helper for dynamic cost calculation (Etapa 6 Fix)
+  const calculateMetricCost = (m: any) => {
+    const agent = realAgents.find(a => a.id === m.agentId);
+    const stage = agent ? agent.lifecycleStage : 'production';
+    if (!isMetricBillable(stage)) return 0;
+
+    const prices = (currentTenant as any)?.planPrices;
+    if (!prices || Object.keys(prices).length === 0) return m.cost;
+
+    if (m.metricType === 'tokens') return (m.value / 1000) * (prices.llmTokenPrice || 0);
+    if (m.metricType === 'messages') return m.value * (prices.messagePrice || 0);
+    if (m.metricType === 'stt_minutes') return m.value * (prices.sttMinutePrice || 0);
+    if (m.metricType === 'tts_minutes') return m.value * (prices.ttsMinutePrice || 0);
+    return m.cost;
+  };
 
   const summary = useMemo(() => {
     const totals = {
@@ -72,17 +115,14 @@ export default function Consumption() {
     };
 
     filteredMetrics.forEach(m => {
-      // Find agent stage for billable check (Etapa 4)
-      const agent = mockAgents.find(a => a.id === m.agentId);
-      const isBillable = agent ? isMetricBillable(agent.lifecycleStage) : true;
-
-      const cost = isBillable ? m.cost : 0;
+      const cost = calculateMetricCost(m);
 
       if (m.metricType === 'tokens') {
         totals.tokens += m.value;
         totals.costLLM += cost;
       } else if (m.metricType === 'messages') {
         totals.messages += m.value;
+        totals.totalCost += cost; // Explicitly adding message cost since it wasn't being tracked in a separate total
       } else if (m.metricType === 'stt_minutes') {
         totals.stt += m.value;
         totals.costSTT += cost;
@@ -91,11 +131,11 @@ export default function Consumption() {
         totals.costTTS += cost;
       }
 
-      totals.totalCost += cost;
+      if (m.metricType !== 'messages') totals.totalCost += cost;
     });
 
     return totals;
-  }, [filteredMetrics]);
+  }, [filteredMetrics, realAgents, currentTenant]); // Add currentTenant
 
   // Daily Aggregation for Timeline (Etapa 2)
   const dailyTimeline = useMemo(() => {
@@ -106,14 +146,19 @@ export default function Consumption() {
 
       if (m.metricType === 'tokens') days[dateStr].tokens += m.value;
       if (m.metricType === 'messages') days[dateStr].messages += m.value;
-      days[dateStr].cost += m.cost;
+      days[dateStr].cost += calculateMetricCost(m);
     });
     return Object.values(days).reverse();
-  }, [filteredMetrics]);
+  }, [filteredMetrics, realAgents, currentTenant]);
 
-  const tenantLimit = mockTenants[0]?.plan === 'enterprise' ? 5000000 : 1000000;
+  const tenantLimit = (currentTenant as any)?.limits?.llmTokens || 1000000;
   const consumptionPercentage = (summary.tokens / tenantLimit) * 100;
   const projectedPercentage = calculateProjection(summary.tokens, tenantLimit, period === '7d' ? 7 : 30);
+
+  // Dynamic Token Formatting
+  const tokenDisplay = summary.tokens > 1000000
+    ? { value: (summary.tokens / 1000000).toFixed(2), unit: 'M' }
+    : { value: (summary.tokens / 1000).toFixed(1), unit: 'k' };
 
   const pieData = [
     { name: 'LLM', value: summary.costLLM },
@@ -133,32 +178,40 @@ export default function Consumption() {
   const byAgentData = useMemo(() => {
     const agents: Record<string, any> = {};
     filteredMetrics.forEach(m => {
+      const cost = calculateMetricCost(m); // Fix scope
       if (!m.agentId) return;
       if (!agents[m.agentId]) {
-        const agentInfo = mockAgents.find(a => a.id === m.agentId);
+        const realName = (m as any).agentName;
+        const agentInfo = realAgents.find(a => a.id === m.agentId); // Use realAgents
+
         agents[m.agentId] = {
           agentId: m.agentId,
-          agentName: agentInfo?.name || 'Sistema',
+          agentName: realName || agentInfo?.name || 'Sistema',
           tokens: 0,
           messages: 0,
           cost: 0,
           stage: agentInfo?.lifecycleStage || 'production'
         };
       }
-      if (m.metricType === 'tokens') agents[m.agentId].tokens += m.value;
-      if (m.metricType === 'messages') agents[m.agentId].messages += m.value;
-      if (isMetricBillable(agents[m.agentId].stage)) {
-        agents[m.agentId].cost += m.cost;
+      if (m.metricType === 'tokens') {
+        agents[m.agentId].tokens += m.value;
+        agents[m.agentId].tokenCost = (agents[m.agentId].tokenCost || 0) + cost;
       }
+      if (m.metricType === 'messages') {
+        agents[m.agentId].messages += m.value;
+        agents[m.agentId].messageCost = (agents[m.agentId].messageCost || 0) + cost;
+      }
+
+      agents[m.agentId].cost += cost;
     });
     return Object.values(agents);
-  }, [filteredMetrics]);
+  }, [filteredMetrics, realAgents, currentTenant]); // Add currentTenant
 
   const byChannelData = useMemo(() => {
     const channels: Record<string, any> = {
       whatsapp: { channel: 'whatsapp', name: 'WhatsApp', tokens: 0, messages: 0, cost: 0 },
       voice: { channel: 'voice', name: 'Voz', tokens: 0, messages: 0, cost: 0, stt: 0, tts: 0 },
-      text: { channel: 'text', name: 'Web Chat', tokens: 0, messages: 0, cost: 0 }
+      text: { channel: 'text', name: 'Agente Embarcado', tokens: 0, messages: 0, cost: 0 }
     };
 
     filteredMetrics.forEach(m => {
@@ -167,7 +220,7 @@ export default function Consumption() {
       if (m.metricType === 'messages') channels[m.channel].messages += m.value;
       if (m.metricType === 'stt_minutes') channels[m.channel].stt += m.value;
       if (m.metricType === 'tts_minutes') channels[m.channel].tts += m.value;
-      channels[m.channel].cost += m.cost;
+      channels[m.channel].cost += calculateMetricCost(m);
     });
 
     return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
@@ -211,11 +264,15 @@ export default function Consumption() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos os Agentes</SelectItem>
-                  {mockAgents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>
-                      {agent.name} ({agent.lifecycleStage})
-                    </SelectItem>
-                  ))}
+                  {realAgents.length > 0 ? (
+                    realAgents.map((agent) => (
+                      <SelectItem key={agent.id} value={agent.id}>
+                        {agent.name} <span className="text-xs text-muted-foreground ml-1">({agent.lifecycleStage || 'production'})</span>
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <div className="p-2 text-xs text-muted-foreground">Nenhum agente encontrado</div>
+                  )}
                 </SelectContent>
               </Select>
 
@@ -244,9 +301,9 @@ export default function Consumption() {
                 </div>
                 <span className="text-sm text-muted-foreground">Tokens LLM</span>
               </div>
-              <p className="text-2xl font-bold mb-2">{(summary.tokens / 1000000).toFixed(2)}M</p>
+              <p className="text-2xl font-bold mb-2">{tokenDisplay.value}{tokenDisplay.unit}</p>
               <Progress value={consumptionPercentage} className="h-1 mb-1" />
-              <p className="text-xs text-muted-foreground">{consumptionPercentage.toFixed(0)}% do contrato</p>
+              <p className="text-xs text-muted-foreground">{consumptionPercentage.toFixed(1)}% do contrato</p>
             </div>
 
             <div className="kpi-card">
@@ -283,20 +340,52 @@ export default function Consumption() {
             </div>
           </div>
 
-          {/* Alerts & Projections (Etapa 2) */}
-          <div className={`kpi-card border-l-4 ${projectedPercentage > 100 ? 'border-l-destructive bg-destructive/5' : projectedPercentage > 80 ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-primary bg-primary/5'}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <TrendingUp className={`h-5 w-5 ${projectedPercentage > 80 ? 'text-destructive' : 'text-primary'}`} />
-                <div>
-                  <p className="font-medium">Projeção de Fim de Ciclo</p>
-                  <p className="text-sm text-muted-foreground">Estimativa baseada na média móvel de {period === '7d' ? '7' : '30'} dias.</p>
+          {/* Projeção & Billing Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            {/* Projeção (Etapa 2) */}
+            <div className={`kpi-card border-l-4 lg:col-span-1 flex flex-col justify-center ${projectedPercentage > 100 ? 'border-l-destructive bg-destructive/5' : projectedPercentage > 80 ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-primary bg-primary/5'}`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <TrendingUp className={`h-5 w-5 ${projectedPercentage > 80 ? 'text-destructive' : 'text-primary'}`} />
+                  <div>
+                    <p className="font-medium text-sm">Projeção</p>
+                    <p className="text-[10px] text-muted-foreground uppercase">{period === '7d' ? '7' : '30'} dias</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`text-lg font-bold ${projectedPercentage > 80 ? 'text-destructive' : ''}`}>{projectedPercentage.toFixed(1)}%</p>
                 </div>
               </div>
-              <div className="text-right">
-                <p className={`text-xl font-bold ${projectedPercentage > 80 ? 'text-destructive' : ''}`}>{projectedPercentage.toFixed(1)}%</p>
-                <p className="text-xs text-muted-foreground">da cota mensal</p>
+            </div>
+
+            {/* Resumo de Faturamento (Solicitado) */}
+            <div className="kpi-card bg-primary/[0.03] border-primary/20 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-primary uppercase">Variável</span>
+                <DollarSign className="h-4 w-4 text-primary" />
               </div>
+              <p className="text-xl font-bold">R$ {summary.totalCost.toFixed(2)}</p>
+              <p className="text-[9px] text-muted-foreground mt-1 lowercase">uso dinâmico</p>
+            </div>
+
+            <div className="kpi-card bg-accent/[0.03] border-accent/20 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-accent uppercase">Assinatura</span>
+                <CreditCard className="h-4 w-4 text-accent" />
+              </div>
+              <p className="text-xl font-bold">R$ {((currentTenant as any)?.planPrices?.basePrice || 0).toFixed(2)}</p>
+              <p className="text-[9px] text-muted-foreground mt-1 lowercase">valor fixo</p>
+            </div>
+
+            <div className="kpi-card bg-green-600/[0.05] border-green-600/20 lg:col-span-1">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-green-600 uppercase">A Pagar</span>
+                <Receipt className="h-5 w-5 text-green-600" />
+              </div>
+              <p className="text-2xl font-bold text-green-600">
+                R$ {(summary.totalCost + ((currentTenant as any)?.planPrices?.basePrice || 0)).toFixed(2)}
+              </p>
+              <p className="text-[9px] text-green-600/70 mt-1 font-semibold uppercase">Fatura em Aberto</p>
             </div>
           </div>
 
@@ -353,12 +442,20 @@ export default function Consumption() {
 
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="p-2 bg-muted rounded">
-                        <p className="text-muted-foreground">Tokens</p>
+                        <div className="flex justify-between items-start">
+                          <p className="text-muted-foreground">Tokens (LLM)</p>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0).toFixed(2)}/1k</span>
+                        </div>
                         <p className="font-mono">{(agent.tokens / 1000).toFixed(1)}k</p>
+                        <p className="text-[10px] text-accent font-semibold">R$ {(agent.tokenCost || 0).toFixed(2)}</p>
                       </div>
                       <div className="p-2 bg-muted rounded">
-                        <p className="text-muted-foreground">Mensagens</p>
+                        <div className="flex justify-between items-start">
+                          <p className="text-muted-foreground">Mensagens</p>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 0).toFixed(2)}/un</span>
+                        </div>
                         <p className="font-mono">{agent.messages}</p>
+                        <p className="text-[10px] text-primary font-semibold">R$ {(agent.messageCost || 0).toFixed(2)}</p>
                       </div>
                     </div>
 

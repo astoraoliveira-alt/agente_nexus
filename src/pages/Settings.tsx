@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database } from 'lucide-react';
+import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database, BarChart3 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,9 +7,96 @@ import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApp } from '@/contexts/AppContext';
+import { ConsumptionSettings } from '@/components/consumption/ConsumptionSettings';
+import { useState, useEffect } from 'react';
+import { Agent, Company } from '@/lib/types';
+import { api } from '@/services/api';
+import { useToast } from '@/components/ui/use-toast';
 
 export default function Settings() {
   const { currentTenant, currentUser } = useApp();
+  const { toast } = useToast();
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+
+  // Tenants Management State
+  const [showTenants, setShowTenants] = useState(false);
+  const [tenantsList, setTenantsList] = useState<any[]>([]); // using any or correct type intersection
+  const [loadingTenants, setLoadingTenants] = useState(false);
+
+  const handleViewTenants = async () => {
+    if (showTenants) {
+      setShowTenants(false);
+      return;
+    }
+
+    setLoadingTenants(true);
+    try {
+      const companies = await api.getCompanies();
+      setTenantsList(companies);
+      setShowTenants(true);
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Erro", description: "Falha ao carregar tenants", variant: "destructive" });
+    } finally {
+      setLoadingTenants(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentTenant?.id) {
+      setLoadingAgents(true);
+      api.getAgents(currentTenant.id)
+        .then(setAgents)
+        .catch(err => console.error("Failed to fetch agents", err))
+        .finally(() => setLoadingAgents(false));
+    }
+  }, [currentTenant?.id]);
+
+  const handleSaveConsumption = async (mode: 'flexible' | 'custom', shares: Record<string, number>) => {
+    if (!currentTenant) return;
+
+    try {
+      // 1. Update Company Allocation Mode
+      const updatedPlanDetails = {
+        ...currentTenant.planDetails,
+        allocation_mode: mode
+      };
+
+      // We need to cast strictly to match the expected Plan structure if TS complains, 
+      // but here we are passing it to the API which handles the merge.
+      const updatedCompany = await api.updateCompany({
+        id: currentTenant.id,
+        planDetails: updatedPlanDetails as any
+      });
+
+      // 2. Update Agents Budget Shares
+      // specific for Custom mode, but we save it anyway as it's configuration
+      const updatePromises = Object.entries(shares).map(([agentId, share]) => {
+        const agent = agents.find(a => a.id === agentId);
+        if (!agent) return Promise.resolve();
+
+        return api.updateAgent(agentId, {
+          brainConfig: {
+            ...(agent.brainConfig || { systemPrompt: '', modelId: 'gpt-4o', temperature: 0.7 }),
+            budget_share_pct: share
+          }
+        });
+      });
+
+      await Promise.all(updatePromises);
+
+      // Refresh Context
+      if (currentUser) {
+        // A full refresh might be needed to update currentTenant in context
+        window.location.reload(); // Simplest way to ensure context sync for now
+      }
+
+    } catch (error) {
+      console.error("Failed to save consumption settings", error);
+      throw error; // Let Child handle UI feedback
+    }
+  };
 
   return (
     <MainLayout>
@@ -35,6 +122,10 @@ export default function Settings() {
               <TabsTrigger value="organization" className="gap-2">
                 <Building2 className="h-4 w-4" />
                 Organização
+              </TabsTrigger>
+              <TabsTrigger value="consumption" className="gap-2">
+                <BarChart3 className="h-4 w-4" />
+                Consumo & Limites
               </TabsTrigger>
               <TabsTrigger value="security" className="gap-2">
                 <Shield className="h-4 w-4" />
@@ -64,7 +155,7 @@ export default function Settings() {
 
                   <div className="space-y-2">
                     <Label htmlFor="plan">Plano Atual</Label>
-                    <Input id="plan" defaultValue={currentTenant?.plan} disabled className="capitalize" />
+                    <Input id="plan" defaultValue={currentTenant?.planName || currentTenant?.plan} disabled className="capitalize" />
                   </div>
 
                   <div className="space-y-2">
@@ -134,6 +225,18 @@ export default function Settings() {
                   <Button variant="outline" size="sm">Gerenciar Designações</Button>
                 </div>
               </div>
+            </TabsContent>
+
+            <TabsContent value="consumption" className="space-y-6">
+              {currentTenant && (
+                <ConsumptionSettings
+                  tenantId={currentTenant.id}
+                  planLimit={currentTenant.planDetails?.monthly_limit_brl || currentTenant.planPrices?.basePrice || 100} // Prioritize custom limit, then plan price, then default
+                  allocationMode={currentTenant.planDetails?.allocation_mode || 'flexible'}
+                  agents={agents}
+                  onSave={handleSaveConsumption}
+                />
+              )}
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
@@ -237,22 +340,22 @@ export default function Settings() {
                 </div>
 
                 <div className="kpi-card">
-                  <h3 className="font-semibold mb-4">Configurações Globais</h3>
+                  <h3 className="font-semibold mb-4">Configurações Globais (Plano Contratado)</h3>
 
                   <div className="space-y-4 max-w-md">
                     <div className="space-y-2">
                       <Label>Limite Padrão de Tokens</Label>
-                      <Input type="number" defaultValue="5000000" />
+                      <Input type="number" defaultValue={currentTenant?.limits?.llmTokens || 5000000} />
                     </div>
 
                     <div className="space-y-2">
                       <Label>Limite Padrão de STT (minutos)</Label>
-                      <Input type="number" defaultValue="3000" />
+                      <Input type="number" defaultValue={currentTenant?.limits?.sttMinutes || 3000} />
                     </div>
 
                     <div className="space-y-2">
                       <Label>Limite Padrão de TTS (minutos)</Label>
-                      <Input type="number" defaultValue="2000" />
+                      <Input type="number" defaultValue={currentTenant?.limits?.ttsMinutes || 2000} />
                     </div>
                   </div>
 
@@ -266,7 +369,39 @@ export default function Settings() {
                   <p className="text-sm text-muted-foreground mb-4">
                     Visualizar e gerenciar todos os clientes da plataforma
                   </p>
-                  <Button variant="outline">Ver Todos os Tenants</Button>
+                  <Button variant="outline" onClick={handleViewTenants} disabled={loadingTenants}>
+                    {loadingTenants ? 'Carregando...' : (showTenants ? 'Ocultar Tenants' : 'Ver Todos os Tenants')}
+                  </Button>
+
+                  {showTenants && (
+                    <div className="mt-4 border rounded-md">
+                      <div className="grid grid-cols-4 bg-muted p-2 font-medium text-sm">
+                        <div>Nome</div>
+                        <div>Slug</div>
+                        <div>Plano</div>
+                        <div>Status</div>
+                      </div>
+                      <div className="max-h-60 overflow-y-auto">
+                        {tenantsList.map((tenant) => (
+                          <div key={tenant.id} className="grid grid-cols-4 p-2 text-sm border-t hover:bg-muted/50">
+                            <div className="truncate font-medium">{tenant.name}</div>
+                            <div className="truncate text-muted-foreground">{tenant.slug}</div>
+                            <div>{tenant.planName || tenant.plan}</div>
+                            <div>
+                              <span className={`px-2 py-0.5 rounded-full text-xs ${tenant.status === 'active' ? 'bg-green-100 text-green-700' :
+                                tenant.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                }`}>
+                                {tenant.status}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                        {tenantsList.length === 0 && (
+                          <div className="p-4 text-center text-muted-foreground text-sm">Nenhum tenant encontrado.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </TabsContent>
             )}

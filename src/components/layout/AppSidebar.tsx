@@ -16,7 +16,8 @@ import {
   ShieldCheck,
   Workflow,
   Brain,
-  CreditCard
+  CreditCard,
+  LayoutGrid
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -26,12 +27,7 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { mockAlerts } from '@/lib/mock-data';
 
-const mainNavItems = [
-  { title: 'Dashboard', url: '/', icon: LayoutDashboard },
-  { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: 3 },
-  { title: 'Consumo', url: '/consumption', icon: BarChart3 },
-  { title: 'Agentes', url: '/agents', icon: Bot },
-];
+// Navigation items are now handled dynamically inside the component to support real-time badges
 
 const adminNavItems = [
   { title: 'Usuários', url: '/users', icon: Users },
@@ -40,9 +36,11 @@ const adminNavItems = [
 ];
 
 const governanceNavItems = [
+  { title: 'CRM (Kanban)', url: '/lead-crm', icon: LayoutGrid },
+  { title: 'Qualidade', url: '/quality', icon: ShieldCheck },
   { title: 'Governança IA', url: '/governance', icon: ShieldCheck },
-  { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
-  { title: 'Fluxos', url: '/flows', icon: Workflow },
+  // { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
+  // { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
 
 const platformNavItems = [
@@ -51,9 +49,19 @@ const platformNavItems = [
 ];
 
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission } = useApp();
+  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
+
+  const activeConversationsCount = conversations.filter(c => c.status !== 'closed').length;
+
+  const dynamicMainNavItems = [
+    { title: 'Dashboard', url: '/', icon: LayoutDashboard },
+    { title: 'Consumo', url: '/consumption', icon: BarChart3 },
+    { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
+    { title: 'Contatos', url: '/contacts', icon: Users },
+    { title: 'Agentes', url: '/agents', icon: Bot },
+  ];
 
   const handleLogout = () => {
     localStorage.removeItem('davos_session');
@@ -126,7 +134,7 @@ export function AppSidebar() {
             <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Principal</p>
           )}
           <ul className="space-y-1">
-            {mainNavItems.map((item) => (
+            {dynamicMainNavItems.map((item) => (
               <li key={item.url}>
                 <NavLink
                   to={item.url}
@@ -236,7 +244,7 @@ export function AppSidebar() {
       {/* Footer Actions */}
       <div className="p-3 border-t border-sidebar-border space-y-2">
         {/* Alerts */}
-        <NavLink
+        {/*         <NavLink
           to="/alerts"
           className={cn(
             'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
@@ -253,7 +261,7 @@ export function AppSidebar() {
             )}
           </div>
           {!collapsed && <span>Alertas</span>}
-        </NavLink>
+        </NavLink> */}
 
         {/* Theme Toggle */}
         <Button

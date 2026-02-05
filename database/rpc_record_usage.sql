@@ -32,7 +32,7 @@ BEGIN
     INSERT INTO consumption_metrics (
         tenant_id,
         agent_id,
-        channel, -- Defaulting to text for now, or could be passed param
+        channel,
         metric_type,
         value,
         cost,
@@ -41,7 +41,11 @@ BEGIN
     ) VALUES (
         v_tenant_id,
         p_agent_id,
-        'text', -- Default channel, N8N usually handles text/LLM
+        (SELECT CASE 
+            WHEN type = 'whatsapp' THEN 'whatsapp'::conversation_channel 
+            WHEN type = 'embedded' THEN 'text'::conversation_channel
+            ELSE 'text'::conversation_channel 
+         END FROM agents WHERE id = p_agent_id),
         p_metric_type,
         p_value,
         p_cost,

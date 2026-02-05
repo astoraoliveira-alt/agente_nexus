@@ -13,6 +13,9 @@ import { FlowDetailsPanel } from '@/components/panels/FlowDetailsPanel';
 import { DecisionLogDetailsPanel } from '@/components/panels/DecisionLogDetailsPanel';
 import { AgentGovernancePanel } from '@/components/panels/AgentGovernancePanel';
 import { PlaygroundPanel } from '@/components/panels/PlaygroundPanel';
+import { EvaluationDetailsPanel } from '@/components/panels/EvaluationDetailsPanel';
+import { ISOReportPanel } from '@/components/panels/ISOReportPanel';
+import { ContactDetailsPanel } from '@/components/panels/ContactDetailsPanel';
 
 const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'conversation-details': 'Detalhes da Conversa',
@@ -26,6 +29,9 @@ const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'decision-log-details': 'Log de Decisão',
   'agent-governance': 'Governança do Agente',
   'agent-playground': 'Simulador de Agente & Prompt',
+  'evaluation-details': 'Detalhes da Auditoria',
+  'iso-report': 'Relatório de Governança ISO 42001',
+  'contact-details': 'Detalhes do Contato',
 };
 
 export function SlideOverPanel() {
@@ -55,6 +61,12 @@ export function SlideOverPanel() {
         return <AgentGovernancePanel data={slideOverData} />;
       case 'agent-playground':
         return <PlaygroundPanel agent={slideOverData} />;
+      case 'evaluation-details':
+        return <EvaluationDetailsPanel data={slideOverData} />;
+      case 'iso-report':
+        return <ISOReportPanel data={slideOverData} />;
+      case 'contact-details':
+        return <ContactDetailsPanel data={slideOverData} />;
       default:
         return null;
     }
