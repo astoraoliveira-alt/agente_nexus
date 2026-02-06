@@ -63,6 +63,7 @@ Referência direta às entidades do `database/schema.sql`.
 | :--- | :--- | :--- |
 | **`consumption_metrics`** | Registro financeiro granular. | Fonte da verdade para faturamento. Registra tokens e minutos de voz. **NÃO manipulável** pelo usuário. |
 | **`audit_logs`** | Trilha de auditoria de segurança. | Quem mudou o que e quando (diff `before` -> `after`). Essencial para conformidade SOC2/ISO. |
+| **`integration_logs`** | Auditoria técnica de integrações (Raw Payload). | Armazena o JSON bruto de chamadas batch (VAPI/Retell) para garantir rastreabilidade e debug de sincronização. |
 | **`incidents`** | Registro de falhas de IA ou segurança. | Incidentes de alucinação ou vazamento de dados devem ser formalizados aqui para análise de risco. |
 
 ---
@@ -205,3 +206,27 @@ Sempre que uma conversa é auditada via `save_evaluation`, o sistema executa:
 
 ---
 > **Fim da Documentação**
+
+---
+
+## 11. Integração de Voz (VAPI) & Auditoria Avançada
+
+A integração de Voz introduz complexidade de sincronização e concorrência, resolvida via arquitetura **Idempotente** e **Stateless**.
+
+### 11.1 Arquitetura de Sincronização (Webhook)
+Diferente dos chats texto (que inserem mensagem a mensagem), a VAPI envia o histórico completo ao final da chamada.
+*   **Trigger:** Webhook da VAPI bate no N8N ao final da chamada.
+*   **RPC Blindada (`sync_vapi_call`):**
+    1.  **Auditoria Raw:** Grava o payload JSON original na tabela `integration_logs` antes de qualquer processamento (Garantia de Não-Repúdio).
+    2.  **Deduplicação (Idempotência):** Utiliza um índice `UNIQUE (conversation_id, external_order)` para garantir que mensagens repetidas sejam rejeitadas pelo banco, permitindo reenvios seguros.
+    3.  **Resolução de Identidade:**
+        *   Prioridade 1: ID fornecido pelo N8N (Formulário).
+        *   Prioridade 2: Telefone (`customer.number`).
+        *   fallback: `web-visitor-{id}`.
+    4.  **Cálculo de Custo:** Calcula automaticamente `duration_seconds` baseado nos timestamps `startedAt` e `endedAt` do payload.
+
+### 11.2 Padrão Multi-Trigger (N8N)
+O fluxo N8N foi desenhado para ser assíncrono:
+1.  **Fluxo A (Disparo):** Recebe dados do Formulário Web -> Inicia chamada VAPI -> Termina. (Envia `metadata` com dados do cliente).
+2.  **Fluxo B (Retorno):** Recebe Webhook da VAPI -> Lê `metadata` devolvido -> Sincroniza via RPC.
+*   **Benefício:** Os fluxos são independentes e não exigem que o N8N fique "esperando" (memória presa) durante a duração da chamada.

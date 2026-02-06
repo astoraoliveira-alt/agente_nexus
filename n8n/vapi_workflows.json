@@ -1,0 +1,186 @@
+{
+    "name": "VAPI Integration Bundle",
+    "nodes": [
+        {
+            "parameters": {
+                "path": "vapi-trigger",
+                "responseMode": "lastNode",
+                "options": {}
+            },
+            "id": "1d8b6c4a-trigger-001",
+            "name": "Webhook (Form)",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                460,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://api.vapi.ai/call",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "phoneNumberId",
+                            "value": "YOUR_PHONE_NUMBER_ID"
+                        },
+                        {
+                            "name": "assistantId",
+                            "value": "YOUR_ASSISTANT_ID"
+                        },
+                        {
+                            "name": "customer",
+                            "value": "={{ {'number': $json.body.phone, 'name': $json.body.name} }}"
+                        },
+                        {
+                            "name": "assistant",
+                            "value": "={{ {'metadata': {'user_name': $json.body.name, 'user_phone': $json.body.phone, 'tenant_id': 'YOUR_TENANT_ID'} } }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "1d8b6c4a-http-001",
+            "name": "VAPI: Outbound Call",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 3,
+            "position": [
+                680,
+                240
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "YOUR_VAPI_CREDENTIAL_ID",
+                    "name": "VAPI API Key"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "path": "vapi-callback",
+                "httpMethod": "POST",
+                "responseMode": "onReceived",
+                "options": {}
+            },
+            "id": "1d8b6c4a-webhook-002",
+            "name": "Webhook (VAPI Sync)",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                460,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT * FROM sync_vapi_call($1, $2, $3, $4);",
+                "additionalFields": {
+                    "queryParams": "={{ [ $json.body.message.assistant.metadata.tenant_id, $json.body, $json.body.message.assistant.metadata.user_phone, $json.body.message.assistant.metadata.user_name ] }}"
+                }
+            },
+            "id": "1d8b6c4a-postgres-001",
+            "name": "Postgres: Sync Call",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 1,
+            "position": [
+                680,
+                460
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+                    "name": "Supabase Connection"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT * FROM save_evaluation($1, $2, $3, $4, $5);",
+                "additionalFields": {
+                    "queryParams": "={{ [ $json.conversation_id, $json.ai_score, $json.ai_summary, $json.ai_tags, $json.ai_json_criteria ] }}"
+                }
+            },
+            "id": "1d8b6c4a-postgres-002",
+            "name": "Postgres: Save Qualif.",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 1,
+            "position": [
+                1100,
+                460
+            ],
+            "credentials": {
+                "postgres": {
+                    "id": "YOUR_POSTGRES_CREDENTIAL_ID",
+                    "name": "Supabase Connection"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "model": "gpt-4o",
+                "prompt": "Analise a seguinte transcrição de chamada e retorne um JSON com score (0-100), resumo e tags.\n\nTranscrição:\n{{ $json.body.message.transcript }}"
+            },
+            "id": "1d8b6c4a-ai-001",
+            "name": "AI Agent (Optional)",
+            "type": "@n8n/n8n-nodes-langchain.chainLlm",
+            "typeVersion": 1,
+            "position": [
+                900,
+                460
+            ]
+        }
+    ],
+    "connections": {
+        "Webhook (Form)": {
+            "main": [
+                [
+                    {
+                        "node": "VAPI: Outbound Call",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Webhook (VAPI Sync)": {
+            "main": [
+                [
+                    {
+                        "node": "Postgres: Sync Call",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Postgres: Sync Call": {
+            "main": [
+                [
+                    {
+                        "node": "AI Agent (Optional)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "AI Agent (Optional)": {
+            "main": [
+                [
+                    {
+                        "node": "Postgres: Save Qualif.",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}
