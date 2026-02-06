@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor } from 'lucide-react';
+import { DeviceFrame } from '@/components/ui/DeviceFrame';
+import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -180,6 +182,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'default' | 'mobile'>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom whenever messages change
@@ -246,6 +249,11 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
             <span className="text-[10px] text-muted-foreground font-mono leading-none">{conversation.userId}</span>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5" title="Total de mensagens">
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{conversation.messages.length}</span>
+            </div>
+            <span className="text-border">|</span>
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 'status-dot',
@@ -275,6 +283,30 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
               </>
             )}
           </div>
+        </div>
+
+        {/* View Toggle (Center) */}
+        <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-muted/50 p-1 rounded-lg border border-border">
+          <button
+            onClick={() => setViewMode('default')}
+            className={cn(
+              "p-1.5 rounded-md transition-all",
+              viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+            title="Visão Padrão (SaaS)"
+          >
+            <Monitor className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setViewMode('mobile')}
+            className={cn(
+              "p-1.5 rounded-md transition-all",
+              viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+            title="Visão Cliente (WhatsApp)"
+          >
+            <Smartphone className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -372,165 +404,175 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {conversation.messages.map((message) => (
-          <div
-            key={message.id}
-            className={cn(
-              'flex',
-              message.sender === 'user' ? 'justify-start' : 'justify-end'
-            )}
-          >
-            <div className={cn(
-              "flex items-end gap-2 max-w-[80%]",
-              message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
-            )}>
-              {/* Avatar Logic: 
-                  If User (Left): Avatar is First (handled by flex-row)
-                  If Agent (Right): Avatar is First in DOM but Last visually due to flex-row-reverse 
-              */}
-
-              <div className={cn(
-                'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
-                message.sender === 'ai' ? 'bg-accent/10' :
-                  message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
-              )}>
-                {message.sender === 'ai' ? (
-                  <Bot className="h-4 w-4 text-accent" />
-                ) : message.sender === 'human' ? (
-                  <User className="h-4 w-4 text-success" />
-                ) : (
-                  <User className="h-4 w-4 text-muted-foreground" />
+      {viewMode === 'mobile' ? (
+        <div className="flex-1 bg-muted/30 flex items-center justify-center p-8 overflow-hidden">
+          <DeviceFrame>
+            <WhatsAppView conversation={conversation} />
+          </DeviceFrame>
+        </div>
+      ) : (
+        <>
+          {/* Messages Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {conversation.messages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  'flex',
+                  message.sender === 'user' ? 'justify-start' : 'justify-end'
                 )}
-              </div>
-
-              <div>
-                <div className="flex items-center gap-2 mb-1 px-1">
-                  {/* Sender Name Label */}
-                  {message.sender === 'human' && message.senderName && (
-                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
-                  )}
-                  {message.sender === 'ai' && (
-                    <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
-                  )}
-                  {message.sender === 'user' && (
-                    <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
-                  )}
-                </div>
-
+              >
                 <div className={cn(
-                  'chat-bubble shadow-sm relative group/bubble',
-                  message.sender === 'user' && 'chat-bubble-user rounded-bl-sm',
-                  message.sender === 'ai' && 'chat-bubble-ai rounded-br-sm',
-                  message.sender === 'human' && 'chat-bubble-human rounded-br-sm'
+                  "flex items-end gap-2 max-w-[80%]",
+                  message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
                 )}>
-                  {/* Copy Button (Visible on Hover) */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "absolute -top-3 h-6 w-6 rounded-full shadow-md opacity-0 group-hover/bubble:opacity-100 transition-opacity bg-background border border-border",
-                      message.sender === 'user' ? "-left-2" : "-right-2"
-                    )}
-                    onClick={() => {
-                      const textToCopy = message.content || message.transcription || '';
-                      if (textToCopy) {
-                        navigator.clipboard.writeText(textToCopy);
-                        toast.success('Mensagem copiada!');
-                      }
-                    }}
-                  >
-                    <Copy className="h-3 w-3 text-muted-foreground" />
-                  </Button>
+                  {/* Avatar Logic: 
+                        If User (Left): Avatar is First (handled by flex-row)
+                        If Agent (Right): Avatar is First in DOM but Last visually due to flex-row-reverse 
+                    */}
 
-                  {message.type === 'audio' ? (
-                    <div className="space-y-2">
-                      <AudioMessage message={message} />
-                      {message.transcription && (
-                        <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
-                          <HighlightText text={message.transcription} term={highlightTerm} />
-                        </div>
+                  <div className={cn(
+                    'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
+                    message.sender === 'ai' ? 'bg-accent/10' :
+                      message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
+                  )}>
+                    {message.sender === 'ai' ? (
+                      <Bot className="h-4 w-4 text-accent" />
+                    ) : message.sender === 'human' ? (
+                      <User className="h-4 w-4 text-success" />
+                    ) : (
+                      <User className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2 mb-1 px-1">
+                      {/* Sender Name Label */}
+                      {message.sender === 'human' && message.senderName && (
+                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
+                      )}
+                      {message.sender === 'ai' && (
+                        <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
+                      )}
+                      {message.sender === 'user' && (
+                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
                       )}
                     </div>
-                  ) : message.type === 'image' ? (
-                    <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
-                  ) : (
-                    <p className="text-sm custom-markdown leading-relaxed">
-                      <HighlightText text={message.content} term={highlightTerm} />
+
+                    <div className={cn(
+                      'chat-bubble shadow-sm relative group/bubble',
+                      message.sender === 'user' && 'chat-bubble-user rounded-bl-sm',
+                      message.sender === 'ai' && 'chat-bubble-ai rounded-br-sm',
+                      message.sender === 'human' && 'chat-bubble-human rounded-br-sm'
+                    )}>
+                      {/* Copy Button (Visible on Hover) */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "absolute -top-3 h-6 w-6 rounded-full shadow-md opacity-0 group-hover/bubble:opacity-100 transition-opacity bg-background border border-border",
+                          message.sender === 'user' ? "-left-2" : "-right-2"
+                        )}
+                        onClick={() => {
+                          const textToCopy = message.content || message.transcription || '';
+                          if (textToCopy) {
+                            navigator.clipboard.writeText(textToCopy);
+                            toast.success('Mensagem copiada!');
+                          }
+                        }}
+                      >
+                        <Copy className="h-3 w-3 text-muted-foreground" />
+                      </Button>
+
+                      {message.type === 'audio' ? (
+                        <div className="space-y-2">
+                          <AudioMessage message={message} />
+                          {message.transcription && (
+                            <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
+                              <HighlightText text={message.transcription} term={highlightTerm} />
+                            </div>
+                          )}
+                        </div>
+                      ) : message.type === 'image' ? (
+                        <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
+                      ) : (
+                        <p className="text-sm custom-markdown leading-relaxed">
+                          <HighlightText text={message.content} term={highlightTerm} />
+                        </p>
+                      )}
+                    </div>
+
+                    <p className={cn(
+                      "text-[10px] text-muted-foreground/60 mt-1",
+                      message.sender !== 'user' ? "text-right" : "text-left"
+                    )}>
+                      {format(message.timestamp, 'HH:mm', { locale: ptBR })}
                     </p>
-                  )}
+                  </div>
                 </div>
-
-                <p className={cn(
-                  "text-[10px] text-muted-foreground/60 mt-1",
-                  message.sender !== 'user' ? "text-right" : "text-left"
-                )}>
-                  {format(message.timestamp, 'HH:mm', { locale: ptBR })}
-                </p>
               </div>
-            </div>
+            ))}
+            {/* Invisible element to auto-scroll to */}
+            <div ref={messagesEndRef} />
           </div>
-        ))}
-        {/* Invisible element to auto-scroll to */}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {/* Input Area */}
-      <div className="p-4 border-t border-border bg-card">
-        {isReadOnly ? (
-          <div className="flex items-center justify-center p-3 bg-muted/50 rounded-md border border-dashed border-border text-sm text-muted-foreground gap-2">
-            <ShieldCheck className="h-4 w-4" />
-            Esta conversa é somente leitura (Agente Incorporado).
+          {/* Input Area */}
+          <div className="p-4 border-t border-border bg-card">
+            {isReadOnly ? (
+              <div className="flex items-center justify-center p-3 bg-muted/50 rounded-md border border-dashed border-border text-sm text-muted-foreground gap-2">
+                <ShieldCheck className="h-4 w-4" />
+                Esta conversa é somente leitura (Agente Incorporado).
+              </div>
+            ) : conversation.status === 'ai_active' ? (
+              <div className="flex items-center justify-center p-2 bg-muted/30 rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                <Bot className="h-4 w-4 mr-2" />
+                A IA está respondendo. Clique em "Assumir Conversa" para interagir.
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <AttachmentPicker
+                  onAttach={(type, file) => {
+                    if (file) {
+                      toast.success(`Anexo adicionado: ${file.name}`);
+                      // Implement media upload here if needed
+                    }
+                  }}
+                />
+
+                <input
+                  type="text"
+                  value={messageInput}
+                  onChange={(e) => setMessageInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && messageInput.trim()) {
+                      sendMessage(conversation.id, messageInput);
+                      setMessageInput('');
+                    }
+                  }}
+                  placeholder="Digite sua mensagem como operador..."
+                  className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
+                  autoFocus
+                />
+
+                <EmojiPicker onSelect={(emoji) => setMessageInput(prev => prev + emoji)} />
+
+                <Button
+                  size="icon"
+                  className="bg-accent hover:bg-accent/90"
+                  onClick={() => {
+                    if (messageInput.trim()) {
+                      sendMessage(conversation.id, messageInput);
+                      setMessageInput('');
+                    }
+                  }}
+                >
+                  <Send className="h-5 w-5" />
+                </Button>
+              </div>
+            )}
           </div>
-        ) : conversation.status === 'ai_active' ? (
-          <div className="flex items-center justify-center p-2 bg-muted/30 rounded-md border border-dashed border-border text-sm text-muted-foreground">
-            <Bot className="h-4 w-4 mr-2" />
-            A IA está respondendo. Clique em "Assumir Conversa" para interagir.
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <AttachmentPicker
-              onAttach={(type, file) => {
-                if (file) {
-                  toast.success(`Anexo adicionado: ${file.name}`);
-                  // Implement media upload here if needed
-                }
-              }}
-            />
-
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && messageInput.trim()) {
-                  sendMessage(conversation.id, messageInput);
-                  setMessageInput('');
-                }
-              }}
-              placeholder="Digite sua mensagem como operador..."
-              className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
-              autoFocus
-            />
-
-            <EmojiPicker onSelect={(emoji) => setMessageInput(prev => prev + emoji)} />
-
-            <Button
-              size="icon"
-              className="bg-accent hover:bg-accent/90"
-              onClick={() => {
-                if (messageInput.trim()) {
-                  sendMessage(conversation.id, messageInput);
-                  setMessageInput('');
-                }
-              }}
-            >
-              <Send className="h-5 w-5" />
-            </Button>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </div >
   );
 }

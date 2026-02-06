@@ -65,6 +65,10 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     });
   }, [conversations, searchTerm, agentFilter]);
 
+  const totalMessages = useMemo(() => {
+    return filteredConversations.reduce((acc, curr) => acc + (curr.messages?.length || 0), 0);
+  }, [filteredConversations]);
+
   return (
     <div className="h-full flex flex-col border-r border-border bg-card">
       {/* Header */}
@@ -72,6 +76,13 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-sm uppercase tracking-wide">Conversas</h2>
           <Badge variant="outline" className="text-xs h-5 px-1.5">{filteredConversations.length}</Badge>
+
+          <div className="w-px h-3 bg-border mx-1" />
+
+          <div className="flex items-center gap-1.5 text-muted-foreground" title="Total de mensagens">
+            <MessageSquare className="h-4 w-4" />
+            <Badge variant="outline" className="text-xs h-5 px-1.5 text-black border-muted-foreground/20">{totalMessages}</Badge>
+          </div>
         </div>
 
         {/* Filter Action */}
@@ -198,6 +209,6 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
           ))
         )}
       </div>
-    </div>
+    </div >
   );
 }

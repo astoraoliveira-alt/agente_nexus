@@ -230,3 +230,23 @@ O fluxo N8N foi desenhado para ser assíncrono:
 1.  **Fluxo A (Disparo):** Recebe dados do Formulário Web -> Inicia chamada VAPI -> Termina. (Envia `metadata` com dados do cliente).
 2.  **Fluxo B (Retorno):** Recebe Webhook da VAPI -> Lê `metadata` devolvido -> Sincroniza via RPC.
 *   **Benefício:** Os fluxos são independentes e não exigem que o N8N fique "esperando" (memória presa) durante a duração da chamada.
+
+---
+
+## 12. Interface de Conversação & Métricas em Tempo Real
+
+A interface foi evoluída para fornecer métricas visuais imediatas sobre o volume de interações, tanto no nível macro (Lista) quanto micro (Chat Ativo).
+
+### 12.1 Contadores de Volumetria (UX Decision)
+Para apoiar a tomada de decisão rápida dos operadores, foram implementados indicadores visuais de densidade de conversa:
+
+1.  **Totalizador Agregado (Conversation List):**
+    *   **Localização:** Cabeçalho da lista de conversas.
+    *   **Lógica:** Cálculo dinâmico no frontend (`filteredConversations.reduce`) que soma o total de mensagens de todas as conversas atualmente visíveis no filtro.
+    *   **Propósito:** Permitir que o supervisor entenda a "carga" de atendimento do filtro atual (ex: "Quantas mensagens o Agente de Vendas trocou hoje?").
+    *   **Visual:** Ícone `MessageSquare` + Badge preto (`text-black`) para distinção visual clara contra o contador de threads.
+
+2.  **Contador Contextual (Chat Header):**
+    *   **Localização:** Topo da área de chat ativa.
+    *   **Lógica:** `conversation.messages.length`.
+    *   **Propósito:** Indicador rápido da extensão do diálogo atual, útil para estimar custos e complexidade da conversa antes mesmo de ler o histórico.

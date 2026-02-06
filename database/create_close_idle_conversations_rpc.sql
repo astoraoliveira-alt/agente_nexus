@@ -9,17 +9,29 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_closed_ids UUID[];
+    v_closed_count INT;
 BEGIN
-    UPDATE conversations
-    SET status = 'closed',
-        last_message_at = NOW()
-    WHERE status != 'closed'
-      AND last_message_at < (NOW() - (p_idle_minutes || ' minutes')::interval)
-    RETURNING id INTO v_closed_ids;
+    -- Use a CTE to capture the updated IDs safely
+    WITH closed_rows AS (
+        UPDATE conversations
+        SET status = 'closed',
+            last_message_at = NOW()
+        WHERE status != 'closed'
+          AND last_message_at < (NOW() - (p_idle_minutes || ' minutes')::interval)
+        RETURNING id
+    )
+    SELECT 
+        COALESCE(array_agg(id), '{}'),
+        COUNT(*)
+    INTO 
+        v_closed_ids,
+        v_closed_count
+    FROM closed_rows;
 
     RETURN jsonb_build_object(
-        'closed_count', array_length(v_closed_ids, 1),
-        'closed_ids', COALESCE(v_closed_ids, '{}'::UUID[]),
+        'status', 'success',
+        'closed_count', v_closed_count,
+        'closed_ids', v_closed_ids,
         'timestamp', NOW()
     );
 END;
