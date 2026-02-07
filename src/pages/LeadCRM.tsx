@@ -73,8 +73,8 @@ const LeadCRM = () => {
     const getStatusGroup = (status?: string) => {
         const s = status?.toLowerCase() || '';
         if (s === 'lead' || s === '') return 'lead'; // Explicitly catch new leads
-        if (s.includes('quente')) return 'quente';
-        if (s.includes('médio') || s.includes('medio')) return 'medio';
+        if (s.includes('quente') || s === 'sql') return 'quente';
+        if (s.includes('médio') || s.includes('medio') || s === 'mql') return 'medio';
         if (s.includes('negociação') || s.includes('negociacao')) return 'negociacao';
         if (s.includes('convertido') || s.includes('sucesso')) return 'convertido';
         if (s.includes('perdido')) return 'perdido';

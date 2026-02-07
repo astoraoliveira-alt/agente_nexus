@@ -27,7 +27,12 @@ export function ContactDetailsPanel({ data }: ContactDetailsPanelProps) {
                     <h3 className="text-xl font-bold">{data.name}</h3>
                     <div className="flex items-center justify-center gap-2 mt-1">
                         <Badge variant="secondary" className="bg-accent/10 text-accent-foreground border-accent/20">
-                            {data.lifecycleStatus || 'Lead'}
+                            {
+                                ['sql', 'SQL', 'Lead Quente'].includes(data.lifecycleStatus || '') ? 'Lead Quente' :
+                                    ['mql', 'MQL', 'Interesse Médio'].includes(data.lifecycleStatus || '') ? 'Interesse Médio' :
+                                        ['lead', 'Lead', 'Interesse Baixo'].includes(data.lifecycleStatus || '') ? 'Lead' :
+                                            (data.lifecycleStatus || 'Lead')
+                            }
                         </Badge>
                         <Badge variant="outline" className="text-[10px] uppercase font-bold tracking-tight">
                             {data.channel || 'Direct'}

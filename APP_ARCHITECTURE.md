@@ -26,15 +26,31 @@ O sistema opera sob isolamento estrito de dados (Row Level Security - RLS).
 
 ## 2. Stack Tecnológico & Arquitetura de Camadas
 
-A arquitetura elimina a camada tradicional de API Node.js (Middleware CRUD) em favor de um modelo **BaaS (Backend-as-a-Service)** com lógica no banco.
+A arquitetura do Nexus Hub rompe com o paradigma tradicional de middlewares pesados (servidores Node.js/Python), adotando um modelo **Serverless & BaaS (Backend-as-a-Service)**. A lógica de negócio reside na persistência e na orquestração.
 
-| Camada | Tecnologia | Detalhes Técnicos |
-| :--- | :--- | :--- |
-| **Frontend** | React 18 + Vite | SPA. Estado via TanStack Query. Interfaces via Shadcn/UI. |
-| **Persistência** | PostgreSQL 15+ | Supabase (Hosted). Tabelas relacionais e JSONB. Single Source of Truth. |
-| **Regras (Backend)** | PL/pgSQL RPCs | Funções atômicas para lógica crítica (Billing, CRM, Auth). |
-| **Executor** | N8N (Self-Hosted) | Middleware Stateless. Conecta LLMs e Canais (WhatsApp/Retell). |
-| **IA (Inference)** | OpenAI / Anthropic | Modelos LLM chamados exclusivamente pelo N8N. |
+### 2.1 Detalhamento da Stack
+
+| Camada | Componente | Tecnologia | Papel & Detalhes Técnicos |
+| :--- | :--- | :--- | :--- |
+| **Frontend** | UI Framework | **React 18 (TypeScript)** | Single Page Application (SPA). Tipagem rigorosa para contratos de API. |
+| | Tooling | **Vite** | Build system ultrarápido e HMR. |
+| | Estilo | **Tailwind CSS + Shadcn/UI** | Design System atômico baseado em Radix UI primitives. |
+| | Estado & Cache | **TanStack Query (v5)** | Sincronização de estado servidor-cliente e refetching automático. |
+| | Forms | **React Hook Form + Zod** | Validação de schemas e manipulação de formulários complexos. |
+| **Backend** | **Lógica (Core)** | **PL/pgSQL (PostgreSQL)** | Funções via RPC. O backend é *Database-First*. Lógica atômica e segura via RLS. |
+| | Camada API | **PostgREST (Supabase)** | Exposição automática e segura das tabelas e RPCs via RESTful API. |
+| | Autenticação | **Supabase Auth** | JWT, RBAC via roles do banco e sessões persistentes. |
+| **Persistência** | Banco de Dados | **PostgreSQL 15+** | Relacional puro com suporte extensivo a JSONB para metadados de IA. |
+| | Armazenamento | **Supabase Storage** | Gestão de arquivos (áudios de conversas, assets da empresa). |
+| **Orquestração** | Middleware IA | **n8n (Self-Hosted)** | Motor de fluxos. Atua como o executor stateless que liga o banco às LLMs. |
+| | Conectividade | **Webhooks / REST** | Integração com WhatsApp (Evolution API), Vapi, Retell e CRMs externos. |
+| **Inference** | Modelos LLM | **OpenAI / Anthropic** | Modelos (GPT-4o, Claude 3.5 Sonnet) orquestrados exclusivamente pelo n8n. |
+
+### 2.2 O Paradigma "Database-First"
+Diferente de sistemas legados, o Nexus Hub não possui um servidor de aplicação centralizado. 
+- **O Banco é o Backend:** Toda validação de permissão, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**.
+- **O n8n é o Executor:** Ele não toma decisões de negócio; ele executa ações baseadas no estado fornecido pelo banco.
+- **Segurança Nativa:** O isolamento multi-tenant é garantido por **RLS (Row Level Security)**, impossibilitando que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
 
 ---
 

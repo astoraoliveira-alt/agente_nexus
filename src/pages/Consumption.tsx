@@ -179,52 +179,84 @@ export default function Consumption() {
     const agents: Record<string, any> = {};
     filteredMetrics.forEach(m => {
       const cost = calculateMetricCost(m); // Fix scope
-      if (!m.agentId) return;
-      if (!agents[m.agentId]) {
-        const realName = (m as any).agentName;
-        const agentInfo = realAgents.find(a => a.id === m.agentId); // Use realAgents
 
-        agents[m.agentId] = {
-          agentId: m.agentId,
-          agentName: realName || agentInfo?.name || 'Sistema',
+      // Handle metrics without agentId (System or Unassigned) recursively
+      const agentId = m.agentId || 'system-unassigned';
+
+      if (!agents[agentId]) {
+        const realName = (m as any).agentName;
+        const agentInfo = realAgents.find(a => a.id === agentId);
+
+        agents[agentId] = {
+          agentId: agentId,
+          agentName: agentId === 'system-unassigned' ? 'Sistema / Não Atribuído' : (realName || agentInfo?.name || 'Desconhecido'),
           tokens: 0,
           messages: 0,
           cost: 0,
-          stage: agentInfo?.lifecycleStage || 'production'
+          stage: agentInfo?.lifecycleStage || 'production',
+          usedChannels: new Set<string>() // Track channels
         };
       }
       if (m.metricType === 'tokens') {
-        agents[m.agentId].tokens += m.value;
-        agents[m.agentId].tokenCost = (agents[m.agentId].tokenCost || 0) + cost;
+        agents[agentId].tokens += m.value;
+        agents[agentId].tokenCost = (agents[agentId].tokenCost || 0) + cost;
       }
       if (m.metricType === 'messages') {
-        agents[m.agentId].messages += m.value;
-        agents[m.agentId].messageCost = (agents[m.agentId].messageCost || 0) + cost;
+        agents[agentId].messages += m.value;
+        agents[agentId].messageCost = (agents[agentId].messageCost || 0) + cost;
       }
 
-      agents[m.agentId].cost += cost;
+      // Track channel usage
+      if (m.channel) agents[agentId].usedChannels.add(m.channel);
+
+      agents[agentId].cost += cost;
     });
     return Object.values(agents);
   }, [filteredMetrics, realAgents, currentTenant]); // Add currentTenant
 
   const byChannelData = useMemo(() => {
     const channels: Record<string, any> = {
-      whatsapp: { channel: 'whatsapp', name: 'WhatsApp', tokens: 0, messages: 0, cost: 0 },
-      voice: { channel: 'voice', name: 'Voz', tokens: 0, messages: 0, cost: 0, stt: 0, tts: 0 },
-      text: { channel: 'text', name: 'Agente Embarcado', tokens: 0, messages: 0, cost: 0 }
+      whatsapp: { channel: 'whatsapp', name: 'WhatsApp', tokens: 0, messages: 0, cost: 0, tokenCost: 0, messageCost: 0 },
+      voice: { channel: 'voice', name: 'Voz / Telefonia', tokens: 0, messages: 0, cost: 0, stt: 0, tts: 0, tokenCost: 0, messageCost: 0 },
+      text: { channel: 'text', name: 'Web Chat (Texto)', tokens: 0, messages: 0, cost: 0, tokenCost: 0, messageCost: 0 }
     };
 
     filteredMetrics.forEach(m => {
-      if (!channels[m.channel]) return;
-      if (m.metricType === 'tokens') channels[m.channel].tokens += m.value;
-      if (m.metricType === 'messages') channels[m.channel].messages += m.value;
-      if (m.metricType === 'stt_minutes') channels[m.channel].stt += m.value;
-      if (m.metricType === 'tts_minutes') channels[m.channel].tts += m.value;
-      channels[m.channel].cost += calculateMetricCost(m);
+      const channelKey = m.channel || 'unknown';
+      const cost = calculateMetricCost(m);
+
+      // Dynamic creation if channel doesn't exist (e.g. 'instagram' or others)
+      if (!channels[channelKey]) {
+        channels[channelKey] = {
+          channel: channelKey,
+          name: channelKey.charAt(0).toUpperCase() + channelKey.slice(1),
+          tokens: 0,
+          messages: 0,
+          cost: 0,
+          stt: 0,
+          tts: 0,
+          tokenCost: 0,
+          messageCost: 0
+        };
+      }
+
+      const entry = channels[channelKey];
+      if (m.metricType === 'tokens') {
+        entry.tokens += m.value;
+        entry.tokenCost += cost;
+      }
+      if (m.metricType === 'messages') {
+        entry.messages += m.value;
+        entry.messageCost += cost;
+      }
+      if (m.metricType === 'stt_minutes') entry.stt += m.value;
+      if (m.metricType === 'tts_minutes') entry.tts += m.value;
+
+      entry.cost += cost;
     });
 
-    return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
-  }, [filteredMetrics]);
+    return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0 || c.tokens > 0);
+  }, [filteredMetrics, realAgents, currentTenant]);
 
   return (
     <MainLayout>
@@ -361,31 +393,50 @@ export default function Consumption() {
             {/* Resumo de Faturamento (Solicitado) */}
             <div className="kpi-card bg-primary/[0.03] border-primary/20 lg:col-span-1">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-primary uppercase">Variável</span>
+                <span className="text-xs font-semibold text-primary uppercase">Variável (Uso)</span>
                 <DollarSign className="h-4 w-4 text-primary" />
               </div>
               <p className="text-xl font-bold">R$ {summary.totalCost.toFixed(2)}</p>
-              <p className="text-[9px] text-muted-foreground mt-1 lowercase">uso dinâmico</p>
+              <p className="text-[9px] text-muted-foreground mt-1 lowercase">
+                {((currentTenant as any)?.planDetails?.monthlyFeeCoversUsage)
+                  ? 'abatido da mensalidade até o limite'
+                  : 'uso dinâmico (adicional)'}
+              </p>
             </div>
 
             <div className="kpi-card bg-accent/[0.03] border-accent/20 lg:col-span-1">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-accent uppercase">Assinatura</span>
+                <span className="text-xs font-semibold text-accent uppercase">Assinatura Base</span>
                 <CreditCard className="h-4 w-4 text-accent" />
               </div>
               <p className="text-xl font-bold">R$ {((currentTenant as any)?.planPrices?.basePrice || 0).toFixed(2)}</p>
-              <p className="text-[9px] text-muted-foreground mt-1 lowercase">valor fixo</p>
+              <p className="text-[9px] text-muted-foreground mt-1 lowercase">valor fixo de acesso</p>
             </div>
 
             <div className="kpi-card bg-green-600/[0.05] border-green-600/20 lg:col-span-1">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-green-600 uppercase">A Pagar</span>
+                <span className="text-xs font-semibold text-green-600 uppercase">A Pagar (Total)</span>
                 <Receipt className="h-5 w-5 text-green-600" />
               </div>
               <p className="text-2xl font-bold text-green-600">
-                R$ {(summary.totalCost + ((currentTenant as any)?.planPrices?.basePrice || 0)).toFixed(2)}
+                R$ {(() => {
+                  const basePrice = (currentTenant as any)?.planPrices?.basePrice || 0;
+                  const usageCost = summary.totalCost;
+                  const feeCoversUsage = (currentTenant as any)?.planDetails?.monthlyFeeCoversUsage;
+
+                  // Logic: If fee covers usage, pay MAX(base, usage). Else pay Base + Usage.
+                  const total = feeCoversUsage
+                    ? Math.max(basePrice, usageCost)
+                    : basePrice + usageCost;
+
+                  return total.toFixed(2);
+                })()}
               </p>
-              <p className="text-[9px] text-green-600/70 mt-1 font-semibold uppercase">Fatura em Aberto</p>
+              <p className="text-[9px] text-green-600/70 mt-1 font-semibold uppercase">
+                {(currentTenant as any)?.planDetails?.monthlyFeeCoversUsage
+                  ? 'Modelo: Crédito na Mensalidade'
+                  : 'Modelo: Mensalidade + Uso'}
+              </p>
             </div>
           </div>
 
@@ -434,8 +485,15 @@ export default function Consumption() {
                   <div key={agent.agentId} className="kpi-card border border-border/50">
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h4 className="font-bold">{agent.agentName}</h4>
-                        <Badge variant="outline" className="text-[10px] uppercase">{agent.stage}</Badge>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold">{agent.agentName}</h4>
+                          <div className="flex gap-1">
+                            {Array.from(agent.usedChannels || []).map((ch: any) => ( // Show badges
+                              <Badge key={ch} variant="secondary" className="text-[9px] h-4 px-1">{ch}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] uppercase mt-1">{agent.stage}</Badge>
                       </div>
                       <p className="text-lg font-bold">R$ {agent.cost.toFixed(2)}</p>
                     </div>
@@ -470,23 +528,35 @@ export default function Consumption() {
             </TabsContent>
 
             <TabsContent value="by-channel" className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {byChannelData.map((channel) => (
-                  <div key={channel.channel} className="kpi-card">
-                    <div className="flex items-center gap-2 mb-4">
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                        <DollarSign className="h-4 w-4 text-primary" />
+                  <div key={channel.channel} className="kpi-card border border-border/50">
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                          <DollarSign className="h-4 w-4 text-primary" />
+                        </div>
+                        <h4 className="font-bold capitalize">{channel.name}</h4>
                       </div>
-                      <h4 className="font-bold capitalize">{channel.name}</h4>
+                      <p className="text-lg font-bold">R$ {channel.cost.toFixed(2)}</p>
                     </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Mensagens</span>
-                        <span>{channel.messages}</span>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 bg-muted rounded">
+                        <div className="flex justify-between items-start">
+                          <p className="text-muted-foreground">Tokens (LLM)</p>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0).toFixed(2)}/1k</span>
+                        </div>
+                        <p className="font-mono">{(channel.tokens / 1000).toFixed(1)}k</p>
+                        <p className="text-[10px] text-accent font-semibold">R$ {(channel.tokenCost || 0).toFixed(2)}</p>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Custo Total</span>
-                        <span className="font-bold">R$ {channel.cost.toFixed(2)}</span>
+                      <div className="p-2 bg-muted rounded">
+                        <div className="flex justify-between items-start">
+                          <p className="text-muted-foreground">Mensagens</p>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 0).toFixed(2)}/un</span>
+                        </div>
+                        <p className="font-mono">{channel.messages}</p>
+                        <p className="text-[10px] text-primary font-semibold">R$ {(channel.messageCost || 0).toFixed(2)}</p>
                       </div>
                     </div>
                   </div>

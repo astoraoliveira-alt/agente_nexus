@@ -146,22 +146,38 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
             <div
               key={conv.id}
               className={cn(
-                'group relative p-4 border-b border-border/50 cursor-pointer transition-all hover:bg-muted/30',
-                selectedId === conv.id ? 'bg-muted/50 border-l-2 border-l-accent' : 'border-l-2 border-l-transparent'
+                'group relative p-4 border-b border-border/50 cursor-pointer transition-all',
+                // STATUS STYLING
+                conv.status !== 'closed'
+                  ? 'bg-emerald-500/5 hover:bg-emerald-500/10 border-l-[3px] border-l-emerald-500' // Active: Green Tint + Vivid Border
+                  : 'hover:bg-muted/30 border-l-[3px] border-l-transparent opacity-75',          // Closed: Muted + Transparent Border
+
+                // SELECTION STATE (Overrides/Enhances)
+                selectedId === conv.id && (
+                  conv.status !== 'closed'
+                    ? 'bg-emerald-500/15 border-l-emerald-600'
+                    : 'bg-muted border-l-foreground/50'
+                )
               )}
               onClick={() => onSelect(conv)}
             >
               <div className="flex gap-3">
                 {/* Avatar */}
                 <div className="relative flex-shrink-0">
-                  <div className="w-10 h-10 bg-muted rounded-full flex items-center justify-center overflow-hidden border border-border">
-                    <User className="h-5 w-5 text-muted-foreground" />
+                  <div className={cn(
+                    "w-10 h-10 rounded-full flex items-center justify-center overflow-hidden border transition-colors",
+                    conv.status !== 'closed'
+                      ? "bg-emerald-100 border-emerald-200 text-emerald-700"
+                      : "bg-muted border-border text-muted-foreground"
+                  )}>
+                    <User className="h-5 w-5" />
                   </div>
                   {/* Status indicator */}
                   <div className={cn(
-                    'absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card',
-                    conv.status === 'ai_active' ? 'bg-accent' :
-                      conv.status === 'closed' ? 'bg-muted-foreground' : 'bg-success'
+                    'absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-card shadow-sm',
+                    conv.status === 'ai_active' ? 'bg-emerald-500 animate-pulse' :
+                      conv.status === 'human_active' ? 'bg-blue-500' :
+                        'bg-slate-400'
                   )} />
                 </div>
 
@@ -169,7 +185,11 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
                     <div className="flex flex-col min-w-0">
-                      <span className={cn("font-medium truncate", selectedId === conv.id && "text-accent")}>{conv.userName}</span>
+                      <span className={cn(
+                        "font-medium truncate transition-colors",
+                        conv.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-muted-foreground",
+                        selectedId === conv.id && "text-foreground"
+                      )}>{conv.userName}</span>
                       <span className="text-[10px] text-muted-foreground font-mono">{conv.userId}</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground flex-shrink-0">
@@ -179,14 +199,19 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
 
                   {/* Agent Info Badge */}
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <Badge variant="secondary" className="h-4 px-1 rounded-[2px] text-[9px] font-normal gap-1 bg-muted text-muted-foreground group-hover:bg-background/80">
+                    <Badge variant="secondary" className={cn(
+                      "h-4 px-1 rounded-[2px] text-[9px] font-normal gap-1",
+                      conv.status !== 'closed'
+                        ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20"
+                        : "bg-muted text-muted-foreground"
+                    )}>
                       <Bot className="h-2.5 w-2.5" />
                       {conv.agentName || 'Agente'}
                     </Badge>
                     {conv.status === 'closed' && (
                       <Badge
                         variant="secondary"
-                        className="h-5 px-1.5 text-[10px] font-medium bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-transparent hover:bg-gray-300 dark:hover:bg-gray-700"
+                        className="h-4 px-1.5 text-[9px] font-medium bg-slate-100 text-slate-500 border-transparent"
                       >
                         Fechada
                       </Badge>
@@ -200,7 +225,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                       ) : (
                         <MessageSquare className="h-3 w-3" />
                       )}
-                      <span className="truncate">{conv.lastMessage}</span>
+                      <span className="truncate group-hover:text-foreground transition-colors">{conv.lastMessage}</span>
                     </div>
                   </div>
                 </div>

@@ -224,13 +224,18 @@ const Contacts = () => {
                                             <TableCell>
                                                 <Badge
                                                     variant="outline"
-                                                    className={`capitalize whitespace-nowrap ${contact.lifecycleStatus === 'Lead Quente' ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' :
-                                                        contact.lifecycleStatus === 'Interesse Médio' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                            contact.lifecycleStatus === 'Interesse Baixo' ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
-                                                                'bg-gray-500/5 text-gray-400 border-gray-500/10'
+                                                    className={`capitalize whitespace-nowrap ${['Lead Quente', 'sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' :
+                                                            ['Interesse Médio', 'mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
+                                                                ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
+                                                                    'bg-gray-500/5 text-gray-400 border-gray-500/10'
                                                         }`}
                                                 >
-                                                    {contact.lifecycleStatus || 'Sem Status'}
+                                                    {
+                                                        ['sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'Lead Quente' :
+                                                            ['mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'Interesse Médio' :
+                                                                ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'Lead' :
+                                                                    (contact.lifecycleStatus || 'Sem Status')
+                                                    }
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground text-sm">

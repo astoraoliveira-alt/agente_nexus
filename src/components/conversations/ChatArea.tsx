@@ -232,13 +232,26 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   return (
     <div className="flex-1 flex flex-col bg-background">
       {/* Chat Header */}
-      <div className="h-14 px-4 flex items-center justify-between border-b border-border bg-card">
+      <div className={cn(
+        "h-14 px-4 flex items-center justify-between border-b transition-colors",
+        conversation.status !== 'closed'
+          ? "bg-emerald-500/5 border-emerald-500/20"
+          : "bg-card border-border"
+      )}>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-muted flex items-center justify-center">
-            <User className="h-5 w-5 text-muted-foreground" />
+          <div className={cn(
+            "w-10 h-10 flex items-center justify-center rounded-full border transition-colors",
+            conversation.status !== 'closed'
+              ? "bg-emerald-100 border-emerald-200 text-emerald-700"
+              : "bg-muted border-border text-muted-foreground"
+          )}>
+            <User className="h-5 w-5" />
           </div>
           <div className="flex flex-col min-w-0">
-            <h3 className="font-medium flex items-center gap-2 truncate">
+            <h3 className={cn(
+              "font-medium flex items-center gap-2 truncate",
+              conversation.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-foreground"
+            )}>
               {conversation.userName}
               {conversation.channel === 'voice' && (
                 <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 text-[10px] font-bold uppercase border border-purple-500/20 flex-shrink-0">
@@ -250,14 +263,20 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <div className="flex items-center gap-1.5" title="Total de mensagens">
-              <MessageSquare className="h-3.5 w-3.5" />
-              <span>{conversation.messages.length}</span>
+              <MessageSquare className={cn(
+                "h-3.5 w-3.5",
+                conversation.status !== 'closed' ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
+              )} />
+              <span className={cn(
+                "font-bold",
+                conversation.status !== 'closed' ? "text-black dark:text-white" : "text-muted-foreground"
+              )}>{conversation.messages.length}</span>
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 'status-dot',
-                conversation.status === 'ai_active' ? 'bg-accent' :
+                conversation.status === 'ai_active' ? 'bg-emerald-500 animate-pulse' :
                   conversation.status === 'closed' ? 'bg-muted-foreground' : 'bg-success'
               )} />
               <span>

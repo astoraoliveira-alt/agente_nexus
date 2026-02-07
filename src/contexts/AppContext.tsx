@@ -17,6 +17,7 @@ export type SlideOverContentType =
   | 'evaluation-details'
   | 'iso-report'
   | 'contact-details'
+  | 'plan-history'
   | null;
 
 interface AppContextType {

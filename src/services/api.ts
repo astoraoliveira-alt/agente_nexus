@@ -109,10 +109,15 @@ export const api = {
             ...company,
             planId: company.plan_tier,
             createdAt: new Date(company.created_at),
-            planDetails: company.plan_details, // Fix: Map DB snake_case to CamelCase
-            limits: company.plan_details?.limits || {},
+            planDetails: {
+                ...company.plan_details,
+                type: plan?.type as 'fixed' | 'flex' | 'unlimited',
+                monthlyFeeCoversUsage: plan?.monthly_fee_covers_usage || false,
+                hardLimits: plan?.default_limits || {},
+            },
+            limits: plan?.default_limits || {},
             settings: company.privacy_settings || {},
-            planName: plan?.name, // Fix: Map Plan Name
+            planName: plan?.name,
             planPrices: plan ? {
                 basePrice: Number(plan.base_price),
                 llmTokenPrice: Number(plan.llm_token_price),
@@ -143,6 +148,7 @@ export const api = {
             type: p.type,
             description: p.description,
             basePrice: Number(p.base_price),
+            monthlyFeeCoversUsage: p.monthly_fee_covers_usage, // Map DB to Frontend
             llmTokenPrice: Number(p.llm_token_price),
             messagePrice: Number(p.message_price),
             sttMinutePrice: Number(p.stt_minute_price),
@@ -158,6 +164,7 @@ export const api = {
             type: plan.type,
             description: plan.description,
             base_price: plan.basePrice,
+            monthly_fee_covers_usage: plan.monthlyFeeCoversUsage, // Map Frontend to DB
             llm_token_price: plan.llmTokenPrice,
             message_price: plan.messagePrice,
             stt_minute_price: plan.sttMinutePrice,
@@ -186,6 +193,7 @@ export const api = {
             type: plan.type,
             description: plan.description,
             base_price: plan.basePrice,
+            monthly_fee_covers_usage: plan.monthlyFeeCoversUsage, // Map Frontend to DB
             llm_token_price: plan.llmTokenPrice,
             message_price: plan.messagePrice,
             stt_minute_price: plan.sttMinutePrice,
@@ -205,6 +213,21 @@ export const api = {
         }
 
         return plan;
+    },
+
+    async getPlanAuditLogs(planId: string): Promise<any[]> {
+        const { data, error } = await supabase
+            .from('plan_audit_logs')
+            .select('*')
+            .eq('plan_id', planId)
+            .order('changed_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching plan audit logs:', error);
+            return [];
+        }
+
+        return data;
     },
 
     // =============================================

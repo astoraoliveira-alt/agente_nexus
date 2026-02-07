@@ -78,10 +78,14 @@ export default function Index() {
       { label: 'Ruim', variant: 'critical' as const };
 
   // Consumption Logic
-  const limits = currentTenant?.limits || { llmTokens: 5000000, messages: 50000, sttMinutes: 600, ttsMinutes: 600 };
+  const limits = currentTenant?.limits || { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 };
   const totalTokens = consumption?.filter(m => m.metricType === 'tokens').reduce((acc, m) => acc + m.value, 0) || 0;
-  const consumptionLimit = (limits.llmTokens as number) || 5000000;
-  const consumptionPercentage = Math.min((totalTokens / consumptionLimit) * 100, 100);
+  const consumptionLimit = (limits.llmTokens as number) || 1; // Avoid division by zero
+  const consumptionPercentage = (totalTokens / consumptionLimit) * 100;
+
+  const totalMessages = consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0;
+  const messageLimit = (limits.messages as number) || 1;
+  const messageUsagePct = (totalMessages / messageLimit) * 100;
 
   // Success Rate & Resolution Time
   const closedConvs = conversations?.filter(c => c.status === 'closed') || [];
@@ -115,9 +119,9 @@ export default function Index() {
   const lastWeek = subDays(new Date(), 7);
   const newContactsThisWeek = contacts?.filter(c => new Date(c.createdAt) >= lastWeek).length || 0;
 
-  const leadQuenteCount = contacts?.filter(c => c.lifecycleStatus === 'Lead Quente').length || 0;
-  const interesseMedioCount = contacts?.filter(c => c.lifecycleStatus === 'Interesse Médio').length || 0;
-  const interesseBaixoCount = contacts?.filter(c => (c.lifecycleStatus === 'Interesse Baixo' || c.lifecycleStatus === 'lead' || !c.lifecycleStatus)).length || 0;
+  const leadQuenteCount = contacts?.filter(c => ['Lead Quente', 'sql', 'SQL'].includes(c.lifecycleStatus || '')).length || 0;
+  const interesseMedioCount = contacts?.filter(c => ['Interesse Médio', 'mql', 'MQL'].includes(c.lifecycleStatus || '')).length || 0;
+  const interesseBaixoCount = contacts?.filter(c => (['Interesse Baixo', 'lead', 'Lead'].includes(c.lifecycleStatus || '') || !c.lifecycleStatus)).length || 0;
 
   // 3. Prepare Chart Data
   // Daily Usage (Last 30 days)
@@ -523,8 +527,8 @@ export default function Index() {
                     </span>
                   </div>
                   <Progress
-                    value={consumptionPercentage}
-                    className="h-2"
+                    value={Math.min(consumptionPercentage, 100)}
+                    className={`h-2 ${consumptionPercentage > 100 ? '[&>div]:bg-destructive' : ''}`}
                   />
                 </div>
 
@@ -536,8 +540,8 @@ export default function Index() {
                     </span>
                   </div>
                   <Progress
-                    value={((consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0) / (limits.messages || 50000)) * 100}
-                    className="h-2"
+                    value={Math.min(messageUsagePct, 100)}
+                    className={`h-2 ${messageUsagePct > 100 ? '[&>div]:bg-destructive' : ''}`}
                   />
                 </div>
 
@@ -545,11 +549,11 @@ export default function Index() {
                   <div className="flex justify-between text-sm mb-1">
                     <span>Voz (STT/TTS)</span>
                     <span className="text-muted-foreground">
-                      {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 600)) * 100, 100).toFixed(0)}%
+                      {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
                     </span>
                   </div>
                   <Progress
-                    value={((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 600)) * 100}
+                    value={Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100)}
                     className="h-2"
                   />
                 </div>

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import {
-    CreditCard, Plus, Search, Edit2, Trash2, Check, X, AlertCircle, Info, TrendingUp, DollarSign, Zap, MessageSquare, Mic, Volume2, Users, Bot
+    CreditCard, Plus, Search, Edit2, Trash2, Check, X, AlertCircle, Info, TrendingUp, DollarSign, Zap, MessageSquare, Mic, Volume2, Users, Bot, History
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { api } from '@/services/api';
+import { useApp } from '@/contexts/AppContext';
 import { PlanCatalog } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,6 +36,7 @@ const DEFAULT_PLAN_CONFIG: Partial<PlanCatalog> = {
     type: 'fixed',
     description: '',
     basePrice: 0,
+    monthlyFeeCoversUsage: false,
     llmTokenPrice: 0,
     messagePrice: 0,
     sttMinutePrice: 0,
@@ -49,6 +52,7 @@ const DEFAULT_PLAN_CONFIG: Partial<PlanCatalog> = {
 };
 
 export default function Plans() {
+    const { openSlideOver } = useApp();
     const [plans, setPlans] = useState<PlanCatalog[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -158,6 +162,15 @@ export default function Plans() {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
+                                                className="h-8 w-8 text-muted-foreground hover:text-accent"
+                                                onClick={() => openSlideOver('plan-history', plan)}
+                                                title="Ver Histórico de Alterações"
+                                            >
+                                                <History className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className="h-8 w-8 text-muted-foreground hover:text-destructive"
                                             >
                                                 <Trash2 className="h-4 w-4" />
@@ -247,7 +260,20 @@ export default function Plans() {
                 <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                     <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
-                            <DialogTitle>{editingPlan ? 'Configurar Plano do Catálogo' : 'Definir Novo Plano de Serviço'}</DialogTitle>
+                            <div className="flex items-center justify-between">
+                                <DialogTitle>{editingPlan ? 'Configurar Plano do Catálogo' : 'Definir Novo Plano de Serviço'}</DialogTitle>
+                                {editingPlan && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-2 text-accent"
+                                        onClick={() => openSlideOver('plan-history', editingPlan)}
+                                    >
+                                        <History className="h-4 w-4" />
+                                        Ver Histórico
+                                    </Button>
+                                )}
+                            </div>
                             <DialogDescription>
                                 Configure os detalhes técnicos, precificação e limites operacionais do plano.
                             </DialogDescription>
@@ -290,6 +316,20 @@ export default function Plans() {
                                         onChange={(e) => editingPlan ? setEditingPlan({ ...editingPlan, description: e.target.value }) : setNewPlan({ ...newPlan, description: e.target.value })}
                                         className="h-20"
                                         placeholder="Texto que aparecerá para o cliente..."
+                                    />
+                                </div>
+
+                                <div className="flex items-center justify-between p-3 border border-border rounded-lg bg-card mt-2">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-base">Mensalidade converte em Crédito?</Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            Se ativo, o valor da mensalidade (R${editingPlan?.basePrice || newPlan.basePrice}) é usado como saldo para abater o consumo.
+                                            Se inativo, o consumo é cobrado à parte (Mensalidade + Uso).
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={editingPlan ? !!editingPlan.monthlyFeeCoversUsage : !!newPlan.monthlyFeeCoversUsage}
+                                        onCheckedChange={(checked) => editingPlan ? setEditingPlan({ ...editingPlan, monthlyFeeCoversUsage: checked }) : setNewPlan({ ...newPlan, monthlyFeeCoversUsage: checked })}
                                     />
                                 </div>
 

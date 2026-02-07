@@ -1,10 +1,11 @@
-import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database, BarChart3 } from 'lucide-react';
+import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database, BarChart3, AlertCircle } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useApp } from '@/contexts/AppContext';
 import { ConsumptionSettings } from '@/components/consumption/ConsumptionSettings';
@@ -231,7 +232,17 @@ export default function Settings() {
               {currentTenant && (
                 <ConsumptionSettings
                   tenantId={currentTenant.id}
-                  planLimit={currentTenant.planDetails?.monthly_limit_brl || currentTenant.planPrices?.basePrice || 100} // Prioritize custom limit, then plan price, then default
+                  planLimit={(() => {
+                    const details = currentTenant.planDetails;
+                    const prices = currentTenant.planPrices;
+
+                    // If Fee Covers Usage: The "Base Bar" is the Base Price (Credit).
+                    // If Fee + Usage: The "Base Bar" is the Budget Limit (monthly_limit_brl) or a default.
+                    if (details?.monthlyFeeCoversUsage) {
+                      return prices?.basePrice || 100;
+                    }
+                    return details?.monthly_limit_brl || 500; // Default budget for Pay-as-you-go
+                  })()}
                   allocationMode={currentTenant.planDetails?.allocation_mode || 'flexible'}
                   agents={agents}
                   onSave={handleSaveConsumption}
@@ -340,27 +351,53 @@ export default function Settings() {
                 </div>
 
                 <div className="kpi-card">
-                  <h3 className="font-semibold mb-4">Configurações Globais (Plano Contratado)</h3>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-semibold">Configurações Globais (Plano Contratado)</h3>
+                    <Badge variant="outline" className="border-accent text-accent uppercase font-mono text-[10px]">
+                      Habilitado via Plano: {currentTenant?.planName}
+                    </Badge>
+                  </div>
 
-                  <div className="space-y-4 max-w-md">
-                    <div className="space-y-2">
-                      <Label>Limite Padrão de Tokens</Label>
-                      <Input type="number" defaultValue={currentTenant?.limits?.llmTokens || 5000000} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Limite Padrão de STT (minutos)</Label>
-                      <Input type="number" defaultValue={currentTenant?.limits?.sttMinutes || 3000} />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Limite Padrão de TTS (minutos)</Label>
-                      <Input type="number" defaultValue={currentTenant?.limits?.ttsMinutes || 2000} />
+                  <div className="bg-blue-500/5 border border-blue-500/20 p-4 rounded-md mb-6 flex gap-3">
+                    <AlertCircle className="h-5 w-5 text-blue-500 shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-semibold text-blue-500">Gestão Centralizada de Cotas</p>
+                      <p className="text-muted-foreground mt-1">
+                        Os limites abaixo são definidos no <strong>Catálogo de Planos</strong>.
+                        Para alterar estas cotas de forma permanente para todos os clientes deste nível, acesse o editor de planos.
+                      </p>
+                      <Button
+                        variant="link"
+                        className="p-0 h-auto text-blue-600 dark:text-blue-400 mt-2 font-bold"
+                        onClick={() => window.location.href = '/plans'}
+                      >
+                        Ir para Catálogo de Planos &rarr;
+                      </Button>
                     </div>
                   </div>
 
-                  <div className="mt-6">
-                    <Button>Salvar Configurações</Button>
+                  <div className="space-y-4 max-w-md opacity-80">
+                    <div className="space-y-2">
+                      <Label>Limite Atual de Tokens</Label>
+                      <Input type="number" value={currentTenant?.limits?.llmTokens || 0} disabled className="bg-muted" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Limite Atual de STT (minutos)</Label>
+                      <Input type="number" value={currentTenant?.limits?.sttMinutes || 0} disabled className="bg-muted" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Limite Atual de TTS (minutos)</Label>
+                      <Input type="number" value={currentTenant?.limits?.ttsMinutes || 0} disabled className="bg-muted" />
+                    </div>
+                  </div>
+
+                  <div className="mt-6 pt-6 border-t border-border">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Database className="h-3 w-3" />
+                      Sincronizado com a Tabela de Planos (Single Source of Truth)
+                    </div>
                   </div>
                 </div>
 

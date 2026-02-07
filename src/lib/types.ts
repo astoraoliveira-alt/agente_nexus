@@ -62,6 +62,7 @@ export interface PlanCatalog {
 
   // Pricing Strategy (Values for Expense Monitoring)
   basePrice: number; // Monthly subscription
+  monthlyFeeCoversUsage?: boolean; // New Flag: If true, basePrice is credit. If false, it's just access fee.
   llmTokenPrice: number; // Price per 1k tokens
   messagePrice: number; // Price per message
   sttMinutePrice: number; // Price per STT minute
@@ -84,7 +85,7 @@ export interface TenantPlan {
   type: 'fixed' | 'flex' | 'unlimited';
   allocation_mode?: 'flexible' | 'custom'; // New field for Smart Usage Allocation
   monthly_limit_brl?: number; // Added for consumption budget
-
+  monthlyFeeCoversUsage?: boolean; // Inherited from PlanCatalog or Overridden
 
   // Current Contract Values (Can override catalog)
   customBasePrice?: number;

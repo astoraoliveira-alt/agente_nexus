@@ -1,8 +1,7 @@
 -- =============================================
--- UPDATE: N8N RE-ENGAGEMENT LOGIC
+-- UPDATE: N8N RE-ENGAGEMENT LOGIC & CONTACT DETAILS
 -- Description: Updates the 'get_or_create_conversation' function to
---              handle closed conversations by re-opening them instead
---              of creating new duplicates.
+--              handle phone/email and sync them to contacts table.
 -- =============================================
 
 CREATE OR REPLACE FUNCTION get_or_create_conversation(
@@ -10,7 +9,9 @@ CREATE OR REPLACE FUNCTION get_or_create_conversation(
     p_agent_id UUID,
     p_user_identifier VARCHAR,
     p_user_name VARCHAR,
-    p_metadata JSONB DEFAULT '{}'::jsonb
+    p_metadata JSONB DEFAULT '{}'::jsonb,
+    p_phone VARCHAR DEFAULT NULL, -- New Optional Param
+    p_email VARCHAR DEFAULT NULL  -- New Optional Param
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -33,11 +34,11 @@ BEGIN
         v_channel := 'text';
     END IF;
 
-    -- 1. Ensure User Exists
-    v_user_id := get_or_create_whatsapp_user(p_tenant_id, p_user_identifier, p_user_name);
+    -- 1. Ensure User Exists -> SKIPPED (Contacts are not System Users)
+    -- v_user_id := get_or_create_whatsapp_user(p_tenant_id, p_user_identifier, p_user_name);
+
 
     -- 2. Find LATEST Conversation (Active or Closed)
-    --    We order by created_at DESC to get the most recent thread for this user/agent pair.
     SELECT id, status INTO v_conversation_id, v_status
     FROM conversations
     WHERE tenant_id = p_tenant_id
@@ -87,7 +88,7 @@ BEGIN
         WHERE id = v_conversation_id;
     END IF;
 
-    -- 4. Sync Contact (Keep CRM updated)
+    -- 4. Sync Contact (Keep CRM updated with Phone/Email)
     BEGIN
         INSERT INTO contacts (
             tenant_id,
@@ -95,7 +96,9 @@ BEGIN
             name,
             channel,
             extra_info,
-            lifecycle_status -- Ensure we track they are active again
+            lifecycle_status,
+            phone,  -- Save Phone
+            email   -- Save Email
         )
         VALUES (
             p_tenant_id,
@@ -103,12 +106,16 @@ BEGIN
             p_user_name,
             v_agent_type,
             p_metadata,
-            'lead' -- Default or existing
+            'lead',
+            p_phone,
+            p_email
         )
         ON CONFLICT (identifier) DO UPDATE
         SET name = EXCLUDED.name,
             channel = EXCLUDED.channel,
-            extra_info = contacts.extra_info || EXCLUDED.extra_info;
+            extra_info = contacts.extra_info || EXCLUDED.extra_info,
+            phone = COALESCE(EXCLUDED.phone, contacts.phone), -- Update only if new value provided
+            email = COALESCE(EXCLUDED.email, contacts.email); -- Update only if new value provided
     EXCEPTION WHEN OTHERS THEN
         RAISE NOTICE 'Erro ao sincronizar contato: %', SQLERRM;
     END;
