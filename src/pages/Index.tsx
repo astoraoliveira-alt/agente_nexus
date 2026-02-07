@@ -109,6 +109,12 @@ export default function Index() {
 
   const humanInterventions = conversations?.filter(c => c.assignedOperator || c.status === 'human_active').length || 0;
 
+  // ROI Calculation: 2 minutes saved per AI message (market benchmark)
+  const totalTimeSavedMinutes = totalMessages * 2;
+  const roiHours = Math.floor(totalTimeSavedMinutes / 60);
+  const roiMins = totalTimeSavedMinutes % 60;
+  const timeSavedDisplay = roiHours > 0 ? `${roiHours}h ${roiMins}m` : `${roiMins}m`;
+
   // Incident Metrics
   const incidentsAbertos = incidents?.filter(i => i.status === 'open').length || 0;
   const incidentsInvestigando = incidents?.filter(i => i.status === 'investigating').length || 0;
@@ -215,13 +221,12 @@ export default function Index() {
             />
 
             <KPICard
-              title="Taxa de Sucesso"
-              value={`${successRate}%`}
-              subtitle={`${successfulConvs.length.toLocaleString()} resolvidas`}
-              icon={CheckCircle2}
-              variant="accent"
-              trend={{ value: 0, isPositive: true }}
-              onClick={() => navigate('/quality')}
+              title="Tempo Economizado (ROI)"
+              value={timeSavedDisplay}
+              subtitle={`Base: 2 min/msg (ROI sobre ${totalMessages.toLocaleString()} msgs)`}
+              icon={TrendingUp}
+              variant="success"
+              onClick={() => navigate('/consumption')}
             />
           </div>
 
