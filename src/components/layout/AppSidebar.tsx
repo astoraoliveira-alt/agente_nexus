@@ -241,7 +241,7 @@ export function AppSidebar() {
         )}
       </nav>
 
-      {/* Footer Actions - Compact Horizontal Layout */}
+      {/* Footer Actions - Compact Horizontal Layout  */}
       <div className={cn(
         "p-2 border-t border-sidebar-border flex items-center gap-1",
         collapsed ? "flex-col" : "justify-between"
