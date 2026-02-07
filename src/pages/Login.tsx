@@ -62,7 +62,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen w-full flex bg-[#050505] text-white overflow-hidden relative selection:bg-accent selection:text-accent-foreground grain-texture">
+    <div className="h-screen w-full flex bg-[#050505] text-white overflow-hidden relative selection:bg-accent selection:text-accent-foreground grain-texture">
 
       {/* 
         🎨 DESIGN COMMITMENT: "Technical Luxury / Precision Industrial"
@@ -218,7 +218,7 @@ export default function Login() {
       </div>
 
       {/* RIGHT PANEL: The Deep Data Sea */}
-      <div className="hidden lg:block w-[55%] xl:w-[60%] relative bg-[#0a0a0a] overflow-hidden grain-texture">
+      <div className="hidden lg:block w-[55%] xl:w-[60%] relative bg-[#0a0a0a] overflow-hidden grain-texture h-full">
         {/* Subtle grid with mouse interaction (simulated via CSS mask/radial) */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_50%,_rgba(0,255,194,0.05)_0%,_rgba(0,0,0,0)_50%)] z-10" />
 
@@ -301,7 +301,7 @@ export default function Login() {
               </div>
             </div>
 
-            <div className="mt-14 space-y-4 text-center">
+            <div className="mt-8 xl:mt-14 space-y-3 xl:space-y-4 text-center">
               <div className="flex items-center justify-center gap-3 text-[10px] font-black tracking-[0.6em] text-accent uppercase">
                 <div className="h-[1px] w-8 bg-gradient-to-r from-transparent to-accent/40" />
                 <span className="animate-pulse">Aura: Agente Ativo</span>
@@ -332,7 +332,7 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="mt-20 text-center space-y-6 max-w-lg px-6">
+          <div className="mt-10 xl:mt-20 text-center space-y-4 xl:space-y-6 max-w-lg px-6">
             <div className="flex items-center justify-center gap-3 opacity-20">
               <div className="h-[1px] w-8 bg-white" />
               <Hexagon className="h-4 w-4" />
