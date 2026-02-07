@@ -4,7 +4,7 @@ import { KPICard } from '@/components/dashboard/KPICard';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList, Cell } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
@@ -428,8 +428,26 @@ export default function Index() {
                       dataKey="tokens"
                       stroke="hsl(var(--accent))"
                       strokeWidth={2}
-                      dot={false}
-                    />
+                      dot={{ r: 2, fill: 'hsl(var(--accent))' }}
+                      activeDot={{ r: 4 }}
+                    >
+                      <LabelList
+                        dataKey="tokens"
+                        position="top"
+                        content={(props: any) => {
+                          const { x, y, value, index } = props;
+                          // Only show the last value to avoid clutter
+                          if (index === dailyUsageData.length - 1) {
+                            return (
+                              <text x={x} y={y - 10} fill="hsl(var(--accent))" fontSize={10} fontWeight="bold" textAnchor="middle">
+                                {value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value}
+                              </text>
+                            );
+                          }
+                          return null;
+                        }}
+                      />
+                    </Line>
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -474,7 +492,14 @@ export default function Index() {
                       labelStyle={{ color: 'hsl(var(--foreground))' }}
                       formatter={(value: number) => `${value.toLocaleString()} tokens`}
                     />
-                    <Bar dataKey="tokens" fill="hsl(var(--accent))" />
+                    <Bar dataKey="tokens" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]}>
+                      <LabelList
+                        dataKey="tokens"
+                        position="right"
+                        formatter={(value: number) => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value}
+                        className="fill-muted-foreground text-[10px]"
+                      />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -519,36 +544,49 @@ export default function Index() {
               </div>
             </div>
 
-            {/* Alerts */}
+            {/* Lead Quality Distribution (New Business Insight) */}
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Alertas Recentes</h3>
-                <button
-                  className="text-sm text-accent hover:underline"
-                  onClick={() => navigate('/alerts')}
-                >
-                  Ver todos
-                </button>
+                <h3 className="font-semibold">Qualidade da Base (Leads)</h3>
+                <Badge variant="outline" className="text-accent">{totalContacts} contatos</Badge>
               </div>
-              <div className="space-y-3">
-                {incidents?.slice(0, 3).map((alert) => (
-                  <div
-                    key={alert.id}
-                    className="flex items-start gap-3 p-3 bg-muted"
-                  >
-                    <div className={`w-2 h-2 mt-1.5 flex-shrink-0 ${alert.severity === 'critical' ? 'bg-destructive' :
-                      alert.severity === 'high' ? 'bg-orange-500' :
-                        alert.severity === 'medium' ? 'bg-warning' : 'bg-info'
-                      }`} />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{alert.title}</p>
-                      <p className="text-xs text-muted-foreground truncate">{alert.description}</p>
-                    </div>
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-orange-500" />
+                      Lead Quente (SQL)
+                    </span>
+                    <span className="font-bold text-orange-500">{leadQuenteCount}</span>
                   </div>
-                ))}
-                {(!incidents || incidents.length === 0) && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum alerta recente</p>
-                )}
+                  <Progress value={(leadQuenteCount / (totalContacts || 1)) * 100} className="h-2 bg-orange-500/10 [&>div]:bg-orange-500" />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-blue-500" />
+                      Interesse Médio (MQL)
+                    </span>
+                    <span className="font-bold text-blue-500">{interesseMedioCount}</span>
+                  </div>
+                  <Progress value={(interesseMedioCount / (totalContacts || 1)) * 100} className="h-2 bg-blue-500/10 [&>div]:bg-blue-500" />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+                      Curiosos (Lead)
+                    </span>
+                    <span className="font-bold">{interesseBaixoCount}</span>
+                  </div>
+                  <Progress value={(interesseBaixoCount / (totalContacts || 1)) * 100} className="h-2 bg-muted/20" />
+                </div>
+
+                <div className="pt-2 text-[10px] text-muted-foreground italic border-t border-border/50">
+                  Insights: Concentração em Leads de Interesse Médio ({((interesseMedioCount / (totalContacts || 1)) * 100).toFixed(0)}%)
+                </div>
               </div>
             </div>
 
