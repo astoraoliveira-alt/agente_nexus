@@ -598,17 +598,20 @@ export default function Index() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Tokens LLM</span>
-                    <span className={cn(
-                      "font-medium",
-                      consumptionPercentage > 100 ? "text-destructive" : "text-muted-foreground"
-                    )}>
-                      {consumptionPercentage > 100
-                        ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
-                        : `${consumptionPercentage.toFixed(0)}%`
-                      }
-                    </span>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-muted-foreground font-medium">Tokens LLM</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">{(totalTokens / 1000).toFixed(1)}k / {consumptionLimit >= 1000000 ? `${(consumptionLimit / 1000000).toFixed(0)}M` : `${(consumptionLimit / 1000).toFixed(0)}k`}</span>
+                      <span className={cn(
+                        "font-bold",
+                        consumptionPercentage > 100 ? "text-destructive" : "text-muted-foreground"
+                      )}>
+                        {consumptionPercentage > 100
+                          ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
+                          : `${consumptionPercentage.toFixed(0)}%`
+                        }
+                      </span>
+                    </div>
                   </div>
                   <Progress
                     value={Math.min(consumptionPercentage, 100)}
@@ -620,17 +623,20 @@ export default function Index() {
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Mensagens</span>
-                    <span className={cn(
-                      "font-medium",
-                      messageUsagePct > 100 ? "text-destructive" : "text-muted-foreground"
-                    )}>
-                      {messageUsagePct > 100
-                        ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
-                        : `${messageUsagePct.toFixed(0)}%`
-                      }
-                    </span>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-muted-foreground font-medium">Mensagens</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">{totalMessages.toLocaleString()} / {(limits.messages || 1).toLocaleString()}</span>
+                      <span className={cn(
+                        "font-bold",
+                        messageUsagePct > 100 ? "text-destructive" : "text-muted-foreground"
+                      )}>
+                        {messageUsagePct > 100
+                          ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
+                          : `${messageUsagePct.toFixed(0)}%`
+                        }
+                      </span>
+                    </div>
                   </div>
                   <Progress
                     value={Math.min(messageUsagePct, 100)}
@@ -642,11 +648,14 @@ export default function Index() {
                 </div>
 
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Voz (STT/TTS)</span>
-                    <span className="text-muted-foreground">
-                      {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
-                    </span>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-muted-foreground font-medium">Voz (STT/TTS)</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground">{(consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0).toFixed(0)} / {limits.sttMinutes || 0} min</span>
+                      <span className="font-bold text-muted-foreground">
+                        {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
+                      </span>
+                    </div>
                   </div>
                   <Progress
                     value={Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100)}
