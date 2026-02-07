@@ -238,10 +238,11 @@ export default function Agents() {
                 </div>
 
                 {/* Governance Risk Badge */}
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {/* Agent Type Badge (New) */}
+                {/* Line 1: Identity & Channels */}
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {/* Agent Type */}
                   <Badge variant="outline" className={cn(
-                    "text-xs gap-1 border-0 brightness-110 saturate-125", // brightness/saturate for pop
+                    "text-[10px] h-5 gap-1 border-0 brightness-110 saturate-125",
                     agent.type === 'whatsapp' ? 'bg-[#25D366]/10 text-[#075E54] dark:text-[#25D366]' :
                       agent.type === 'embedded' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400' :
                         'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400'
@@ -255,10 +256,38 @@ export default function Agents() {
                         'Conversacional'}
                   </Badge>
 
+                  {/* Channels (Texto/Voz) - Moved here to be next to Type */}
+                  {agent.channels.includes('text') && (
+                    <Badge variant="secondary" className="text-[10px] h-5 gap-1 bg-muted/50 border-0">
+                      <MessageSquare className="h-3 w-3" />
+                      Texto
+                    </Badge>
+                  )}
+                  {agent.channels.includes('voice') && (
+                    <Badge variant="secondary" className="text-[10px] h-5 gap-1 bg-muted/50 border-0">
+                      <Phone className="h-3 w-3" />
+                      Voz
+                    </Badge>
+                  )}
+
+                  {/* Lifecycle Badge */}
+                  {agent.lifecycleStage && (
+                    <Badge variant="secondary" className="text-[10px] h-5 gap-1 border-0">
+                      <span className={`w-1.5 h-1.5 rounded-full ${agent.lifecycleStage === 'production' ? 'bg-green-500' :
+                        agent.lifecycleStage === 'development' ? 'bg-blue-500' :
+                          agent.lifecycleStage === 'validation' ? 'bg-amber-500' : 'bg-gray-400'
+                        }`} />
+                      {agent.lifecycleStage.charAt(0).toUpperCase() + agent.lifecycleStage.slice(1)}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Line 2: Governance & Risk */}
+                <div className="flex flex-wrap gap-2 mb-4">
                   {/* Risk Badge */}
                   {agent.riskLevel && (
                     <Badge variant="outline" className={`
-                      text-xs gap-1 border-0
+                      text-[10px] h-5 gap-1 border-0
                       ${agent.riskLevel === 'high' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
                         agent.riskLevel === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                           'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}
@@ -268,29 +297,19 @@ export default function Agents() {
                     </Badge>
                   )}
 
-                  {/* Lifecycle Badge (ISO 42001) */}
-                  {agent.lifecycleStage && (
-                    <Badge variant="secondary" className="text-xs gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${agent.lifecycleStage === 'production' ? 'bg-green-500' :
-                        agent.lifecycleStage === 'development' ? 'bg-blue-500' :
-                          agent.lifecycleStage === 'validation' ? 'bg-amber-500' : 'bg-gray-400'
-                        }`} />
-                      {agent.lifecycleStage.charAt(0).toUpperCase() + agent.lifecycleStage.slice(1)}
-                    </Badge>
-                  )}
+                  {/* Autonomy Badge */}
+                  <Badge variant="outline" className="text-[10px] h-5 gap-1 border-primary/20 text-primary">
+                    <Settings className="h-3 w-3" />
+                    Autonomia L{agent.autonomyLevel || 1}
+                  </Badge>
 
+                  {/* Policies Badge */}
                   {agent.policies && agent.policies.length > 0 && (
-                    <Badge variant="secondary" className="text-xs gap-1">
+                    <Badge variant="secondary" className="text-[10px] h-5 gap-1 border-0">
                       <BookOpen className="h-3 w-3" />
                       {agent.policies.length} Políticas
                     </Badge>
                   )}
-
-                  {/* Functional Autonomy Badge */}
-                  <Badge variant="outline" className="text-xs gap-1 border-primary/20 text-primary">
-                    <Settings className="h-3 w-3" />
-                    Autonomia L{agent.autonomyLevel || 1}
-                  </Badge>
                 </div>
 
                 {/* ISO 23894 Risk Details */}
@@ -307,21 +326,6 @@ export default function Agents() {
                   </div>
                 )}
 
-                {/* Channels */}
-                <div className="flex gap-2 mb-4">
-                  {agent.channels.includes('text') && (
-                    <Badge variant="secondary" className="gap-1">
-                      <MessageSquare className="h-3 w-3" />
-                      Texto
-                    </Badge>
-                  )}
-                  {agent.channels.includes('voice') && (
-                    <Badge variant="secondary" className="gap-1">
-                      <Phone className="h-3 w-3" />
-                      Voz
-                    </Badge>
-                  )}
-                </div>
 
                 {/* Functional Stats (Load/Capacity/Cost) */}
                 <div className="grid grid-cols-2 gap-4 mb-4">
