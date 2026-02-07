@@ -230,116 +230,121 @@ export default function Login() {
         </div>
 
         {/* Full-Body AI Agent - Aura: Enthusiastic & Alive */}
-        <div className={`absolute inset-0 flex flex-col items-center justify-center z-20 transition-all duration-[2000ms] ease-out delay-500 animate-aura-float ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-110 blur-2xl'}`}>
-          <div className="relative group/aura flex flex-col items-center">
-            {/* Environment Halos */}
-            <div className="absolute -inset-24 rounded-full border border-accent/20 animate-[ping_3s_infinite]" />
-            <div className="absolute -inset-48 rounded-full border border-white/[0.02] animate-[ping_6s_infinite] delay-1000" />
+        <div className={`absolute inset-0 flex flex-col items-center justify-between py-12 xl:py-20 z-20 transition-all duration-[2000ms] ease-out delay-500 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-110 blur-2xl'}`}>
 
-            {/* THE AGENT STRUCTURE - Scaled for vertical space */}
-            <div className="relative flex flex-col items-center scale-90 xl:scale-100 transition-transform duration-700">
-              {/* 1. HEAD SECTION */}
-              <div className="relative w-40 h-40 xl:w-48 xl:h-48 flex flex-col items-center justify-center z-30">
-                {/* Head Shell */}
-                <div className="absolute inset-0 border border-white/10 bg-black/80 backdrop-blur-3xl rounded-[3rem] shadow-[0_0_60px_rgba(0,194,255,0.15)]" />
+          {/* Agent Container - Flexible and Scalable */}
+          <div className="flex-1 flex flex-col items-center justify-center w-full max-h-[60vh] xl:max-h-[65vh] relative animate-aura-float px-6">
+            <div className="relative group/aura flex flex-col items-center">
+              {/* Environment Halos */}
+              <div className="absolute -inset-24 rounded-full border border-accent/20 animate-[ping_3s_infinite]" />
+              <div className="absolute -inset-48 rounded-full border border-white/[0.02] animate-[ping_6s_infinite] delay-1000" />
 
-                {/* Face Plate */}
-                <div className="relative z-10 flex flex-col items-center gap-6 mt-4">
-                  {/* Eyebrows/Sobrancelhas - Enthusiastic Tilt (Center Up) */}
-                  <div className="flex gap-14 absolute -top-2">
-                    <div className="w-10 h-1.5 bg-accent/40 rounded-full animate-aura-brow -rotate-12" />
-                    <div className="w-10 h-1.5 bg-accent/40 rounded-full animate-aura-brow rotate-12" />
-                  </div>
+              {/* THE AGENT STRUCTURE - Scaled for vertical space */}
+              <div className="relative flex flex-col items-center scale-90 xl:scale-100 transition-transform duration-700">
+                {/* 1. HEAD SECTION */}
+                <div className="relative w-40 h-40 xl:w-48 xl:h-48 flex flex-col items-center justify-center z-30">
+                  {/* Head Shell */}
+                  <div className="absolute inset-0 border border-white/10 bg-black/80 backdrop-blur-3xl rounded-[3rem] shadow-[0_0_60px_rgba(0,194,255,0.15)]" />
 
-                  {/* Eyes / Olhos */}
-                  <div className="flex gap-10">
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-12 h-2.5 bg-accent/20 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent animate-aura-blink w-full" />
+                  {/* Face Plate */}
+                  <div className="relative z-10 flex flex-col items-center gap-6 mt-4">
+                    {/* Eyebrows/Sobrancelhas - Enthusiastic Tilt (Center Up) */}
+                    <div className="flex gap-14 absolute -top-2">
+                      <div className="w-10 h-1.5 bg-accent/40 rounded-full animate-aura-brow -rotate-12" />
+                      <div className="w-10 h-1.5 bg-accent/40 rounded-full animate-aura-brow rotate-12" />
+                    </div>
+
+                    {/* Eyes / Olhos */}
+                    <div className="flex gap-10">
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-12 h-2.5 bg-accent/20 rounded-full overflow-hidden">
+                          <div className="h-full bg-accent animate-aura-blink w-full" />
+                        </div>
+                        <div className="w-12 h-12 border border-accent/40 flex items-center justify-center p-2 rounded-xl bg-accent/5">
+                          <div className="w-6 h-6 bg-accent animate-aura-scan shadow-[0_0_20px_rgba(0,194,255,0.8)] rounded-sm" />
+                        </div>
                       </div>
-                      <div className="w-12 h-12 border border-accent/40 flex items-center justify-center p-2 rounded-xl bg-accent/5">
-                        <div className="w-6 h-6 bg-accent animate-aura-scan shadow-[0_0_20px_rgba(0,194,255,0.8)] rounded-sm" />
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="w-12 h-2.5 bg-accent/20 rounded-full overflow-hidden">
+                          <div className="h-full bg-accent animate-aura-blink w-full" />
+                        </div>
+                        <div className="w-12 h-12 border border-accent/40 flex items-center justify-center p-2 rounded-xl bg-accent/5">
+                          <div className="w-6 h-6 bg-accent animate-aura-scan shadow-[0_0_20px_rgba(0,194,255,0.8)] rounded-sm" />
+                        </div>
                       </div>
                     </div>
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-12 h-2.5 bg-accent/20 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent animate-aura-blink w-full" />
-                      </div>
-                      <div className="w-12 h-12 border border-accent/40 flex items-center justify-center p-2 rounded-xl bg-accent/5">
-                        <div className="w-6 h-6 bg-accent animate-aura-scan shadow-[0_0_20px_rgba(0,194,255,0.8)] rounded-sm" />
-                      </div>
+
+                    {/* Mouth / Boca Falante - Fixed Visibility & Sizing */}
+                    <div className="mt-2 flex flex-col items-center justify-center min-h-[20px]">
+                      <div className="bg-accent animate-aura-talk shadow-[0_0_15px_rgba(0,194,255,0.6)] w-[60px] h-[4px]" />
                     </div>
                   </div>
+                </div>
 
-                  {/* Mouth / Boca Falante - Fixed Visibility & Sizing */}
-                  <div className="mt-2 flex flex-col items-center justify-center min-h-[20px]">
-                    <div className="bg-accent animate-aura-talk shadow-[0_0_15px_rgba(0,194,255,0.6)] w-[60px] h-[4px]" />
+                {/* 2. TORSO / TRONCO - Redesigned with higher visibility */}
+                <div className="relative w-36 h-28 bg-gradient-to-b from-white/15 to-transparent border-x border-t border-white/10 rounded-t-[3.5rem] -mt-6 z-20 overflow-hidden">
+                  {/* Central Energy Core */}
+                  <div className="absolute top-6 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
+                    <div className="w-5 h-5 bg-accent rounded-full animate-pulse shadow-[0_0_25px_rgba(0,194,255,1)]" />
+                  </div>
+                </div>
+
+                {/* 3. ARMS & HANDS / BRAÇOS E MÃOS GESTICULANDO - High Visibility */}
+                <div className="absolute top-48 w-full flex justify-between px-[-1rem] z-10 pointer-events-none">
+                  {/* Left Arm/Hand */}
+                  <div className="relative w-16 h-32 border-l-2 border-t-2 border-accent/40 rounded-tl-[2.5rem] origin-top-right animate-aura-hand-l -ml-12">
+                    {/* Hand L (Glowing Sphere) */}
+                    <div className="absolute bottom-0 left-[-4px] w-4 h-4 bg-accent/60 rounded-full shadow-[0_0_15px_rgba(0,194,255,0.8)]" />
+                  </div>
+                  {/* Right Arm/Hand */}
+                  <div className="relative w-16 h-32 border-r-2 border-t-2 border-accent/40 rounded-tr-[2.5rem] origin-top-left animate-aura-hand-r -mr-12">
+                    {/* Hand R (Glowing Sphere) */}
+                    <div className="absolute bottom-0 right-[-4px] w-4 h-4 bg-accent/60 rounded-full shadow-[0_0_15px_rgba(0,194,255,0.8)]" />
                   </div>
                 </div>
               </div>
 
-              {/* 2. TORSO / TRONCO - Redesigned with higher visibility */}
-              <div className="relative w-36 h-28 bg-gradient-to-b from-white/15 to-transparent border-x border-t border-white/10 rounded-t-[3.5rem] -mt-6 z-20 overflow-hidden">
-                {/* Central Energy Core */}
-                <div className="absolute top-6 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                  <div className="w-5 h-5 bg-accent rounded-full animate-pulse shadow-[0_0_25px_rgba(0,194,255,1)]" />
+              <div className="mt-8 xl:mt-14 space-y-3 xl:space-y-4 text-center">
+                <div className="flex items-center justify-center gap-3 text-[10px] font-black tracking-[0.6em] text-accent uppercase">
+                  <div className="h-[1px] w-8 bg-gradient-to-r from-transparent to-accent/40" />
+                  <span className="animate-pulse">Aura: Agente Ativo</span>
+                  <div className="h-[1px] w-8 bg-gradient-to-l from-transparent to-accent/40" />
                 </div>
+                <p className="text-sm text-white/70 font-medium max-w-[280px] leading-relaxed">
+                  Olá! Estou pronta para otimizar sua operação com inteligência e entusiasmo.
+                </p>
               </div>
 
-              {/* 3. ARMS & HANDS / BRAÇOS E MÃOS GESTICULANDO - High Visibility */}
-              <div className="absolute top-48 w-full flex justify-between px-[-1rem] z-10 pointer-events-none">
-                {/* Left Arm/Hand */}
-                <div className="relative w-16 h-32 border-l-2 border-t-2 border-accent/40 rounded-tl-[2.5rem] origin-top-right animate-aura-hand-l -ml-12">
-                  {/* Hand L (Glowing Sphere) */}
-                  <div className="absolute bottom-0 left-[-4px] w-4 h-4 bg-accent/60 rounded-full shadow-[0_0_15px_rgba(0,194,255,0.8)]" />
-                </div>
-                {/* Right Arm/Hand */}
-                <div className="relative w-16 h-32 border-r-2 border-t-2 border-accent/40 rounded-tr-[2.5rem] origin-top-left animate-aura-hand-r -mr-12">
-                  {/* Hand R (Glowing Sphere) */}
-                  <div className="absolute bottom-0 right-[-4px] w-4 h-4 bg-accent/60 rounded-full shadow-[0_0_15px_rgba(0,194,255,0.8)]" />
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-8 xl:mt-14 space-y-3 xl:space-y-4 text-center">
-              <div className="flex items-center justify-center gap-3 text-[10px] font-black tracking-[0.6em] text-accent uppercase">
-                <div className="h-[1px] w-8 bg-gradient-to-r from-transparent to-accent/40" />
-                <span className="animate-pulse">Aura: Agente Ativo</span>
-                <div className="h-[1px] w-8 bg-gradient-to-l from-transparent to-accent/40" />
-              </div>
-              <p className="text-sm text-white/70 font-medium max-w-[280px] leading-relaxed">
-                Olá! Estou pronta para otimizar sua operação com inteligência e entusiasmo.
-              </p>
-            </div>
-
-            {/* Strategic Metrics - Enhanced Visibility */}
-            <div className="absolute top-1/2 left-full ml-20 -translate-y-1/2 w-56 hidden xl:block">
-              <div className="h-[1px] w-full bg-gradient-to-r from-accent/50 to-transparent mb-6" />
-              <div className="space-y-6 font-mono text-[11px] text-accent/80 uppercase tracking-widest">
-                <div className="flex justify-between items-center group/m">
-                  <span className="group-hover/m:text-accent transition-colors">Sistema Operante</span>
-                  <div className="flex gap-1 animate-pulse"><div className="w-1 h-1 bg-accent rounded-full" /><div className="w-1 h-1 bg-accent rounded-full delay-75" /><div className="w-1 h-1 bg-accent rounded-full delay-150" /></div>
-                </div>
-                <div className="flex justify-between items-center group/m">
-                  <span className="group-hover/m:text-accent transition-colors">Eficiência</span>
-                  <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded-sm">99.8%</span>
-                </div>
-                <div className="flex justify-between items-center group/m">
-                  <span className="group-hover/m:text-accent transition-colors">Agentes On</span>
-                  <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded-sm">08</span>
+              {/* Strategic Metrics - Enhanced Visibility */}
+              <div className="absolute top-1/2 left-full ml-20 -translate-y-1/2 w-56 hidden xl:block">
+                <div className="h-[1px] w-full bg-gradient-to-r from-accent/50 to-transparent mb-6" />
+                <div className="space-y-6 font-mono text-[11px] text-accent/80 uppercase tracking-widest">
+                  <div className="flex justify-between items-center group/m">
+                    <span className="group-hover/m:text-accent transition-colors">Sistema Operante</span>
+                    <div className="flex gap-1 animate-pulse"><div className="w-1 h-1 bg-accent rounded-full" /><div className="w-1 h-1 bg-accent rounded-full delay-75" /><div className="w-1 h-1 bg-accent rounded-full delay-150" /></div>
+                  </div>
+                  <div className="flex justify-between items-center group/m">
+                    <span className="group-hover/m:text-accent transition-colors">Eficiência</span>
+                    <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded-sm">99.8%</span>
+                  </div>
+                  <div className="flex justify-between items-center group/m">
+                    <span className="group-hover/m:text-accent transition-colors">Agentes On</span>
+                    <span className="text-white font-bold bg-white/10 px-2 py-0.5 rounded-sm">08</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-8 xl:mt-16 text-center space-y-3 xl:space-y-4 max-w-lg px-6">
+          {/* Footer - Final Section (ISO/Compliance) */}
+          <div className="w-full text-center space-y-3 xl:space-y-4 max-w-lg px-6 mt-4">
             <div className="flex items-center justify-center gap-3 opacity-20">
               <div className="h-[1px] w-8 bg-white" />
               <Hexagon className="h-4 w-4" />
               <div className="h-[1px] w-8 bg-white" />
             </div>
 
-            <h2 className="text-4xl font-black tracking-[0.4em] text-white uppercase leading-none">
+            <h2 className="text-3xl xl:text-4xl font-black tracking-[0.4em] text-white uppercase leading-none">
               CONFORMIDADE & GOVERNANÇA
             </h2>
 
