@@ -275,8 +275,8 @@ export function AppSidebar() {
               <span className="text-xs font-bold text-sidebar-foreground truncate w-full">
                 {currentUser?.name?.split(' ')[0]}
               </span>
-              <span className="text-[9px] text-sidebar-foreground/50 uppercase tracking-tighter truncate w-full">
-                Config
+              <span className="text-[9px] text-sidebar-foreground/50 truncate w-full lowercase">
+                {currentUser?.email}
               </span>
             </div>
           )}
