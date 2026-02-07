@@ -241,71 +241,44 @@ export function AppSidebar() {
         )}
       </nav>
 
-      {/* Footer Actions */}
-      <div className="p-3 border-t border-sidebar-border space-y-2">
-        {/* Alerts */}
-        {/*         <NavLink
-          to="/alerts"
-          className={cn(
-            'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
-            collapsed && 'justify-center'
-          )}
-          activeClassName="bg-sidebar-accent text-sidebar-foreground"
-        >
-          <div className="relative">
-            <Bell className="h-5 w-5" />
-            {unreadAlerts > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground text-[10px] flex items-center justify-center">
-                {unreadAlerts}
-              </span>
-            )}
-          </div>
-          {!collapsed && <span>Alertas</span>}
-        </NavLink> */}
-
+      {/* Footer Actions - Compact Horizontal Layout */}
+      <div className={cn(
+        "p-2 border-t border-sidebar-border flex items-center gap-1",
+        collapsed ? "flex-col" : "justify-between"
+      )}>
         {/* Theme Toggle */}
         <Button
           variant="ghost"
+          size="icon"
           onClick={toggleDarkMode}
-          className={cn(
-            'w-full justify-start gap-3 px-3 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-            collapsed && 'justify-center'
-          )}
+          title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
+          className="h-9 w-9 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground shrink-0"
         >
-          {isDarkMode ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
-          {!collapsed && <span>{isDarkMode ? 'Modo Claro' : 'Modo Escuro'}</span>}
+          {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 
-        {/* User Info */}
-        <button
+        {/* User Info / Profile */}
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => openSlideOver('user-profile')}
-          className={cn(
-            'w-full flex items-center gap-3 px-3 py-2 hover:bg-sidebar-accent transition-colors',
-            collapsed && 'justify-center'
-          )}
+          title={`Perfil: ${currentUser?.name}`}
+          className="h-9 w-9 p-0 hover:bg-sidebar-accent shrink-0 overflow-hidden"
         >
-          <div className="w-8 h-8 bg-sidebar-accent flex items-center justify-center text-sidebar-foreground text-sm font-medium">
-            {currentUser?.avatar || 'U'}
+          <div className="w-full h-full bg-sidebar-accent flex items-center justify-center text-sidebar-foreground text-[10px] font-bold">
+            {currentUser?.avatar || (currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'U')}
           </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0 text-left">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">{currentUser?.name}</p>
-              <p className="text-xs text-sidebar-foreground/60 truncate capitalize">{currentUser?.role?.replace('_', ' ')}</p>
-            </div>
-          )}
-        </button>
+        </Button>
 
         {/* Logout Button */}
         <Button
           variant="ghost"
+          size="icon"
           onClick={handleLogout}
-          className={cn(
-            'w-full justify-start gap-3 px-3 text-sidebar-foreground/80 hover:bg-destructive hover:text-destructive-foreground',
-            collapsed && 'justify-center'
-          )}
+          title="Sair do Sistema"
+          className="h-9 w-9 text-sidebar-foreground/80 hover:bg-destructive hover:text-destructive-foreground shrink-0"
         >
-          <LogOut className="h-5 w-5" />
-          {!collapsed && <span>Sair</span>}
+          <LogOut className="h-4 w-4" />
         </Button>
       </div>
     </aside>
