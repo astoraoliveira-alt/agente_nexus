@@ -338,22 +338,41 @@ export default function Agents() {
                     <p className="text-xs text-muted-foreground">Capacidade em Uso</p>
                   </div>
 
-                  <div className="p-3 bg-muted rounded-md">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="text-lg font-bold">
-                          {agent.usage?.totalCost
-                            ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4 }).format(agent.usage.totalCost)
-                            : 'R$ 0,0000'}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Custo Estimado</p>
+                  <div className="p-3 bg-muted rounded-md flex flex-col justify-between">
+                    <div>
+                      <p className="text-lg font-bold leading-tight">
+                        {agent.usage?.totalCost
+                          ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4 }).format(agent.usage.totalCost)
+                          : 'R$ 0,0000'}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Custo Estimado</p>
+                    </div>
+
+                    <div className="mt-2 pt-2 border-t border-border/50 flex flex-wrap gap-x-3 gap-y-1">
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
+                          {(agent.usage?.totalTokens || 0).toLocaleString()}
+                        </span>
+                        <span className="text-[9px] text-muted-foreground uppercase">Tokens</span>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs font-mono font-medium text-muted-foreground">
-                          {(agent.usage?.totalTokens || 0).toLocaleString()} tks
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Consumo</p>
-                      </div>
+
+                      {(agent.type === 'whatsapp' || agent.type === 'embedded') && (
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
+                            {(agent.usage?.totalMessages || 0).toLocaleString()}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground uppercase">Msgs</span>
+                        </div>
+                      )}
+
+                      {agent.channels.includes('voice') && (
+                        <div className="flex flex-col">
+                          <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
+                            {((agent.usage?.totalStt || 0) + (agent.usage?.totalTts || 0)).toFixed(1)}
+                          </span>
+                          <span className="text-[9px] text-muted-foreground uppercase">Min</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -369,18 +388,6 @@ export default function Agents() {
                 >
                   <Settings className="h-4 w-4 mr-2" />
                   Configurar
-                </Button>
-
-                <Button
-                  variant="outline"
-                  className="w-full mt-2 hover:bg-primary hover:text-primary-foreground border-primary/20"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    openSlideOver('agent-playground', agent);
-                  }}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  Testar / Simular
                 </Button>
               </div>
             ))}

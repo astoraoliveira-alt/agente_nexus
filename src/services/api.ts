@@ -412,7 +412,10 @@ export const api = {
                 integrationConfig: dbAgent.integration_config || {},
                 // Usage Metrics
                 usage: {
-                    totalTokens: Number(u.total_tokens),
+                    totalTokens: Number(u.total_tokens || 0),
+                    totalMessages: Number(u.total_messages || 0),
+                    totalStt: Number(u.total_stt || 0),
+                    totalTts: Number(u.total_tts || 0),
                     totalCost: totalCost
                 },
                 integration: {

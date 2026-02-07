@@ -226,6 +226,9 @@ export interface Agent {
   usage?: {
     totalTokens: number;
     totalCost: number;
+    totalMessages?: number;
+    totalStt?: number;
+    totalTts?: number;
   };
 
   // Legacy Integration (To be deprecated/migrated to voiceConfig)
