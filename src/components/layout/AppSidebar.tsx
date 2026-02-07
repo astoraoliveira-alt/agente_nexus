@@ -257,17 +257,29 @@ export function AppSidebar() {
           {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
 
-        {/* User Info / Profile */}
+        {/* User Info / Profile - Expanded with Name */}
         <Button
           variant="ghost"
-          size="icon"
           onClick={() => openSlideOver('user-profile')}
           title={`Perfil: ${currentUser?.name}`}
-          className="h-9 w-9 p-0 hover:bg-sidebar-accent shrink-0 overflow-hidden"
+          className={cn(
+            "h-10 p-1 hover:bg-sidebar-accent transition-all duration-200 overflow-hidden",
+            collapsed ? "w-10 justify-center" : "flex-1 justify-start gap-2 px-2"
+          )}
         >
-          <div className="w-full h-full bg-sidebar-accent flex items-center justify-center text-sidebar-foreground text-[10px] font-bold">
+          <div className="h-8 w-8 rounded-sm bg-accent flex items-center justify-center text-accent-foreground text-xs font-black shrink-0 shadow-sm">
             {currentUser?.avatar || (currentUser?.name ? currentUser.name.charAt(0).toUpperCase() : 'U')}
           </div>
+          {!collapsed && (
+            <div className="flex flex-col items-start min-w-0">
+              <span className="text-xs font-bold text-sidebar-foreground truncate w-full">
+                {currentUser?.name?.split(' ')[0]}
+              </span>
+              <span className="text-[9px] text-sidebar-foreground/50 uppercase tracking-tighter truncate w-full">
+                Config
+              </span>
+            </div>
+          )}
         </Button>
 
         {/* Logout Button */}
