@@ -11,6 +11,7 @@ import { api } from '@/services/api';
 import { format, subDays, startOfDay, endOfDay, eachDayOfInterval } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 
 export default function Index() {
   const { currentTenant, openSlideOver } = useApp();
@@ -194,10 +195,13 @@ export default function Index() {
 
             <KPICard
               title="Consumo do Plano"
-              value={`${consumptionPercentage.toFixed(0)}%`}
+              value={consumptionPercentage > 100
+                ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
+                : `${consumptionPercentage.toFixed(0)}%`
+              }
               subtitle={`${(totalTokens / 1000).toFixed(0)}k de ${consumptionLimit >= 1000000 ? `${(consumptionLimit / 1000000).toFixed(0)}M` : `${(consumptionLimit / 1000).toFixed(0)}k`} tokens`}
               icon={BarChart3}
-              variant={consumptionPercentage > 80 ? 'critical' : consumptionPercentage > 60 ? 'warning' : 'default'}
+              variant={consumptionPercentage > 100 ? 'critical' : consumptionPercentage > 80 ? 'warning' : 'default'}
               onClick={() => navigate('/consumption')}
             />
 
@@ -522,26 +526,44 @@ export default function Index() {
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span>Tokens LLM</span>
-                    <span className="text-muted-foreground">
-                      {consumptionPercentage.toFixed(0)}%
+                    <span className={cn(
+                      "font-medium",
+                      consumptionPercentage > 100 ? "text-destructive" : "text-muted-foreground"
+                    )}>
+                      {consumptionPercentage > 100
+                        ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
+                        : `${consumptionPercentage.toFixed(0)}%`
+                      }
                     </span>
                   </div>
                   <Progress
                     value={Math.min(consumptionPercentage, 100)}
-                    className={`h-2 ${consumptionPercentage > 100 ? '[&>div]:bg-destructive' : ''}`}
+                    className={cn(
+                      "h-2",
+                      consumptionPercentage > 100 && "[&>div]:bg-destructive"
+                    )}
                   />
                 </div>
 
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span>Mensagens</span>
-                    <span className="text-muted-foreground">
-                      {Math.min(((consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0) / (limits.messages || 50000)) * 100, 100).toFixed(0)}%
+                    <span className={cn(
+                      "font-medium",
+                      messageUsagePct > 100 ? "text-destructive" : "text-muted-foreground"
+                    )}>
+                      {messageUsagePct > 100
+                        ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
+                        : `${messageUsagePct.toFixed(0)}%`
+                      }
                     </span>
                   </div>
                   <Progress
                     value={Math.min(messageUsagePct, 100)}
-                    className={`h-2 ${messageUsagePct > 100 ? '[&>div]:bg-destructive' : ''}`}
+                    className={cn(
+                      "h-2",
+                      messageUsagePct > 100 && "[&>div]:bg-destructive"
+                    )}
                   />
                 </div>
 
