@@ -2,8 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider } from "@/contexts/AppContext";
+import ProtectedRoute from "@/components/auth/ProtectedRoute";
 import Index from "./pages/Index";
 import Conversations from "./pages/Conversations";
 import Consumption from "./pages/Consumption";
@@ -34,24 +35,27 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
+            {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/" element={<Index />} />
-            <Route path="/lead-crm" element={<LeadCRM />} />
-            <Route path="/conversations" element={<Conversations />} />
-            <Route path="/consumption" element={<Consumption />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/users" element={<Users />} />
-            <Route path="/profiles" element={<Profiles />} />
-            <Route path="/companies" element={<Companies />} />
-            <Route path="/governance" element={<Governance />} />
-            <Route path="/flows" element={<Flows />} />
-            <Route path="/decision-logs" element={<DecisionLogs />} />
-            <Route path="/plans" element={<Plans />} />
-            <Route path="/contacts" element={<Contacts />} />
-            <Route path="/quality" element={<Quality />} />
+
+            {/* Protected Routes */}
+            <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/lead-crm" element={<ProtectedRoute><LeadCRM /></ProtectedRoute>} />
+            <Route path="/conversations" element={<ProtectedRoute><Conversations /></ProtectedRoute>} />
+            <Route path="/consumption" element={<ProtectedRoute><Consumption /></ProtectedRoute>} />
+            <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
+            <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />
+            <Route path="/profiles" element={<ProtectedRoute><Profiles /></ProtectedRoute>} />
+            <Route path="/companies" element={<ProtectedRoute><Companies /></ProtectedRoute>} />
+            <Route path="/governance" element={<ProtectedRoute><Governance /></ProtectedRoute>} />
+            <Route path="/flows" element={<ProtectedRoute><Flows /></ProtectedRoute>} />
+            <Route path="/decision-logs" element={<ProtectedRoute><DecisionLogs /></ProtectedRoute>} />
+            <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
+            <Route path="/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
+            <Route path="/quality" element={<ProtectedRoute><Quality /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

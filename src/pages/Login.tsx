@@ -73,14 +73,14 @@ export default function Login() {
       */}
 
       {/* LEFT PANEL: The Terminal (Interaction Area) */}
-      <div className="w-full lg:w-[45%] xl:w-[40%] flex flex-col justify-between p-8 md:p-12 lg:p-20 relative z-10 bg-black/40 backdrop-blur-sm border-r border-white/5">
+      <div className="w-full lg:w-[45%] xl:w-[40%] flex flex-col justify-between p-8 md:p-10 lg:p-16 relative z-10 bg-black/40 backdrop-blur-sm border-r border-white/5 overflow-y-auto invisible-scrollbar">
 
         {/* Header - Staggered entrance */}
-        <div className="space-y-4">
-          <div className={`flex items-center gap-6 mb-14 transition-all duration-1000 ease-out ${mounted ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
+        <div className="space-y-4 pt-4">
+          <div className={`flex items-center gap-6 mb-10 transition-all duration-1000 ease-out ${mounted ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
             {/* Client Logo - Edenred */}
             <div className="relative group/client">
-              <img src="/client-logo.png" alt="Edenred" className="h-14 w-auto drop-shadow-[0_0_20px_rgba(255,255,255,0.05)] transition-transform duration-500 group-hover/client:scale-105" />
+              <img src="/client-logo.png" alt="Edenred" className="h-12 w-auto drop-shadow-[0_0_20px_rgba(255,255,255,0.05)] transition-transform duration-500 group-hover/client:scale-105" />
             </div>
 
             <div className="h-10 w-[1px] bg-white/20 mx-1" />
@@ -115,9 +115,9 @@ export default function Login() {
         </div>
 
         {/* Login Form Section - Staggered entrance */}
-        <div className={`w-full max-w-sm mt-12 space-y-10 transition-all duration-1000 delay-300 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
+        <div className={`w-full max-w-sm mt-8 space-y-8 transition-all duration-1000 delay-300 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
 
-          <form onSubmit={handleLogin} className="space-y-8 group">
+          <form onSubmit={handleLogin} className="space-y-6 group">
 
             {/* Email Field - Technical Input Style */}
             <div className="space-y-3 group/field">
@@ -236,10 +236,10 @@ export default function Login() {
             <div className="absolute -inset-24 rounded-full border border-accent/20 animate-[ping_3s_infinite]" />
             <div className="absolute -inset-48 rounded-full border border-white/[0.02] animate-[ping_6s_infinite] delay-1000" />
 
-            {/* THE AGENT STRUCTURE */}
-            <div className="relative flex flex-col items-center">
+            {/* THE AGENT STRUCTURE - Scaled for vertical space */}
+            <div className="relative flex flex-col items-center scale-90 xl:scale-100 transition-transform duration-700">
               {/* 1. HEAD SECTION */}
-              <div className="relative w-48 h-48 flex flex-col items-center justify-center z-30">
+              <div className="relative w-40 h-40 xl:w-48 xl:h-48 flex flex-col items-center justify-center z-30">
                 {/* Head Shell */}
                 <div className="absolute inset-0 border border-white/10 bg-black/80 backdrop-blur-3xl rounded-[3rem] shadow-[0_0_60px_rgba(0,194,255,0.15)]" />
 
@@ -332,7 +332,7 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="mt-10 xl:mt-20 text-center space-y-4 xl:space-y-6 max-w-lg px-6">
+          <div className="mt-8 xl:mt-16 text-center space-y-3 xl:space-y-4 max-w-lg px-6">
             <div className="flex items-center justify-center gap-3 opacity-20">
               <div className="h-[1px] w-8 bg-white" />
               <Hexagon className="h-4 w-4" />
@@ -343,16 +343,16 @@ export default function Login() {
               CONFORMIDADE & GOVERNANÇA
             </h2>
 
-            <div className="grid grid-cols-2 gap-x-12 gap-y-4">
+            <div className="grid grid-cols-2 gap-x-8 xl:gap-x-12 gap-y-3 xl:gap-y-4">
               {[
                 { code: '42001', label: 'Gestão de IA Responsável' },
                 { code: '27001', label: 'Segurança Cibernética' },
                 { code: '23894', label: 'Gestão de Riscos' },
                 { code: 'TR 24028', label: 'Auditoria de Confiança' }
               ].map(iso => (
-                <div key={iso.code} className="text-left border-l border-white/10 pl-4 py-1">
-                  <p className="text-[10px] font-black text-accent tracking-[0.2em]">NORMA ISO {iso.code}</p>
-                  <p className="text-[9px] font-mono text-white/30 uppercase">{iso.label}</p>
+                <div key={iso.code} className="text-left border-l border-white/10 pl-3 xl:pl-4 py-0.5 xl:py-1">
+                  <p className="text-[9px] xl:text-[10px] font-black text-accent tracking-[0.2em]">NORMA ISO {iso.code}</p>
+                  <p className="text-[8px] xl:text-[9px] font-mono text-white/30 uppercase">{iso.label}</p>
                 </div>
               ))}
             </div>
