@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt } from 'lucide-react';
+import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt, HelpCircle, Info, Timer, Zap } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { mockAgents, mockTenants } from '@/lib/mock-data';
 import { mockPeakUsageMatrix } from '@/lib/mock-extended-data';
@@ -19,12 +19,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   LineChart,
   Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -136,6 +142,28 @@ export default function Consumption() {
 
     return totals;
   }, [filteredMetrics, realAgents, currentTenant]); // Add currentTenant
+
+  // ROI Calculation: Efficiency (Etapa ROI)
+  const roiStats = useMemo(() => {
+    const config = (currentTenant as any)?.roi_config || {
+      avg_human_minutes_per_interaction: 2.5,
+      operator_hourly_rate: 30.0
+    };
+
+    const avgHumanMinutes = config.avg_human_minutes_per_interaction;
+    const totalInteractions = summary.messages;
+    const hoursSaved = (totalInteractions * avgHumanMinutes) / 60;
+
+    // Estimate cost saved based on operator rate
+    const operatorHourlyRate = config.operator_hourly_rate;
+    const moneySaved = hoursSaved * operatorHourlyRate;
+
+    return {
+      hoursSaved,
+      moneySaved,
+      hourlyRate: operatorHourlyRate
+    };
+  }, [summary.messages, currentTenant]);
 
   // Daily Aggregation for Timeline (Etapa 2)
   const dailyTimeline = useMemo(() => {
@@ -324,121 +352,190 @@ export default function Consumption() {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="kpi-card border-l-4 border-l-accent">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-accent/10 flex items-center justify-center">
-                  <Cpu className="h-5 w-5 text-accent" />
+          <TooltipProvider>
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-sm bg-accent/10 flex items-center justify-center">
+                      <Cpu className="h-4 w-4 text-accent" />
+                    </div>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Saldo de Inteligência</span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-accent transition-colors" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[200px] text-[11px]">
+                      Tokens são "pedaços" de palavras processados pela IA. Seu plano inclui uma franquia mensal de tokens para os cérebros dos seus agentes.
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <span className="text-sm text-muted-foreground">Tokens LLM</span>
-              </div>
-              <p className="text-2xl font-bold mb-2">{tokenDisplay.value}{tokenDisplay.unit}</p>
-              <Progress value={consumptionPercentage} className="h-1 mb-1" />
-              <p className="text-xs text-muted-foreground">{consumptionPercentage.toFixed(1)}% do contrato</p>
-            </div>
-
-            <div className="kpi-card">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-muted flex items-center justify-center">
-                  <MessageSquare className="h-5 w-5" />
+                <div className="flex items-end gap-2 mb-2">
+                  <p className="text-2xl font-bold leading-none">{tokenDisplay.value}{tokenDisplay.unit}</p>
+                  <span className="text-[10px] text-muted-foreground pb-0.5">gastos</span>
                 </div>
-                <span className="text-sm text-muted-foreground">Mensagens</span>
-              </div>
-              <p className="text-2xl font-bold mb-2">{summary.messages.toLocaleString()}</p>
-              <p className="text-xs text-muted-foreground">Volume total processado</p>
-            </div>
-
-            <div className="kpi-card">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-muted flex items-center justify-center">
-                  <Mic className="h-5 w-5" />
+                <Progress value={Math.min(consumptionPercentage, 100)} className="h-1 mb-1" />
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] text-muted-foreground font-medium">{consumptionPercentage.toFixed(1)}% do contrato</p>
+                  {consumptionPercentage > 100 && <Badge variant="destructive" className="h-4 text-[8px] uppercase px-1">Excedido</Badge>}
                 </div>
-                <span className="text-sm text-muted-foreground">STT (minutos)</span>
               </div>
-              <p className="text-2xl font-bold mb-2">{summary.stt.toFixed(1)}</p>
-              <p className="text-xs text-muted-foreground">Consumo de Canal Voz</p>
-            </div>
 
-            <div className="kpi-card">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 bg-muted flex items-center justify-center">
-                  <Volume2 className="h-5 w-5" />
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-sm bg-primary/10 flex items-center justify-center">
+                      <MessageSquare className="h-4 w-4 text-primary" />
+                    </div>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Interações</span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-primary transition-colors" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[200px] text-[11px]">
+                      Volume total de mensagens processadas pelos seus agentes em todos os canais (WhatsApp, Web, Voz).
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <span className="text-sm text-muted-foreground">TTS (minutos)</span>
+                <div className="flex items-end gap-2">
+                  <p className="text-2xl font-bold leading-none">{summary.messages.toLocaleString()}</p>
+                  <span className="text-[10px] text-muted-foreground pb-0.5">mensagens</span>
+                </div>
+                <div className="mt-4 flex items-center gap-2 text-[10px] text-green-600 font-medium">
+                  <Zap className="h-3 w-3" />
+                  <span>Economia de {roiStats.hoursSaved.toFixed(0)}h humanas</span>
+                </div>
               </div>
-              <p className="text-2xl font-bold mb-2">{summary.tts.toFixed(1)}</p>
-              <p className="text-xs text-muted-foreground">Consumo de Canal Voz</p>
-            </div>
-          </div>
 
-          {/* Projeção & Billing Summary */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            {/* Projeção (Etapa 2) */}
-            <div className={`kpi-card border-l-4 lg:col-span-1 flex flex-col justify-center ${projectedPercentage > 100 ? 'border-l-destructive bg-destructive/5' : projectedPercentage > 80 ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-primary bg-primary/5'}`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <TrendingUp className={`h-5 w-5 ${projectedPercentage > 80 ? 'text-destructive' : 'text-primary'}`} />
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-sm bg-muted flex items-center justify-center">
+                      <Volume2 className="h-4 w-4 text-foreground" />
+                    </div>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Canal de Voz</span>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[200px] text-[11px]">
+                      Consumo acumulado de minutos de fala (TTS) e transcrição (STT) em ligações telefônicas.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="flex items-center gap-4">
                   <div>
-                    <p className="font-medium text-sm">Projeção</p>
-                    <p className="text-[10px] text-muted-foreground uppercase">{period === '7d' ? '7' : '30'} dias</p>
+                    <p className="text-lg font-bold">{(summary.stt + summary.tts).toFixed(1)}</p>
+                    <p className="text-[9px] text-muted-foreground uppercase">Minutos totais</p>
+                  </div>
+                  <div className="h-8 w-[1px] bg-border" />
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-1.5 text-[9px]">
+                      <Mic className="h-2.5 w-2.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Ouvido: {summary.stt.toFixed(1)}m</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[9px]">
+                      <Volume2 className="h-2.5 w-2.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Falado: {summary.tts.toFixed(1)}m</span>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className={`text-lg font-bold ${projectedPercentage > 80 ? 'text-destructive' : ''}`}>{projectedPercentage.toFixed(1)}%</p>
+              </div>
+
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border overflow-hidden">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-sm bg-green-600/10 flex items-center justify-center">
+                      <TrendingUp className="h-4 w-4 text-green-600" />
+                    </div>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Eficácia (ROI)</span>
+                  </div>
+                </div>
+                <div className="mb-2">
+                  <p className="text-2xl font-bold leading-none text-green-600 text-shadow-sm">R$ {roiStats.moneySaved.toLocaleString()}</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Valor operacional economizado</p>
+                </div>
+                <div className="text-[9px] bg-green-50 text-green-700 px-2 py-1 -mx-4 -mb-4 mt-3 font-medium">
+                  Baseado em R$ {roiStats.hourlyRate.toFixed(2)}/h de operador
                 </div>
               </div>
             </div>
 
-            {/* Resumo de Faturamento (Solicitado) */}
-            <div className="kpi-card bg-primary/[0.03] border-primary/20 lg:col-span-1">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-primary uppercase">Variável (Uso)</span>
-                <DollarSign className="h-4 w-4 text-primary" />
+            {/* Projeção & Billing Summary */}
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-6">
+              <div className={`kpi-card border-none shadow-sm ring-1 ring-border flex flex-col justify-between ${projectedPercentage > 100 ? 'bg-destructive/5' : projectedPercentage > 80 ? 'bg-amber-500/5' : 'bg-primary/5'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Timer className={`h-4 w-4 ${projectedPercentage > 80 ? 'text-destructive' : 'text-primary'}`} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">Predictor de Fatura</span>
+                  </div>
+                  <Badge variant={projectedPercentage > 80 ? "destructive" : "secondary"} className="h-4 text-[8px] px-1 uppercase">
+                    {period === '7d' ? '7' : '30'} dias
+                  </Badge>
+                </div>
+                <div className="mt-4">
+                  <div className="flex items-baseline gap-1">
+                    <span className={`text-2xl font-bold ${projectedPercentage > 80 ? 'text-destructive' : 'text-primary'}`}>{projectedPercentage.toFixed(1)}%</span>
+                  </div>
+                  <p className="text-[9px] text-muted-foreground mt-1">Estimativa de consumo final do ciclo</p>
+                </div>
               </div>
-              <p className="text-xl font-bold">R$ {summary.totalCost.toFixed(2)}</p>
-              <p className="text-[9px] text-muted-foreground mt-1 lowercase">
-                {((currentTenant as any)?.planDetails?.monthlyFeeCoversUsage)
-                  ? 'abatido da mensalidade até o limite'
-                  : 'uso dinâmico (adicional)'}
-              </p>
-            </div>
 
-            <div className="kpi-card bg-accent/[0.03] border-accent/20 lg:col-span-1">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-accent uppercase">Assinatura Base</span>
-                <CreditCard className="h-4 w-4 text-accent" />
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border lg:col-span-1">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Variável (Uso)</span>
+                  <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <p className="text-xl font-bold tracking-tight">R$ {summary.totalCost.toFixed(2)}</p>
+                <div className="mt-2 flex items-center gap-1">
+                  <Info className="h-2.5 w-2.5 text-muted-foreground/60" />
+                  <p className="text-[9px] text-muted-foreground lowercase">
+                    {((currentTenant as any)?.planDetails?.monthlyFeeCoversUsage)
+                      ? 'deduzido do crédito disponível'
+                      : 'consumo sob demanda (adicional)'}
+                  </p>
+                </div>
               </div>
-              <p className="text-xl font-bold">R$ {((currentTenant as any)?.planPrices?.basePrice || 0).toFixed(2)}</p>
-              <p className="text-[9px] text-muted-foreground mt-1 lowercase">valor fixo de acesso</p>
-            </div>
 
-            <div className="kpi-card bg-green-600/[0.05] border-green-600/20 lg:col-span-1">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-semibold text-green-600 uppercase">A Pagar (Total)</span>
-                <Receipt className="h-5 w-5 text-green-600" />
+              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border lg:col-span-1">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Mensalidade Ativa</span>
+                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+                <p className="text-xl font-bold tracking-tight">R$ {((currentTenant as any)?.planPrices?.basePrice || 0).toFixed(2)}</p>
+                <p className="text-[9px] text-muted-foreground mt-1 font-medium">Valor fixo contratado</p>
               </div>
-              <p className="text-2xl font-bold text-green-600">
-                R$ {(() => {
-                  const basePrice = (currentTenant as any)?.planPrices?.basePrice || 0;
-                  const usageCost = summary.totalCost;
-                  const feeCoversUsage = (currentTenant as any)?.planDetails?.monthlyFeeCoversUsage;
 
-                  // Logic: If fee covers usage, pay MAX(base, usage). Else pay Base + Usage.
-                  const total = feeCoversUsage
-                    ? Math.max(basePrice, usageCost)
-                    : basePrice + usageCost;
+              <div className="kpi-card border-none bg-green-600 shadow-sm ring-1 ring-green-700 lg:col-span-1 text-white">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[10px] font-bold uppercase tracking-tight text-white/80">Investimento Total</span>
+                  <Receipt className="h-4 w-4 text-white/80" />
+                </div>
+                <p className="text-2xl font-bold">
+                  R$ {(() => {
+                    const basePrice = (currentTenant as any)?.planPrices?.basePrice || 0;
+                    const usageCost = summary.totalCost;
+                    const feeCoversUsage = (currentTenant as any)?.planDetails?.monthlyFeeCoversUsage;
 
-                  return total.toFixed(2);
-                })()}
-              </p>
-              <p className="text-[9px] text-green-600/70 mt-1 font-semibold uppercase">
-                {(currentTenant as any)?.planDetails?.monthlyFeeCoversUsage
-                  ? 'Modelo: Crédito na Mensalidade'
-                  : 'Modelo: Mensalidade + Uso'}
-              </p>
+                    const total = feeCoversUsage
+                      ? Math.max(basePrice, usageCost)
+                      : basePrice + usageCost;
+
+                    return total.toFixed(2);
+                  })()}
+                </p>
+                <div className="mt-3 py-1 px-2 bg-white/10 rounded text-[9px] font-semibold uppercase tracking-wider inline-block">
+                  {(currentTenant as any)?.planDetails?.monthlyFeeCoversUsage
+                    ? 'Mensalidade Flex'
+                    : 'Mensalidade + Uso'}
+                </div>
+              </div>
             </div>
-          </div>
+          </TooltipProvider>
 
           <Tabs defaultValue="timeline" className="space-y-4">
             <TabsList>
@@ -458,7 +555,7 @@ export default function Consumption() {
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
                       <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                      <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '4px' }} />
+                      <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '4px' }} />
                       <Legend />
                       <Line type="monotone" dataKey="tokens" stroke="hsl(var(--accent))" strokeWidth={2} dot={false} name="Tokens" />
                       <Line type="monotone" dataKey="messages" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} name="Mensagens" />
@@ -574,7 +671,7 @@ export default function Consumption() {
                         <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={5} dataKey="value">
                           {pieData.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
                         </Pie>
-                        <Tooltip />
+                        <RechartsTooltip />
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
@@ -599,7 +696,7 @@ export default function Consumption() {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                         <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
                         <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
-                        <Tooltip />
+                        <RechartsTooltip />
                         <Bar dataKey="cost" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} name="Custo (R$)" />
                       </BarChart>
                     </ResponsiveContainer>

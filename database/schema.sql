@@ -281,6 +281,10 @@ CREATE TABLE consumption_metrics (
     
     metadata JSONB, -- Provider info, external IDs
     
+    -- Governance & Cost Allocation
+    department_id TEXT,
+    cost_center TEXT,
+    
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 

@@ -218,7 +218,7 @@ export const api = {
     async getPlanAuditLogs(planId: string): Promise<any[]> {
         const { data, error } = await supabase
             .from('plan_audit_logs')
-            .select('*')
+            .select('*, actor:users!actor_id(full_name)')
             .eq('plan_id', planId)
             .order('changed_at', { ascending: false });
 
@@ -457,6 +457,7 @@ export const api = {
     async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         const dbPayload: any = {};
         if (updates.name) dbPayload.name = updates.name;
+        if (updates.last_actor_name) dbPayload.last_actor_name = updates.last_actor_name;
         if (updates.status) dbPayload.status = updates.status;
         if (updates.riskLevel) dbPayload.risk_level = updates.riskLevel;
         if (updates.lifecycleStage) dbPayload.lifecycle_stage = updates.lifecycleStage;
@@ -503,6 +504,21 @@ export const api = {
                 n8n_webhook_url: data.integration_config?.n8n_webhook_url || `https://n8n.webhook/${data.id}`
             }
         } as unknown as Agent;
+    },
+
+    async getAgentAuditLogs(agentId: string): Promise<any[]> {
+        const { data, error } = await supabase
+            .from('agent_audit_logs')
+            .select('*, actor:users!actor_id(full_name)')
+            .eq('agent_id', agentId)
+            .order('changed_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching agent audit logs:', error);
+            return [];
+        }
+
+        return data;
     },
 
     async deleteAgent(agentId: string): Promise<void> {

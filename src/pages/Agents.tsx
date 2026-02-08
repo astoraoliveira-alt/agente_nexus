@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -28,12 +28,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Agent, AILifecycleStage } from '@/lib/types';
 
 export default function Agents() {
-  const { openSlideOver, currentTenant } = useApp();
+  const { openSlideOver, currentTenant, currentUser } = useApp();
   const [search, setSearch] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -113,14 +119,18 @@ export default function Agents() {
     try {
       if (editingAgent) {
         // Update
-        const updated = await api.updateAgent(editingAgent.id, formData);
+        const updated = await api.updateAgent(editingAgent.id, {
+          ...formData,
+          last_actor_name: currentUser?.name || 'Sistema'
+        });
         setAgents(prev => prev.map(a => a.id === updated.id ? { ...a, ...updated } : a));
         toast.success('Agente atualizado com sucesso');
       } else {
         // Create
         const newAgentRef: Partial<Agent> = {
           ...formData,
-          tenantId: currentTenant.id
+          tenantId: currentTenant.id,
+          last_actor_name: currentUser?.name || 'Sistema'
         };
         const created = await api.createAgent(newAgentRef);
         setAgents(prev => [created, ...prev]);
@@ -223,9 +233,9 @@ export default function Agents() {
                           <Pencil className="h-4 w-4 mr-2" />
                           Editar
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCloneAgent(agent); }}>
-                          <Copy className="h-4 w-4 mr-2" />
-                          Duplicar
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openSlideOver('agent-history', agent); }}>
+                          <History className="h-4 w-4 mr-2" />
+                          Ver Histórico
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
@@ -400,358 +410,441 @@ export default function Agents() {
 
         {/* Create/Edit Agent Dialog */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col p-0">
+          <DialogContent className="sm:max-w-5xl h-[90vh] flex flex-col p-0 overflow-hidden">
             <DialogHeader className="p-6 pb-2 border-b">
-              <DialogTitle>{editingAgent ? 'Editar Agente' : 'Novo Agente'}</DialogTitle>
+              <DialogTitle className="text-xl flex items-center gap-2">
+                {editingAgent ? <Pencil className="h-5 w-5 text-accent" /> : <Plus className="h-5 w-5 text-accent" />}
+                {editingAgent ? 'Configuração Profissional do Agente' : 'Criar Nova Inteligência'}
+              </DialogTitle>
             </DialogHeader>
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              <Tabs defaultValue="general" className="w-full">
-                <div className="bg-amber-500/10 border border-amber-500/20 p-3 mb-6 rounded-md flex items-start gap-3">
-                  <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-semibold text-amber-500">Persistência em Tempo Real</h4>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Essas configurações (Prompt, Risco, Autonomia) <strong>são a única fonte de verdade</strong> para os agentes.
-                      Qualquer alteração aqui impacta imediatamente o comportamento do N8N na próxima interação.
-                    </p>
-                  </div>
-                </div>
-
-                <TabsList className="grid w-full grid-cols-3 mb-6 bg-muted/50 p-1">
-                  <TabsTrigger value="general" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">
-                    Geral & Governança
+            <div className="flex-1 overflow-y-auto">
+              <Tabs defaultValue="brain" className="w-full">
+                <TabsList className="flex w-full justify-start gap-4 px-6 border-b rounded-none h-12 bg-muted/20 sticky top-0 z-10">
+                  <TabsTrigger value="brain" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Cérebro & Identidade
                   </TabsTrigger>
-                  <TabsTrigger value="brain" className="data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-2">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Cérebro (Prompt)
+                  <TabsTrigger value="integration" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                    <Workflow className="h-4 w-4" />
+                    Canais & Integração
                   </TabsTrigger>
-                  <TabsTrigger value="voice" className="data-[state=active]:bg-background data-[state=active]:shadow-sm flex items-center gap-2">
-                    <Headphones className="h-3.5 w-3.5" />
-                    Voz & Integração
+                  <TabsTrigger value="governance" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4" />
+                    Governança & Risco
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="general" className="space-y-6 mt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="md:col-span-2 space-y-2">
-                      <Label>Nome do Agente</Label>
-                      <Input
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        placeholder="Ex: Consultor de Vendas"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Estágio do Ciclo de Vida (ISO 42001)</Label>
-                      <Select
-                        value={formData.lifecycleStage}
-                        onValueChange={(v: AILifecycleStage) => setFormData({ ...formData, lifecycleStage: v })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="development">Development (Sandbox)</SelectItem>
-                          <SelectItem value="validation">Validation (Homologação)</SelectItem>
-                          <SelectItem value="production">Production (Vivo)</SelectItem>
-                          <SelectItem value="monitoring">Monitoring (Assistido)</SelectItem>
-                          <SelectItem value="retired">Retired (Arquivado)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Status Operacional</Label>
-                      <Select
-                        value={formData.status}
-                        onValueChange={(v: any) => setFormData({ ...formData, status: v })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="active">Ativo (Atenderá Clientes)</SelectItem>
-                          <SelectItem value="inactive">Inativo (Pausado)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Risco Inerente</Label>
-                      <Select
-                        value={formData.riskLevel}
-                        onValueChange={(v: any) => setFormData({ ...formData, riskLevel: v })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="low">Baixo (Informativo)</SelectItem>
-                          <SelectItem value="medium">Médio (Transacional)</SelectItem>
-                          <SelectItem value="high">Alto (Financeiro/Saúde)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Score de Risco (0-100)</Label>
-                      <Input
-                        type="number"
-                        value={formData.riskScore || 0}
-                        onChange={(e) => setFormData({ ...formData, riskScore: parseInt(e.target.value) })}
-                        min={0} max={100}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Nível de Autonomia (1-5)</Label>
-                      <Select
-                        value={String(formData.autonomyLevel || 1)}
-                        onValueChange={(v: string) => setFormData({ ...formData, autonomyLevel: parseInt(v) as any })}
-                      >
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">L1 - Assistido (Aprovação)</SelectItem>
-                          <SelectItem value="2">L2 - Limitado (Rígido)</SelectItem>
-                          <SelectItem value="3" disabled={formData.riskLevel === 'high'}>L3 - Condicional (Misto)</SelectItem>
-                          <SelectItem value="4" disabled={formData.riskLevel === 'high'}>L4 - Alta (Autônomo Suv.)</SelectItem>
-                          <SelectItem value="5" disabled={formData.riskLevel === 'high' || formData.riskLevel === 'medium'}>L5 - Total (Fully Autonomous)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {formData.riskLevel === 'high' && (
-                        <p className="text-[10px] text-red-500 italic mt-1">* Autonomia limitada a L2 (Risco Crítico).</p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Limite de Concorrência</Label>
-                      <Input
-                        type="number"
-                        value={formData.maxConcurrentConversations || 50}
-                        onChange={(e) => setFormData({ ...formData, maxConcurrentConversations: parseInt(e.target.value) })}
-                      />
-                    </div>
-
-                    <div className="md:col-span-2 space-y-3">
-                      <Label>Canais Suportados</Label>
-                      <div className="flex gap-4">
-                        <Button
-                          type="button"
-                          variant={formData.channels?.includes('text') ? 'default' : 'outline'}
-                          className="flex-1 gap-2"
-                          onClick={() => {
-                            const current = formData.channels || [];
-                            const newer = current.includes('text')
-                              ? current.filter(c => c !== 'text')
-                              : [...current, 'text'];
-                            setFormData({ ...formData, channels: newer as any });
-                          }}
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                          WhatsApp / Texto
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={formData.channels?.includes('voice') ? 'default' : 'outline'}
-                          className="flex-1 gap-2"
-                          onClick={() => {
-                            const current = formData.channels || [];
-                            const newer = current.includes('voice')
-                              ? current.filter(c => c !== 'voice')
-                              : [...current, 'voice'];
-                            setFormData({ ...formData, channels: newer as any });
-                          }}
-                        >
-                          <Phone className="h-4 w-4" />
-                          Voz / Retell AI
-                        </Button>
-                      </div>
+                <TabsContent value="brain" className="p-6 space-y-6">
+                  <div className="bg-amber-500/10 border border-amber-500/20 p-3 mb-6 rounded-md flex items-start gap-3">
+                    <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-500">Persistência em Tempo Real</h4>
+                      <p className="text-xs text-muted-foreground mt-1 text-[10px]">
+                        As configurações de <strong>Prompt, Risco e Autonomia</strong> impactam o comportamento do N8N imediatamente.
+                      </p>
                     </div>
                   </div>
-                </TabsContent>
-
-                {/* Brain / System Prompt Tab */}
-                <TabsContent value="brain" className="space-y-6 mt-0">
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Modelo LLM</Label>
-                        <Select
-                          value={formData.brainConfig?.modelId || 'gpt-4o'}
-                          onValueChange={(v: any) => setFormData({
-                            ...formData,
-                            brainConfig: {
-                              systemPrompt: formData.brainConfig?.systemPrompt || '',
-                              temperature: formData.brainConfig?.temperature || 0.5,
-                              modelId: v
-                            }
-                          })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Selecione o modelo" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="gpt-4o">GPT-4o (OpenAI)</SelectItem>
-                            <SelectItem value="gpt-4o-mini">GPT-4o Mini (Rápido)</SelectItem>
-                            <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet (Anthropic)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Temperatura / Criatividade ({formData.brainConfig?.temperature || 0.5})</Label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="1"
-                          value={formData.brainConfig?.temperature || 0.5}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            brainConfig: {
-                              systemPrompt: formData.brainConfig?.systemPrompt || '',
-                              modelId: formData.brainConfig?.modelId || 'gpt-4o',
-                              temperature: parseFloat(e.target.value)
-                            }
-                          })}
-                        />
-                      </div>
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 shrink-0">
+                    <div className="md:col-span-8 space-y-2">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Identidade da Inteligência</Label>
+                      <Input
+                        className="text-lg font-semibold h-12 bg-muted/30 border-accent/20 focus:border-accent"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="Ex: Consultor Estratégico de Vendas"
+                      />
                     </div>
+                    <div className="md:col-span-4 space-y-2">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Tipo de Agente</Label>
+                      <Select
+                        value={formData.type || 'conversational'}
+                        onValueChange={(v: any) => setFormData({ ...formData, type: v })}
+                      >
+                        <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="conversational">Conversacional (Padrão)</SelectItem>
+                          <SelectItem value="embedded">Agente Embarcado (Widget)</SelectItem>
+                          <SelectItem value="whatsapp">WhatsApp Business API</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
-                    <div className="space-y-2 h-full">
-                      <Label>System Prompt (Personalidade & Regras)</Label>
-                      <textarea
-                        className="w-full min-h-[300px] p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-accent outline-none"
-                        placeholder="Ex: Você é um assistente útil..."
-                        value={formData.brainConfig?.systemPrompt || ''}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 shrink-0">
+                    <div className="md:col-span-6 space-y-2">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Modelo LLM (Cérebro)</Label>
+                      <Select
+                        value={formData.brainConfig?.modelId || 'gpt-4o'}
+                        onValueChange={(v: any) => setFormData({
+                          ...formData,
+                          brainConfig: {
+                            systemPrompt: formData.brainConfig?.systemPrompt || '',
+                            temperature: formData.brainConfig?.temperature || 0.5,
+                            modelId: v
+                          }
+                        })}
+                      >
+                        <SelectTrigger className="h-11 font-mono">
+                          <SelectValue placeholder="Selecione o modelo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gpt-5o">gpt-5o</SelectItem>
+                          <SelectItem value="gpt-5o-mini">gpt-5o-mini</SelectItem>
+                          <SelectItem value="gpt-4o">gpt-4o</SelectItem>
+                          <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
+                          <SelectItem value="o1-preview">o1-preview</SelectItem>
+                          <SelectItem value="o1-mini">o1-mini</SelectItem>
+                          <SelectItem value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="md:col-span-6 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Temperatura: {formData.brainConfig?.temperature || 0.5}</Label>
+                        <span className="text-[10px] text-muted-foreground italic">0.0 (Rígido) &rarr; 1.0 (Criativo)</span>
+                      </div>
+                      <Input
+                        type="range"
+                        step="0.1"
+                        min="0"
+                        max="1"
+                        className="h-11 accent-accent"
+                        value={formData.brainConfig?.temperature || 0.5}
                         onChange={(e) => setFormData({
                           ...formData,
                           brainConfig: {
+                            systemPrompt: formData.brainConfig?.systemPrompt || '',
                             modelId: formData.brainConfig?.modelId || 'gpt-4o',
-                            temperature: formData.brainConfig?.temperature || 0.5,
-                            systemPrompt: e.target.value
+                            temperature: parseFloat(e.target.value)
                           }
                         })}
-                      ></textarea>
+                      />
                     </div>
                   </div>
-                  {/* Integration Config (N8N) */}
-                  <div className="space-y-4 border border-border p-4 rounded-md bg-muted/20">
-                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
-                      <Workflow className="h-4 w-4" />
-                      Orquestração (N8N)
+
+                  <div className="flex-1 flex flex-col space-y-2 min-h-[400px]">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Prompt de Sistema (Personalidade & Regras)</Label>
+                      <Badge variant="outline" className="text-[10px] font-mono">{(formData.brainConfig?.systemPrompt || '').length} Caracteres</Badge>
+                    </div>
+                    <textarea
+                      className="flex-1 p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed"
+                      placeholder="Instrua sua inteligência aqui... Ex: Você é uma assistente de vendas focada em conversão, utilize uma linguagem direta e cordial."
+                      value={formData.brainConfig?.systemPrompt || ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        brainConfig: {
+                          modelId: formData.brainConfig?.modelId || 'gpt-4o',
+                          temperature: formData.brainConfig?.temperature || 0.5,
+                          systemPrompt: e.target.value
+                        }
+                      })}
+                    ></textarea>
+                    <p className="text-[10px] text-muted-foreground">Dica: Use variáveis como {'{user_name}'} para personalização via N8N.</p>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="integration" className="p-6 space-y-8 animate-in fade-in slide-in-from-right-2">
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-accent">
+                      <MessageSquare className="h-4 w-4" /> Canais de Comunicação
                     </h4>
+                    <div className="flex gap-4">
+                      <Button
+                        type="button"
+                        variant={formData.channels?.includes('text') ? 'default' : 'outline'}
+                        className={cn("flex-1 h-16 gap-3 text-base justify-start px-6", formData.channels?.includes('text') && "bg-accent hover:bg-accent/90")}
+                        onClick={() => {
+                          const current = formData.channels || [];
+                          const newer = current.includes('text') ? current.filter(c => c !== 'text') : [...current, 'text'];
+                          setFormData({ ...formData, channels: newer as any });
+                        }}
+                      >
+                        <MessageSquare className="h-6 w-6" />
+                        <div className="text-left">
+                          <p className="font-bold">WhatsApp / Texto</p>
+                          <p className="text-[10px] opacity-70">Conversas escritas e JSON</p>
+                        </div>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={formData.channels?.includes('voice') ? 'default' : 'outline'}
+                        className={cn("flex-1 h-16 gap-3 text-base justify-start px-6", formData.channels?.includes('voice') && "bg-accent hover:bg-accent/90")}
+                        onClick={() => {
+                          const current = formData.channels || [];
+                          const newer = current.includes('voice') ? current.filter(c => c !== 'voice') : [...current, 'voice'];
+                          setFormData({ ...formData, channels: newer as any });
+                        }}
+                      >
+                        <Phone className="h-6 w-6" />
+                        <div className="text-left">
+                          <p className="font-bold">Voz / Telefone</p>
+                          <p className="text-[10px] opacity-70">Ligação em tempo real (Retell)</p>
+                        </div>
+                      </Button>
+                    </div>
+                  </div>
 
-                    <div className="grid grid-cols-1 gap-4">
-                      {/* Agent Type */}
-                      <div className="space-y-2">
-                        <Label>Tipo de Agente</Label>
-                        <Select
-                          value={formData.type || 'conversational'}
-                          onValueChange={(v: any) => setFormData({ ...formData, type: v })}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="conversational">Conversacional (Padrão)</SelectItem>
-                            <SelectItem value="embedded">Agente Embarcado (Landing Page / Widget)</SelectItem>
-                            <SelectItem value="whatsapp">WhatsApp Business API</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-[10px] text-muted-foreground">
-                          Define como a plataforma interage com este agente. Agentes 'Embarcados' são somente leitura para operadores.
-                        </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Voice Config */}
+                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
+                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
+                        <Headphones className="h-4 w-4" /> Configuração de Voz
+                      </h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Provedor</Label>
+                          <Select
+                            value={formData.voiceConfig?.provider || 'none'}
+                            onValueChange={(v: any) => setFormData({ ...formData, voiceConfig: { ...formData.voiceConfig, provider: v } })}
+                          >
+                            <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">Desativado</SelectItem>
+                              <SelectItem value="vapi">VAPI (Principal)</SelectItem>
+                              <SelectItem value="retell">Retell AI</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {formData.voiceConfig?.provider === 'vapi' && (
+                          <div className="space-y-2 animate-in slide-in-from-top-1">
+                            <Label className="text-xs">Vapi Agent ID</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              value={formData.voiceConfig?.vapiAgentId || ''}
+                              onChange={(e) => setFormData({ ...formData, voiceConfig: { ...formData.voiceConfig, vapiAgentId: e.target.value } })}
+                              placeholder="Ex: d7b8a..."
+                            />
+                          </div>
+                        )}
+                        {formData.voiceConfig?.provider === 'retell' && (
+                          <div className="space-y-2 animate-in slide-in-from-top-1">
+                            <Label className="text-xs">Retell Agent ID</Label>
+                            <Input
+                              className="h-8 text-xs font-mono"
+                              value={formData.voiceConfig?.retellAgentId || ''}
+                              onChange={(e) => setFormData({ ...formData, voiceConfig: { ...formData.voiceConfig, retellAgentId: e.target.value } as any })}
+                              placeholder="Ex: agent_..."
+                            />
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <Label className="text-xs">Ambient Sound</Label>
+                          <Select
+                            value={formData.voiceConfig?.ambientSound || 'clean'}
+                            onValueChange={(v: any) => setFormData({ ...formData, voiceConfig: { ...formData.voiceConfig, ambientSound: v } })}
+                          >
+                            <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="clean">Estúdio</SelectItem>
+                              <SelectItem value="office">Escritório</SelectItem>
+                              <SelectItem value="coffee-shop">Café</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
+                    </div>
 
-                      {/* Webhook URL */}
-                      <div className="space-y-2">
-                        <Label>N8N Webhook URL (Callback)</Label>
-                        <Input
-                          placeholder="https://n8n.your-domain.com/webhook/..."
-                          value={formData.integrationConfig?.n8n_webhook_url || ''}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            integrationConfig: {
-                              ...formData.integrationConfig,
-                              n8n_webhook_url: e.target.value
-                            }
-                          })}
-                        />
-                        <p className="text-[10px] text-muted-foreground">
-                          URL do workflow N8N que receberá as mensagens enviadas pelos operadores (Human-in-the-Loop).
-                        </p>
+                    {/* N8N Config */}
+                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
+                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
+                        <Workflow className="h-4 w-4" /> Orquestração (N8N)
+                      </h4>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Webhook do N8N</Label>
+                          <Input
+                            className="h-9 font-mono text-[10px] bg-slate-950 text-accent border-accent/20"
+                            value={formData.integrationConfig?.n8n_webhook_url || ''}
+                            readOnly
+                          />
+                          <p className="text-[9px] text-muted-foreground italic leading-tight">
+                            Este link conecta o Dashboard ao Motor de Execução n8n, orquestrando fluxos de conversa e lógica de negócio do agente.
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </TabsContent>
 
-                {/* Voice & Integration Tab */}
-                <TabsContent value="voice" className="space-y-6 mt-0">
-                  {/* Voice Config */}
-                  <div className="space-y-4 border border-border p-4 rounded-md">
-                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
-                      <Headphones className="h-4 w-4" /> Configuração de Voz (Retell AI)
-                    </h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Provedor de Voz</Label>
-                        <Select
-                          value={formData.voiceConfig?.provider || 'none'}
-                          onValueChange={(v: any) => setFormData({
-                            ...formData,
-                            voiceConfig: {
-                              ...formData.voiceConfig,
-                              provider: v
-                            }
-                          })}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Desativado</SelectItem>
-                            <SelectItem value="retell">Retell AI</SelectItem>
-                          </SelectContent>
-                        </Select>
+                <TabsContent value="governance" className="p-6 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-6">
+                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-blue-500/5">
+                        <h4 className="text-xs font-bold uppercase text-blue-500 tracking-widest border-b border-blue-500/10 pb-2">Status & Ciclo de Vida</h4>
+                        <div className="space-y-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">ISO 42001 Stage</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Indica a maturidade e permissões de deploy do agente conforme norma ISO 42001.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Select
+                              value={formData.lifecycleStage}
+                              onValueChange={(v: AILifecycleStage) => setFormData({ ...formData, lifecycleStage: v })}
+                            >
+                              <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="development">Development (Sandbox)</SelectItem>
+                                <SelectItem value="validation">Validation (Homologação)</SelectItem>
+                                <SelectItem value="production">Production (Vivo)</SelectItem>
+                                <SelectItem value="monitoring">Monitoring (Assistido)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">Status Operacional</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Define se o agente está processando requisições em tempo real.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Select
+                              value={formData.status}
+                              onValueChange={(v: any) => setFormData({ ...formData, status: v })}
+                            >
+                              <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="active">🟢 Ativo (Online)</SelectItem>
+                                <SelectItem value="inactive">🔴 Inativo (Offline)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Cenário (Ambient Sound)</Label>
-                        <Select
-                          value={formData.voiceConfig?.ambientSound || 'clean'}
-                          onValueChange={(v: any) => setFormData({
-                            ...formData,
-                            voiceConfig: {
-                              ...formData.voiceConfig,
-                              ambientSound: v
-                            }
-                          })}
-                        >
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="clean">Estúdio (Limpo)</SelectItem>
-                            <SelectItem value="office">Escritório</SelectItem>
-                            <SelectItem value="coffee-shop">Cafeteria</SelectItem>
-                          </SelectContent>
-                        </Select>
+
+                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-orange-500/5">
+                        <h4 className="text-xs font-bold uppercase text-orange-500 tracking-widest border-b border-orange-500/10 pb-2">Segurança & Autonomia</h4>
+                        <div className="space-y-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">Nível de Autonomia (L1-L5)</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Determina quanto controle a IA tem antes de exigir intervenção humana.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Select
+                              value={String(formData.autonomyLevel || 1)}
+                              onValueChange={(v: string) => setFormData({ ...formData, autonomyLevel: parseInt(v) as any })}
+                            >
+                              <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="1">L1 - Assistido</SelectItem>
+                                <SelectItem value="2">L2 - Limitado</SelectItem>
+                                <SelectItem value="3">L3 - Condicional</SelectItem>
+                                <SelectItem value="4">L4 - Alta Autonomia</SelectItem>
+                                <SelectItem value="5">L5 - Totalmente Autônomo</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">Limite de Concorrência</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Volume máximo de conversas simultâneas permitidas para este agente.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Input
+                              type="number"
+                              className="h-9"
+                              value={formData.maxConcurrentConversations || 50}
+                              onChange={(e) => setFormData({ ...formData, maxConcurrentConversations: parseInt(e.target.value) })}
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <Label>Retell Agent ID</Label>
-                        <Input
-                          placeholder="ag_..."
-                          value={formData.voiceConfig?.retellAgentId || ''}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            voiceConfig: { ...formData.voiceConfig, retellAgentId: e.target.value } as any
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Voice ID (ElevenLabs/OpenAI)</Label>
-                        <Input
-                          placeholder="voice_..."
-                          value={formData.voiceConfig?.voiceId || ''}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            voiceConfig: { ...formData.voiceConfig, voiceId: e.target.value } as any
-                          })}
-                        />
+                    </div>
+
+                    <div className="space-y-6">
+                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-muted/5">
+                        <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest border-b border-border/50 pb-2">Matriz de Risco</h4>
+                        <div className="space-y-4 pt-2">
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">Risco Inerente</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Classificação de impacto baseada na sensibilidade dos dados e processos tratados.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Select
+                              value={formData.riskLevel}
+                              onValueChange={(v: any) => setFormData({ ...formData, riskLevel: v })}
+                            >
+                              <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="low">Baixo (Informativo)</SelectItem>
+                                <SelectItem value="medium">Médio (Transacional)</SelectItem>
+                                <SelectItem value="high">Alto (Crítico)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-1.5">
+                              <Label className="text-xs">Score ISO (0-100)</Label>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[200px] text-[11px]">
+                                    Pontuação técnica de conformidade baseada nos requisitos da ISO 42001.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+                            <Input
+                              type="number"
+                              className="h-9"
+                              value={formData.riskScore || 0}
+                              onChange={(e) => setFormData({ ...formData, riskScore: parseInt(e.target.value) })}
+                              min={0} max={100}
+                            />
+                          </div>
+                          {formData.riskLevel === 'high' && (
+                            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded text-[10px] text-red-500 italic">
+                              Agentes de alto risco requerem monitoramento contínuo e log de auditoria simplificado (ISO 42001).
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Integration Config (N8N) */}
-
                 </TabsContent>
               </Tabs>
             </div>

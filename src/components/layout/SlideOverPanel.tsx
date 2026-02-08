@@ -17,6 +17,7 @@ import { EvaluationDetailsPanel } from '@/components/panels/EvaluationDetailsPan
 import { ISOReportPanel } from '@/components/panels/ISOReportPanel';
 import { ContactDetailsPanel } from '@/components/panels/ContactDetailsPanel';
 import { PlanHistoryPanel } from '@/components/panels/PlanHistoryPanel';
+import { AgentHistoryPanel } from '@/components/panels/AgentHistoryPanel';
 
 const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'conversation-details': 'Detalhes da Conversa',
@@ -34,6 +35,7 @@ const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'iso-report': 'Relatório de Governança ISO 42001',
   'contact-details': 'Detalhes do Contato',
   'plan-history': 'Histórico de Alterações do Plano',
+  'agent-history': 'Histórico de Configuração do Agente',
 };
 
 export function SlideOverPanel() {
@@ -71,6 +73,8 @@ export function SlideOverPanel() {
         return <ContactDetailsPanel data={slideOverData} />;
       case 'plan-history':
         return <PlanHistoryPanel plan={slideOverData} />;
+      case 'agent-history':
+        return <AgentHistoryPanel agent={slideOverData} />;
       default:
         return null;
     }

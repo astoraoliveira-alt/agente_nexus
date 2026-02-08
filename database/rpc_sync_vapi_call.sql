@@ -131,7 +131,29 @@ BEGIN
         WHERE id = v_conversation_id;
     END IF;
 
-    -- 5. SYNC MESSAGES (Idempotent Loop)
+    -- 5. RECORD CONSUMPTION (STT/TTS)
+    -- VAPI usage is duration-based. We record both minutes as approximate metrics.
+    IF v_status = 'ended' AND v_duration > 0 THEN
+        -- Record STT Minutes
+        PERFORM record_usage(
+            v_agent_id,
+            'stt_minutes'::metric_type,
+            (v_duration::NUMERIC / 60.0),
+            0, -- Cost calculation is handled by the frontend/pricing logic for now
+            jsonb_build_object('vapi_call_id', v_call_id, 'type', 'vapi_sync_stt')
+        );
+
+        -- Record TTS Minutes
+        PERFORM record_usage(
+            v_agent_id,
+            'tts_minutes'::metric_type,
+            (v_duration::NUMERIC / 60.0),
+            0,
+            jsonb_build_object('vapi_call_id', v_call_id, 'type', 'vapi_sync_tts')
+        );
+    END IF;
+
+    -- 6. SYNC MESSAGES (Idempotent Loop)
     IF v_messages IS NOT NULL AND jsonb_array_length(v_messages) > 0 THEN
         FOR v_msg IN SELECT * FROM jsonb_array_elements(v_messages)
         LOOP

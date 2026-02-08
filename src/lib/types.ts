@@ -32,7 +32,55 @@ export interface User {
   isActive?: boolean;
 }
 
-export type Tenant = Company;
+export interface PlanDetails {
+  // Define properties for PlanDetails if needed, otherwise it will be an empty interface
+  // For now, assuming it might be similar to TenantPlan or PlanCatalog
+  id: string;
+  name: string;
+  type: 'fixed' | 'flex' | 'unlimited';
+  // ... other plan details
+}
+
+export interface ISOStatus {
+  // Define properties for ISOStatus if needed, otherwise it will be an empty interface
+  // For now, assuming it might be similar to TenantISOStatus
+  tenantId: string;
+  aiSystemOwnerId?: string;
+  // ... other ISO status details
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  slug: string;
+  status: 'active' | 'trial' | 'inactive';
+  planId: string;
+  planDetails?: PlanDetails;
+  isoStatus?: ISOStatus;
+  roi_config?: {
+    avg_human_minutes_per_interaction: number;
+    operator_hourly_rate: number;
+  };
+  limits: {
+    llmTokens: number;
+    messages: number;
+    sttMinutes: number;
+    ttsMinutes: number;
+    agents: number;
+    users: number;
+  };
+}
+
+export interface BillingAlert {
+  id: string;
+  tenantId: string;
+  threshold: number; // e.g., 50, 75, 90 percent of budget
+  type: 'budget_exceeded' | 'usage_threshold';
+  status: 'active' | 'triggered' | 'resolved';
+  lastTriggeredAt?: Date;
+  createdAt: Date;
+  message?: string;
+}
 
 // ============ ISO 42001: AI Management System Types ============
 export interface AIResponsibles {
@@ -183,8 +231,9 @@ export interface AgentBrainConfig {
 }
 
 export interface AgentVoiceConfig {
-  provider: 'retell' | 'none';
+  provider: 'retell' | 'vapi' | 'none';
   retellAgentId?: string;
+  vapiAgentId?: string; // Added for Vapi integration
   voiceId?: string;
   ambientSound?: 'coffee-shop' | 'office' | 'clean';
 }
@@ -192,10 +241,13 @@ export interface AgentVoiceConfig {
 export interface Agent {
   id: string;
   name: string;
+  last_actor_name?: string; // New field for audit tracking
   tenantId?: string; // Optional in UI creation
   tenantSlug?: string; // Functional Identifier (ReadOnly in UI)
   status: 'active' | 'inactive';
   channels: ('text' | 'voice')[];
+  department_id?: string;
+  cost_center?: string;
   totalConversations: number;
   activeConversations: number;
   maxConcurrentConversations: number;
@@ -662,4 +714,12 @@ export interface Evaluation {
   // Joins (Optional)
   agentName?: string;
   conversationDate?: Date;
+}
+export interface BillingAlert {
+  id: string;
+  tenantId: string;
+  metricType: 'tokens' | 'messages' | 'cost';
+  thresholdPercent: number;
+  isActive: boolean;
+  lastTriggeredAt?: Date;
 }

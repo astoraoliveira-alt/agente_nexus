@@ -1,45 +1,45 @@
 
 import React, { useState, useEffect } from 'react';
 import { api } from '@/services/api';
-import { PlanCatalog } from '@/lib/types';
-import { History, Calendar, User, ArrowRight, Loader2, Info } from 'lucide-react';
+import { Agent } from '@/lib/types';
+import { History, Calendar, User, ArrowRight, Loader2, Info, MessageSquare, Terminal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 
-interface PlanHistoryPanelProps {
-    plan: PlanCatalog;
+interface AgentHistoryPanelProps {
+    agent: Agent;
 }
 
 const FIELD_LABELS: Record<string, string> = {
-    'name': 'Nome do Plano',
-    'type': 'Tipo de Faturamento',
-    'description': 'Descrição Publica',
-    'base_price': 'Mensalidade Base',
-    'monthly_fee_covers_usage': 'Mensalidade Abatida',
-    'llm_token_price': 'Preço 1k Tokens',
-    'message_price': 'Preço Mensagem',
-    'stt_minute_price': 'Preço Minuto Voz',
-    'tts_minute_price': 'Preço Minuto Voz (TTS)',
-    'default_limits.llmTokens': 'Limite de Tokens',
-    'default_limits.messages': 'Limite de Mensagens',
-    'default_limits.sttMinutes': 'Limite de Voz',
-    'default_limits.ttsMinutes': 'Limite de Voz (TTS)',
-    'default_limits.agents': 'Limite de Agentes',
-    'default_limits.users': 'Limite de Usuários',
+    'name': 'Nome do Agente',
+    'status': 'Status Operacional',
+    'risk_level': 'Nível de Risco',
+    'risk_score': 'Score ISO 42001',
+    'lifecycle_stage': 'Estágio do Ciclo de Vida',
+    'autonomy_level': 'Nível de Autonomia',
+    'type': 'Tipo de Agente',
+    'brain_config.systemPrompt': 'Prompt de Sistema',
+    'brain_config.modelId': 'Modelo LLM',
+    'brain_config.temperature': 'Temperatura',
+    'brain_config.maxTokens': 'Limite de Tokens',
+    'voice_config.provider': 'Provedor de Voz',
+    'voice_config.vapiAgentId': 'VAPI Agent ID',
+    'voice_config.retellAgentId': 'Retell Agent ID',
+    'integration_config.n8n_webhook_url': 'Webhook N8N',
 };
 
-export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
+export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (plan?.id) {
+        if (agent?.id) {
             setLoading(true);
-            api.getPlanAuditLogs(plan.id)
+            api.getAgentAuditLogs(agent.id)
                 .then(setLogs)
                 .finally(() => setLoading(false));
         }
-    }, [plan?.id]);
+    }, [agent?.id]);
 
     const getDiff = (oldObj: any, newObj: any, prefix = ''): { key: string; oldVal: any; newVal: any }[] => {
         const changes: { key: string; oldVal: any; newVal: any }[] = [];
@@ -50,8 +50,8 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
             const oldVal = oldObj?.[key];
             const newVal = newObj?.[key];
 
-            // Ignore tech updates like updated_at
-            if (key === 'updated_at') return;
+            // Ignore tech updates
+            if (['updated_at', 'tenant_id', 'created_at', 'id'].includes(key)) return;
 
             if (typeof oldVal === 'object' && oldVal !== null && typeof newVal === 'object' && newVal !== null) {
                 changes.push(...getDiff(oldVal, newVal, fullKey));
@@ -66,9 +66,17 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
     const formatValue = (key: string, val: any) => {
         if (val === 'N/A') return <span className="text-muted-foreground italic">vazio</span>;
         if (typeof val === 'boolean') return val ? 'Sim' : 'Não';
-        if (key.includes('price') || key === 'base_price') {
-            return `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+
+        // Handle long prompts
+        if (key.includes('systemPrompt') && typeof val === 'string' && val.length > 50) {
+            return (
+                <div className="flex items-center gap-1 text-[10px] bg-slate-900 px-1 rounded border border-slate-800">
+                    <Terminal className="h-3 w-3" />
+                    <span className="truncate max-w-[150px]">{val}</span>
+                </div>
+            );
         }
+
         return val.toString();
     };
 
@@ -88,7 +96,7 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
                 </div>
                 <h3 className="font-semibold text-lg">Sem histórico</h3>
                 <p className="text-sm text-muted-foreground mt-2">
-                    Nenhuma alteração foi registrada para este plano ainda.
+                    Nenhuma alteração de configuração foi registrada para este agente.
                 </p>
             </div>
         );
@@ -97,8 +105,8 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
     return (
         <div className="p-6 space-y-6">
             <div className="space-y-1">
-                <h3 className="font-bold text-xl">{plan.name}</h3>
-                <p className="text-sm text-muted-foreground">Linha do tempo de alterações contratuais</p>
+                <h3 className="font-bold text-xl">{agent.name}</h3>
+                <p className="text-sm text-muted-foreground">Linha do tempo de evolução do agente</p>
             </div>
 
             <Separator />
@@ -132,7 +140,7 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
                                     <div className="space-y-3">
                                         <div className="flex items-center justify-between">
                                             <p className="text-[10px] font-bold text-accent uppercase tracking-tighter">
-                                                {diffs.length === 0 ? 'Registro de Estado' : 'Alterações Detectadas'}
+                                                {log.action === 'INSERT' ? 'Provisão Inicial' : diffs.length === 0 ? 'Registro de Estado' : 'Alterações Detectadas'}
                                             </p>
                                             <Badge variant="outline" className="h-4 text-[8px] opacity-70">
                                                 ID: {log.id.split('-')[0]}
@@ -147,13 +155,13 @@ export function PlanHistoryPanel({ plan }: PlanHistoryPanelProps) {
                                                             {FIELD_LABELS[diff.key] || diff.key}
                                                         </span>
                                                         <div className="flex items-center gap-2 text-xs">
-                                                            <span className="text-muted-foreground line-through">
+                                                            <div className="text-muted-foreground line-through flex items-center gap-1">
                                                                 {formatValue(diff.key, diff.oldVal)}
-                                                            </span>
-                                                            <ArrowRight className="h-3 w-3 text-accent" />
-                                                            <span className="font-bold text-accent">
+                                                            </div>
+                                                            <ArrowRight className="h-3 w-3 text-accent shrink-0" />
+                                                            <div className="font-bold text-accent flex items-center gap-1">
                                                                 {formatValue(diff.key, diff.newVal)}
-                                                            </span>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))}
