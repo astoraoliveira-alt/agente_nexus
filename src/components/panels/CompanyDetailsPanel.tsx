@@ -1,7 +1,8 @@
 import {
-  Building2, Users, Bot, CreditCard, Calendar, Settings, Shield, Save, Code, AlertTriangle, CheckCircle
+  Building2, Users, Bot, CreditCard, Calendar, Settings, Shield, Save, Code,
+  AlertTriangle, CheckCircle, ExternalLink, Copy, Eye, EyeOff
 } from 'lucide-react';
-import { Company, AuditLog } from '@/lib/types';
+import { Company, AuditLog, User } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
@@ -9,8 +10,16 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import { api } from '@/services/api';
 
 interface CompanyDetailsPanelProps {
   data: Company;
@@ -18,40 +27,78 @@ interface CompanyDetailsPanelProps {
 
 export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
   const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+
+  // Privacy State
   const [aiNotice, setAiNotice] = useState(data?.privacySettings?.aiDisclosureMessage || '');
   const [anonymization, setAnonymization] = useState(data?.privacySettings?.anonymizationEnabled || false);
   const [retention, setRetention] = useState(data?.privacySettings?.retentionDays || 90);
 
+  // Governance State
+  const [ownerId, setOwnerId] = useState(data.ai_system_owner_id || '');
+  const [riskOwnerId, setRiskOwnerId] = useState(data.risk_owner_id || '');
+  const [complianceId, setComplianceId] = useState(data.compliance_officer_id || '');
+
+  // UI State
+  const [showApiKey, setShowApiKey] = useState(false);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const companyUsers = await api.getCompanyUsers(data.id);
+        setUsers(companyUsers);
+      } catch (err) {
+        console.error('Error loading company users:', err);
+      }
+    };
+    loadData();
+  }, [data.id]);
+
   if (!data) return null;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setLoading(true);
 
-    // Simulate API call and Audit Log generation
-    const audit: AuditLog = {
-      id: `audit-${Date.now()}`,
-      timestamp: new Date(),
-      tenantId: data.id,
-      actorId: 'user-1',
-      actorName: 'Super Admin',
-      action: 'privacy.update',
-      targetType: 'tenant',
-      targetId: data.id,
-      before: data.privacySettings,
-      after: {
+    try {
+      // 1. Update Privacy
+      await api.updateCompanyPrivacy(data.id, {
         aiDisclosureMessage: aiNotice,
         anonymizationEnabled: anonymization,
         retentionDays: Number(retention)
-      },
-      details: 'Alteração das configurações de privacidade e retenção de dados (LGPD).',
-    };
+      });
 
-    console.log('Contractual Audit Log generated:', audit);
+      // 2. Update Governance
+      await api.updateCompanyGovernance(data.id, {
+        ai_system_owner_id: ownerId || null,
+        risk_owner_id: riskOwnerId || null,
+        compliance_officer_id: complianceId || null
+      });
 
-    setTimeout(() => {
-      setLoading(false);
+      // 3. Log Audit (Internal API logs this)
+      await api.logAudit(
+        data.id,
+        'system-admin', // Ideally get from context
+        'Super Admin',
+        'company.update_settings',
+        'tenant',
+        data.id,
+        'Alteração das configurações de privacidade e governança corporativa.'
+      );
+
       toast.success('Configurações salvas e registradas em Auditoria');
-    }, 800);
+    } catch (error) {
+      console.error('Error saving company details:', error);
+      toast.error('Erro ao salvar as configurações');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCopyApiKey = () => {
+    if (data.api_key) {
+      navigator.clipboard.writeText(data.api_key);
+      toast.success('API Key copiada com sucesso');
+    }
   };
 
   const simulatedPayload = {
@@ -97,7 +144,7 @@ export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
         <div className="space-y-4">
           <div className="flex items-center justify-between p-3 bg-muted/50 border border-border">
             <div>
-              <p className="text-sm font-semibold">{data.planId === 'plan-enterprise-flex' ? 'Enterprise Flex' : 'Plano Profissional'}</p>
+              <p className="text-sm font-semibold">{data.planName || 'Plano Davos'}</p>
               <p className="text-xs text-muted-foreground">ID do Catálogo: {data.planId}</p>
             </div>
             <Badge className="bg-accent">{data.planDetails?.type?.toUpperCase() || 'FIXADO'}</Badge>
@@ -105,7 +152,7 @@ export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div className="p-3 border border-border">
-              <p className="text-xs text-muted-foreground mb-1 uppercase">Política de Excesso</p>
+              <p className="text-xs text-muted-foreground mb-1 uppercase text-[10px]">Política de Excesso</p>
               <div className="flex items-center gap-2">
                 {data.planDetails?.overagePolicy === 'allow_with_alert' ? (
                   <CheckCircle className="h-4 w-4 text-green-600" />
@@ -118,10 +165,37 @@ export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
               </div>
             </div>
             <div className="p-3 border border-border">
-              <p className="text-xs text-muted-foreground mb-1 uppercase">Billing Mode</p>
-              <p className="text-sm font-medium">Mensal / Pós-pago</p>
+              <p className="text-xs text-muted-foreground mb-1 uppercase text-[10px]">Billing Mode</p>
+              <p className="text-sm font-medium">
+                {data.planDetails?.monthlyFeeCoversUsage ? 'Crédito Antecipado' : 'Consumo Pós-pago'}
+              </p>
             </div>
           </div>
+
+          {/* Real Unit Prices from Plan */}
+          {data.planPrices && (
+            <div className="p-3 border border-border bg-accent/5">
+              <p className="text-xs font-bold uppercase mb-2 text-accent">Tabela de Preços Unitários</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[11px]">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tokens (1k):</span>
+                  <span className="font-mono">R$ {data.planPrices.llmTokenPrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Mensagens:</span>
+                  <span className="font-mono">R$ {data.planPrices.messagePrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Minutos STT:</span>
+                  <span className="font-mono">R$ {data.planPrices.sttMinutePrice.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Minutos TTS:</span>
+                  <span className="font-mono">R$ {data.planPrices.ttsMinutePrice.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -168,23 +242,43 @@ export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
 
       <Separator />
 
-      {/* ISO Compliance */}
+      {/* ISO Compliance - Real Responsibles */}
       <div>
         <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
           <Settings className="h-4 w-4" />
           Governança Corporativa
         </h4>
-        <div className="space-y-2 text-sm p-3 bg-muted/20 border border-dashed border-border">
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Responsável Principal (Owner)</span>
-            <span className="font-medium text-xs">Carlos Silva (CEO)</span>
+        <div className="space-y-4 p-3 bg-muted/20 border border-dashed border-border">
+          <div className="space-y-2">
+            <Label className="text-[10px] uppercase text-muted-foreground">Responsável Principal (Owner)</Label>
+            <Select value={ownerId} onValueChange={setOwnerId}>
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue placeholder="Selecione o Owner" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map(u => (
+                  <SelectItem key={u.id} value={u.id}>{u.name} ({u.email})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Encarregado de Dados (DPO)</span>
-            <span className="font-medium text-xs text-accent underline">Ver Perfil</span>
+
+          <div className="space-y-2">
+            <Label className="text-[10px] uppercase text-muted-foreground">Encarregado de Dados (DPO)</Label>
+            <Select value={complianceId} onValueChange={setComplianceId}>
+              <SelectTrigger className="h-8 text-xs bg-background">
+                <SelectValue placeholder="Selecione o DPO" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map(u => (
+                  <SelectItem key={u.id} value={u.id}>{u.name} ({u.email})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Metodologia de Risco</span>
+
+          <div className="flex justify-between items-center pt-2">
+            <span className="text-[10px] uppercase text-muted-foreground">Metodologia de Risco</span>
             <Badge variant="outline" className="text-[10px]">ISO 31000 / 23894</Badge>
           </div>
         </div>
@@ -192,27 +286,37 @@ export function CompanyDetailsPanel({ data }: CompanyDetailsPanelProps) {
 
       <Separator />
 
-      {/* Simulated Payload for Integrations */}
+      {/* Integration: API Key management */}
       <div>
         <h4 className="text-sm font-bold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
           <Code className="h-4 w-4" />
-          Preview Contract Payload (N8N / Retell)
+          Chave de Integração (API Key)
         </h4>
-        <div className="relative">
-          <pre className="p-4 bg-slate-950 text-slate-50 rounded text-[10px] font-mono overflow-auto max-h-[150px]">
-            {JSON.stringify(simulatedPayload, null, 2)}
-          </pre>
-          <div className="absolute top-2 right-2 flex gap-1">
-            <Badge variant="outline" className="bg-slate-800 text-slate-400 border-slate-700 text-[8px]">JSON v1</Badge>
+        <div className="space-y-2">
+          <p className="text-[10px] text-muted-foreground">Utilize esta chave para autenticar requisições vindo do n8n ou sistemas externos.</p>
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Input
+                value={data.api_key || 'Não gerada'}
+                type={showApiKey ? 'text' : 'password'}
+                readOnly
+                className="font-mono text-xs pr-20 bg-muted/20"
+              />
+              <div className="absolute right-1 top-1 flex gap-1">
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShowApiKey(!showApiKey)}>
+                  {showApiKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                </Button>
+                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={handleCopyApiKey}>
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2 italic">
-          * Este payload é a base para as integrações via webhook com N8N e WhatsApp.
-        </p>
       </div>
 
       {/* Save Button */}
-      <div className="fixed bottom-0 right-0 w-[480px] p-4 bg-card border-t border-border flex justify-end gap-3 z-10">
+      <div className="fixed bottom-0 right-0 w-[480px] p-4 bg-card border-t border-border flex justify-end gap-3 z-10 shadow-lg">
         <Button
           className="bg-accent hover:bg-accent/90"
           onClick={handleSave}

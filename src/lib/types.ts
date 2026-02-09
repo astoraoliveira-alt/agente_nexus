@@ -183,6 +183,13 @@ export interface Company {
   status: 'active' | 'suspended' | 'trial';
   planId: string;
   createdAt: Date;
+  api_key?: string; // Security for external access
+
+  // ISO Management (Accountability)
+  ai_system_owner_id?: string;
+  risk_owner_id?: string;
+  compliance_officer_id?: string;
+
   aiResponsibles?: AIResponsibles; // ISO 42001 requirement
 
   // Contracts
@@ -219,6 +226,30 @@ export interface Company {
     tokens: number;
     messages: number;
   };
+}
+
+export interface CompanyDavosCost {
+  id: string;
+  tenantId: string;
+  itemKey: string;
+  itemLabel: string;
+  costValue: number;
+  isRecurring: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FinancialReportRecord {
+  tenantId: string;
+  companyName: string;
+  planName: string;
+  revenueFixed: number;
+  revenueVariable: number;
+  costFixed: number;
+  costVariableLlm: number;
+  costVariableVoice: number;
+  costVariableOther: number;
+  netMargin: number;
 }
 
 export interface AgentBrainConfig {

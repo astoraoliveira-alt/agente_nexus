@@ -19,6 +19,7 @@ export type SlideOverContentType =
   | 'contact-details'
   | 'plan-history'
   | 'agent-history'
+  | 'financial-detail'
   | null;
 
 interface AppContextType {

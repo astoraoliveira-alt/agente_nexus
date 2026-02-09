@@ -85,6 +85,24 @@ export const api = {
         } as unknown as User;
     },
 
+    async getCompanyUsers(tenantId: string): Promise<User[]> {
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('tenant_id', tenantId);
+
+        if (error) throw error;
+
+        return data.map((u: any) => ({
+            id: u.id,
+            name: u.full_name,
+            email: u.email,
+            role: u.role,
+            tenantId: u.tenant_id,
+            isActive: u.is_active
+        })) as User[];
+    },
+
     async getTenant(tenantId: string): Promise<Company | null> {
         // 1. Fetch Company
         const { data: company, error: companyError } = await supabase
@@ -126,6 +144,24 @@ export const api = {
                 ttsMinutePrice: Number(plan.tts_minute_price)
             } : undefined
         } as unknown as Company;
+    },
+
+    async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void> {
+        const { error } = await supabase
+            .from('companies')
+            .update({ privacy_settings: privacySettings })
+            .eq('id', tenantId);
+
+        if (error) throw error;
+    },
+
+    async updateCompanyGovernance(tenantId: string, governanceData: { ai_system_owner_id?: string, risk_owner_id?: string, compliance_officer_id?: string }): Promise<void> {
+        const { error } = await supabase
+            .from('companies')
+            .update(governanceData)
+            .eq('id', tenantId);
+
+        if (error) throw error;
     },
 
     // =============================================
@@ -1053,11 +1089,11 @@ export const api = {
         }
     },
 
-    async getIncidents(tenantId: string): Promise<import('@/lib/types').AIIncident[]> {
+    async getIncidents(tenant_id: string): Promise<import('@/lib/types').AIIncident[]> {
         const { data, error } = await supabase
             .from('incidents')
             .select('*, agents(name)')
-            .eq('tenant_id', tenantId)
+            .eq('tenant_id', tenant_id)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -1081,4 +1117,75 @@ export const api = {
             agentName: i.agents?.name
         }));
     },
+
+    // =============================================
+    // FINANCIALS & DAVOS COSTS
+    // =============================================
+    async getFinancialReport(month: number, year: number): Promise<import('@/lib/types').FinancialReportRecord[]> {
+        const { data, error } = await supabase
+            .rpc('get_financial_report', { p_month: month, p_year: year });
+
+        if (error) {
+            console.error('Error fetching financial report:', error);
+            return [];
+        }
+
+        if (!data) return [];
+
+        return data.map((r: any) => ({
+            tenantId: r.tenant_id,
+            companyName: r.company_name,
+            planName: r.plan_name,
+            revenueFixed: Number(r.revenue_fixed || 0),
+            revenueVariable: Number(r.revenue_variable || 0),
+            costFixed: Number(r.cost_fixed || 0),
+            costVariableLlm: Number(r.cost_variable_llm || 0),
+            costVariableVoice: Number(r.cost_variable_voice || 0),
+            costVariableOther: Number(r.cost_variable_other || 0),
+            netMargin: Number(r.net_margin || 0)
+        }));
+    },
+
+    async getDavosCosts(tenantId: string): Promise<import('@/lib/types').CompanyDavosCost[]> {
+        const { data, error } = await supabase
+            .from('company_davos_costs')
+            .select('*')
+            .eq('tenant_id', tenantId);
+
+        if (error) {
+            console.error('Error fetching davos costs:', error);
+            return [];
+        }
+
+        return data.map((d: any) => ({
+            id: d.id,
+            tenantId: d.tenant_id,
+            itemKey: d.item_key,
+            itemLabel: d.item_label,
+            costValue: Number(d.cost_value),
+            isRecurring: d.is_recurring,
+            createdAt: new Date(d.created_at),
+            updatedAt: new Date(d.updated_at)
+        }));
+    },
+
+    async updateDavosCost(cost: Partial<import('@/lib/types').CompanyDavosCost> & { tenantId: string; itemKey: string }): Promise<void> {
+        const payload = {
+            tenant_id: cost.tenantId,
+            item_key: cost.itemKey,
+            item_label: cost.itemLabel,
+            cost_value: cost.costValue,
+            is_recurring: cost.isRecurring,
+            updated_at: new Date()
+        };
+
+        const { error } = await supabase
+            .from('company_davos_costs')
+            .upsert(payload, { onConflict: 'tenant_id, item_key' });
+
+        if (error) {
+            console.error('Error updating davos cost:', error);
+            throw error;
+        }
+    }
 };

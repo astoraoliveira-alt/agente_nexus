@@ -17,7 +17,8 @@ import {
   Workflow,
   Brain,
   CreditCard,
-  LayoutGrid
+  LayoutGrid,
+  PieChart
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -46,6 +47,7 @@ const governanceNavItems = [
 const platformNavItems = [
   { title: 'Empresas', url: '/companies', icon: Building2 },
   { title: 'Planos de Serviço', url: '/plans', icon: CreditCard },
+  { title: 'Resumo Financeiro', url: '/financials', icon: PieChart },
 ];
 
 export function AppSidebar() {

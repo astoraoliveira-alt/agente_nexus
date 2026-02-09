@@ -31,6 +31,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import {
   mockTenantPlans,
@@ -62,6 +68,7 @@ export default function Companies() {
     status: 'trial',
     limits: { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 },
   });
+  const [companyCosts, setCompanyCosts] = useState<import('@/lib/types').CompanyDavosCost[]>([]);
 
   // Fetch Real Companies and Plans
   useEffect(() => {
@@ -160,6 +167,20 @@ export default function Companies() {
     try {
       if (editingCompany) {
         await api.updateCompany(editingCompany);
+
+        // Save Davos Costs if in edit mode
+        if (editingCompany && companyCosts.length > 0) {
+          await Promise.all(companyCosts.map(cost =>
+            api.updateDavosCost({
+              tenantId: editingCompany.id,
+              itemKey: cost.itemKey,
+              itemLabel: cost.itemLabel,
+              costValue: cost.costValue,
+              isRecurring: cost.isRecurring
+            })
+          ));
+        }
+
         toast.success('Empresa atualizada com sucesso');
       } else {
         const companyToCreate = {
@@ -219,6 +240,12 @@ export default function Companies() {
 
   const openEditDialog = (company: Company) => {
     setEditingCompany({ ...company });
+    // Load costs for this company
+    const loadCosts = async () => {
+      const costs = await api.getDavosCosts(company.id);
+      setCompanyCosts(costs);
+    };
+    loadCosts();
     setDialogOpen(true);
   };
 
@@ -393,113 +420,134 @@ export default function Companies() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-6 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Nome da Empresa</Label>
-                  <Input
-                    value={currentCompany.name || ''}
-                    onChange={(e) => editingCompany
-                      ? setEditingCompany({ ...editingCompany, name: e.target.value })
-                      : setNewCompany({ ...newCompany, name: e.target.value })
-                    }
-                    placeholder="Ex: Banco Digital Alpha"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Slug (URL)</Label>
-                  <Input
-                    value={currentCompany.slug || ''}
-                    onChange={(e) => editingCompany
-                      ? setEditingCompany({ ...editingCompany, slug: e.target.value })
-                      : setNewCompany({ ...newCompany, slug: e.target.value })
-                    }
-                    placeholder="banco-digital-alpha"
-                  />
-                </div>
-              </div>
+            <Tabs defaultValue="geral" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="geral">Geral</TabsTrigger>
+                <TabsTrigger value="costs" disabled={!editingCompany}>Custos Davos</TabsTrigger>
+              </TabsList>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Plano de Serviço (Obrigatório)</Label>
-                  <Select
-                    value={currentCompany.planId}
-                    onValueChange={(v) => handlePlanChange(v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione um plano..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availablePlans.map(plan => (
-                        <SelectItem key={plan.id} value={plan.id}>
-                          {plan.name} ({plan.type.toUpperCase()})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-[10px] text-muted-foreground italic">
-                    * Os limites técnicos serão preenchidos automaticamente com base no catálogo.
-                  </p>
+              <TabsContent value="geral" className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Nome da Empresa</Label>
+                    <Input
+                      value={currentCompany.name || ''}
+                      onChange={(e) => editingCompany
+                        ? setEditingCompany({ ...editingCompany, name: e.target.value })
+                        : setNewCompany({ ...newCompany, name: e.target.value })
+                      }
+                      placeholder="Ex: Banco Digital Alpha"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Slug (URL)</Label>
+                    <Input
+                      value={currentCompany.slug || ''}
+                      onChange={(e) => editingCompany
+                        ? setEditingCompany({ ...editingCompany, slug: e.target.value })
+                        : setNewCompany({ ...newCompany, slug: e.target.value })
+                      }
+                      placeholder="banco-digital-alpha"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Status</Label>
-                  <Select
-                    value={currentCompany.status}
-                    onValueChange={(v) => editingCompany
-                      ? setEditingCompany({ ...editingCompany, status: v as 'active' | 'suspended' | 'trial' })
-                      : setNewCompany({ ...newCompany, status: v as 'active' | 'suspended' | 'trial' })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="trial">Trial</SelectItem>
-                      <SelectItem value="active">Ativo</SelectItem>
-                      <SelectItem value="suspended">Suspenso</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
 
-              <div className="space-y-3">
-                <Label>Limites do Plano</Label>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{((currentCompany.limits?.llmTokens || 0) / 1000000).toFixed(1)}M</p>
-                    <p className="text-xs text-muted-foreground">Tokens LLM</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Plano de Serviço (Obrigatório)</Label>
+                    <Select
+                      value={currentCompany.planId}
+                      onValueChange={(v) => handlePlanChange(v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione um plano..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availablePlans.map(plan => (
+                          <SelectItem key={plan.id} value={plan.id}>
+                            {plan.name} ({plan.type.toUpperCase()})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{((currentCompany.limits?.messages || 0) / 1000).toFixed(0)}k</p>
-                    <p className="text-xs text-muted-foreground">Mensagens</p>
-                  </div>
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{currentCompany.limits?.sttMinutes || 0}</p>
-                    <p className="text-xs text-muted-foreground">Min STT</p>
-                  </div>
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{currentCompany.limits?.ttsMinutes || 0}</p>
-                    <p className="text-xs text-muted-foreground">Min TTS</p>
-                  </div>
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{currentCompany.limits?.agents || 0}</p>
-                    <p className="text-xs text-muted-foreground">Agentes</p>
-                  </div>
-                  <div className="bg-muted p-3">
-                    <p className="text-sm font-medium">{currentCompany.limits?.users || 0}</p>
-                    <p className="text-xs text-muted-foreground">Usuários</p>
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={currentCompany.status}
+                      onValueChange={(v) => editingCompany
+                        ? setEditingCompany({ ...editingCompany, status: v as 'active' | 'suspended' | 'trial' })
+                        : setNewCompany({ ...newCompany, status: v as 'active' | 'suspended' | 'trial' })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="trial">Trial</SelectItem>
+                        <SelectItem value="active">Ativo</SelectItem>
+                        <SelectItem value="suspended">Suspenso</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
-              </div>
+              </TabsContent>
 
-              <div className="flex justify-end gap-3">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button className="bg-accent hover:bg-accent/90" onClick={handleSaveCompany}>
-                  {editingCompany ? 'Salvar Alterações' : 'Criar Empresa'}
-                </Button>
-              </div>
+
+              <TabsContent value="costs" className="space-y-4 py-4">
+                <div className="grid grid-cols-2 gap-4">
+                  {[
+                    { key: 'vps', label: 'Custo VPS (Mensal)' },
+                    { key: 'n8n', label: 'Custo n8n (Mensal)' },
+                    { key: 'vapi_fixed', label: 'Vapi Fixo (Mensal)' },
+                    { key: 'vapi_variable', label: 'Vapi Var (Por Min)' },
+                    { key: 'twilio_fixed', label: 'Twilio Fixo (Mensal)' },
+                  ].map(item => {
+                    const cost = companyCosts.find(c => c.itemKey === item.key);
+                    return (
+                      <div key={item.key} className="space-y-2">
+                        <Label>{item.label}</Label>
+                        <Input
+                          type="text"
+                          inputMode="decimal"
+                          placeholder="0,00"
+                          value={cost?.costValue?.toString().replace('.', ',') || ''}
+                          onChange={(e) => {
+                            const rawValue = e.target.value.replace(',', '.');
+                            const val = parseFloat(rawValue);
+
+                            setCompanyCosts(prev => {
+                              const existing = prev.find(p => p.itemKey === item.key);
+                              if (existing) {
+                                return prev.map(p => p.itemKey === item.key ? { ...p, costValue: isNaN(val) ? 0 : val } : p);
+                              }
+                              return [...prev, {
+                                itemKey: item.key,
+                                itemLabel: item.label,
+                                costValue: isNaN(val) ? 0 : val,
+                                isRecurring: !item.key.includes('variable'),
+                                tenantId: editingCompany?.id || '',
+                                id: '',
+                                createdAt: new Date(),
+                                updatedAt: new Date()
+                              }];
+                            });
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </TabsContent>
+            </Tabs>
+
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button className="bg-accent hover:bg-accent/90" onClick={handleSaveCompany}>
+                {editingCompany ? 'Salvar Alterações' : 'Criar Empresa'}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
