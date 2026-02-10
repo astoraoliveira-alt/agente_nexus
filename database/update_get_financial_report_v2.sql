@@ -1,10 +1,6 @@
--- =============================================
--- RPC: get_financial_report
--- Description: Aggregates Revenue vs Costs (Fixed & Variable) per company for a given month.
--- Usage: Called via POST /rpc/get_financial_report
--- =============================================
-
-DROP FUNCTION IF EXISTS get_financial_report(integer,integer);
+-- RPC: get_financial_report (v2)
+-- Description: Aggregates Revenue vs Costs per company for a given month.
+-- Change: Exclude 'suspended' companies from the report.
 
 CREATE OR REPLACE FUNCTION get_financial_report(
     p_month INT,
@@ -107,6 +103,7 @@ BEGIN
     LEFT JOIN message_counts mc ON c.id = mc.tenant_id
     LEFT JOIN tenant_fixed_costs tfc ON c.id = tfc.tenant_id
     LEFT JOIN tenant_rates tr ON c.id = tr.tenant_id
+    WHERE c.status != 'suspended'  -- FILTER ADDED HERE
     ORDER BY net_margin DESC;
 END;
 $$;

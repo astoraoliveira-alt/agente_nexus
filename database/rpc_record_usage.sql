@@ -124,28 +124,5 @@ BEGIN
 END;
 $$;
 
--- =============================================
--- RPC: get_agent_usage_stats
--- Description: Aggregates usage for a specific agent (or all if NULL)
--- Usage: Called via POST /rpc/get_agent_usage_stats
--- =============================================
-CREATE OR REPLACE FUNCTION get_agent_usage_stats(p_tenant_id UUID)
-RETURNS TABLE (
-    agent_id UUID,
-    total_tokens NUMERIC,
-    total_cost NUMERIC
-)
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        cm.agent_id,
-        SUM(CASE WHEN cm.metric_type = 'tokens' THEN cm.value ELSE 0 END) as total_tokens,
-        SUM(cm.cost) as total_cost
-    FROM consumption_metrics cm
-    WHERE cm.tenant_id = p_tenant_id
-    GROUP BY cm.agent_id;
-END;
-$$;
+-- RPC: record_usage removed from here to avoid duplication.
+-- Please use update_get_agent_usage_stats.sql version.

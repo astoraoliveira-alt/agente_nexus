@@ -1,3 +1,12 @@
+-- Force cleanup of any conflicting indexes
+DROP INDEX IF EXISTS idx_messages_idempotency;
+DROP INDEX IF EXISTS idx_messages_external_id_unique;
+
+-- Create the DEFINITIVE unique index
+CREATE UNIQUE INDEX idx_messages_tenant_external_id 
+ON messages (tenant_id, external_id);
+
+-- Update the RPC to use EXACTLY (tenant_id, external_id)
 CREATE OR REPLACE FUNCTION sync_vapi_call(
     p_tenant_id UUID,
     p_vapi_payload JSONB,
@@ -71,11 +80,9 @@ BEGIN
     v_ended_reason := p_vapi_payload->'message'->'call'->>'endedReason';
     
     -- 2. FILTER UNANSWERED CALLS
-    -- We ignore calls that weren't answered or failed
     IF v_ended_reason IN ('no-answer', 'busy', 'failed', 'customer-did-not-answer', 'customer-busy', 'voicemail') THEN
         INSERT INTO integration_logs (tenant_id, provider, external_id, payload, status, error_details)
         VALUES (p_tenant_id, 'vapi', v_call_id, p_vapi_payload, 'ignored', 'Call ended reason: ' || v_ended_reason);
-        
         RETURN jsonb_build_object('success', true, 'status', 'ignored', 'reason', v_ended_reason);
     END IF;
 
@@ -104,19 +111,10 @@ BEGIN
     ) ON CONFLICT (provider, external_id) DO UPDATE SET status = 'processing';
 
     -- 4. RESOLVE AGENT
-    -- A. Try metadata first
     v_agent_id := (p_vapi_payload->'message'->'assistant'->'metadata'->>'agent_id')::UUID;
-    
-    -- B. If no metadata, lookup by assistantId
     IF v_agent_id IS NULL AND v_assistant_id IS NOT NULL THEN
-        SELECT id INTO v_agent_id 
-        FROM agents 
-        WHERE tenant_id = p_tenant_id 
-          AND integration_config->>'vapi_assistant_id' = v_assistant_id
-        LIMIT 1;
+        SELECT id INTO v_agent_id FROM agents WHERE tenant_id = p_tenant_id AND integration_config->>'vapi_assistant_id' = v_assistant_id LIMIT 1;
     END IF;
-    
-    -- C. Fallback to first agent
     IF v_agent_id IS NULL THEN
         SELECT id INTO v_agent_id FROM agents WHERE tenant_id = p_tenant_id LIMIT 1;
     END IF;
@@ -129,53 +127,37 @@ BEGIN
     ELSE
         v_final_identifier := 'web-visitor-' || v_call_id;
     END IF;
-    
     v_final_name := COALESCE(p_user_name, 'Visitante ' || LEFT(v_call_id, 8));
 
     -- 6. RESOLVE CONVERSATION & CONTACT SYNC
-    -- Uses the updated get_or_create_conversation which handles contact creation/update
     SELECT (get_or_create_conversation(
         p_tenant_id,
         v_agent_id,
         v_final_identifier,
         v_final_name,
         jsonb_build_object('vapi_call_id', v_call_id, 'source', 'vapi_sync'),
-        v_customer_number -- phone
+        v_customer_number
     )->>'id')::UUID INTO v_conversation_id;
 
     -- Update Duration & Status if ended
     IF v_status = 'ended' THEN
         UPDATE conversations 
-        SET duration_seconds = v_duration,
-            status = 'closed',
-            metadata = metadata || jsonb_build_object('vapi_ended_reason', v_ended_reason)
+        SET duration_seconds = v_duration, status = 'closed', metadata = metadata || jsonb_build_object('vapi_ended_reason', v_ended_reason)
         WHERE id = v_conversation_id;
     END IF;
 
     -- 7. RECORD CONSUMPTION
     IF v_status = 'ended' THEN
-        -- LLM Tokens
         IF v_total_tokens > 0 THEN
             v_token_cost := (v_total_tokens::NUMERIC / 1000.0) * v_plan_llm_price;
-            PERFORM record_usage(
-                v_agent_id::TEXT, 'tokens'::TEXT, v_total_tokens::NUMERIC, v_token_cost,
-                jsonb_build_object('vapi_call_id', v_call_id, 'type', 'llm_sync')
-            );
+            PERFORM record_usage(v_agent_id::TEXT, 'tokens'::TEXT, v_total_tokens::NUMERIC, v_token_cost, jsonb_build_object('vapi_call_id', v_call_id, 'type', 'llm_sync'));
         END IF;
 
-        -- Voice Usage
         IF v_duration > 0 THEN
             v_stt_cost := (v_duration::NUMERIC / 60.0) * v_plan_stt_price;
-            PERFORM record_usage(
-                v_agent_id::TEXT, 'stt_minutes'::TEXT, (v_duration::NUMERIC / 60.0), v_stt_cost,
-                jsonb_build_object('vapi_call_id', v_call_id, 'type', 'stt_sync')
-            );
-
+            PERFORM record_usage(v_agent_id::TEXT, 'stt_minutes'::TEXT, (v_duration::NUMERIC / 60.0), v_stt_cost, jsonb_build_object('vapi_call_id', v_call_id, 'type', 'stt_sync'));
             v_tts_cost := (v_duration::NUMERIC / 60.0) * v_plan_tts_price;
-            PERFORM record_usage(
-                v_agent_id::TEXT, 'tts_minutes'::TEXT, (v_duration::NUMERIC / 60.0), v_tts_cost,
-                jsonb_build_object('vapi_call_id', v_call_id, 'type', 'tts_sync')
-            );
+            PERFORM record_usage(v_agent_id::TEXT, 'tts_minutes'::TEXT, (v_duration::NUMERIC / 60.0), v_tts_cost, jsonb_build_object('vapi_call_id', v_call_id, 'type', 'tts_sync'));
         END IF;
     END IF;
 
@@ -197,8 +179,8 @@ BEGIN
                         v_conversation_id, p_tenant_id, v_role, v_content, v_external_order, 
                         v_call_id || '-' || COALESCE(v_external_order::TEXT, 'msg'), v_msg
                     )
-                    -- Matches index: idx_messages_idempotency (WHERE external_order IS NOT NULL)
-                    ON CONFLICT (conversation_id, external_order) WHERE external_order IS NOT NULL DO NOTHING;
+                    -- Matches index: idx_messages_tenant_external_id (tenant_id, external_id)
+                    ON CONFLICT (tenant_id, external_id) DO NOTHING;
                     
                     IF FOUND THEN
                         v_inserted_count := v_inserted_count + 1;
@@ -217,20 +199,15 @@ BEGIN
     WHERE provider = 'vapi' AND external_id = v_call_id;
 
     RETURN jsonb_build_object(
-        'success', true,
-        'conversation_id', v_conversation_id,
-        'new_messages', v_inserted_count,
+        'success', true, 
+        'conversation_id', v_conversation_id, 
+        'new_messages', v_inserted_count, 
         'total_tokens', v_total_tokens,
         'call_status', v_status
     );
 
 EXCEPTION WHEN OTHERS THEN
-    -- AUDIT FAILURE
-    UPDATE integration_logs 
-    SET status = 'error', 
-        error_details = SQLERRM 
-    WHERE provider = 'vapi' AND external_id = v_call_id;
-    
+    UPDATE integration_logs SET status = 'error', error_details = SQLERRM WHERE provider = 'vapi' AND external_id = v_call_id;
     RETURN jsonb_build_object('success', false, 'error', SQLERRM);
 END;
 $$;

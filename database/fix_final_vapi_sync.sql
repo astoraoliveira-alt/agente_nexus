@@ -1,3 +1,16 @@
+-- Migration: FIX Idempotency Index
+-- Purpose: Simplify the unique constraint to ensure ON CONFLICT works
+
+-- 1. Drop the partial index if it exists
+DROP INDEX IF EXISTS idx_messages_idempotency;
+
+-- 2. Create a standard unique index on external_id and tenant_id
+-- We use external_id because it's already composed of call_id + order in the code:
+-- v_call_id || '-' || COALESCE(v_external_order::TEXT, 'msg')
+CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_external_id_unique 
+ON messages (tenant_id, external_id);
+
+-- 3. Update the RPC to match this new constraint
 CREATE OR REPLACE FUNCTION sync_vapi_call(
     p_tenant_id UUID,
     p_vapi_payload JSONB,
@@ -197,8 +210,8 @@ BEGIN
                         v_conversation_id, p_tenant_id, v_role, v_content, v_external_order, 
                         v_call_id || '-' || COALESCE(v_external_order::TEXT, 'msg'), v_msg
                     )
-                    -- Matches index: idx_messages_idempotency (WHERE external_order IS NOT NULL)
-                    ON CONFLICT (conversation_id, external_order) WHERE external_order IS NOT NULL DO NOTHING;
+                    -- Matches index: idx_messages_external_id_unique (tenant_id, external_id)
+                    ON CONFLICT (tenant_id, external_id) DO NOTHING;
                     
                     IF FOUND THEN
                         v_inserted_count := v_inserted_count + 1;
