@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { maskSensitiveData } from '@/lib/masking';
 
 interface ChatAreaProps {
   conversation: Conversation | null;
@@ -179,7 +180,7 @@ const HighlightText = ({ text, term }: { text: string; term?: string }) => {
 };
 
 export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
-  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation } = useApp();
+  const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'default' | 'mobile'>('default');
@@ -480,9 +481,9 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
 
                     <div className={cn(
                       'chat-bubble shadow-sm relative group/bubble',
-                      message.sender === 'user' && 'chat-bubble-user rounded-bl-sm',
-                      message.sender === 'ai' && 'chat-bubble-ai rounded-br-sm',
-                      message.sender === 'human' && 'chat-bubble-human rounded-br-sm'
+                      message.sender === 'user' ? 'chat-bubble-user rounded-bl-sm' :
+                        message.sender === 'human' ? 'chat-bubble-human rounded-br-sm' :
+                          'chat-bubble-ai rounded-br-sm' // Default fallback for AI/Bot
                     )}>
                       {/* Copy Button (Visible on Hover) */}
                       <Button
@@ -508,7 +509,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                           <AudioMessage message={message} />
                           {message.transcription && (
                             <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
-                              <HighlightText text={message.transcription} term={highlightTerm} />
+                              <HighlightText text={maskSensitiveData(message.transcription, maskingEnabled)} term={highlightTerm} />
                             </div>
                           )}
                         </div>
@@ -516,7 +517,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                         <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
                       ) : (
                         <p className="text-sm custom-markdown leading-relaxed">
-                          <HighlightText text={message.content} term={highlightTerm} />
+                          <HighlightText text={maskSensitiveData(message.content, maskingEnabled)} term={highlightTerm} />
                         </p>
                       )}
                     </div>

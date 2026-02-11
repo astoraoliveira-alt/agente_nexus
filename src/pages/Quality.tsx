@@ -35,6 +35,12 @@ const Quality = () => {
         enabled: !!currentTenant
     });
 
+    const { data: unauditedConversations, isLoading: isLoadingUnaudited } = useQuery({
+        queryKey: ['unaudited-conversations', currentTenant?.id],
+        queryFn: () => currentTenant ? api.getUnauditedConversations(currentTenant.id) : Promise.resolve([]),
+        enabled: !!currentTenant
+    });
+
     const [filterScore, setFilterScore] = useState<number | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -52,7 +58,12 @@ const Quality = () => {
         : 0;
 
     const criticalIncidents = filteredEvaluations.filter(e => e.score < 40).length || 0;
-    const auditCoverage = 100; // Placeholder for now
+
+    // Audit Coverage Calculation
+    const totalClosed = (filteredEvaluations.length || 0) + (unauditedConversations?.length || 0);
+    const auditCoverage = totalClosed > 0
+        ? Math.round((filteredEvaluations.length / totalClosed) * 100)
+        : 100;
 
     return (
         <MainLayout>
@@ -90,7 +101,7 @@ const Quality = () => {
                 </div>
 
                 {/* KPI Grid */}
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-4">
                     <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <CardTitle className="text-sm font-medium">AI Trust Score (Média)</CardTitle>
@@ -126,7 +137,23 @@ const Quality = () => {
                         <CardContent>
                             <div className="text-2xl font-bold">{auditCoverage}%</div>
                             <p className="text-xs text-muted-foreground mt-2">
-                                Todas as conversas fechadas foram auditadas.
+                                {unauditedConversations?.length || 0} pendentes de análise.
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card
+                        className="cursor-pointer hover:bg-muted/50 transition-colors border-l-4 border-l-amber-500"
+                        onClick={() => openSlideOver('unaudited-list', unauditedConversations)}
+                    >
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                            <CardTitle className="text-sm font-medium">Auditoria Pendente</CardTitle>
+                            <Activity className="h-4 w-4 text-amber-500" />
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-2xl font-bold text-amber-600">{unauditedConversations?.length || 0}</div>
+                            <p className="text-xs text-muted-foreground mt-2">
+                                Conversas fechadas sem avaliação. Clique para ver.
                             </p>
                         </CardContent>
                     </Card>

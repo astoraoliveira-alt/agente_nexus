@@ -14,8 +14,10 @@ import { Agent, Company } from '@/lib/types';
 import { api } from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
 
+import { PlanDetailsTab } from '@/components/settings/PlanDetailsTab';
+
 export default function Settings() {
-  const { currentTenant, currentUser } = useApp();
+  const { currentTenant, currentUser, maskingEnabled, toggleMasking } = useApp();
   const { toast } = useToast();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
@@ -124,6 +126,10 @@ export default function Settings() {
                 <Building2 className="h-4 w-4" />
                 Organização
               </TabsTrigger>
+              <TabsTrigger value="plan-details" className="gap-2">
+                <Shield className="h-4 w-4" />
+                Detalhes do Plano
+              </TabsTrigger>
               <TabsTrigger value="consumption" className="gap-2">
                 <BarChart3 className="h-4 w-4" />
                 Consumo & Limites
@@ -143,6 +149,10 @@ export default function Settings() {
                 </TabsTrigger>
               )}
             </TabsList>
+
+            <TabsContent value="plan-details" className="space-y-6">
+              <PlanDetailsTab />
+            </TabsContent>
 
             <TabsContent value="organization" className="space-y-6">
               <div className="kpi-card">
@@ -191,6 +201,32 @@ export default function Settings() {
                     </div>
                     <Button variant="outline">Configurar</Button>
                   </div>
+                </div>
+              </div>
+
+              {/* Privacy & LGPD Section */}
+              <div className="kpi-card border-l-4 border-l-purple-500 bg-purple-50/50 dark:bg-purple-900/10">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Shield className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    <h3 className="font-semibold">Privacidade & Proteção de Dados (LGPD)</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={maskingEnabled}
+                      onCheckedChange={toggleMasking}
+                    />
+                    <span className="text-sm font-medium">
+                      {maskingEnabled ? 'Ativado' : 'Desativado'}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Oculte automaticamente dados sensíveis (CPF, E-mail, Telefone, Cartão) na interface do operador para garantir conformidade e segurança.
+                </p>
+
+                <div className="bg-background/50 p-3 rounded-md border border-border text-xs text-muted-foreground">
+                  <strong>Nota:</strong> Esta configuração afeta apenas a visualização. Os dados continuam armazenados de forma íntegra no banco de dados para auditoria.
                 </div>
               </div>
 

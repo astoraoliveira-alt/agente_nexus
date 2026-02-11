@@ -15,6 +15,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu"
+import { useApp } from "@/contexts/AppContext";
+import { maskSensitiveData } from "@/lib/masking";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -25,6 +27,7 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ conversations, selectedId, onSelect, searchTerm, onSearchChange }: ConversationListProps) {
+  const { maskingEnabled } = useApp();
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
 
   // 1. Extract Unique Agents for Filter
@@ -225,7 +228,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                       ) : (
                         <MessageSquare className="h-3 w-3" />
                       )}
-                      <span className="truncate group-hover:text-foreground transition-colors">{conv.lastMessage}</span>
+                      <span className="truncate group-hover:text-foreground transition-colors">{maskSensitiveData(conv.lastMessage, maskingEnabled)}</span>
                     </div>
                   </div>
                 </div>

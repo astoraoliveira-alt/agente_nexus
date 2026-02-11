@@ -27,9 +27,15 @@ export interface User {
   name: string;
   email: string;
   role: string;
-  tenantId: string;
+  tenantId: string | null; // Changed to nullable for pending users
   avatar?: string;
-  isActive?: boolean;
+  isActive?: boolean; // Legacy, map to status
+
+  // New Auth Fields (DB Agnostic)
+  provider_id?: string;
+  provider?: string;
+  status: 'active' | 'pending' | 'blocked' | 'invited';
+  owner_id?: string;
 }
 
 export interface PlanDetails {
@@ -53,9 +59,17 @@ export interface Tenant {
   id: string;
   name: string;
   slug: string;
-  status: 'active' | 'trial' | 'inactive';
+  status: 'active' | 'trial' | 'inactive' | 'suspended';
   planId: string;
-  planDetails?: PlanDetails;
+  planName?: string; // Display name
+  planDetails?: TenantPlan;
+  planPrices?: {
+    basePrice: number;
+    llmTokenPrice: number;
+    sttMinutePrice: number;
+    ttsMinutePrice: number;
+    messagePrice: number;
+  };
   isoStatus?: ISOStatus;
   roi_config?: {
     avg_human_minutes_per_interaction: number;
@@ -101,6 +115,15 @@ export interface AIRiskAssessment {
 }
 
 // ============ Tenant/Plan Models (Functional Contract) ============
+
+// ============ Usage & Plan Types ============
+export interface UsageSummary {
+  total_tokens: number;
+  stt_minutes: number;
+  tts_minutes: number;
+  total_messages: number;
+  active_agents: number;
+}
 
 export interface PlanCatalog {
   id: string;
@@ -163,6 +186,7 @@ export interface TenantPrivacySettings {
   tenantId: string;
   aiDisclosureMessage: string;
   anonymizationEnabled: boolean;
+  lgpdMaskingEnabled: boolean; // Added for UI masking
   retentionDays: number;
 }
 
@@ -239,6 +263,19 @@ export interface CompanyDavosCost {
   updatedAt: Date;
 }
 
+export interface KnowledgeItem {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  name: string;
+  content?: string;
+  fileUrl?: string;
+  fileType?: string;
+  fileSize?: number;
+  embedding?: number[]; // Vector embeddings for RAG
+  createdAt: Date;
+}
+
 export interface FinancialReportRecord {
   tenantId: string;
   companyName: string;
@@ -254,6 +291,7 @@ export interface FinancialReportRecord {
 
 export interface AgentBrainConfig {
   systemPrompt?: string;
+  userPromptTemplate?: string;
   modelId?: string; // 'gpt-4' | 'claude-3-opus'
   temperature?: number;
   maxTokens?: number; // Added based on recent conv history
@@ -301,6 +339,9 @@ export interface Agent {
 
   // New Integration Fields
   type?: 'embedded' | 'whatsapp' | 'conversational';
+  evolution_instance?: string; // Evolution API instance name for dynamic lookup
+  evolution_token?: string;
+  knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
     n8n_webhook_url?: string;
   };

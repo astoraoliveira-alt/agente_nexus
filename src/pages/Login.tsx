@@ -7,12 +7,17 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
 import { api } from '@/services/api';
+import { supabase } from '@/lib/supabase';
+import { AuthService } from '@/services/auth';
 
 // Mock users removed - using Real DB Auth (Simulated)
 
 export default function Login() {
   const navigate = useNavigate();
+  // State for Mode (Login vs Register)
+  const [isRegistering, setIsRegistering] = useState(false);
   const [email, setEmail] = useState('');
+  const [fullName, setFullName] = useState(''); // New for registration
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -20,42 +25,87 @@ export default function Login() {
 
   // Mounted effect for animation trigger
   const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setMounted(true);
+    localStorage.removeItem('davos_active_tenant_id');
+  }, []);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  // Handle Login or Register
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      // Real Auth (Simulated via DB lookup)
-      const user = await api.getUserByEmail(email);
+      if (isRegistering) {
+        // --- REGISTRATION FLOW ---
+        // 1. Create in Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName } }
+        });
 
-      if (user) {
-        // Enforcing the correct password provided by the user
-        const isCarlos = email === 'carlos@davos.ai';
-        const isPasswordCorrect = password === '123456';
+        if (authError) throw authError;
 
-        if (isCarlos && !isPasswordCorrect) {
-          toast.error('Acesso Negado: Senha incorreta para este operador');
-          setIsLoading(false);
-          return;
+        if (authData.user) {
+          // 2. Create Public User Record (Service Layer)
+          await AuthService.createPendingUser(email, fullName, authData.user.id);
+
+          toast.success('Solicitação enviada! Aguarde a aprovação.');
+          navigate('/pending-approval');
         }
 
-        localStorage.setItem('davos_session', JSON.stringify({
-          user: { email: user.email, name: user.name, role: user.role, id: user.id },
-          token: 'mock-jwt-' + crypto.randomUUID(),
-        }));
-
-        toast.success(`Acesso Autorizado: ${user.name}`);
-
-        // Force reload to trigger AppContext boot from localStorage
-        window.location.href = '/';
       } else {
-        toast.error('Acesso Negado: Usuário não encontrado no sistema');
+        // --- LOGIN FLOW ---
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+
+        if (error) throw error;
+
+        if (data.user) {
+          // Check Business Status via Service
+          const userProfile = await AuthService.getUserByProviderId(data.user.id);
+
+          // Handle First-Time Login / Auto-Link
+          if (!userProfile) {
+            const linked = await AuthService.linkProviderToUser(email, data.user.id);
+            if (linked) {
+              toast.success(`Bem-vindo de volta, ${linked.name}`);
+            } else {
+              // If checking by email fails too, it's a raw unlinked user ??
+              // Could be a very old user or database inconsistency.
+              // For now, let AppContext handle the "No Profile" state (it might redirect or show error)
+            }
+          } else {
+            if (userProfile.status === 'blocked') {
+              toast.error('Acesso Bloqueado. Contate o administrador.');
+              await supabase.auth.signOut();
+              return;
+            }
+            if (userProfile.status === 'pending') {
+              navigate('/pending-approval');
+              return;
+            }
+          }
+
+          toast.success('Login realizado com sucesso.');
+
+          // Legacy Session Set (for ProtectedRoute immediate check)
+          // Ideally we remove this dependency, but keeping for stability
+          localStorage.setItem('davos_session', JSON.stringify({
+            user: { email: data.user.email },
+            token: data.session.access_token
+          }));
+
+          // Redirect - Force Reload to Ensure Context Refresh
+          window.location.href = '/';
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      toast.error('Erro de conexão ao verificar credenciais');
+      toast.error(err.message || 'Erro na autenticação. Verifique suas credenciais.');
     } finally {
       setIsLoading(false);
     }
@@ -64,39 +114,24 @@ export default function Login() {
   return (
     <div className="h-screen w-full flex bg-[#050505] text-white overflow-hidden relative selection:bg-accent selection:text-accent-foreground grain-texture">
 
-      {/* 
-        🎨 DESIGN COMMITMENT: "Technical Luxury / Precision Industrial"
-        - Geometry: Aggressive Sharp (0px radius)
-        - Palette: Obsidian, Pure White, Electric Cyan
-        - Typography: Black Weight (900), Tighter Tracking
-        - Motion: Staggered "System Boot" Reveals
-      */}
-
       {/* LEFT PANEL: The Terminal (Interaction Area) */}
       <div className="w-full lg:w-[45%] xl:w-[40%] flex flex-col justify-between p-6 md:p-8 lg:p-10 relative z-10 bg-black/40 backdrop-blur-sm border-r border-white/5 overflow-hidden">
 
-        {/* Internal Zoom Container for Left Panel */}
         <div className="flex-1 flex flex-col justify-between scale-[0.9] xl:scale-95 origin-top-left">
           {/* Header - Staggered entrance */}
           <div className="space-y-3 pt-2">
             <div className={`flex items-center gap-4 mb-6 transition-all duration-1000 ease-out ${mounted ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
-              {/* Client Logo - Edenred */}
               <div className="relative group/client">
                 <img src="/client-logo.png" alt="Edenred" className="h-10 w-auto drop-shadow-[0_0_20px_rgba(255,255,255,0.05)]" />
               </div>
-
               <div className="h-8 w-[1px] bg-white/20 mx-1" />
-
-              {/* Davos Logo - Powered By */}
               <div className="flex flex-col items-start pt-1">
                 <span className="text-[7px] uppercase tracking-[0.3em] font-bold text-white/30 mb-0.5 ml-1">Powered by</span>
                 <img src="/logo.png" alt="Davos Nexus" className="h-6 w-auto opacity-80 brightness-110" />
               </div>
-
               <div className="h-8 w-[1px] bg-white/20 mx-1" />
-
               <div className="space-y-0.5">
-                <span className="block text-[9px] uppercase tracking-[0.4em] font-black text-white/50 leading-none">Nexus Hub v2.4</span>
+                <span className="block text-[9px] uppercase tracking-[0.4em] font-black text-white/50 leading-none">Nexus Hub v2.5</span>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[8px] uppercase tracking-widest font-black text-accent/40 animate-pulse">Acesso_Privado_Ativo</span>
                 </div>
@@ -105,55 +140,65 @@ export default function Login() {
 
             <div className="space-y-0">
               <h1 className={`text-5xl md:text-6xl xl:text-7xl font-black tracking-tighter leading-[0.85] transition-all duration-1000 delay-100 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 blur-lg'}`}>
-                TORRE DE <br />
-                <span className="text-accent underline decoration-accent/20 decoration-8 underline-offset-[-2px]">CONTROLE</span>
+                {isRegistering ? 'SOLICITAR' : 'TORRE DE'} <br />
+                <span className="text-accent underline decoration-accent/20 decoration-8 underline-offset-[-2px]">
+                  {isRegistering ? 'ACESSO' : 'CONTROLE'}
+                </span>
               </h1>
               <p className={`text-lg font-light text-white/70 mt-6 max-w-sm leading-relaxed transition-all duration-1000 delay-200 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>
                 <span className="text-accent font-bold tracking-wider mr-2 uppercase text-[10px]">AURA OS //</span>
-                Orquestração de agentes autônomos em escala corporativa.
+                {isRegistering
+                  ? 'Cadastre-se para obter acesso à orquestração de agentes.'
+                  : 'Orquestração de agentes autônomos em escala corporativa.'}
               </p>
             </div>
           </div>
 
-          {/* Login Form Section - Staggered entrance */}
+          {/* Form Section */}
           <div className={`w-full max-w-sm mt-6 space-y-6 transition-all duration-1000 delay-300 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
 
-            <form onSubmit={handleLogin} className="space-y-5 group">
+            <form onSubmit={handleSubmit} className="space-y-5 group">
 
-              {/* Email Field - Technical Input Style */}
-              <div className="space-y-2 group/field">
-                <Label
-                  htmlFor="email"
-                  className={`text-[9px] uppercase tracking-[0.25em] font-black transition-colors duration-300 ${activeField === 'email' ? 'text-accent' : 'text-white/50'}`}
-                >
-                  Identificação / Operador
-                </Label>
-                <div className="relative">
+              {/* Full Name Field (Register Only) */}
+              {isRegistering && (
+                <div className="space-y-2 group/field animate-in fade-in slide-in-from-top-4 duration-500">
+                  <Label className="text-[9px] uppercase tracking-[0.25em] font-black text-white/50">Nome Completo</Label>
                   <Input
-                    id="email"
-                    type="email"
-                    placeholder="seu_id@davos.nexus"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    onFocus={() => setActiveField('email')}
-                    onBlur={() => setActiveField(null)}
+                    type="text"
+                    placeholder="Seu Nome"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
                     required
-                    className="h-12 bg-white/[0.02] border border-white/10 rounded-none focus-visible:ring-1 focus-visible:ring-accent/50 focus-visible:border-accent px-4 text-base transition-all duration-500 placeholder:text-white/30"
+                    className="h-12 bg-white/[0.02] border border-white/10 rounded-none focus-visible:ring-1 focus-visible:ring-accent/50 px-4 text-base"
                   />
                 </div>
+              )}
+
+              {/* Email Field */}
+              <div className="space-y-2 group/field">
+                <Label className={`text-[9px] uppercase tracking-[0.25em] font-black transition-colors duration-300 ${activeField === 'email' ? 'text-accent' : 'text-white/50'}`}>
+                  Identificação / Email
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="seu_email@empresa.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setActiveField('email')}
+                  onBlur={() => setActiveField(null)}
+                  required
+                  className="h-12 bg-white/[0.02] border border-white/10 rounded-none focus-visible:ring-1 focus-visible:ring-accent/50 px-4 text-base"
+                />
               </div>
 
               {/* Password Field */}
               <div className="space-y-2 group/field">
-                <Label
-                  htmlFor="password"
-                  className={`text-[9px] uppercase tracking-[0.25em] font-black transition-colors duration-300 ${activeField === 'password' ? 'text-accent' : 'text-white/50'}`}
-                >
-                  Chave de Acesso / Encriptada
+                <Label className={`text-[9px] uppercase tracking-[0.25em] font-black transition-colors duration-300 ${activeField === 'password' ? 'text-accent' : 'text-white/50'}`}>
+                  Chave de Acesso
                 </Label>
                 <div className="relative">
                   <Input
-                    id="password"
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={password}
@@ -161,7 +206,7 @@ export default function Login() {
                     onFocus={() => setActiveField('password')}
                     onBlur={() => setActiveField(null)}
                     required
-                    className="h-12 bg-white/[0.02] border border-border/50 rounded-none focus-visible:ring-1 focus-visible:ring-accent/50 focus-visible:border-accent px-4 text-base transition-all duration-500 placeholder:text-white/30 pr-12"
+                    className="h-12 bg-white/[0.02] border border-border/50 rounded-none focus-visible:ring-1 focus-visible:ring-accent/50 px-4 text-base pr-12"
                   />
                   <button
                     type="button"
@@ -181,12 +226,12 @@ export default function Login() {
                 {isLoading ? (
                   <div className="flex items-center gap-3">
                     <div className="h-3 w-3 border-2 border-black/20 border-t-black animate-spin rounded-full" />
-                    <span>Autenticando...</span>
+                    <span>Processando...</span>
                   </div>
                 ) : (
                   <span className="flex items-center gap-3 relative z-10">
                     <span className="w-2 h-[1px] bg-current" />
-                    ENTRAR NO SISTEMA
+                    {isRegistering ? 'SOLICITAR ACESSO' : 'ENTRAR NO SISTEMA'}
                     <span className="w-2 h-[1px] bg-current" />
                   </span>
                 )}
@@ -194,25 +239,35 @@ export default function Login() {
               </Button>
             </form>
 
-            {/* System Access Flags */}
-            <div className="flex items-center justify-between text-[9px] font-black tracking-widest text-white/40 uppercase border-y border-white/10 py-4">
-              <span className="flex items-center gap-2 text-success"><div className="w-1 h-1 bg-success rounded-full animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.5)]" /> Conexão Segura</span>
-              <span className="flex items-center gap-2"><Lock className="h-2.5 w-2.5" /> E2E Cripto</span>
-              <span className="flex items-center gap-2 cursor-pointer hover:text-accent transition-colors underline underline-offset-4" onClick={() => navigate('/forgot-password')}>Reset</span>
+            {/* Toggle Logic */}
+            <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-wider text-white/40 pt-4 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setIsRegistering(!isRegistering)}
+                className="hover:text-accent transition-colors flex items-center gap-2"
+              >
+                {isRegistering ? '← Voltar para Login' : 'Solicitar Novo Acesso →'}
+              </button>
+
+              {!isRegistering && (
+                <button
+                  type="button"
+                  onClick={() => navigate('/forgot-password')}
+                  className="hover:text-white transition-colors"
+                >
+                  Esqueci a Senha
+                </button>
+              )}
             </div>
           </div>
-
-          {/* Footer info - Low priority but premium detail */}
-          <div className={`flex items-end justify-between mt-8 transition-all duration-1000 delay-500 ease-out ${mounted ? 'opacity-100' : 'opacity-0'}`}>
-            <div className="space-y-0.5">
-              <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Aura Intelligence Systems</p>
-              <p className="text-[8px] font-mono text-white/80 uppercase">Auth_Node: SA-1 // Build_2026.02</p>
-            </div>
-            <div className="flex gap-1.5">
-              <div className="h-4 w-[1px] bg-white/5" />
-              <div className="h-4 w-[1px] bg-white/10" />
-              <div className="h-4 w-1 bg-accent/20" />
-            </div>
+          <div className="space-y-0.5">
+            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Aura Intelligence Systems</p>
+            <p className="text-[8px] font-mono text-white/80 uppercase">Auth_Node: SA-1 // Build_2026.02</p>
+          </div>
+          <div className="flex gap-1.5">
+            <div className="h-4 w-[1px] bg-white/5" />
+            <div className="h-4 w-[1px] bg-white/10" />
+            <div className="h-4 w-1 bg-accent/20" />
           </div>
         </div>
       </div>

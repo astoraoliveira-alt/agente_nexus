@@ -15,6 +15,7 @@ import Users from "./pages/Users";
 import Profiles from "./pages/Profiles";
 import Login from "./pages/Login";
 import ForgotPassword from "./pages/ForgotPassword";
+import PendingApproval from "./pages/PendingApproval"; // Added import
 import NotFound from "./pages/NotFound";
 import Companies from "./pages/Companies";
 import Governance from "./pages/Governance";
@@ -39,6 +40,7 @@ const App = () => (
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/pending-approval" element={<PendingApproval />} />
 
             {/* Protected Routes */}
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />

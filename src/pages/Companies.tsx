@@ -52,6 +52,35 @@ import { api } from '@/services/api'; // Import API
 import { getTenantAggregatedStats, calculateISOStatus } from '@/lib/consumption-logic';
 import { useEffect } from 'react';
 
+// Decima Input Helper
+function DecimalInput({ value, onChange, placeholder }: { value: number; onChange: (val: number) => void; placeholder?: string }) {
+  const [localValue, setLocalValue] = useState<string>(value?.toString().replace('.', ',') || '');
+
+  useEffect(() => {
+    // Sync external changes (e.g. switching companies) only if value actually differs numerically
+    const currentNumeric = parseFloat(localValue.replace(',', '.'));
+    if (value !== currentNumeric && !(isNaN(currentNumeric) && value === 0)) {
+      setLocalValue(value?.toString().replace('.', ',') || '');
+    }
+  }, [value, localValue]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    // Allow digits and single comma or dot
+    if (/^[0-9]*[,.]?[0-9]*$/.test(raw)) {
+      setLocalValue(raw);
+      const numeric = parseFloat(raw.replace(',', '.'));
+      if (!isNaN(numeric)) {
+        onChange(numeric);
+      } else if (raw === '') {
+        onChange(0);
+      }
+    }
+  };
+
+  return <Input value={localValue} onChange={handleChange} placeholder={placeholder} inputMode="decimal" />;
+}
+
 export default function Companies() {
   const { openSlideOver, switchTenant } = useApp();
   const navigate = useNavigate();
@@ -227,15 +256,53 @@ export default function Companies() {
     }
   };
 
-  const toggleStatus = (companyId: string) => {
-    setCompanies(prev => prev.map(c => {
-      if (c.id === companyId) {
-        const newStatus = c.status === 'suspended' ? 'active' : 'suspended';
-        toast.success(`Empresa ${newStatus === 'active' ? 'ativada' : 'suspensa'}`);
-        return { ...c, status: newStatus };
-      }
-      return c;
-    }));
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [companyToDelete, setCompanyToDelete] = useState<Company | null>(null);
+
+  const toggleStatus = async (companyId: string) => {
+    const company = companies.find(c => c.id === companyId);
+    if (!company) return;
+
+    const newStatus = company.status === 'suspended' ? 'active' : 'suspended';
+
+    try {
+      // Optimistic update
+      setCompanies(prev => prev.map(c =>
+        c.id === companyId ? { ...c, status: newStatus as any } : c
+      ));
+
+      await api.updateCompany({ id: companyId, status: newStatus as any });
+      toast.success(`Empresa ${newStatus === 'active' ? 'ativada' : 'suspensa'}`);
+    } catch (error) {
+      console.error('Error toggling status:', error);
+      toast.error('Erro ao atualizar status');
+      // Revert optimistic update
+      setCompanies(prev => prev.map(c =>
+        c.id === companyId ? { ...c, status: company.status } : c
+      ));
+    }
+  };
+
+  const confirmDelete = (company: Company) => {
+    setCompanyToDelete(company);
+    setDeleteConfirmation('');
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteCompany = async () => {
+    if (!companyToDelete || deleteConfirmation.toLowerCase() !== 'excluir') return;
+
+    try {
+      await api.deleteCompany(companyToDelete.id);
+      toast.success('Empresa excluída permanentemente');
+      setCompanies(prev => prev.filter(c => c.id !== companyToDelete.id));
+      setDeleteDialogOpen(false);
+      setCompanyToDelete(null);
+    } catch (error) {
+      console.error('Error deleting company:', error);
+      toast.error('Erro ao excluir empresa');
+    }
   };
 
   const openEditDialog = (company: Company) => {
@@ -360,6 +427,14 @@ export default function Companies() {
                           </>
                         )}
                       </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => confirmDelete(company)}
+                        className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                      >
+                        <X className="h-4 w-4 mr-2" />
+                        Excluir Empresa Definitivamente
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -410,7 +485,7 @@ export default function Companies() {
           </div>
         </div>
 
-        {/* Dialog */}
+        {/* Edit/New Dialog */}
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -501,30 +576,28 @@ export default function Companies() {
                     { key: 'n8n', label: 'Custo n8n (Mensal)' },
                     { key: 'vapi_fixed', label: 'Vapi Fixo (Mensal)' },
                     { key: 'vapi_variable', label: 'Vapi Var (Por Min)' },
+                    { key: 'llm_internal_rate', label: 'Custo LLM Davos (1k tokens)' },
+                    { key: 'voice_internal_rate', label: 'Custo Voz Davos (Por Min)' },
                     { key: 'twilio_fixed', label: 'Twilio Fixo (Mensal)' },
+                    { key: 'twilio_variable', label: 'Twilio Var (Por Min)' },
                   ].map(item => {
                     const cost = companyCosts.find(c => c.itemKey === item.key);
                     return (
                       <div key={item.key} className="space-y-2">
                         <Label>{item.label}</Label>
-                        <Input
-                          type="text"
-                          inputMode="decimal"
+                        <DecimalInput
                           placeholder="0,00"
-                          value={cost?.costValue?.toString().replace('.', ',') || ''}
-                          onChange={(e) => {
-                            const rawValue = e.target.value.replace(',', '.');
-                            const val = parseFloat(rawValue);
-
+                          value={cost?.costValue || 0}
+                          onChange={(val) => {
                             setCompanyCosts(prev => {
                               const existing = prev.find(p => p.itemKey === item.key);
                               if (existing) {
-                                return prev.map(p => p.itemKey === item.key ? { ...p, costValue: isNaN(val) ? 0 : val } : p);
+                                return prev.map(p => p.itemKey === item.key ? { ...p, costValue: val } : p);
                               }
                               return [...prev, {
                                 itemKey: item.key,
                                 itemLabel: item.label,
-                                costValue: isNaN(val) ? 0 : val,
+                                costValue: val,
                                 isRecurring: !item.key.includes('variable'),
                                 tenantId: editingCompany?.id || '',
                                 id: '',
@@ -547,6 +620,57 @@ export default function Companies() {
               </Button>
               <Button className="bg-accent hover:bg-accent/90" onClick={handleSaveCompany}>
                 {editingCompany ? 'Salvar Alterações' : 'Criar Empresa'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <DialogContent className="max-w-md border-red-200">
+            <DialogHeader>
+              <DialogTitle className="text-red-600 flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                Excluir Empresa Definitivamente?
+              </DialogTitle>
+              <DialogDescription className="space-y-2">
+                <p>
+                  Esta ação é <strong>irreversível</strong>. Todos os dados associados à empresa
+                  <span className="font-bold text-foreground"> "{companyToDelete?.name}" </span>
+                  serão excluídos para sempre, incluindo:
+                </p>
+                <ul className="list-disc pl-5 text-xs text-muted-foreground">
+                  <li>Métricas de consumo e custos</li>
+                  <li>Histórico de conversas e mensagens</li>
+                  <li>Agentes configurados</li>
+                  <li>Usuários e permissões</li>
+                  <li>Logs de auditoria e incidentes</li>
+                </ul>
+                <p className="mt-4 text-foreground">
+                  Para confirmar, digite <strong>excluir</strong> no campo abaixo:
+                </p>
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-2">
+              <Input
+                value={deleteConfirmation}
+                onChange={(e) => setDeleteConfirmation(e.target.value)}
+                placeholder="Digite excluir"
+                className="border-red-200 focus-visible:ring-red-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteCompany}
+                disabled={deleteConfirmation.toLowerCase() !== 'excluir'}
+              >
+                Excluir Definitivamente
               </Button>
             </div>
           </DialogContent>

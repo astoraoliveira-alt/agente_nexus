@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, Tenant, Conversation } from '@/lib/types'; // Using real types
 import { api } from '@/services/api';
+import { AuthService } from '@/services/auth';
+import { supabase } from '@/lib/supabase';
 
 export type SlideOverContentType =
   | 'conversation-details'
@@ -20,6 +22,7 @@ export type SlideOverContentType =
   | 'plan-history'
   | 'agent-history'
   | 'financial-detail'
+  | 'unaudited-list'
   | null;
 
 interface AppContextType {
@@ -32,6 +35,10 @@ interface AppContextType {
   currentTenant: Tenant | null;
   userPermissions: string[];
   hasPermission: (permission: string) => boolean;
+
+  // Privacy
+  maskingEnabled: boolean;
+  toggleMasking: () => void;
 
   // Conversations
   conversations: Conversation[];
@@ -54,12 +61,14 @@ interface AppContextType {
   closeConversation: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
   sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
+  isLoading: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentTenant, setCurrentTenant] = useState<Tenant | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]); // Initialize empty, load on effect
@@ -68,67 +77,93 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [slideOverContent, setSlideOverContent] = useState<SlideOverContentType | null>(null);
   const [slideOverData, setSlideOverData] = useState<any>(null);
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  const [maskingEnabled, setMaskingEnabled] = useState(true); // Default to true for safety
 
-  // Initialize user from Database (Simulated Auth)
+  const toggleMasking = () => setMaskingEnabled(prev => !prev);
+
+  // Initialize user from Supabase Auth + Public Users Table
   useEffect(() => {
     async function boot() {
       try {
         console.log('🔄 Booting App Context...');
 
-        let user: User | null = null;
-        const session = localStorage.getItem('davos_session');
+        // 1. Check Supabase Session
+        const { data: { session } } = await supabase.auth.getSession();
 
-        if (session) {
-          try {
-            const parsed = JSON.parse(session);
-            if (parsed.user?.email) {
-              user = await api.getUserByEmail(parsed.user.email);
-              console.log('🔓 Session Found:', user?.email);
-            }
-          } catch (e) {
-            console.error('Invalid Session', e);
-          }
-        }
+        if (session?.user) {
+          console.log('🔐 Supabase Session Found:', session.user.email);
+          const { user: authUser } = session;
 
-        // Fallback if no session or invalid session
-        if (!user) {
-          console.log('⚠️ No session. Fetching default Super Admin...');
-          user = await api.getInitialUser();
-        }
+          // 2. Fetch Business Profile via Service Layer
+          let businessUser = await AuthService.getUserByProviderId(authUser.id);
 
-        console.log('👤 Final Bootstrap User:', user);
+          // 3. Auto-Link Logic (Legacy or Invite Support)
+          if (!businessUser && authUser.email) {
+            console.log('⚠️ User not linked. Attempting check by email...');
+            const existingUser = await AuthService.getUserByEmail(authUser.email);
 
-        if (user) {
-          setCurrentUser(user);
-
-          // 2. Fetch Tenant
-          if (user.tenantId) {
-            const tenant = await api.getTenant(user.tenantId);
-            console.log('🏢 Tenant Fetched:', tenant);
-            if (tenant) {
-              setCurrentTenant(tenant);
+            if (existingUser && !existingUser.provider_id) {
+              console.log('🔗 Auto-linking existing invite/legacy user...');
+              businessUser = await AuthService.linkProviderToUser(authUser.email, authUser.id);
+            } else if (!existingUser) {
+              // New Registration logic will be handled by Login/Register page
+              // But if we are here, it might be a raw sign-up. 
+              // For now, we let valid session stay, but currentUser will be null -> Redirect to pending?
+              console.warn('❌ User has auth session but no business record.');
             }
           }
 
-          // 3. Permissions (Simple Role Mapping)
-          // In real app, we would fetch role permissions from DB
-          console.log('🛡️ Analyzing Role:', user.role);
-          if (user.role === 'super_admin' || user.role === 'tenant_admin') {
-            console.log('✅ Granting ALL permissions');
-            setUserPermissions(['all']);
-          } else {
-            console.log('⚠️ Granting VIEW_ONLY permissions');
-            setUserPermissions(['view_only']);
+          if (businessUser) {
+            console.log('👤 Business Profile Loaded:', businessUser);
+            setCurrentUser(businessUser);
+
+            // 4. Permission Logic
+            if (businessUser.role === 'super_admin' || businessUser.role === 'tenant_admin') {
+              setUserPermissions(['all']);
+            } else {
+              setUserPermissions(['view_only']);
+            }
+
+            // 5. Tenant Logic
+            const savedTenantId = localStorage.getItem('davos_active_tenant_id');
+            // Prefer saved tenant if valid, else user's home tenant
+            const tenantIdToLoad = savedTenantId || businessUser.tenantId;
+
+            if (tenantIdToLoad) {
+              const tenant = await api.getTenant(tenantIdToLoad);
+              if (tenant) setCurrentTenant(tenant);
+            }
           }
         } else {
-          console.warn('⚠️ No user found in getInitialUser()');
+          console.log('👋 No active session.');
+          localStorage.removeItem('davos_session'); // Clear stale session if exists
         }
       } catch (err) {
         console.error('❌ Boot Error:', err);
+        localStorage.removeItem('davos_session'); // Safety clear
+      } finally {
+        setIsLoading(false);
       }
     }
 
+    // Listen for Auth Changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        // Trigger boot/reload if needed, or let the boot effect handle it on mount
+        // For simplicity, we depend on component mount usually, but we can force reload logic here if needed.
+      }
+      if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setCurrentTenant(null);
+        localStorage.removeItem('davos_session');
+      }
+    });
+
     boot();
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   // Filter data when tenant changes & Poll every 5s
@@ -196,6 +231,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!targetTenant) return;
 
     setCurrentTenant(targetTenant);
+    localStorage.setItem('davos_active_tenant_id', tenantId);
     console.log(`Switched to tenant: ${targetTenant.name}`);
   };
 
@@ -363,7 +399,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       await api.closeConversation(conversationId);
       // 🔥 Automate Quality Audit Trigger
-      await api.triggerAudit(conversationId);
+      const conv = conversations.find(c => c.id === conversationId);
+      await api.triggerAudit(conversationId, {
+        tenantId: conv?.tenantId || currentTenant.id,
+        agentId: conv?.agentId
+      });
     } catch (error) {
       console.error(error);
     }
@@ -422,6 +462,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value={{
         isDarkMode,
         toggleDarkMode,
+        isLoading,
         currentUser,
         currentTenant,
         userPermissions,
@@ -440,6 +481,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transferConversation,
         switchTenant,
         sendMessage,
+        maskingEnabled,
+        toggleMasking,
       }}
     >
       {children}

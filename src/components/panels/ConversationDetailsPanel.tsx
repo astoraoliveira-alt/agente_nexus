@@ -30,7 +30,10 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
   const handleAuditRequest = async () => {
     setIsAuditing(true);
     try {
-      const success = await api.triggerAudit(data.id);
+      const success = await api.triggerAudit(data.id, {
+        tenantId: data.tenantId,
+        agentId: data.agentId
+      });
       if (success) {
         toast({
           title: "Auditoria solicitada",

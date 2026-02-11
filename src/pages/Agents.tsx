@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -37,6 +37,8 @@ import {
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Agent, AILifecycleStage } from '@/lib/types';
+import { AgentKnowledgeTab } from '@/components/agents/AgentKnowledgeTab';
+import { AgentEvolutionTab } from '@/components/agents/AgentEvolutionTab';
 
 export default function Agents() {
   const { openSlideOver, currentTenant, currentUser } = useApp();
@@ -115,6 +117,16 @@ export default function Agents() {
 
   const handleSave = async () => {
     if (!currentTenant) return;
+
+    // Validation for Mandatory Fields (Dumb Engine Pattern)
+    if (!formData.brainConfig?.systemPrompt?.trim()) {
+      toast.error('O Prompt de Sistema é obrigatório para definir a personalidade da IA.');
+      return;
+    }
+    if (!formData.brainConfig?.userPromptTemplate?.trim()) {
+      toast.error('O Template da Mensagem do Usuário é obrigatório para o padrão "Motor Burro".');
+      return;
+    }
 
     try {
       if (editingAgent) {
@@ -410,7 +422,7 @@ export default function Agents() {
 
         {/* Create/Edit Agent Dialog */}
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogContent className="sm:max-w-5xl h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogContent className="max-w-[95vw] h-[95vh] flex flex-col p-0 overflow-hidden">
             <DialogHeader className="p-6 pb-2 border-b">
               <DialogTitle className="text-xl flex items-center gap-2">
                 {editingAgent ? <Pencil className="h-5 w-5 text-accent" /> : <Plus className="h-5 w-5 text-accent" />}
@@ -432,6 +444,17 @@ export default function Agents() {
                     <ShieldAlert className="h-4 w-4" />
                     Governança & Risco
                   </TabsTrigger>
+                  <TabsTrigger value="knowledge" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    Base de Conhecimento
+                  </TabsTrigger>
+
+                  {formData.type === 'whatsapp' && (
+                    <TabsTrigger value="evolution" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4" />
+                      WhatsApp (Evolution)
+                    </TabsTrigger>
+                  )}
                 </TabsList>
 
                 <TabsContent value="brain" className="p-6 space-y-6">
@@ -522,10 +545,10 @@ export default function Agents() {
                     </div>
                   </div>
 
-                  <div className="flex-1 flex flex-col space-y-2 min-h-[400px]">
+                  <div className="flex-1 flex flex-col space-y-2 min-h-[300px]">
                     <div className="flex items-center justify-between">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Prompt de Sistema (Personalidade & Regras)</Label>
-                      <Badge variant="outline" className="text-[10px] font-mono">{(formData.brainConfig?.systemPrompt || '').length} Caracteres</Badge>
+                      <Badge variant="outline" className="text-[10px] font-mono border-red-500/30 text-red-500">OBRIGATÓRIO</Badge>
                     </div>
                     <textarea
                       className="flex-1 p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed"
@@ -534,13 +557,32 @@ export default function Agents() {
                       onChange={(e) => setFormData({
                         ...formData,
                         brainConfig: {
-                          modelId: formData.brainConfig?.modelId || 'gpt-4o',
-                          temperature: formData.brainConfig?.temperature || 0.5,
+                          ...formData.brainConfig,
                           systemPrompt: e.target.value
                         }
                       })}
                     ></textarea>
-                    <p className="text-[10px] text-muted-foreground">Dica: Use variáveis como {'{user_name}'} para personalização via N8N.</p>
+                    <p className="text-[10px] text-muted-foreground">O n8n usará este prompt como base para a personalidade da IA.</p>
+                  </div>
+
+                  <div className="flex-1 flex flex-col space-y-2 min-h-[300px]">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold secondary-text text-amber-500 uppercase tracking-wider">Template da Mensagem do Usuário (Motor Burro)</Label>
+                      <Badge variant="outline" className="text-[10px] font-mono border-red-500/30 text-red-500">OBRIGATÓRIO</Badge>
+                    </div>
+                    <textarea
+                      className="flex-1 p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-amber-500 outline-none resize-none leading-relaxed"
+                      placeholder="Ex: Responda a seguinte dúvida usando o contexto acima: {message}"
+                      value={formData.brainConfig?.userPromptTemplate || ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        brainConfig: {
+                          ...formData.brainConfig,
+                          userPromptTemplate: e.target.value
+                        }
+                      })}
+                    ></textarea>
+                    <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o n8n injete a fala do usuário dinamicamente.</p>
                   </div>
                 </TabsContent>
 
@@ -662,6 +704,21 @@ export default function Agents() {
                             Este link conecta o Dashboard ao Motor de Execução n8n, orquestrando fluxos de conversa e lógica de negócio do agente.
                           </p>
                         </div>
+
+                        {formData.type === 'whatsapp' && (
+                          <div className="space-y-2 animate-in slide-in-from-top-1">
+                            <Label className="text-xs font-bold text-accent">Nome da Instância Evolution</Label>
+                            <Input
+                              className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
+                              value={formData.evolution_instance || ''}
+                              onChange={(e) => setFormData({ ...formData, evolution_instance: e.target.value })}
+                              placeholder="Ex: d Davos-Nexus-Zap"
+                            />
+                            <p className="text-[9px] text-muted-foreground italic leading-tight">
+                              Necessário para que o n8n identifique este agente automaticamente no fluxo de WhatsApp.
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -845,6 +902,40 @@ export default function Agents() {
                       </div>
                     </div>
                   </div>
+                </TabsContent>
+
+                <TabsContent value="knowledge" className="p-6">
+                  {editingAgent ? (
+                    <AgentKnowledgeTab
+                      agentId={editingAgent.id}
+                      tenantId={currentTenant?.id}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center p-12 space-y-4 opacity-50">
+                      <AlertCircle className="h-12 w-12 text-muted-foreground" />
+                      <div className="text-center">
+                        <h4 className="font-bold uppercase tracking-wider">Agente não Identificado</h4>
+                        <p className="text-xs text-muted-foreground mt-1">Salve o agente básico primeiro para poder injetar conhecimento especializado.</p>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="evolution" className="p-6 h-full">
+                  <AgentEvolutionTab
+                    agentId={editingAgent?.id || 'new'}
+                    tenantSlug={currentTenant?.slug || 'demo'}
+                    evolutionInstance={formData.evolution_instance}
+                    evolutionToken={formData.evolution_token}
+                    onInstanceLinked={(instanceName, token) => {
+                      setFormData(prev => ({
+                        ...prev,
+                        evolution_instance: instanceName,
+                        evolution_token: token
+                      }));
+                      toast.success('Vínculo preparado. Salve o agente para confirmar.');
+                    }}
+                  />
                 </TabsContent>
               </Tabs>
             </div>

@@ -19,6 +19,7 @@ import { ContactDetailsPanel } from '@/components/panels/ContactDetailsPanel';
 import { PlanHistoryPanel } from '@/components/panels/PlanHistoryPanel';
 import { AgentHistoryPanel } from '@/components/panels/AgentHistoryPanel';
 import { FinancialDetailPanel } from '@/components/panels/FinancialDetailPanel';
+import { UnauditedConversationsPanel } from '@/components/panels/UnauditedConversationsPanel'; // Import new panel
 
 const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'conversation-details': 'Detalhes da Conversa',
@@ -38,6 +39,7 @@ const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'plan-history': 'Histórico de Alterações do Plano',
   'agent-history': 'Histórico de Configuração do Agente',
   'financial-detail': 'Detalhamento Financeiro (DRE)',
+  'unaudited-list': 'Conversas Pendentes de Auditoria', // Add title
 };
 
 export function SlideOverPanel() {
@@ -79,6 +81,8 @@ export function SlideOverPanel() {
         return <AgentHistoryPanel agent={slideOverData} />;
       case 'financial-detail':
         return <FinancialDetailPanel data={slideOverData} />;
+      case 'unaudited-list': // Add case
+        return <UnauditedConversationsPanel data={slideOverData} />;
       default:
         return null;
     }

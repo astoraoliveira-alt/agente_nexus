@@ -4,6 +4,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Conversation, Message } from '@/lib/mock-data';
 import { Check, CheckCheck, Phone, Video, MoreVertical, ArrowLeft, Camera, Mic, Paperclip, Smile } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useApp } from "@/contexts/AppContext";
+import { maskSensitiveData } from "@/lib/masking";
 
 // Helper to format time like WhatsApp (HH:mm)
 const formatWaTime = (dateStr: string) => {
@@ -17,6 +19,7 @@ interface WhatsAppViewProps {
 }
 
 export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
+    const { maskingEnabled } = useApp();
     const scrollRef = useRef<HTMLDivElement>(null);
 
     // Auto-scroll to bottom directly
@@ -111,7 +114,7 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                                     </span>
 
                                     <div className="relative z-10">
-                                        <span className="whitespace-pre-wrap break-words">{msg.content}</span>
+                                        <span className="whitespace-pre-wrap break-words">{maskSensitiveData(msg.content, maskingEnabled)}</span>
                                     </div>
 
                                     <div className="absolute right-2 bottom-1 flex items-center space-x-1 select-none pointer-events-none">

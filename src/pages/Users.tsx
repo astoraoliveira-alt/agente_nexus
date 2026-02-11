@@ -1,4 +1,4 @@
-import { Users as UsersIcon, Plus, Search, MoreVertical, Shield, Mail, ArrowRight, Pencil, Trash2 } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search, MoreVertical, Mail, Pencil, Trash2 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -29,9 +29,10 @@ import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
+import { PendingUsersList } from '@/components/admin/PendingUsersList';
 
 export default function Users() {
-  const { currentTenant } = useApp();
+  const { currentTenant, currentUser } = useApp();
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
 
@@ -78,29 +79,44 @@ export default function Users() {
     setIsDialogOpen(true);
   };
 
-  const handleSaveUser = () => {
-    // TODO: Implement API create/update
-    if (editingUser) {
-      setUsers(prev => prev.map(u => u.id === editingUser.id ? { ...u, ...formData } as User : u));
-      toast.success(`Usuário ${formData.name} atualizado (UI Only)`);
-    } else {
-      const newUser = {
-        ...formData,
-        id: `user-${Date.now()}`,
-        tenantId: currentTenant?.id || 'tenant-1',
-        avatar: formData.name?.substring(0, 2).toUpperCase(),
-        isActive: true
-      } as User;
-      setUsers(prev => [...prev, newUser]);
-      toast.success(`Usuário ${newUser.name} criado (UI Only)`);
+  const handleSaveUser = async () => {
+    try {
+      if (editingUser) {
+        // Update
+        const updatedUser = await api.updateUser(editingUser.id, formData);
+        setUsers(prev => prev.map(u => u.id === editingUser.id ? updatedUser : u));
+        toast.success(`Usuário ${formData.name} atualizado`);
+      } else {
+        // Create
+        if (!currentTenant?.id) {
+          toast.error('Nenhuma empresa selecionada');
+          return;
+        }
+        const newUserPayload = {
+          ...formData,
+          tenantId: currentTenant.id,
+          role: formData.role || 'operator'
+        };
+        const createdUser = await api.createUser(newUserPayload);
+        setUsers(prev => [...prev, createdUser]);
+        toast.success(`Usuário ${createdUser.name} criado com sucesso`);
+      }
+      setIsDialogOpen(false);
+    } catch (error) {
+      console.error('Error saving user:', error);
+      toast.error('Erro ao salvar usuário');
     }
-    setIsDialogOpen(false);
   };
 
-  const handleDeleteUser = (id: string) => {
-    // TODO: Implement API delete
-    setUsers(prev => prev.filter(u => u.id !== id));
-    toast.success('Usuário removido (UI Only)');
+  const handleDeleteUser = async (id: string) => {
+    try {
+      await api.deleteUser(id);
+      setUsers(prev => prev.filter(u => u.id !== id));
+      toast.success('Usuário removido');
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast.error('Erro ao remover usuário');
+    }
   };
 
   const getRoleBadge = (role: string) => {
@@ -117,6 +133,14 @@ export default function Users() {
   return (
     <MainLayout>
       <div className="h-full overflow-y-auto">
+
+        {/* Admin Section: Approval Queue */}
+        {currentUser?.role === 'super_admin' && (
+          <div className="p-6 pb-0">
+            <PendingUsersList />
+          </div>
+        )}
+
         {/* Header */}
         <div className="sticky top-0 z-10 bg-background border-b border-border">
           <div className="px-6 py-4">

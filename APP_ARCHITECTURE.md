@@ -1,6 +1,6 @@
 # Agent Nexus Hub - Documentação da Arquitetura (Completa & Detalhada)
-> **Última Atualização:** 04/Fev/2026/17:35
-> **Versão:** 4.0 (Schema Alignment & N8N Contract)
+> **Última Atualização:** 11/Fev/2026
+> **Versão:** 6.0 (Master Orchestrator & Multimedia Support)
 > **Status:** Mestre (Fonte Única da Verdade)
 > **Fonte Primária:** `database/schema.sql`
 
@@ -26,7 +26,7 @@ O sistema opera sob isolamento estrito de dados (Row Level Security - RLS).
 
 ## 2. Stack Tecnológico & Arquitetura de Camadas
 
-A arquitetura do Nexus Hub rompe com o paradigma tradicional de middlewares pesados (servidores Node.js/Python), adotando um modelo **Serverless & BaaS (Backend-as-a-Service)**. A lógica de negócio reside na persistência e na orquestração.
+A arquitetura do Nexus Hub evoluiu para um modelo híbrido **Service-Oriented Frontend + Database-First Backend**.
 
 ### 2.1 Detalhamento da Stack
 
@@ -35,234 +35,149 @@ A arquitetura do Nexus Hub rompe com o paradigma tradicional de middlewares pesa
 | **Frontend** | UI Framework | **React 18 (TypeScript)** | Single Page Application (SPA). Tipagem rigorosa para contratos de API. |
 | | Tooling | **Vite** | Build system ultrarápido e HMR. |
 | | Estilo | **Tailwind CSS + Shadcn/UI** | Design System atômico baseado em Radix UI primitives. |
-| | Estado & Cache | **TanStack Query (v5)** | Sincronização de estado servidor-cliente e refetching automático. |
-| | Forms | **React Hook Form + Zod** | Validação de schemas e manipulação de formulários complexos. |
+| | Service Layer | **AuthService / ApiService** | Camada de abstração que centraliza lógica de negócios e chamadas RPC. |
+| | Estado | **Context API + Local State** | Gerenciamento de sessão e dados voláteis. |
 | **Backend** | **Lógica (Core)** | **PL/pgSQL (PostgreSQL)** | Funções via RPC. O backend é *Database-First*. Lógica atômica e segura via RLS. |
 | | Camada API | **PostgREST (Supabase)** | Exposição automática e segura das tabelas e RPCs via RESTful API. |
-| | Autenticação | **Supabase Auth** | JWT, RBAC via roles do banco e sessões persistentes. |
-| **Persistência** | Banco de Dados | **PostgreSQL 15+** | Relacional puro com suporte extensivo a JSONB para metadados de IA. |
-| | Armazenamento | **Supabase Storage** | Gestão de arquivos (áudios de conversas, assets da empresa). |
+| | Autenticação | **Supabase Auth + Custom Users** | Auth V2: O Supabase gerencia sessão (JWT), mas a tabela `public.users` gerencia permissões, roles e tenants. |
+| **Persistência** | Banco de Dados | **PostgreSQL 15+** | Relacional puro com suporte extensivo a JSONB para metadados de IA. `pgvector` para Embeddings. |
+| | Armazenamento | **Supabase Storage** | Gestão de arquivos (áudios de conversas, assets da empresa, documentos RAG). |
 | **Orquestração** | Middleware IA | **n8n (Self-Hosted)** | Motor de fluxos. Atua como o executor stateless que liga o banco às LLMs. |
 | | Conectividade | **Webhooks / REST** | Integração com WhatsApp (Evolution API), Vapi, Retell e CRMs externos. |
 | **Inference** | Modelos LLM | **OpenAI / Anthropic** | Modelos (GPT-4o, Claude 3.5 Sonnet) orquestrados exclusivamente pelo n8n. |
 
-### 2.2 O Paradigma "Database-First"
-Diferente de sistemas legados, o Nexus Hub não possui um servidor de aplicação centralizado. 
-- **O Banco é o Backend:** Toda validação de permissão, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**.
-- **O n8n é o Executor:** Ele não toma decisões de negócio; ele executa ações baseadas no estado fornecido pelo banco.
+### 2.2 O Paradigma "Database-First" com Service Layer
+- **O Banco é o Backend:** Toda validação de permissão crítica, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**.
+- **Service Layer no Frontend:** Para evitar duplicação e espaguete de código, o frontend agora usa classes de serviço (`src/services/`) para encapsular chamadas complexas ao Supabase, como o fluxo de login híbrido ou operações de auditoria.
 - **Segurança Nativa:** O isolamento multi-tenant é garantido por **RLS (Row Level Security)**, impossibilitando que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
 
 ---
 
-## 3. Alinhamento Documentação ↔ Banco de Dados
+## 3. Auth V2 & RBAC (Database Agnostic)
 
-Referência direta às entidades do `database/schema.sql`.
+Implementamos um sistema de autorização desacoplado do provedor de identidade (Supabase Auth), permitindo maior controle e portabilidade.
 
-### 3.1 Entidades Core (Tenancy & Acesso)
-| Entidade (`table`) | Propósito Funcional | Governança & Relação |
-| :--- | :--- | :--- |
-| **`companies`** | O "Cliente". Raiz da hierarquia multi-tenant. | Contém as configurações globais de **Privacidade** (LGPD) e **Responsáveis** (ISO AI Owner, Risk Owner). |
-| **`users`** | Acessos humanos à plataforma. | Estritamente vinculados a um `tenant_id`. Níveis de permissão definem visibilidade de menus. |
-| **`policies`** | Regras de governança (ex: "Proibir menção a concorrentes"). | Atuam como **Guarda-Corpos (Guardrails)**. Podem ser vinculadas a múltiplos Agentes. |
+### 3.1 Tabela `public.users` (Fonte da Verdade)
+A tabela `auth.users` (Supabase) gerencia apenas credenciais e sessões. A tabela `public.users` gerencia o negócio:
+- **`id`**: UUID próprio (não necessariamente igual ao auth.uid).
+- **`provider_id`**: O elo de ligação com o Supabase Auth.
+- **`status`**: `pending` (aguardando aprovação), `active` (liberado), `blocked` (banido), `invited` (convite pendente).
+- **`role`**: `super_admin`, `tenant_admin`, `operator`, `viewer`.
+- **`tenant_id`**: Isolamento estrito.
 
-### 3.2 Entidades Operacionais (O Motor)
-| Entidade (`table`) | Propósito Funcional | Governança & Relação |
-| :--- | :--- | :--- |
-| **`agents`** | A unidade auditável de IA (O "Funcionário Digital"). | Possui **Risco** (`risk_level`), **Estágio** (`lifecycle_stage`) e **Configuração Cognitiva** (`brain_config`). É a entidade que gera custos. |
-| **`flows`** | Contratos de jornada (ex: "Triagem", "Venda"). | Jornadas estruturadas. Diferente de um "Prompt solto", um fluxo tem **Objetivo** e **Critérios de Sucesso** auditáveis. |
-| **`flow_stages`** | Etapas discretas do fluxo (Steps). | Define **quem atua** (`actor`: ai/human) e regras de **escalonamento** (ex: "Se falhar 3x, chame humano"). |
-| **`conversations`** | Sessão de interação contínua. | Vincula `user` (cliente) ↔ `agent` (bot). Mantém o estado atual (`status`: ai_active/human_active). |
-| **`messages`** | Log imutável da interação. | Registra o conteúdo (`content`), remetente (`sender_type`) e metadados ricos (áudio, transcrição). Base para auditoria. |
+### 3.2 Fluxo de Login Híbrido (`AuthService`)
+1.  **Frontend:** Usuário faz login via Supabase Auth.
+2.  **Verificação:** `AuthService` intercepta o sucesso e consulta `public.users` usando o ID retornado.
+3.  **Validação de Status:**
+    -   Se `status == pending` -> Redireciona para tela de "Aguardando Aprovação".
+    -   Se `status == blocked` -> Força logout imediato.
+    -   Se `status == active` -> Carrega Tenant e libera acesso.
+4.  **Auto-Link:** Se o usuário existe no Auth mas não no Public (ou vice-versa), o sistema tenta vincular automaticamente por email (útil para convites).
 
-### 3.3 Entidades de Controle & Segurança
-| Entidade (`table`) | Propósito Funcional | Governança & Relação |
-| :--- | :--- | :--- |
-| **`consumption_metrics`** | Registro financeiro granular. | Fonte da verdade para faturamento. Registra tokens e minutos de voz. **NÃO manipulável** pelo usuário. |
-| **`audit_logs`** | Trilha de auditoria de segurança. | Quem mudou o que e quando (diff `before` -> `after`). Essencial para conformidade SOC2/ISO. |
-| **`integration_logs`** | Auditoria técnica de integrações (Raw Payload). | Armazena o JSON bruto de chamadas batch (VAPI/Retell) para garantir rastreabilidade e debug de sincronização. |
-| **`incidents`** | Registro de falhas de IA ou segurança. | Incidentes de alucinação ou vazamento de dados devem ser formalizados aqui para análise de risco. |
-
----
-
-## 4. Agentes como Unidade de Governança (ISO 42001)
-
-Na arquitetura do Nexus, um **Agente** não é apenas um prompt, é um Ativo Corporativo sujeito a auditoria.
-
-### 4.1 Campos de Controle (Tabela `agents`)
-Estes campos alteram o comportamento e a profundidade da supervisão exigida.
-
-1.  **`risk_level`** (`low`, `medium`, `high`, `critical`):
-    -   *Impacto:* Agentes de alto risco exigem aprovação humana para deploy (`lifecycle_stage`) e geram logs de auditoria mais detalhados.
-2.  **`lifecycle_stage`** (Ciclo de Vida Formal):
-    -   `development`: Sandbox. Só responde a números de teste.
-    -   `validation`: Teste de carga e Red Teaming.
-    -   `production`: Live para clientes finais.
-    -   `retired`: Desativado, mantido apenas para histórico (Compliance).
-3.  **`autonomy_level`** (1-5):
-    -   Nível 1: Apenas responde perguntas (RAG).
-    -   Nível 5: Executa ações no mundo real (API Calls) sem supervisão.
+### 3.3 Fluxo de Aprovação (Admin UI)
+-   Novos cadastros entram como `pending`.
+-   **Super Admin** visualiza lista de pendentes em `/users` (aba exclusiva).
+-   Ação de **Aprovar**: Define `tenant_id` e `role`. Muda status para `active`.
+-   Ação de **Rejeitar**: Bloqueia o acesso.
 
 ---
 
-## 5. Ciclo de Vida da Conversa
+## 4. Governança de Agentes & Knowledge Base (RAG)
 
-A conversa é uma Máquina de Estados finita gerida pelo Banco de Dados.
+### 4.1 Knowledge Base (RAG Gerenciado)
+O sistema agora suporta RAG (Retrieval-Augmented Generation) nativo por agente.
+-   **Tabela `agent_knowledge`**: Armazena fragmentos de conhecimento.
+-   **Embeddings**: Supabase `pgvector` armazena vetores semânticos.
+-   **Vinculação**: Relação N:1 com `agents`. Um documento pertence a um agente específico.
+-   **Fluxo N8N**: O RPC `get_agent_context` agora retorna automaticamente os snippets de conhecimento mais relevantes para a query do usuário, injetando no Contexto do Agente.
 
-### 5.1 Nascimento (Inbound)
-1.  **Evento Externo:** Webhook do WhatsApp/Voz chega ao N8N.
-2.  **Identificação:** N8N extrai telefone/email.
-3.  **Resolução (RPC):** `get_or_create_conversation` busca uma sessão aberta.
-    -   Se não houver, cria nova.
-    -   Sincroniza dados do cliente na tabela `contacts`.
+### 4.2 Agentes como Unidade de Governança (ISO 42001)
+Na arquitetura do Nexus, um **Agente** é um Ativo Corporativo sujeito a auditoria.
 
-### 5.2 Evolução de Estados (`conversation_status`)
--   **`ai_active`**: Estado padrão. O N8N consulta o banco, vê esta flag e **processa** a mensagem com LLM.
--   **`human_active`**: Gatilho de **Intervenção Manual**.
-    -   *Como ativa:* Regra de negócio (ex: cliente pede atendente) ou botão no Dashboard.
-    -   *Efeito:* O N8N consulta o banco, vê esta flag e **interrompe** a execução automática. O operador assume via Chat UI.
--   **`closed`**: Conversa finalizada. Arquivada para histórico.
-
-### 5.3 Memória e Histórico
-- O N8N **não mantém estado**.
-- A cada nova mensagem, ele busca o contexto chamando `get_agent_context` (RPC), que remonta o histórico recente da tabela `messages`.
+1.  **`risk_level`** (`low`, `medium`, `high`, `critical`): Agentes de alto risco exigem aprovação humana.
+2.  **`lifecycle_stage`**: `development` -> `validation` -> `production` -> `retired`.
+3.  **`brain_config` (JSONB)**: Contém System Prompt, Modelo, Temperatura e agora **`user_prompt_template`** (para motores burros/N8N).
+4.  **Enforcement de Governança (Master RPC)**: Toda validação de status (`active`), limites de concorrência e estágio de ciclo de vida é centralizada na RPC `n8n_orchestrator`, impedindo que o n8n processe mensagens para agentes inativos ou empresas suspensas.
 
 ---
 
-## 6. Fluxos Conversacionais (Flows) – Operacional
+## 5. Ciclo de Vida da Conversa & Voice AI
 
-`flows` e `flow_stages` não são apenas documentação, são contratos executáveis.
+### 5.1 Evolução de Estados
+-   **`ai_active`**: N8N processa via LLM.
+-   **`human_active`**: Operador assume. N8N pára.
+-   **`closed`**: Finalizada.
+-   *Auditoria de Qualidade:* Conversas fechadas entram em fila de auditoria (`Quality.tsx`) para avaliação humana, alimentando o score do agente.
 
-### 6.1 Estrutura do Contrato
--   **Flow:** Define o objetivo macro (ex: "Recuperação de Carrinho").
--   **Stages:** O passo-a-passo (1. Saudação -> 2. Oferta -> 3. Checkout).
+### 5.2 Integração de Voz (VAPI) - Idempotência
+A integração de voz é assíncrona e segura.
+1.  **Webhook VAPI:** Envia payload completo ao fim da chamada.
+2.  **RPC `sync_vapi_call`:**
+    -   Grava payload bruto em `integration_logs` (Não-repúdio).
+    -   Usa chave composta `(conversation_id, external_order)` para evitar duplicidade.
+    -   Calcula custo baseado na duração (`startedAt` - `endedAt`).
+    -   Sincroniza mensagens na tabela `messages` via RPC robusta.
 
-### 6.2 Execução Híbrida
--   O banco armazena em qual estágio a conversa está (`current_stage_id` em `conversations`).
--   O estágio define o **Ator** (`actor`):
-    -   `ai`: N8N processa.
-    -   `human`: N8N transborda para fila humana.
-    -   `both`: Copiloto (IA sugere, Humano aprova).
--   O N8N lê o estágio atual para saber qual Prompt ou Tool deve carregar.
+### 5.3 Suporte Multimídia & RLS Bypass
+O sistema utiliza a RPC **`record_message`** para gravação segura de interações:
+- **Resiliência:** Bypassa as restrições de RLS para o n8n (usando `service_role`), permitindo gravação em tenants isolados.
+- **Multimídia:** Suporte nativo para `audio_url`, `image_url` e `video_url`.
+- **HITL:** Registra transcrições automáticas de áudio para auditoria imediata.
+- **Atividade:** Atualiza automaticamente o `last_message_at` da conversa para gestão de inatividade.
 
 ---
 
-## 7. Consumo e Billing (Financeiro)
+## 6. Privacidade & LGPD (Data Masking)
 
-O modelo de cobrança é desacoplado da execução técnica.
+Implementação de Privacy-by-Design no Frontend.
+
+### 6.1 Camada de Mascaramento (`masking.ts`)
+-   **Detecção de Padrões:** Regex para CPF, CNPJ, Email, Telefone, Cartão de Crédito.
+-   **Aplicação:** O mascaramento ocorre **no Frontend** antes da renderização em componentes sensíveis (`ChatArea`, `WhatsAppView`, `ContactList`).
+-   **Persistência:** O dado no banco permanece original (para fins legais), mas a visualização padrão é ofuscada (ex: `***.***.123-**`).
+-   **Controle:** Toggle no `Settings` ou `Context` permite que operadores autorizados revelem dados temporariamente (auditado).
+
+---
+
+## 7. Consumo Financeiro & Billing
 
 ### 7.1 Eventos Geradores de Custo
-1.  **Tokens (LLM):** Input + Output gerados na OpenAI/Anthropic.
-2.  **Mensagens (Canal):** Custo de API do WhatsApp (Business API).
-3.  **Voz (Minutos):** Tempo de processamento STT (Ouvir) e TTS (Falar).
+1.  **Tokens (LLM):** Reportados pelo N8N.
+2.  **Mensagens (WhatsApp):** Custo unitário por mensagem.
+3.  **Voz (Minutos):** VAPI/Retell billing.
 
-### 7.2 Fluxo de Registro (Auditável)
-1.  **Execução:** N8N realiza a chamada técnica (OpenAI API).
-2.  **Reporte:** N8N extrai os metadados de uso (ex: `usage.total_tokens`).
-3.  **Gravação Segura:** N8N chama RPC `record_usage` passando os valores.
-4.  **Cálculo:** O banco grava os valores brutos. O cálculo financeiro (R$) ocorre na camada de aplicação (Dashboard) baseada no `plan_tier` da empresa no momento da consulta, ou pré-calculado na inserção dependendo da configuração.
-
-> **Importante:** O N8N não sabe quanto custa um token. Ele apenas reporta "Gastei 150 tokens". A plataforma aplica a tabela de preços.
+### 7.2 Fluxo Financeiro
+1.  **Registro:** RPC `record_usage` grava métricas brutas.
+2.  **Precificação:** Tabela `plans` define custos unitários por Tenant.
+3.  **Visualização:** Dashboard Financeiro calcula `quantidade * custo_unitario` em tempo real.
+4.  **Reporting:** Relatórios agregados por Centro de Custo (Tenant) ou Agente.
 
 ---
 
-## 8. Segurança e Auditoria
+## 8. Integração N8N (Contrato V3 - Master Orchestrator)
 
-### 8.1 Trilha de Auditoria (`audit_logs`)
-Qualquer alteração crítica gera um registro imutável.
--   **O que é auditado:** Mudança de Prompt, Troca de Modelo de IA, Alteração de Plano, Acesso de "Impersonation".
--   **Detalhes:** Armazena o JSON `state_before` e `state_after` para diff.
+O N8N atua como "Motor Burro" (Dumb Engine) de alta performance.
 
-### 8.2 Gestão de Incidentes
-Se uma IA alucinar ou violar uma política:
-1.  Operador reporta na UI ou sistema detecta anomalia.
-2.  Cria-se registro em `incidents`.
-3.  Afeta o `risk_score` do agente.
-4.  Dispara alertas para o `Risk Owner` (ISO Accountability).
-
----
-
-## 9. Contrato de Integração N8N (Formal)
-
-O N8N é um executor "burro" e stateless.
-
-### 9.1 ✅ O que o N8N DEVE fazer
-1.  **Receber Eventos:** Webhooks de canais externos.
-2.  **Pedir Contexto:** Chamar `POST /rpc/get_agent_context` para saber como agir.
-3.  **Executar IA:** Chamar a API da OpenAI/Anthropic com o prompt recebido do banco.
-4.  **Reportar:** Salvar a mensagem (`append_message`) e o consumo (`record_usage`).
-
-### 9.2 ❌ O que o N8N NÃO DEVE fazer
-1.  **Armazenar Prompts:** O "System Prompt" NUNCA deve ser hardcoded no nó do N8N. Deve vir do banco.
-2.  **Decidir Preços:** Não calcular custos no fluxo.
-3.  **Manter Estado:** Não usar variáveis globais do N8N para memória de conversa. Usar o banco.
-4.  **Acessar Tabelas Diretamente:** Não fazer `SELECT * FROM users`. Usar apenas as RPCs autorizadas.
-
-### 9.3 Dados Trafegados
--   **N8N -> Nexus:** IDs (Tenant, Agent, User), Texto do Usuário, Metadados de Uso.
--   **Nexus -> N8N:** Prompt do Sistema, Histórico de Mensagens, Configuração de Voz.
+### 8.1 Consolidação de Performance
+Evoluímos de múltiplas chamadas sequenciais para uma arquitetura baseada em **Master RPCs**:
+1.  **Lookup & Governança:** O nó inicial chama `n8n_orchestrator_v3`, que em uma única transação:
+    - Identifica Agente pela instância (Evolution API).
+    - Valida status da Empresa e do Agente.
+    - Verifica limites de concorrência.
+    - Gerencia (Abre/Reabre) a Conversa.
+    - Sincroniza Contato (Unicidade por `tenant_id`).
+    - Retorna Contexto completo (Prompt + Histórico + Knowledge).
+2.  **Gravação Segura:** O nó final utiliza `record_message` para persistência, garantindo integridade e conformidade com RLS.
 
 ---
 
-## 10. Inteligência de Leads & CRM (Extensão Pro)
+## 9. Inteligência de Leads (CRM)
 
-A plataforma evoluiu de um log de conversas para um CRM Inteligente que qualifica leads automaticamente.
-
-### 10.1 Fluxo de Qualificação Automática
-Sempre que uma conversa é auditada via `save_evaluation`, o sistema executa:
-1.  **Mapeamento de Contato:** Localiza o `contact` via `user_identifier`.
-2.  **Qualificação por Score:**
-    *   **Score >= 80:** "Lead Quente" 🔥
-    *   **Score >= 50:** "Interesse Médio" 💧
-    *   **Outros:** "Interesse Baixo" 🌫️
-3.  **Enriquecimento Híbrido:** Anexa as tags geradas pela IA (`p_tags`) diretamente ao perfil do contato.
-
-### 10.2 Visualização Kanban (CRM Dashboard)
-- **Interface:** Localizada em `/crm`, oferece uma visualização moderna em colunas baseada no `lifecycle_status`.
-- **Dinâmica:** Cards interativos que mostram canais de origem, tags de interesse e data de ativação, facilitando a tomada de decisão comercial.
+### 9.1 Qualificação Automática
+Conversas auditadas geram Score.
+-   **Score >= 80:** Lead Quente 🔥 (Tags automáticas aplicadas).
+-   **Visualização Kanban:** `/lead-crm` organiza contatos por estágio de funil, movidos automaticamente pela IA ou manualmente.
 
 ---
+
 > **Fim da Documentação**
-
----
-
-## 11. Integração de Voz (VAPI) & Auditoria Avançada
-
-A integração de Voz introduz complexidade de sincronização e concorrência, resolvida via arquitetura **Idempotente** e **Stateless**.
-
-### 11.1 Arquitetura de Sincronização (Webhook)
-Diferente dos chats texto (que inserem mensagem a mensagem), a VAPI envia o histórico completo ao final da chamada.
-*   **Trigger:** Webhook da VAPI bate no N8N ao final da chamada.
-*   **RPC Blindada (`sync_vapi_call`):**
-    1.  **Auditoria Raw:** Grava o payload JSON original na tabela `integration_logs` antes de qualquer processamento (Garantia de Não-Repúdio).
-    2.  **Deduplicação (Idempotência):** Utiliza um índice `UNIQUE (conversation_id, external_order)` para garantir que mensagens repetidas sejam rejeitadas pelo banco, permitindo reenvios seguros.
-    3.  **Resolução de Identidade:**
-        *   Prioridade 1: ID fornecido pelo N8N (Formulário).
-        *   Prioridade 2: Telefone (`customer.number`).
-        *   fallback: `web-visitor-{id}`.
-    4.  **Cálculo de Custo:** Calcula automaticamente `duration_seconds` baseado nos timestamps `startedAt` e `endedAt` do payload.
-
-### 11.2 Padrão Multi-Trigger (N8N)
-O fluxo N8N foi desenhado para ser assíncrono:
-1.  **Fluxo A (Disparo):** Recebe dados do Formulário Web -> Inicia chamada VAPI -> Termina. (Envia `metadata` com dados do cliente).
-2.  **Fluxo B (Retorno):** Recebe Webhook da VAPI -> Lê `metadata` devolvido -> Sincroniza via RPC.
-*   **Benefício:** Os fluxos são independentes e não exigem que o N8N fique "esperando" (memória presa) durante a duração da chamada.
-
----
-
-## 12. Interface de Conversação & Métricas em Tempo Real
-
-A interface foi evoluída para fornecer métricas visuais imediatas sobre o volume de interações, tanto no nível macro (Lista) quanto micro (Chat Ativo).
-
-### 12.1 Contadores de Volumetria (UX Decision)
-Para apoiar a tomada de decisão rápida dos operadores, foram implementados indicadores visuais de densidade de conversa:
-
-1.  **Totalizador Agregado (Conversation List):**
-    *   **Localização:** Cabeçalho da lista de conversas.
-    *   **Lógica:** Cálculo dinâmico no frontend (`filteredConversations.reduce`) que soma o total de mensagens de todas as conversas atualmente visíveis no filtro.
-    *   **Propósito:** Permitir que o supervisor entenda a "carga" de atendimento do filtro atual (ex: "Quantas mensagens o Agente de Vendas trocou hoje?").
-    *   **Visual:** Ícone `MessageSquare` + Badge preto (`text-black`) para distinção visual clara contra o contador de threads.
-
-2.  **Contador Contextual (Chat Header):**
-    *   **Localização:** Topo da área de chat ativa.
-    *   **Lógica:** `conversation.messages.length`.
-    *   **Propósito:** Indicador rápido da extensão do diálogo atual, útil para estimar custos e complexidade da conversa antes mesmo de ler o histórico.

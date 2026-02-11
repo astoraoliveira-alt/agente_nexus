@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact } from '@/lib/types';
+import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 // =============================================
 // AUTH & CONTEXT (BOOT)
@@ -101,6 +101,121 @@ export const api = {
             tenantId: u.tenant_id,
             isActive: u.is_active
         })) as User[];
+    },
+
+    async updateAgentUsage(agentId: string, usage: Partial<Agent['usage']>): Promise<void> {
+        const { error } = await supabase
+            .from('agents')
+            .update({
+                usage: {
+                    ...(await this.getAgents('')).find(a => a.id === agentId)?.usage,
+                    ...usage
+                }
+            })
+            .eq('id', agentId);
+
+        if (error) throw error;
+    },
+
+    async generateEmbedding(text: string): Promise<number[]> {
+        const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
+        if (!apiKey) {
+            console.warn('VITE_OPENAI_API_KEY not found. Skipping embedding generation.');
+            return [];
+        }
+
+        try {
+            const response = await fetch('https://api.openai.com/v1/embeddings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    input: text,
+                    model: 'text-embedding-3-small'
+                })
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error?.message || 'Failed to generate embedding');
+            }
+
+            const result = await response.json();
+            return result.data[0].embedding;
+        } catch (error) {
+            console.error('Embedding generation error:', error);
+            throw error;
+        }
+    },
+
+    async createUser(user: Partial<User>): Promise<User> {
+        const { data, error } = await supabase
+            .from('users')
+            .insert({
+                full_name: user.name,
+                email: user.email,
+                role: user.role,
+                tenant_id: user.tenantId,
+                is_active: true
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error creating user:', error);
+            throw error;
+        }
+
+        return {
+            id: data.id,
+            name: data.full_name,
+            email: data.email,
+            role: data.role,
+            tenantId: data.tenant_id,
+            isActive: data.is_active
+        } as User;
+    },
+
+    async updateUser(userId: string, updates: Partial<User>): Promise<User> {
+        const dbUpdates: any = {};
+        if (updates.name) dbUpdates.full_name = updates.name;
+        if (updates.email) dbUpdates.email = updates.email;
+        if (updates.role) dbUpdates.role = updates.role;
+
+        const { data, error } = await supabase
+            .from('users')
+            .update(dbUpdates)
+            .eq('id', userId)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error updating user:', error);
+            throw error;
+        }
+
+        return {
+            id: data.id,
+            name: data.full_name,
+            email: data.email,
+            role: data.role,
+            tenantId: data.tenant_id,
+            isActive: data.is_active
+        } as User;
+    },
+
+    async deleteUser(userId: string): Promise<void> {
+        const { error } = await supabase
+            .from('users')
+            .delete()
+            .eq('id', userId);
+
+        if (error) {
+            console.error('Error deleting user:', error);
+            throw error;
+        }
     },
 
     async getTenant(tenantId: string): Promise<Company | null> {
@@ -351,6 +466,14 @@ export const api = {
         return company as Company;
     },
 
+    async deleteCompany(tenantId: string): Promise<void> {
+        const { error } = await supabase.rpc('delete_company_cascade', { p_tenant_id: tenantId });
+        if (error) {
+            console.error('Error deleting company:', error);
+            throw error;
+        }
+    },
+
     async getAgentUsageStats(tenantId: string): Promise<any[]> {
         const { data, error } = await supabase
             .rpc('get_agent_usage_stats', { p_tenant_id: tenantId });
@@ -445,6 +568,7 @@ export const api = {
                 },
                 voiceConfig: dbAgent.voice_config,
                 type: dbAgent.type || 'conversational',
+                evolution_instance: dbAgent.evolution_instance,
                 integrationConfig: dbAgent.integration_config || {},
                 // Usage Metrics
                 usage: {
@@ -477,7 +601,8 @@ export const api = {
             voice_config: agent.voiceConfig || {},
             applied_policies: agent.policies || [],
             type: agent.type || 'conversational',
-            integration_config: agent.integrationConfig || {}
+            integration_config: agent.integrationConfig || {},
+            ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {})
         };
 
         const { data, error } = await supabase
@@ -487,7 +612,23 @@ export const api = {
             .single();
 
         if (error) throw error;
-        return data as unknown as Agent;
+
+        // Map back to CamelCase for Frontend Consistency
+        return {
+            ...data,
+            tenantId: data.tenant_id,
+            riskLevel: data.risk_level,
+            riskScore: data.risk_score,
+            lifecycleStage: data.lifecycle_stage,
+            autonomyLevel: data.autonomy_level,
+            brainConfig: data.brain_config,
+            voiceConfig: data.voice_config,
+            integrationConfig: data.integration_config,
+            totalConversations: data.total_conversations || 0,
+            activeConversations: data.active_conversations || 0,
+            maxConcurrentConversations: data.max_concurrency || 50,
+            policies: data.applied_policies || []
+        } as unknown as Agent;
     },
 
     async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
@@ -507,6 +648,7 @@ export const api = {
         }
         if (updates.voiceConfig) dbPayload.voice_config = updates.voiceConfig;
         if (updates.type) dbPayload.type = updates.type;
+        if (updates.evolution_instance !== undefined) dbPayload.evolution_instance = updates.evolution_instance;
         if (updates.integrationConfig) dbPayload.integration_config = updates.integrationConfig;
 
         const { data, error } = await supabase
@@ -540,6 +682,76 @@ export const api = {
                 n8n_webhook_url: data.integration_config?.n8n_webhook_url || `https://n8n.webhook/${data.id}`
             }
         } as unknown as Agent;
+    },
+
+    // =============================================
+    // KNOWLEDGE BASE (RAG)
+    // =============================================
+    async getAgentKnowledge(agentId: string): Promise<KnowledgeItem[]> {
+        const { data, error } = await supabase
+            .from('agent_knowledge')
+            .select('*')
+            .eq('agent_id', agentId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching agent knowledge:', error);
+            return [];
+        }
+
+        return data.map((item: any) => ({
+            id: item.id,
+            tenantId: item.tenant_id,
+            agentId: item.agent_id,
+            name: item.name,
+            content: item.content,
+            fileUrl: item.file_url,
+            fileType: item.file_type,
+            fileSize: item.file_size,
+            createdAt: new Date(item.created_at)
+        }));
+    },
+
+    async addKnowledgeItem(item: Partial<KnowledgeItem>): Promise<KnowledgeItem> {
+        const dbPayload = {
+            tenant_id: item.tenantId,
+            agent_id: item.agentId,
+            name: item.name,
+            content: item.content,
+            file_url: item.fileUrl,
+            file_type: item.fileType,
+            file_size: item.fileSize,
+            embedding: item.embedding
+        };
+
+        const { data, error } = await supabase
+            .from('agent_knowledge')
+            .insert(dbPayload)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return {
+            id: data.id,
+            tenantId: data.tenant_id,
+            agentId: data.agent_id,
+            name: data.name,
+            content: data.content,
+            fileUrl: data.file_url,
+            fileType: data.file_type,
+            fileSize: data.file_size,
+            createdAt: new Date(data.created_at)
+        };
+    },
+
+    async deleteKnowledgeItem(itemId: string): Promise<void> {
+        const { error } = await supabase
+            .from('agent_knowledge')
+            .delete()
+            .eq('id', itemId);
+
+        if (error) throw error;
     },
 
     async getAgentAuditLogs(agentId: string): Promise<any[]> {
@@ -682,8 +894,10 @@ export const api = {
                     ...m,
                     content: cleanContent,
                     timestamp: new Date(m.created_at || new Date()),
-                    sender: m.sender_type as 'user' | 'ai' | 'human',
-                    type: m.message_type as 'text' | 'image' | 'audio',
+                    sender: (m.sender_type === 'user' ? 'user' :
+                        m.sender_type === 'human' ? 'human' :
+                            'ai') as 'user' | 'ai' | 'human',
+                    type: (m.message_type || 'text') as 'text' | 'image' | 'audio',
                     // Fix: Map DB snake_case to Frontend camelCase
                     audioUrl: m.audio_url,
                     transcription: m.transcription,
@@ -1036,6 +1250,18 @@ export const api = {
         }));
     },
 
+    async getUnauditedConversations(tenantId: string): Promise<any[]> {
+        const { data, error } = await supabase
+            .rpc('get_unaudited_conversations', { p_tenant_id: tenantId });
+
+        if (error) {
+            console.error('Error fetching unaudited conversations:', error);
+            return [];
+        }
+
+        return data || [];
+    },
+
     async getEvaluationByConversation(conversationId: string): Promise<import('@/lib/types').Evaluation | null> {
         const { data, error } = await supabase
             .from('evaluations')
@@ -1066,7 +1292,7 @@ export const api = {
         };
     },
 
-    async triggerAudit(conversationId: string): Promise<boolean> {
+    async triggerAudit(conversationId: string, context?: { tenantId: string; agentId?: string }): Promise<boolean> {
         const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
         const finalUrl = baseUrl.endsWith('/audit-conversation') ? baseUrl : `${baseUrl}/audit-conversation`;
 
@@ -1078,7 +1304,8 @@ export const api = {
                 },
                 body: JSON.stringify({
                     record: {
-                        id: conversationId
+                        id: conversationId,
+                        ...context // Inject dynamic context (tenantId, agentId)
                     }
                 })
             });
@@ -1087,6 +1314,31 @@ export const api = {
             console.error('Error triggering audit:', error);
             return false;
         }
+    },
+
+    async getTenantUsage(tenantId: string): Promise<any> {
+        const now = new Date();
+        const { data, error } = await supabase
+            .rpc('get_tenant_usage_summary', {
+                p_tenant_id: tenantId,
+                p_month: now.getMonth() + 1, // JS months are 0-indexed
+                p_year: now.getFullYear()
+            });
+
+        if (error) {
+            console.error('Error fetching tenant usage:', error);
+            // Return zeroed structure on error to prevent UI crash
+            return {
+                total_tokens: 0,
+                stt_minutes: 0,
+                tts_minutes: 0,
+                total_messages: 0,
+                active_agents: 0
+            };
+        }
+
+        // Single row return
+        return data && data.length > 0 ? data[0] : { total_tokens: 0, stt_minutes: 0, tts_minutes: 0, total_messages: 0, active_agents: 0 };
     },
 
     async getIncidents(tenant_id: string): Promise<import('@/lib/types').AIIncident[]> {

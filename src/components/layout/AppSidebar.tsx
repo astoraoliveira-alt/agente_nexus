@@ -67,6 +67,7 @@ export function AppSidebar() {
 
   const handleLogout = () => {
     localStorage.removeItem('davos_session');
+    localStorage.removeItem('davos_active_tenant_id');
     window.location.href = '/login';
   };
 
@@ -142,7 +143,7 @@ export function AppSidebar() {
                   to={item.url}
                   end={item.url === '/'}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                    'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
                     collapsed && 'justify-center'
                   )}
                   activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
@@ -176,7 +177,7 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
                       collapsed && 'justify-center'
                     )}
                     activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
@@ -202,7 +203,7 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
                       collapsed && 'justify-center'
                     )}
                     activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
@@ -228,7 +229,7 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
                       collapsed && 'justify-center'
                     )}
                     activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"

@@ -176,6 +176,15 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
               {data.integrationConfig?.n8n_webhook_url || 'N/A'}
             </div>
           </div>
+
+          {data.evolution_instance && (
+            <div className="p-3 bg-emerald-950/20 rounded border border-emerald-900/30">
+              <Label className="text-[10px] text-emerald-500 uppercase font-bold tracking-widest">Instância Evolution (WhatsApp)</Label>
+              <div className="mt-1 text-xs font-mono text-emerald-400">
+                {data.evolution_instance}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -211,8 +220,18 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
                 style={{ width: `${((data.brainConfig?.maxTokens || 2048) / 4096) * 100}%` }}
               />
             </div>
-            <p className="text-[9px] text-muted-foreground mt-2 italic">* Editável na seção de Configuração Avançada.</p>
           </div>
+
+          {data.brainConfig?.userPromptTemplate && (
+            <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-md">
+              <Label className="text-[10px] text-amber-500 uppercase font-bold tracking-widest">User Message Template</Label>
+              <div className="mt-1 text-[11px] font-mono text-amber-200/70 leading-relaxed italic">
+                "{data.brainConfig.userPromptTemplate}"
+              </div>
+            </div>
+          )}
+
+          <p className="text-[9px] text-muted-foreground mt-2 italic">* Editável na seção de Configuração Avançada.</p>
         </div>
       </div>
 
