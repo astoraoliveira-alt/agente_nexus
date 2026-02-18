@@ -167,31 +167,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Filter data when tenant changes & Poll every 5s
+  // Filter data when tenant changes & Poll every 5s
   useEffect(() => {
     let intervalId: NodeJS.Timeout;
 
-    async function loadConversations() {
+    async function loadConversationsList() {
       if (currentTenant) {
         try {
-          const tenantConversations = await api.getConversations(currentTenant.id);
-          setConversations(tenantConversations);
+          const tenantConversations = await api.getConversationsOverview(currentTenant.id);
 
-          // If selected conversation is not in this tenant, deselect it
-          // Note: We don't want to deselect if it's just a refresh, only if tenant changed strictly.
-          // But strict tenant isolation is handled by the API query eq('tenant_id').
-          // Simpler: If selected exists but isn't found in new list (e.g. deleted), handle it.
-          // For now, we keep the simple check.
-          if (selectedConversation && selectedConversation.tenantId !== currentTenant.id) {
-            setSelectedConversation(null);
-          } else if (selectedConversation) {
-            // Update the selected conversation object in place with new messages
-            const updated = tenantConversations.find(c => c.id === selectedConversation.id);
-            if (updated) {
-              // Only update if there are changes (e.g. message count) to avoid re-renders?
-              // React SetState is somewhat smart, but let's just update to be sure we get new messages.
-              setSelectedConversation(updated);
-            }
-          }
+          setConversations(prev => {
+            // Merge strategy: Keep existing messages if ID matches, only update metadata
+
+            // 1. Check if we actually need to update (Simple length + ID check for performance)
+            // In a real app, use a deep comparison or JSON.stringify if needed, but this is a good heuristic.
+            const hasChanges = tenantConversations.length !== prev.length ||
+              tenantConversations.some(c => {
+                const p = prev.find(old => old.id === c.id);
+                return !p || p.lastMessageTime !== c.lastMessageTime || p.status !== c.status;
+              });
+
+            if (!hasChanges) return prev;
+
+            return tenantConversations.map(newConv => {
+              const existing = prev.find(p => p.id === newConv.id);
+              return {
+                ...newConv,
+                messages: existing ? existing.messages : [] // Persist loaded messages or empty
+              };
+            });
+          });
 
         } catch (error) {
           console.error("Failed to load conversations:", error);
@@ -199,14 +204,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Initial Load
-    loadConversations();
-
-    // Polling
-    intervalId = setInterval(loadConversations, 5000);
+    // Initial Load & Polling (Relaxed to 15s to prevent thrashing)
+    loadConversationsList();
+    intervalId = setInterval(loadConversationsList, 15000);
 
     return () => clearInterval(intervalId);
-  }, [currentTenant, selectedConversation?.id]); // Dep on ID, not full obj, to avoid loop
+  }, [currentTenant]);
+
+  // Separate Effect: Fetch Messages ONLY when Selected Conversation Changes
+  useEffect(() => {
+    async function fetchMessages() {
+      if (selectedConversation?.id) {
+        // Optimistic check: If we already have recent messages, maybe skip? 
+        // For now, always fetch to ensure sync.
+        try {
+          console.log(`📡 Fetching messages for ${selectedConversation.id}...`);
+          const messages = await api.getConversationMessages(selectedConversation.id);
+
+          // Update selected conversation state with real messages
+          setSelectedConversation(prev => prev ? { ...prev, messages } : null);
+
+          // Update main list state as well to cache it
+          setConversations(prev =>
+            prev.map(c => c.id === selectedConversation.id ? { ...c, messages: messages } : c)
+          );
+
+        } catch (error) {
+          console.error("Failed to fetch messages:", error);
+        }
+      }
+    }
+
+    fetchMessages();
+
+    // Optional: Poll active conversation more frequently? 
+    // Or rely on the 5s global poll? The global poll DOES NOT fetch messages anymore.
+    // So we MUST poll the active conversation messages separately if we want realtime chat.
+    const msgInterval = setInterval(fetchMessages, 3000); // 3s poll for active chat
+    return () => clearInterval(msgInterval);
+
+  }, [selectedConversation?.id]);
 
 
   useEffect(() => {

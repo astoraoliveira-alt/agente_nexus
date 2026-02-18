@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-02-18T01:56:11.953Z",
+  "tables": {
+    "companies": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "users": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "agents": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "contacts": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "conversations": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "messages": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "incidents": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "evaluations": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "consumption_metrics": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "plans": {
+      "status": "EXISTS",
+      "columns_detected": [
+        "id",
+        "name",
+        "type",
+        "description",
+        "base_price",
+        "llm_token_price",
+        "message_price",
+        "stt_minute_price",
+        "tts_minute_price",
+        "default_limits",
+        "created_at",
+        "updated_at",
+        "monthly_fee_covers_usage"
+      ]
+    },
+    "policies": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "flows": {
+      "status": "EXISTS",
+      "columns_detected": [
+        "id",
+        "tenant_id",
+        "name",
+        "description",
+        "direction",
+        "objective",
+        "success_criteria",
+        "status",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    "flow_stages": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "agent_flows": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "audit_logs": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "agent_audit_logs": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "plan_audit_logs": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "agent_knowledge": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    },
+    "company_davos_costs": {
+      "status": "EXISTS",
+      "columns_detected": "Unknown (Empty Table)"
+    }
+  },
+  "functions": [],
+  "policies": []
+}

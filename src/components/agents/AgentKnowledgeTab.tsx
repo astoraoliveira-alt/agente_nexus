@@ -69,8 +69,8 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                 const textContent = event.target?.result as string;
 
                 try {
-                    // Integration: Platform-side Vector Generation (Dumb Engine Alignment)
-                    const embedding = await api.generateEmbedding(textContent);
+                    // Integration: Backend triggers embedding generation automatically via Database Trigger
+                    // const embedding = await api.generateEmbedding(textContent); // REMOVED FOR SECURITY
 
                     await api.addKnowledgeItem({
                         agentId,
@@ -80,7 +80,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                         fileType: file.name.split('.').pop() || 'doc',
                         fileSize: file.size,
                         fileUrl: '#', // Simulated URL
-                        embedding: embedding // Pre-processed vector
+                        embedding: [] // Backend will populate this
                     });
 
                     toast.success('Documento adicionado e indexado');

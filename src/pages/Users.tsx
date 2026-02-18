@@ -136,9 +136,7 @@ export default function Users() {
 
         {/* Admin Section: Approval Queue */}
         {currentUser?.role === 'super_admin' && (
-          <div className="p-6 pb-0">
-            <PendingUsersList />
-          </div>
+          <PendingUsersList />
         )}
 
         {/* Header */}

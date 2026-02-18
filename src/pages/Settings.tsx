@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database, BarChart3, AlertCircle } from 'lucide-react';
+import { Settings as SettingsIcon, Building2, Shield, Bell, Palette, Globe, Database, BarChart3, AlertCircle, Activity } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,8 +13,8 @@ import { useState, useEffect } from 'react';
 import { Agent, Company } from '@/lib/types';
 import { api } from '@/services/api';
 import { useToast } from '@/components/ui/use-toast';
-
 import { PlanDetailsTab } from '@/components/settings/PlanDetailsTab';
+import SystemStatus from '@/pages/admin/SystemStatus';
 
 export default function Settings() {
   const { currentTenant, currentUser, maskingEnabled, toggleMasking } = useApp();
@@ -143,10 +143,16 @@ export default function Settings() {
                 Notificações
               </TabsTrigger>
               {currentUser?.role === 'super_admin' && (
-                <TabsTrigger value="platform" className="gap-2">
-                  <Database className="h-4 w-4" />
-                  Plataforma
-                </TabsTrigger>
+                <>
+                  <TabsTrigger value="platform" className="gap-2">
+                    <Database className="h-4 w-4" />
+                    Plataforma
+                  </TabsTrigger>
+                  <TabsTrigger value="system-status" className="gap-2">
+                    <Activity className="h-4 w-4" />
+                    Status
+                  </TabsTrigger>
+                </>
               )}
             </TabsList>
 
@@ -166,7 +172,7 @@ export default function Settings() {
 
                   <div className="space-y-2">
                     <Label htmlFor="plan">Plano Atual</Label>
-                    <Input id="plan" defaultValue={currentTenant?.planName || currentTenant?.plan} disabled className="capitalize" />
+                    <Input id="plan" defaultValue={currentTenant?.planName} disabled className="capitalize" />
                   </div>
 
                   <div className="space-y-2">
@@ -375,108 +381,114 @@ export default function Settings() {
             </TabsContent>
 
             {currentUser?.role === 'super_admin' && (
-              <TabsContent value="platform" className="space-y-6">
-                <div className="kpi-card border-l-4 border-l-warning bg-warning/5">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="h-5 w-5 text-warning" />
-                    <h3 className="font-semibold">Área Restrita - Super Admin</h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Configurações globais da plataforma Davos Nexus
-                  </p>
-                </div>
-
-                <div className="kpi-card">
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-semibold">Configurações Globais (Plano Contratado)</h3>
-                    <Badge variant="outline" className="border-accent text-accent uppercase font-mono text-[10px]">
-                      Habilitado via Plano: {currentTenant?.planName}
-                    </Badge>
+              <>
+                <TabsContent value="platform" className="space-y-6">
+                  <div className="kpi-card border-l-4 border-l-warning bg-warning/5">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="h-5 w-5 text-warning" />
+                      <h3 className="font-semibold">Área Restrita - Super Admin</h3>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Configurações globais da plataforma Davos Nexus
+                    </p>
                   </div>
 
-                  <div className="bg-blue-500/5 border border-blue-500/20 p-4 rounded-md mb-6 flex gap-3">
-                    <AlertCircle className="h-5 w-5 text-blue-500 shrink-0" />
-                    <div className="text-sm">
-                      <p className="font-semibold text-blue-500">Gestão Centralizada de Cotas</p>
-                      <p className="text-muted-foreground mt-1">
-                        Os limites abaixo são definidos no <strong>Catálogo de Planos</strong>.
-                        Para alterar estas cotas de forma permanente para todos os clientes deste nível, acesse o editor de planos.
-                      </p>
-                      <Button
-                        variant="link"
-                        className="p-0 h-auto text-blue-600 dark:text-blue-400 mt-2 font-bold"
-                        onClick={() => window.location.href = '/plans'}
-                      >
-                        Ir para Catálogo de Planos &rarr;
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 max-w-md opacity-80">
-                    <div className="space-y-2">
-                      <Label>Limite Atual de Tokens</Label>
-                      <Input type="number" value={currentTenant?.limits?.llmTokens || 0} disabled className="bg-muted" />
+                  <div className="kpi-card">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-semibold">Configurações Globais (Plano Contratado)</h3>
+                      <Badge variant="outline" className="border-accent text-accent uppercase font-mono text-[10px]">
+                        Habilitado via Plano: {currentTenant?.planName}
+                      </Badge>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label>Limite Atual de STT (minutos)</Label>
-                      <Input type="number" value={currentTenant?.limits?.sttMinutes || 0} disabled className="bg-muted" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Limite Atual de TTS (minutos)</Label>
-                      <Input type="number" value={currentTenant?.limits?.ttsMinutes || 0} disabled className="bg-muted" />
-                    </div>
-                  </div>
-
-                  <div className="mt-6 pt-6 border-t border-border">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Database className="h-3 w-3" />
-                      Sincronizado com a Tabela de Planos (Single Source of Truth)
-                    </div>
-                  </div>
-                </div>
-
-                <div className="kpi-card">
-                  <h3 className="font-semibold mb-4">Gerenciamento de Tenants</h3>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Visualizar e gerenciar todos os clientes da plataforma
-                  </p>
-                  <Button variant="outline" onClick={handleViewTenants} disabled={loadingTenants}>
-                    {loadingTenants ? 'Carregando...' : (showTenants ? 'Ocultar Tenants' : 'Ver Todos os Tenants')}
-                  </Button>
-
-                  {showTenants && (
-                    <div className="mt-4 border rounded-md">
-                      <div className="grid grid-cols-4 bg-muted p-2 font-medium text-sm">
-                        <div>Nome</div>
-                        <div>Slug</div>
-                        <div>Plano</div>
-                        <div>Status</div>
+                    <div className="bg-blue-500/5 border border-blue-500/20 p-4 rounded-md mb-6 flex gap-3">
+                      <AlertCircle className="h-5 w-5 text-blue-500 shrink-0" />
+                      <div className="text-sm">
+                        <p className="font-semibold text-blue-500">Gestão Centralizada de Cotas</p>
+                        <p className="text-muted-foreground mt-1">
+                          Os limites abaixo são definidos no <strong>Catálogo de Planos</strong>.
+                          Para alterar estas cotas de forma permanente para todos os clientes deste nível, acesse o editor de planos.
+                        </p>
+                        <Button
+                          variant="link"
+                          className="p-0 h-auto text-blue-600 dark:text-blue-400 mt-2 font-bold"
+                          onClick={() => window.location.href = '/plans'}
+                        >
+                          Ir para Catálogo de Planos &rarr;
+                        </Button>
                       </div>
-                      <div className="max-h-60 overflow-y-auto">
-                        {tenantsList.map((tenant) => (
-                          <div key={tenant.id} className="grid grid-cols-4 p-2 text-sm border-t hover:bg-muted/50">
-                            <div className="truncate font-medium">{tenant.name}</div>
-                            <div className="truncate text-muted-foreground">{tenant.slug}</div>
-                            <div>{tenant.planName || tenant.plan}</div>
-                            <div>
-                              <span className={`px-2 py-0.5 rounded-full text-xs ${tenant.status === 'active' ? 'bg-green-100 text-green-700' :
-                                tenant.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                                }`}>
-                                {tenant.status}
-                              </span>
+                    </div>
+
+                    <div className="space-y-4 max-w-md opacity-80">
+                      <div className="space-y-2">
+                        <Label>Limite Atual de Tokens</Label>
+                        <Input type="number" value={currentTenant?.limits?.llmTokens || 0} disabled className="bg-muted" />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Limite Atual de STT (minutos)</Label>
+                        <Input type="number" value={currentTenant?.limits?.sttMinutes || 0} disabled className="bg-muted" />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Limite Atual de TTS (minutos)</Label>
+                        <Input type="number" value={currentTenant?.limits?.ttsMinutes || 0} disabled className="bg-muted" />
+                      </div>
+                    </div>
+
+                    <div className="mt-6 pt-6 border-t border-border">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Database className="h-3 w-3" />
+                        Sincronizado com a Tabela de Planos (Single Source of Truth)
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="kpi-card">
+                    <h3 className="font-semibold mb-4">Gerenciamento de Tenants</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Visualizar e gerenciar todos os clientes da plataforma
+                    </p>
+                    <Button variant="outline" onClick={handleViewTenants} disabled={loadingTenants}>
+                      {loadingTenants ? 'Carregando...' : (showTenants ? 'Ocultar Tenants' : 'Ver Todos os Tenants')}
+                    </Button>
+
+                    {showTenants && (
+                      <div className="mt-4 border rounded-md">
+                        <div className="grid grid-cols-4 bg-muted p-2 font-medium text-sm">
+                          <div>Nome</div>
+                          <div>Slug</div>
+                          <div>Plano</div>
+                          <div>Status</div>
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {tenantsList.map((tenant) => (
+                            <div key={tenant.id} className="grid grid-cols-4 p-2 text-sm border-t hover:bg-muted/50">
+                              <div className="truncate font-medium">{tenant.name}</div>
+                              <div className="truncate text-muted-foreground">{tenant.slug}</div>
+                              <div>{tenant.planName || tenant.plan}</div>
+                              <div>
+                                <span className={`px-2 py-0.5 rounded-full text-xs ${tenant.status === 'active' ? 'bg-green-100 text-green-700' :
+                                  tenant.status === 'suspended' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                  {tenant.status}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                        {tenantsList.length === 0 && (
-                          <div className="p-4 text-center text-muted-foreground text-sm">Nenhum tenant encontrado.</div>
-                        )}
+                          ))}
+                          {tenantsList.length === 0 && (
+                            <div className="p-4 text-center text-muted-foreground text-sm">Nenhum tenant encontrado.</div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
+                    )}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="system-status" className="space-y-6">
+                  <SystemStatus />
+                </TabsContent>
+              </>
             )}
           </Tabs>
         </div>

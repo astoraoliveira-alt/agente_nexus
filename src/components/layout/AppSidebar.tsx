@@ -18,7 +18,8 @@ import {
   Brain,
   CreditCard,
   LayoutGrid,
-  PieChart
+  PieChart,
+  Activity
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -33,6 +34,7 @@ import { mockAlerts } from '@/lib/mock-data';
 const adminNavItems = [
   { title: 'Usuários', url: '/users', icon: Users },
   { title: 'Perfis', url: '/profiles', icon: Shield },
+
   { title: 'Configurações', url: '/settings', icon: Settings },
 ];
 

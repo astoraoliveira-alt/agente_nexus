@@ -20,6 +20,16 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MainLayout } from '@/components/layout/MainLayout';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const Contacts = () => {
     const { currentTenant } = useApp();
@@ -28,6 +38,7 @@ const Contacts = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
 
     // Form State
@@ -84,6 +95,28 @@ const Contacts = () => {
             });
         }
         setIsDialogOpen(true);
+    };
+
+    const handleDeleteContact = async () => {
+        if (!contactToDelete) return;
+
+        try {
+            const success = await api.deleteContact(contactToDelete.id);
+            if (success) {
+                toast({ title: "Contato removido com sucesso" });
+                loadContacts();
+            } else {
+                throw new Error("Failed to delete");
+            }
+        } catch (error) {
+            toast({
+                title: "Erro ao remover contato",
+                description: "Não foi possível remover o contato via API.",
+                variant: "destructive"
+            });
+        } finally {
+            setContactToDelete(null);
+        }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -169,11 +202,11 @@ const Contacts = () => {
                             <TableBody>
                                 {isLoading ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8">Carregando...</TableCell>
+                                        <TableCell colSpan={6} className="text-center py-8">Carregando...</TableCell>
                                     </TableRow>
                                 ) : filteredContacts.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                                             Nenhum contato encontrado.
                                         </TableCell>
                                     </TableRow>
@@ -225,9 +258,9 @@ const Contacts = () => {
                                                 <Badge
                                                     variant="outline"
                                                     className={`capitalize whitespace-nowrap ${['Lead Quente', 'sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' :
-                                                            ['Interesse Médio', 'mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                                ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
-                                                                    'bg-gray-500/5 text-gray-400 border-gray-500/10'
+                                                        ['Interesse Médio', 'mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
+                                                            ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
+                                                                'bg-gray-500/5 text-gray-400 border-gray-500/10'
                                                         }`}
                                                 >
                                                     {
@@ -255,8 +288,10 @@ const Contacts = () => {
                                                             <Edit className="mr-2 h-4 w-4" /> Editar
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator />
-                                                        {/* Delete implementation usually requires confirmation, skipping for brevity */}
-                                                        <DropdownMenuItem className="text-destructive">
+                                                        <DropdownMenuItem
+                                                            className="text-destructive"
+                                                            onClick={() => setContactToDelete(contact)}
+                                                        >
                                                             <Trash2 className="mr-2 h-4 w-4" /> Remover
                                                         </DropdownMenuItem>
                                                     </DropdownMenuContent>
@@ -334,6 +369,25 @@ const Contacts = () => {
                         </form>
                     </DialogContent>
                 </Dialog>
+
+                <AlertDialog open={!!contactToDelete} onOpenChange={(open) => !open && setContactToDelete(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Tem certeza absoluta?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Essa ação não pode ser desfeita. Isso excluirá permanentemente o contato
+                                <strong> {contactToDelete?.name} </strong>
+                                e removerá seus dados de nossos servidores.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteContact} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                Sim, remover contato
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
         </MainLayout>
     );

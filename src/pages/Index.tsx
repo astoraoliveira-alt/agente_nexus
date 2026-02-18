@@ -14,16 +14,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 export default function Index() {
-  const { currentTenant, openSlideOver } = useApp();
+  const { currentTenant, openSlideOver, conversations } = useApp();
   const navigate = useNavigate();
 
   // 1. Fetch Data
-  const { data: conversations, isLoading: loadingConvs } = useQuery({
-    queryKey: ['conversations', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getConversations(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    refetchInterval: 10000,
-  });
+  // Removed duplicate conversations query - using AppContext data now
 
   const { data: consumption, isLoading: loadingConsumption } = useQuery({
     queryKey: ['consumption', currentTenant?.id],
@@ -61,7 +56,8 @@ export default function Index() {
     enabled: !!currentTenant,
   });
 
-  const isLoading = loadingConvs || loadingConsumption || loadingAgents || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
+  /* 2. Calculate Loading State */
+  const isLoading = loadingConsumption || loadingAgents || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
 
   // 2. Calculate KPIs
   const activeConversations = conversations?.filter(c => c.status !== 'closed').length || 0;

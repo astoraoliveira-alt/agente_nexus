@@ -27,6 +27,7 @@ import LeadCRM from "@/pages/LeadCRM";
 import Quality from "./pages/Quality";
 import FinancialSummary from "./pages/FinancialSummary";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -59,7 +60,10 @@ const App = () => (
             <Route path="/plans" element={<ProtectedRoute><Plans /></ProtectedRoute>} />
             <Route path="/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
             <Route path="/quality" element={<ProtectedRoute><Quality /></ProtectedRoute>} />
+            <Route path="/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
+            <Route path="/quality" element={<ProtectedRoute><Quality /></ProtectedRoute>} />
             <Route path="/financials" element={<ProtectedRoute><FinancialSummary /></ProtectedRoute>} />
+
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

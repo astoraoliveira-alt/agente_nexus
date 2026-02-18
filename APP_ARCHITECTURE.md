@@ -28,23 +28,30 @@ O sistema opera sob isolamento estrito de dados (Row Level Security - RLS).
 
 A arquitetura do Nexus Hub evoluiu para um modelo híbrido **Service-Oriented Frontend + Database-First Backend**.
 
-### 2.1 Detalhamento da Stack
+### 2.1 Detalhamento da Stack (Híbrida & Distribuída)
 
-| Camada | Componente | Tecnologia | Papel & Detalhes Técnicos |
-| :--- | :--- | :--- | :--- |
-| **Frontend** | UI Framework | **React 18 (TypeScript)** | Single Page Application (SPA). Tipagem rigorosa para contratos de API. |
-| | Tooling | **Vite** | Build system ultrarápido e HMR. |
-| | Estilo | **Tailwind CSS + Shadcn/UI** | Design System atômico baseado em Radix UI primitives. |
-| | Service Layer | **AuthService / ApiService** | Camada de abstração que centraliza lógica de negócios e chamadas RPC. |
-| | Estado | **Context API + Local State** | Gerenciamento de sessão e dados voláteis. |
-| **Backend** | **Lógica (Core)** | **PL/pgSQL (PostgreSQL)** | Funções via RPC. O backend é *Database-First*. Lógica atômica e segura via RLS. |
-| | Camada API | **PostgREST (Supabase)** | Exposição automática e segura das tabelas e RPCs via RESTful API. |
-| | Autenticação | **Supabase Auth + Custom Users** | Auth V2: O Supabase gerencia sessão (JWT), mas a tabela `public.users` gerencia permissões, roles e tenants. |
-| **Persistência** | Banco de Dados | **PostgreSQL 15+** | Relacional puro com suporte extensivo a JSONB para metadados de IA. `pgvector` para Embeddings. |
-| | Armazenamento | **Supabase Storage** | Gestão de arquivos (áudios de conversas, assets da empresa, documentos RAG). |
-| **Orquestração** | Middleware IA | **n8n (Self-Hosted)** | Motor de fluxos. Atua como o executor stateless que liga o banco às LLMs. |
-| | Conectividade | **Webhooks / REST** | Integração com WhatsApp (Evolution API), Vapi, Retell e CRMs externos. |
-| **Inference** | Modelos LLM | **OpenAI / Anthropic** | Modelos (GPT-4o, Claude 3.5 Sonnet) orquestrados exclusivamente pelo n8n. |
+O sistema opera em uma arquitetura **Geo-Distribuída**, otimizada para latência no Brasil (para dados sensíveis) e performance global (para IA/Voz).
+
+| Camada | Componente | Tecnologia | Localização (Infra) | Papel & Detalhes Técnicos |
+| :--- | :--- | :--- | :--- | :--- |
+| **Frontend** | UI App | **React 18 (Vite)** | 🇺🇸 Vercel (USA) | SPA estático. CDN global, mas origem nos EUA. |
+| **Backend** | Database | **PostgreSQL 15+** | 🇧🇷 Supabase (Brasil) | Core do sistema. Dados sensíveis (LGPD) residem no Brasil. |
+| | API Layer | **PostgREST** | 🇧🇷 Supabase (Brasil) | Exposição automática e segura do DB via REST. |
+| | Serv. Functions | **Deno / Node.js** | 🇧🇷 Supabase Edge | Funções serverless para webhooks e integrações leves. |
+| | Auth | **Supabase Auth** | 🇧🇷 Supabase | Gestão de sessão JWT. |
+| **Orquestração** | Workflow Engine | **n8n (Node.js)** | 🇧🇷 Hostgator (BR)* | *A confirmar.* Motor de fluxos que orquestra a lógica de IA. |
+| **Canais** | WhatsApp | **Evolution API (Node)** | 🇧🇷 VPS (Brasil) | Gateway de mensagem. Node.js rodando em VPS dedicada. |
+| | Voz | **VAPI / Twilio** | 🇺🇸 USA (Global) | O processamento de voz ocorre nos EUA (menor latência p/ LLMs). |
+| **Inference** | LLM Brain | **OpenAI / Anthropic** | 🇺🇸 USA | Modelos de raciocínio (GPT-4o, Claude 3.5). |
+
+### 2.2 Latência & Estratégia de Rede
+Dada a distribuição geográfica, a latência é um fator crítico monitorado pela **Central de Latência (System Status)**:
+- **User -> Frontend (Vercel):** ~100-150ms (Carregamento inicial).
+- **User -> Database (Supabase BR):** <50ms (Operações CRUD rápidas).
+- **Supabase -> N8N (BR):** <30ms (Baixa latência para gatilhos).
+- **Supabase -> LLM (USA):** ~400-800ms (Gargalo natural da IA).
+
+Esta arquitetura híbrida garante que os dados do cliente fiquem no Brasil (Compliance), enquanto aproveitamos a melhor infraestrutura global para IA.
 
 ### 2.2 O Paradigma "Database-First" com Service Layer
 - **O Banco é o Backend:** Toda validação de permissão crítica, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**.
@@ -180,4 +187,115 @@ Conversas auditadas geram Score.
 
 ---
 
-> **Fim da Documentação**
+## 10. Monitoramento & Observabilidade (Central de Latência)
+
+Para mitigar os riscos da arquitetura distribuída, implementamos um **Monitor de Latência em Tempo Real** (`/admin/system-status`).
+
+### 10.1 Arquitetura de Ping Híbrido
+O monitoramento não é passivo, ele executa testes ativos ("Pings") em duas direções:
+
+1.  **Frontend Pings (User Perspective):**
+    -   O navegador do usuário testa a latência até a Vercel (CDN) e Supabase (DB).
+    -   Mede a qualidade da conexão do operador.
+
+2.  **Backend Pings (Edge Function `check-health`):**
+    -   Como o Supabase está no Brasil, ele atua como o "Ponto Central" de medição.
+    -   A Edge Function dispara requisições leves (HEAD/GET) para:
+        -   **N8N (BRL):** Valida a conectividade do orquestrador.
+        -   **Evolution API (BRL):** Valida o gateway de WhatsApp.
+        -   **OpenAI/VAPI (USA):** Mede o "custo de rede" internacional.
+
+### 10.2 Indicadores de Saúde
+-   🟢 **Saudável:** Latência dentro do esperado (<200ms BR, <800ms USA).
+-   🟡 **Degradado:** Latência 50% acima da média.
+-   🔴 **Offline:** Timeout ou Erro 5xx.
+
+---
+
+
+## 11. Modelo de Negócio & Interface (Business Logic & UI)
+
+Esta seção detalha as regras de negócio, contadores de consumo e a definição de interface para o painel administrativo.
+
+### 11.1. Arquitetura de Planos e Limites (SaaS)
+
+O sistema opera com 3 modalidades de planos, definidos na tabela `companies` e `plans` (Catálogo).
+
+| Tipo de Plano | Lógica de Cobrança | Exemplo de Uso |
+| :--- | :--- | :--- |
+| **Fixed (Quota)** | Valor fixo mensal com limites rígidos (hard limit). Excedente bloqueia ou requer upgrade. | PMEs, Planos de Entrada (Start). |
+| **Flex (Pay-as-you-go)** | Mensalidade base + Custo por uso excedente. O valor da mensalidade pode reverter em crédito. | Enterprise, Operações de Alto Volume. |
+| **Unlimited** | Valor fixo alto, sem limites práticos (apenas Fair Use policy). | Contratos Governamentais/Grandes Contas. |
+
+#### Contadores de Consumo (Counters)
+O sistema rastreia 4 métricas principais em `consumption_metrics`:
+
+1.  **Tokens LLM:** Unidade de processamento de texto (Input + Output). Preço/1k.
+2.  **Mensagens:** Contador de interações (independente do tamanho). Preço/unidade.
+3.  **STT Minutes (Speech-to-Text):** Minutos de áudio transcritos (Ouvido pela IA).
+4.  **TTS Minutes (Text-to-Speech):** Minutos de áudio gerados (Falado pela IA).
+
+> **Nota de Governança (ROI):** O sistema calcula automaticamente o ROI baseado na fórmula:
+> `Economia = (Total Mensagens * 2.5 min/human) * (Valor Hora Operador)`
+
+---
+
+### 11.2. Definição de Interface (Dashboards)
+
+#### A. Dashboard Principal (`/dashboard`)
+Visão geral tática para o gestor da operação.
+
+| Componente (Card) | Descrição Técnica | Fonte de Dados |
+| :--- | :--- | :--- |
+| **Conversas Ativas** | Volume em tempo real de atendimentos não finalizados. | `conversations.status != 'closed'` |
+| **Taxa de Automação** | % de conversas resolvidas sem intervenção humana. | `1 - (human_interventions / total)` |
+| **Tempo Economizado (ROI)** | Estimativa de horas humanas poupadas pela IA. | `tokens * fator_economia` |
+| **Consumo do Plano** | Progresso da barra de consumo (Tokens/Msgs) vs Limite. | `consumption_metrics` vs `companies.limits` |
+| **Gestão de Incidentes** | Status de tickets (Abertos, Investigando, Resolvidos). | `incidents` table |
+| **Qualidade (Trust Score)** | Média das avaliações de auditoria (0-100). | `evaluations.score` |
+| **Base de Contatos** | Funil de Leads (Quente/SQL, Médio/MQL, Frio/Lead). | `contacts.lifecycle_status` |
+
+#### B. Resumo Financeiro - DRE (`/financial`)
+Visão executiva de lucratividade por Tenant (Visão Super Admin).
+
+*   **Receita Total (Bruto):** Soma de Mensalidades Fixas + Variável (Excedente).
+*   **Custos Operacionais (Interno):** Custo de Infra (Supabase/Vercel) + Consumo de APIs (OpenAI/Vapi).
+*   **Margem Líquida:** `Receita - Custos`.
+*   **Alertas:** KPI automático para margem < 20%.
+
+#### C. Consumo Detalhado (`/consumption`)
+Auditoria técnica de uso para faturamento.
+
+*   **Saldo de Inteligência:** Visualização de Tokens gastos vs Contratados.
+*   **Heatmap de Utilização:** Matriz de calor (Dia da Semana x Hora) para identificar picos de carga.
+*   **Breakdown por Agente:** Custo individualizado por agente (quem gasta mais?).
+*   **Breakdown por Canal:** Custo separado por WhatsApp, Web Chat e Voz.
+*   **Predictor de Fatura:** Projeção linear de custo final baseada no consumo atual.
+
+---
+
+### 11.3. Governança e Controle de Fluxo
+
+#### Handoff (Transbordo Humano)
+O controle da conversa segue uma Máquina de Estados Finita (FSM) na tabela `conversations`.
+
+1.  **AI_ACTIVE (Padrão):** IA responde automaticamente.
+2.  **HUMAN_ACTIVE (Transbordo):**
+    *   **Gatilho:** Intenção de "Falar com atendente", Erro crítico, ou comando manual `/assumir`.
+    *   **Efeito:** IA silenciada (`is_paused=true`). Mensagens do usuário vão para o inbox do operador.
+    *   **Interface:** O Chat muda de cor (Visual Indicator) e habilita input de texto para o humano.
+3.  **CLOSED:** Conversa finalizada e arquivada.
+
+#### Perfis de Acesso (RBAC) & ISO 42001
+O sistema implementa papéis específicos para conformidade com IA Responsável:
+
+*   **AI System Owner (Executivo):** Visão completa, aprovação de orçamento/planos.
+*   **Risk Owner (Compliance):** Acesso a Incidentes, Auditoria e Logs. Não edita prompts.
+*   **Operator (Humano):** Acesso apenas ao Chat (Inbox) para atendimento manual.
+*   **Viewer:** Acesso somente leitura aos Dashboards.
+
+#### Proteção de Dados (LGPD)
+O sistema possui flag global `masking_enabled`. Quando ativo:
+*   **Interface:** Mascara CPF, E-mail e Telefones no frontend (`***-**`).
+*   **Banco de Dados:** Dados permanecem íntegros para processamento (transações).
+
