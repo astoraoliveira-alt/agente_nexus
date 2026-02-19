@@ -154,9 +154,9 @@ const Contacts = () => {
     };
 
     const filteredContacts = contacts.filter(c =>
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.identifier.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.email?.toLowerCase().includes(searchTerm.toLowerCase())
+        (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.identifier || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.email || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     return (
@@ -217,7 +217,7 @@ const Contacts = () => {
                                                 <div className="flex items-center gap-3">
                                                     <Avatar>
                                                         <AvatarImage src={contact.avatarUrl} />
-                                                        <AvatarFallback>{contact.name.substring(0, 2).toUpperCase()}</AvatarFallback>
+                                                        <AvatarFallback>{(contact.name || '??').substring(0, 2).toUpperCase()}</AvatarFallback>
                                                     </Avatar>
                                                     <div>
                                                         <p className="font-medium">{contact.name}</p>
@@ -237,10 +237,10 @@ const Contacts = () => {
                                                         </Badge>
                                                     ) : (
                                                         <>
-                                                            {(contact.phone || /^\d+$/.test(contact.identifier.replace(/\D/g, ''))) && (
+                                                            {(contact.phone || /^\d+$/.test(contact.identifier?.replace(/\D/g, '') || '')) && (
                                                                 <Badge variant="outline" className="gap-1"><Phone className="h-3 w-3" /> WhatsApp</Badge>
                                                             )}
-                                                            {(contact.email || contact.identifier.includes('@')) && (
+                                                            {(contact.email || contact.identifier?.includes('@')) && (
                                                                 <Badge variant="outline" className="gap-1"><Mail className="h-3 w-3" /> Email</Badge>
                                                             )}
                                                         </>

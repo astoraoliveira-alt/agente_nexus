@@ -23,6 +23,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -32,20 +33,44 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
-import { mockAIPolicies, mockAIIncidents, mockAgentGovernance } from '@/lib/mock-extended-data';
-import { mockAgents } from '@/lib/mock-data';
-import { AIPolicy, AIIncident, IncidentAttachment } from '@/lib/types';
+import { AIPolicy, AIIncident, IncidentAttachment, Agent } from '@/lib/types';
+import { api } from '@/services/api';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
 
 export default function Governance() {
-  const { openSlideOver } = useApp();
+  const { openSlideOver, currentTenant, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState('overview');
   const [search, setSearch] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
+  // State for Policies, Incidents & Agents
+  const [policies, setPolicies] = useState<AIPolicy[]>([]);
+  const [incidents, setIncidents] = useState<AIIncident[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
 
-  // State for Policies & Incidents
-  const [policies, setPolicies] = useState<AIPolicy[]>(mockAIPolicies);
-  const [incidents, setIncidents] = useState<AIIncident[]>(mockAIIncidents);
+  const loadData = async () => {
+    if (!currentTenant) return;
+    setIsLoading(true);
+    try {
+      const [incidentsData, policiesData, agentsData] = await Promise.all([
+        api.getIncidents(currentTenant.id),
+        api.getPolicies(currentTenant.id),
+        api.getAgents(currentTenant.id)
+      ]);
+      setIncidents(incidentsData);
+      setPolicies(policiesData);
+      setAgents(agentsData);
+    } catch (error) {
+      toast.error('Erro ao carregar dados de governança');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, [currentTenant]);
 
   // Policy Dialog State
   const [isPolicyDialogOpen, setIsPolicyDialogOpen] = useState(false);
@@ -93,8 +118,8 @@ export default function Governance() {
   };
 
   const openIncidents = incidents.filter(i => i.status !== 'resolved').length;
-  const activeAgents = mockAgents.filter(a => a.status === 'active').length;
-  const highRiskAgents = mockAgentGovernance.filter(g => g.riskLevel === 'high').length;
+  const activeAgents = agents.filter(a => a.status === 'active').length;
+  const highRiskAgents = agents.filter(a => a.riskLevel === 'high').length;
 
   const handleOpenPolicyDialog = (policy?: AIPolicy) => {
     if (policy) {
@@ -112,27 +137,40 @@ export default function Governance() {
     setIsPolicyDialogOpen(true);
   };
 
-  const handleSavePolicy = () => {
-    if (editingPolicy) {
-      setPolicies(prev => prev.map(p => p.id === editingPolicy.id ? { ...p, ...policyForm } as AIPolicy : p));
-      toast.success('Política atualizada');
-    } else {
-      const newPolicy = {
-        ...policyForm,
-        id: `policy-${Date.now()}`,
-        tenantId: 'tenant-1',
-        createdAt: new Date(),
-      } as AIPolicy;
-      setPolicies(prev => [...prev, newPolicy]);
-      toast.success('Política criada');
+  const handleSavePolicy = async () => {
+    if (!currentTenant) return;
+    try {
+      if (editingPolicy) {
+        // Update logic (to be added to api if needed, or use create for now if it handles upsert)
+        // For now, let's assume we create/update via the same pattern
+        await api.createPolicy({ ...policyForm, tenantId: currentTenant.id } as AIPolicy);
+        toast.success('Política atualizada');
+      } else {
+        await api.createPolicy({
+          ...policyForm,
+          tenantId: currentTenant.id,
+          isActive: true
+        } as Partial<AIPolicy>);
+        toast.success('Política criada');
+      }
+      // Reload
+      const updated = await api.getPolicies(currentTenant.id);
+      setPolicies(updated);
+      setIsPolicyDialogOpen(false);
+    } catch (error) {
+      toast.error('Erro ao salvar política');
     }
-    setIsPolicyDialogOpen(false);
   };
 
-  const handleDeletePolicy = (id: string, e: React.MouseEvent) => {
+  const handleDeletePolicy = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setPolicies(prev => prev.filter(p => p.id !== id));
-    toast.success('Política removida');
+    try {
+      await api.deletePolicy(id);
+      setPolicies(prev => prev.filter(p => p.id !== id));
+      toast.success('Política removida');
+    } catch (error) {
+      toast.error('Erro ao remover política');
+    }
   };
 
   // Incident Dialog State
@@ -146,6 +184,7 @@ export default function Governance() {
     agentId: '',
     attachments: [],
   });
+  const [realFilesPending, setRealFilesPending] = useState<{ id: string, file: File }[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -206,45 +245,90 @@ export default function Governance() {
         attachments: [],
       });
     }
+    setRealFilesPending([]);
     setIsIncidentDialogOpen(true);
   };
 
-  const handleSaveIncident = () => {
-    if (editingIncident) {
-      setIncidents(prev => prev.map(i => i.id === editingIncident.id ? { ...i, ...incidentForm } as AIIncident : i));
-      toast.success('Incidente atualizado');
-    } else {
-      const newIncident = {
-        ...incidentForm,
-        id: `incident-${Date.now()}`,
-        tenantId: 'tenant-1',
-        createdAt: new Date(),
-        reportedBy: 'Admin', // In real app, current user
-        attachments: incidentForm.attachments || [],
-      } as AIIncident;
-      setIncidents(prev => [...prev, newIncident]);
-      toast.success('Incidente registrado');
+  const handleSaveIncident = async () => {
+    if (!currentTenant) return;
+    try {
+      const finalAttachments = [...(incidentForm.attachments || [])];
+
+      // 1. Upload new files if any
+      if (realFilesPending.length > 0) {
+        toast.info(`Fazendo upload de ${realFilesPending.length} arquivo(s)...`);
+        for (const item of realFilesPending) {
+          if (!item.file) continue;
+
+          try {
+            const url = await api.uploadIncidentAttachment(item.file);
+            // Replace the blob URL with real storage URL
+            const idx = finalAttachments.findIndex(a => a.id === item.id);
+            if (idx !== -1) {
+              finalAttachments[idx] = {
+                ...finalAttachments[idx],
+                url: url
+              };
+            }
+          } catch (uploadErr) {
+            console.error('Upload failed for file:', item.id, uploadErr);
+          }
+        }
+      }
+
+      const payload = { ...incidentForm, attachments: finalAttachments, tenantId: currentTenant.id };
+      console.log('[Governance] Saving incident payload:', payload);
+
+      if (editingIncident) {
+        await api.createIncident(payload as AIIncident);
+        toast.success('Incidente atualizado');
+      } else {
+        await api.createIncident({
+          ...payload,
+          reportedBy: currentUser?.id, // Use real user ID if available
+        } as Partial<AIIncident>);
+        toast.success('Incidente registrado');
+      }
+
+      // Reload
+      const updated = await api.getIncidents(currentTenant.id);
+      setIncidents(updated);
+      setIsIncidentDialogOpen(false);
+      setRealFilesPending([]);
+    } catch (error) {
+      console.error('[Governance] Error saving incident:', error);
+      toast.error('Erro ao salvar incidente');
     }
-    setIsIncidentDialogOpen(false);
   };
 
-  const handleDeleteIncident = (id: string, e: React.MouseEvent) => {
+  const handleDeleteIncident = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setIncidents(prev => prev.filter(i => i.id !== id));
-    toast.success('Incidente removido');
+    try {
+      await api.deleteIncident(id);
+      setIncidents(prev => prev.filter(i => i.id !== id));
+      toast.success('Incidente removido');
+    } catch (error) {
+      toast.error('Erro ao remover incidente');
+    }
   };
 
-  const handleResolveIncident = (id: string) => {
-    setIncidents(prev => prev.map(i => i.id === id ? { ...i, status: 'resolved', resolvedAt: new Date() } : i));
-    toast.success('Incidente resolvido');
+  const handleResolveIncident = async (id: string) => {
+    try {
+      await api.resolveIncident(id, 'Resolvido via dashboard');
+      setIncidents(prev => prev.map(i => i.id === id ? { ...i, status: 'resolved', resolvedAt: new Date() } : i));
+      toast.success('Incidente resolvido');
+    } catch (error) {
+      toast.error('Erro ao resolver incidente');
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const newAttachments: IncidentAttachment[] = Array.from(e.target.files).map(file => ({
+      const filesArray = Array.from(e.target.files);
+      const newAttachments: IncidentAttachment[] = filesArray.map(file => ({
         id: `att-${Date.now()}-${Math.random()}`,
         name: file.name,
-        url: URL.createObjectURL(file), // Mock URL
+        url: URL.createObjectURL(file), // Temporary blob URL
         type: file.type || 'application/octet-stream',
         size: file.size,
         uploadedAt: new Date(),
@@ -254,6 +338,12 @@ export default function Governance() {
         ...prev,
         attachments: [...(prev.attachments || []), ...newAttachments]
       }));
+
+      // Store real files for later upload
+      setRealFilesPending(prev => [
+        ...prev,
+        ...newAttachments.map((att, idx) => ({ id: att.id, file: filesArray[idx] }))
+      ]);
     }
     // Reset input
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -264,6 +354,7 @@ export default function Governance() {
       ...prev,
       attachments: (prev.attachments || []).filter(a => a.id !== id)
     }));
+    setRealFilesPending(prev => prev.filter(p => p.id !== id));
   };
 
   return (
@@ -342,7 +433,7 @@ export default function Governance() {
                     <div
                       key={incident.id}
                       className="flex items-start gap-3 p-3 bg-muted hover:bg-muted/80 cursor-pointer"
-                      onClick={() => openSlideOver('incident-details', incident)}
+                      onClick={() => openSlideOver('incident-details', { ...incident, onRefresh: loadData })}
                     >
                       <AlertTriangle className={`h-4 w-4 mt-0.5 ${incident.severity === 'critical' ? 'text-destructive' :
                         incident.severity === 'high' ? 'text-orange-500' :
@@ -479,6 +570,9 @@ export default function Governance() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>{editingPolicy ? 'Editar Política' : 'Nova Política'}</DialogTitle>
+                  <DialogDescription>
+                    Defina as regras e diretrizes de governança para os agentes de IA.
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
@@ -541,12 +635,12 @@ export default function Governance() {
                 </thead>
                 <tbody>
                   {incidents.map((incident) => {
-                    const agent = mockAgents.find(a => a.id === incident.agentId);
+                    const agent = agents.find(a => a.id === incident.agentId);
                     return (
                       <tr
                         key={incident.id}
                         className="border-b border-border hover:bg-muted/50 cursor-pointer"
-                        onClick={() => openSlideOver('incident-details', incident)}
+                        onClick={() => openSlideOver('incident-details', { ...incident, onRefresh: loadData })}
                       >
                         <td className="py-3 px-4">
                           <p className="font-medium">{incident.title}</p>
@@ -567,28 +661,30 @@ export default function Governance() {
                           {incident.createdAt.toLocaleDateString('pt-BR')}
                         </td>
                         <td className="py-3 px-4 text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenIncidentDialog(incident); }}>
-                                <Pencil className="h-4 w-4 mr-2" />
-                                Editar
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleResolveIncident(incident.id); }}>
-                                <Activity className="h-4 w-4 mr-2" />
-                                Resolver
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-destructive" onClick={(e) => handleDeleteIncident(incident.id, e)}>
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Excluir
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                          {incident.status !== 'resolved' && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()}>
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenIncidentDialog(incident); }}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleResolveIncident(incident.id); }}>
+                                  <Activity className="h-4 w-4 mr-2" />
+                                  Resolver
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={(e) => handleDeleteIncident(incident.id, e)}>
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </td>
                       </tr>
                     );
@@ -602,6 +698,9 @@ export default function Governance() {
               <DialogContent className="max-w-xl">
                 <DialogHeader>
                   <DialogTitle>{editingIncident ? 'Editar Incidente' : 'Novo Incidente'}</DialogTitle>
+                  <DialogDescription>
+                    Registre os detalhes e evidências do incidente de IA para auditoria.
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
@@ -661,7 +760,7 @@ export default function Governance() {
                       >
                         <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                         <SelectContent>
-                          {mockAgents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                          {agents.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
@@ -744,28 +843,35 @@ export default function Governance() {
 
           <TabsContent value="risk" className="mt-0 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {mockAgentGovernance.map((gov) => {
-                const agent = mockAgents.find(a => a.id === gov.agentId);
-                if (!agent) return null;
-
+              {agents.map((agent) => {
                 return (
                   <div
-                    key={gov.agentId}
+                    key={agent.id}
                     className="kpi-card cursor-pointer hover:shadow-lg transition-all"
-                    onClick={() => openSlideOver('agent-governance', { governance: gov, agent })}
+                    onClick={() => openSlideOver('agent-governance', {
+                      governance: {
+                        agentId: agent.id,
+                        riskLevel: agent.riskLevel || 'low',
+                        usageType: agent.type || 'conversational',
+                        autonomyLevel: agent.autonomyLevel || 1,
+                        policies: agent.applied_policies || [],
+                        lifecycleStage: agent.lifecycleStage || 'development'
+                      },
+                      agent
+                    })}
                   >
                     <div className="flex items-start justify-between mb-4">
                       <div>
                         <h3 className="font-semibold">{agent.name}</h3>
                         <p className="text-xs text-muted-foreground">{agent.id}</p>
                       </div>
-                      {getRiskBadge(gov.riskLevel)}
+                      {getRiskBadge(agent.riskLevel || 'low')}
                     </div>
 
                     <div className="space-y-3">
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-muted-foreground">Tipo de Uso</span>
-                        <Badge variant="outline" className="capitalize">{gov.usageType}</Badge>
+                        <Badge variant="outline" className="capitalize">{agent.type}</Badge>
                       </div>
 
                       <div className="flex justify-between items-center">
@@ -774,7 +880,7 @@ export default function Governance() {
                           {[1, 2, 3, 4, 5].map((level) => (
                             <div
                               key={level}
-                              className={`w-4 h-4 ${level <= gov.autonomyLevel ? 'bg-accent' : 'bg-muted'}`}
+                              className={`w-4 h-4 ${(agent.autonomyLevel || 1) >= level ? 'bg-accent' : 'bg-muted'}`}
                             />
                           ))}
                         </div>
@@ -782,7 +888,7 @@ export default function Governance() {
 
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-muted-foreground">Políticas</span>
-                        <span className="text-sm font-medium">{gov.policies.length} vinculadas</span>
+                        <span className="text-sm font-medium">{(agent.applied_policies || []).length} vinculadas</span>
                       </div>
                     </div>
                   </div>

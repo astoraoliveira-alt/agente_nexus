@@ -89,36 +89,39 @@ BEGIN
     END IF;
 
     -- 4. Sync Contact (Keep CRM updated with Phone/Email)
-    BEGIN
-        INSERT INTO contacts (
-            tenant_id,
-            identifier,
-            name,
-            channel,
-            extra_info,
-            lifecycle_status,
-            phone,  -- Save Phone
-            email   -- Save Email
-        )
-        VALUES (
-            p_tenant_id,
-            p_user_identifier,
-            p_user_name,
-            v_agent_type,
-            p_metadata,
-            'lead',
-            p_phone,
-            p_email
-        )
-        ON CONFLICT (identifier) DO UPDATE
-        SET name = EXCLUDED.name,
-            channel = EXCLUDED.channel,
-            extra_info = contacts.extra_info || EXCLUDED.extra_info,
-            phone = COALESCE(EXCLUDED.phone, contacts.phone), -- Update only if new value provided
-            email = COALESCE(EXCLUDED.email, contacts.email); -- Update only if new value provided
-    EXCEPTION WHEN OTHERS THEN
-        RAISE NOTICE 'Erro ao sincronizar contato: %', SQLERRM;
-    END;
+    -- GUARD: Only sync if user is identified (has real name, phone, email, or is from WhatsApp)
+    IF (p_user_name != '??' OR p_phone IS NOT NULL OR p_email IS NOT NULL OR v_agent_type = 'whatsapp') THEN
+        BEGIN
+            INSERT INTO contacts (
+                tenant_id,
+                identifier,
+                name,
+                channel,
+                extra_info,
+                lifecycle_status,
+                phone,  -- Save Phone
+                email   -- Save Email
+            )
+            VALUES (
+                p_tenant_id,
+                p_user_identifier,
+                p_user_name,
+                v_agent_type,
+                p_metadata,
+                'lead',
+                p_phone,
+                p_email
+            )
+            ON CONFLICT (identifier) DO UPDATE
+            SET name = EXCLUDED.name,
+                channel = EXCLUDED.channel,
+                extra_info = contacts.extra_info || EXCLUDED.extra_info,
+                phone = COALESCE(EXCLUDED.phone, contacts.phone), -- Update only if new value provided
+                email = COALESCE(EXCLUDED.email, contacts.email); -- Update only if new value provided
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE 'Erro ao sincronizar contato: %', SQLERRM;
+        END;
+    END IF;
 
     -- Return JSON for N8N
     RETURN jsonb_build_object('id', v_conversation_id, 'reopened', (v_status = 'closed'));

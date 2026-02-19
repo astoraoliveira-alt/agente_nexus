@@ -197,10 +197,10 @@ export const api = {
             .from('companies')
             .select('*')
             .eq('id', tenantId)
-            .single();
+            .maybeSingle();
 
         if (companyError || !company) {
-            console.error('Error fetching tenant:', companyError);
+            if (companyError) console.error('Error fetching tenant:', companyError);
             return null;
         }
 
@@ -533,6 +533,7 @@ export const api = {
                 riskScore: dbAgent.risk_score,
                 lifecycleStage: dbAgent.lifecycle_stage,
                 autonomyLevel: dbAgent.autonomy_level,
+                contextWindow: dbAgent.context_window || 10,
                 policies: dbAgent.applied_policies || [],
                 brainConfig: {
                     ...dbAgent.brain_config,
@@ -573,6 +574,7 @@ export const api = {
             brain_config: agent.brainConfig || {},
             voice_config: agent.voiceConfig || {},
             applied_policies: agent.policies || [],
+            context_window: agent.contextWindow || 10,
             type: agent.type || 'conversational',
             integration_config: agent.integrationConfig || {},
             ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {})
@@ -596,6 +598,7 @@ export const api = {
             autonomyLevel: data.autonomy_level,
             brainConfig: data.brain_config,
             voiceConfig: data.voice_config,
+            contextWindow: data.context_window || 10,
             integrationConfig: data.integration_config,
             totalConversations: data.total_conversations || 0,
             activeConversations: data.active_conversations || 0,
@@ -612,6 +615,7 @@ export const api = {
         if (updates.riskLevel) dbPayload.risk_level = updates.riskLevel;
         if (updates.lifecycleStage) dbPayload.lifecycle_stage = updates.lifecycleStage;
         if (updates.autonomyLevel) dbPayload.autonomy_level = updates.autonomyLevel;
+        if (updates.contextWindow) dbPayload.context_window = updates.contextWindow;
         if (updates.brainConfig) {
             dbPayload.brain_config = {
                 ...updates.brainConfig,
@@ -644,6 +648,7 @@ export const api = {
             riskScore: data.risk_score,
             lifecycleStage: data.lifecycle_stage,
             autonomyLevel: data.autonomy_level,
+            contextWindow: data.context_window || 10,
             policies: data.applied_policies || [],
             brainConfig: data.brain_config,
             voiceConfig: data.voice_config,
@@ -843,15 +848,29 @@ export const api = {
     // CONVERSATIONS
     // =============================================
     async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
-        const { data, error } = await supabase
+        const select = this._capabilities.agents ? '*, agents(name, type)' : '*';
+
+        let { data, error } = await supabase
             .from('conversations')
-            .select('*, agents(name, type)') // Join agents to get name + type ONLY. No messages.
+            .select(select)
             .eq('tenant_id', tenantId)
             .order('last_message_at', { ascending: false });
 
+        if (error && (error.code === 'PGRST204' || error.code === '42703')) {
+            console.warn('Agent relation missing in conversations, falling back');
+            this._capabilities.agents = false;
+            const retry = await supabase
+                .from('conversations')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .order('last_message_at', { ascending: false });
+            data = retry.data;
+            error = retry.error;
+        }
+
         if (error) throw error;
 
-        return data.map(c => {
+        return (data as any[]).map(c => {
             return {
                 id: c.id,
                 tenantId: c.tenant_id,
@@ -878,14 +897,18 @@ export const api = {
             .from('messages')
             .select('*')
             .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: true }); // Oldest first
+            .order('created_at', { ascending: false }) // Last messages first for limit
+            .limit(50);
 
         if (error) {
             console.error('Error fetching messages:', error);
             return [];
         }
 
-        return data.map((m: any) => {
+        // Reverse to maintain chronological order in UI
+        const chronData = [...data].reverse();
+
+        return chronData.map((m: any) => {
             let cleanContent = m.content;
             try {
                 if (m.content && m.content.trim().startsWith('{')) {
@@ -1257,8 +1280,6 @@ export const api = {
             return null;
         }
 
-        console.log('Evaluation fetch result:', { conversationId, found: !!data, data });
-
         if (!data) return null;
 
         return {
@@ -1273,6 +1294,32 @@ export const api = {
             aiModel: data.ai_model,
             createdAt: new Date(data.created_at)
         };
+    },
+
+    async getEvaluationHistory(conversationId: string): Promise<import('@/lib/types').Evaluation[]> {
+        const { data, error } = await supabase
+            .from('evaluations')
+            .select('*')
+            .eq('conversation_id', conversationId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching evaluation history:', error);
+            return [];
+        }
+
+        return (data || []).map(item => ({
+            id: item.id,
+            tenantId: item.tenant_id,
+            conversationId: item.conversation_id,
+            agentId: item.agent_id,
+            score: item.score,
+            summary: item.summary,
+            tags: item.tags || [],
+            criteriaResults: item.criteria_results || {},
+            aiModel: item.ai_model,
+            createdAt: new Date(item.created_at)
+        }));
     },
 
     async triggerAudit(conversationId: string, context?: { tenantId: string; agentId?: string }): Promise<boolean> {
@@ -1324,19 +1371,70 @@ export const api = {
         return data && data.length > 0 ? data[0] : { total_tokens: 0, stt_minutes: 0, tts_minutes: 0, total_messages: 0, active_agents: 0 };
     },
 
+    // Persistent flags to avoid repeated 400 errors in the same session
+    _capabilities: {
+        conversations: true,
+        resolver: true,
+        agents: true
+    },
+
     async getIncidents(tenant_id: string): Promise<import('@/lib/types').AIIncident[]> {
-        const { data, error } = await supabase
+        // If we already know metadata is failing, use basic query immediately
+        if (!this._capabilities.conversations && !this._capabilities.resolver && !this._capabilities.agents) {
+            const { data, error } = await supabase
+                .from('incidents')
+                .select('*')
+                .eq('tenant_id', tenant_id)
+                .order('created_at', { ascending: false });
+            if (error) return [];
+            return (data || []).map(this._mapIncident);
+        }
+
+        let data, error;
+
+        // 1. Build the dynamic select string based on detected capabilities
+        const selectParts = ['*'];
+        if (this._capabilities.agents) selectParts.push('agents(name)');
+        if (this._capabilities.conversations) selectParts.push('conversations(user_name, user_identifier)');
+        if (this._capabilities.resolver) selectParts.push('resolver:users!resolved_by(full_name)');
+
+        const selectQuery = selectParts.join(', ');
+
+        const result = await supabase
             .from('incidents')
-            .select('*, agents(name)')
+            .select(selectQuery)
             .eq('tenant_id', tenant_id)
             .order('created_at', { ascending: false });
 
+        data = result.data;
+        error = result.error;
+
+        if (error && (error.code === 'PGRST200' || error.code === 'PGRST204' || error.code === '42703' || (error as any).status === 400)) {
+            const msg = error.message?.toLowerCase() || '';
+
+            console.warn('Incident fetch metadata failed, retrying base query', error);
+
+            if (msg.includes('conversations')) this._capabilities.conversations = false;
+            if (msg.includes('resolver') || msg.includes('resolved_by')) this._capabilities.resolver = false;
+            // No specific 'agents' capability flag, agents(name) is usually always present.
+            // If it fails, the base query will still include it if it exists.
+
+            const basicResult = await supabase
+                .from('incidents')
+                .select('*') // Select all columns, including agents(name) if it exists
+                .eq('tenant_id', tenant_id)
+                .order('created_at', { ascending: false });
+
+            data = basicResult.data; // Update data with the result of the basic query
+            error = basicResult.error;
+        }
+
         if (error) {
-            console.error('Error fetching incidents:', error);
+            console.error('Error fetching incidents (Base Fallback Failed):', error);
             return [];
         }
 
-        return data.map((i: any) => ({
+        return (data || []).map((i: any) => ({
             id: i.id,
             tenantId: i.tenant_id,
             conversationId: i.conversation_id,
@@ -1348,9 +1446,181 @@ export const api = {
             reportedBy: i.reported_by,
             createdAt: new Date(i.created_at),
             resolvedAt: i.resolved_at ? new Date(i.resolved_at) : undefined,
+            resolvedBy: i.resolved_by,
+            resolverName: i.resolver?.full_name,
             attachments: i.attachments || [],
-            agentName: i.agents?.name
+            agentName: i.agents?.name,
+            userName: i.conversations?.user_name,
+            userIdentifier: i.conversations?.user_identifier,
+            actionTaken: i.action_taken
         }));
+    },
+
+    async createIncident(incident: Partial<import('@/lib/types').AIIncident>): Promise<void> {
+        const payload: any = {
+            tenant_id: incident.tenantId,
+            agent_id: incident.agentId,
+            title: incident.title,
+            description: incident.description,
+            severity: incident.severity,
+            status: incident.status,
+            reported_by: incident.reportedBy,
+            attachments: incident.attachments || [],
+        };
+
+        const id = incident.id;
+        let result;
+
+        if (id) {
+            // Explicit Update
+            result = await supabase
+                .from('incidents')
+                .update({ ...payload, updated_at: new Date() })
+                .eq('id', id);
+
+            if (result.error && (result.error.code === '42703' || result.error.code === 'PGRST204')) {
+                result = await supabase
+                    .from('incidents')
+                    .update(payload)
+                    .eq('id', id);
+            }
+        } else {
+            // Explicit Insert
+            result = await supabase
+                .from('incidents')
+                .insert({ ...payload, updated_at: new Date() });
+
+            if (result.error && (result.error.code === '42703' || result.error.code === 'PGRST204')) {
+                result = await supabase
+                    .from('incidents')
+                    .insert(payload);
+            }
+        }
+
+        if (result.error) throw result.error;
+    },
+
+    async deleteIncident(id: string): Promise<void> {
+        const { error } = await supabase
+            .from('incidents')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+    },
+
+    async resolveIncident(id: string, actionTaken: string, resolvedBy?: string, attachments?: any[]): Promise<void> {
+        const payload: any = {
+            status: 'resolved',
+            resolved_at: new Date()
+        };
+
+        // Only add rich metadata if we think the columns exist
+        if (this._capabilities.resolver) {
+            payload.action_taken = actionTaken;
+            payload.resolved_by = resolvedBy;
+            payload.attachments = attachments || [];
+        }
+
+        let { error } = await supabase
+            .from('incidents')
+            .update(payload)
+            .eq('id', id);
+
+        if (error && (error.code === 'PGRST200' || error.code === 'PGRST204' || error.code === '42703' || (error as any).status === 400)) {
+            console.warn('Metadata resolution failed, retrying with base columns only');
+            this._capabilities.resolver = false;
+
+            const basicResult = await supabase
+                .from('incidents')
+                .update({
+                    status: 'resolved',
+                    resolved_at: new Date()
+                })
+                .eq('id', id);
+
+            error = basicResult.error;
+        }
+
+        if (error) throw error;
+    },
+
+    async uploadIncidentAttachment(file: File): Promise<string> {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2, 15)}.${fileExt}`;
+        const filePath = `${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('incident-attachments')
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+            .from('incident-attachments')
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    },
+
+    async getPolicies(tenant_id: string): Promise<import('@/lib/types').AIPolicy[]> {
+        const { data, error } = await supabase
+            .from('policies')
+            .select('*')
+            .eq('tenant_id', tenant_id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching policies:', error);
+            return [];
+        }
+
+        return data.map((p: any) => ({
+            id: p.id,
+            tenantId: p.tenant_id,
+            name: p.name,
+            version: p.version,
+            createdAt: new Date(p.created_at),
+            rules: p.rules,
+            isActive: p.is_active
+        }));
+    },
+
+    async createPolicy(policy: Partial<import('@/lib/types').AIPolicy>): Promise<void> {
+        const { error } = await supabase
+            .from('policies')
+            .insert({
+                tenant_id: policy.tenantId,
+                name: policy.name,
+                version: policy.version,
+                rules: policy.rules,
+                is_active: policy.isActive
+            });
+
+        if (error) throw error;
+    },
+
+    async deletePolicy(id: string): Promise<void> {
+        const { error } = await supabase
+            .from('policies')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+    },
+
+    async updateAgentGovernance(agentId: string, governance: { risk_level?: string, autonomy_level?: number, lifecycle_stage?: string, applied_policies?: string[] }): Promise<void> {
+        const { error } = await supabase
+            .from('agents')
+            .update({
+                risk_level: governance.risk_level,
+                autonomy_level: governance.autonomy_level,
+                lifecycle_stage: governance.lifecycle_stage,
+                applied_policies: governance.applied_policies
+            })
+            .eq('id', agentId);
+
+        if (error) throw error;
     },
 
     // =============================================
@@ -1422,5 +1692,179 @@ export const api = {
             console.error('Error updating davos cost:', error);
             throw error;
         }
+    },
+
+    // =============================================
+    // OUTBOUND QUEUE (Active Campaigns)
+    // =============================================
+    // =============================================
+    // OUTBOUND QUEUE (Active Campaigns)
+    // =============================================
+    async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string): Promise<import('@/lib/types').OutboundContact[]> {
+        let query = supabase
+            .from('outbound_queue')
+            .select('*')
+            .eq('tenant_id', tenantId);
+
+        if (agentId) query = query.eq('agent_id', agentId);
+        if (campaignId) query = query.eq('campaign_id', campaignId);
+
+        const { data, error } = await query.order('created_at', { ascending: false });
+        if (error) {
+            console.error('Error fetching outbound queue:', error);
+            return [];
+        }
+
+        return data.map((d: any) => ({
+            id: d.id,
+            tenantId: d.tenant_id,
+            agentId: d.agent_id,
+            campaignId: d.campaign_id,
+            contactName: d.contact_name,
+            contactPhone: d.contact_phone,
+            metadata: d.metadata,
+            status: d.status,
+            errorMessage: d.error_message,
+            retryCount: d.retry_count,
+            responseDetected: d.response_detected,
+            scheduledAt: new Date(d.scheduled_at),
+            lastAttemptAt: d.last_attempt_at ? new Date(d.last_attempt_at) : undefined,
+            sentAt: d.sent_at ? new Date(d.sent_at) : undefined,
+            createdAt: new Date(d.created_at)
+        }));
+    },
+
+    async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {
+        const dbPayload = contacts.map(c => ({
+            tenant_id: c.tenantId,
+            agent_id: c.agentId,
+            campaign_id: c.campaignId,
+            contact_name: c.contactName,
+            contact_phone: c.contactPhone,
+            metadata: c.metadata || {},
+            scheduled_at: c.scheduledAt || new Date(),
+            status: c.status || 'pending'
+        }));
+
+        const { error } = await supabase
+            .from('outbound_queue')
+            .upsert(dbPayload, {
+                onConflict: 'campaign_id,contact_phone',
+                ignoreDuplicates: true
+            });
+
+        if (error) {
+            console.error('Error adding to outbound queue:', error);
+            throw error;
+        }
+    },
+
+    // =============================================
+    // STRATEGIC CAMPAIGNS (V2)
+    // =============================================
+    async getCampaigns(tenantId: string): Promise<import('@/lib/types').Campaign[]> {
+        const { data, error } = await supabase
+            .from('campaigns')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('Error fetching campaigns:', error);
+            return [];
+        }
+
+        return data.map((c: any) => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            agentId: c.agent_id,
+            name: c.name,
+            description: c.description,
+            status: c.status,
+            startDate: new Date(c.start_date),
+            endDate: c.end_date ? new Date(c.end_date) : undefined,
+            dailyLimit: c.daily_limit,
+            totalContacts: c.total_contacts,
+            sentCount: c.sent_count,
+            responseCount: c.response_count,
+            metadata: c.metadata,
+            createdAt: new Date(c.created_at),
+            updatedAt: new Date(c.updated_at)
+        }));
+    },
+
+    async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise<import('@/lib/types').Campaign> {
+        const dbPayload = {
+            tenant_id: campaign.tenantId,
+            agent_id: campaign.agentId,
+            name: campaign.name,
+            description: campaign.description,
+            status: campaign.status || 'draft',
+            start_date: campaign.startDate || new Date(),
+            end_date: campaign.endDate,
+            daily_limit: campaign.dailyLimit || 50,
+            start_time: campaign.startTime || '09:00',
+            end_time: campaign.endTime || '18:00',
+            initial_message: campaign.initialMessage,
+            metadata: campaign.metadata || {}
+        };
+
+        const { data, error } = await supabase
+            .from('campaigns')
+            .insert(dbPayload)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return {
+            ...data,
+            tenantId: data.tenant_id,
+            agentId: data.agent_id,
+            startDate: new Date(data.start_date),
+            endDate: data.end_date ? new Date(data.end_date) : undefined,
+            dailyLimit: data.daily_limit,
+            startTime: data.start_time,
+            endTime: data.end_time,
+            initialMessage: data.initial_message,
+            totalContacts: data.total_contacts,
+            sentCount: data.sent_count,
+            responseCount: data.response_count,
+            createdAt: new Date(data.created_at),
+            updatedAt: new Date(data.updated_at)
+        } as any;
+    },
+
+    async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign>): Promise<void> {
+        const dbPayload: any = {};
+        if (updates.name) dbPayload.name = updates.name;
+        if (updates.description) dbPayload.description = updates.description;
+        if (updates.status) dbPayload.status = updates.status;
+        if (updates.startDate) dbPayload.start_date = updates.startDate;
+        if (updates.endDate) dbPayload.end_date = updates.endDate;
+        if (updates.dailyLimit) dbPayload.daily_limit = updates.dailyLimit;
+        if (updates.startTime) dbPayload.start_time = updates.startTime;
+        if (updates.endTime) dbPayload.end_time = updates.endTime;
+        if (updates.initialMessage) dbPayload.initial_message = updates.initialMessage;
+        if (updates.metadata) dbPayload.metadata = updates.metadata;
+        if (updates.totalContacts !== undefined) dbPayload.total_contacts = updates.totalContacts;
+        if (updates.sentCount !== undefined) dbPayload.sent_count = updates.sentCount;
+        if (updates.responseCount !== undefined) dbPayload.response_count = updates.responseCount;
+
+        const { error } = await supabase
+            .from('campaigns')
+            .update(dbPayload)
+            .eq('id', id);
+
+        if (error) throw error;
+    },
+
+    async deleteCampaign(id: string): Promise<void> {
+        const { error } = await supabase
+            .from('campaigns')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
     }
 };

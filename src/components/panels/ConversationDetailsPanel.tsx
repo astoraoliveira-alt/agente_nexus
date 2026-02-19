@@ -1,4 +1,4 @@
-import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2 } from 'lucide-react';
+import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -21,11 +21,14 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
   const queryClient = useQueryClient();
   const [isAuditing, setIsAuditing] = useState(false);
 
-  const { data: evaluation, isLoading, isError } = useQuery({
-    queryKey: ['evaluation', data.id],
-    queryFn: () => api.getEvaluationByConversation(data.id),
+  const { data: evaluations, isLoading, isError } = useQuery({
+    queryKey: ['evaluation-history', data.id],
+    queryFn: () => api.getEvaluationHistory(data.id),
     enabled: !!data.id
   });
+
+  const evaluation = evaluations?.[0]; // Latest one
+  const history = evaluations?.slice(1) || []; // Previous ones
 
   const handleAuditRequest = async () => {
     setIsAuditing(true);
@@ -41,7 +44,7 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
         });
         // Invalidate to refetch (user can refresh manually or we could poll)
         setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ['evaluation', data.id] });
+          queryClient.invalidateQueries({ queryKey: ['evaluation-history', data.id] });
         }, 5000); // Wait 5s for N8N to process
       } else {
         throw new Error("Failed to trigger webhook");
@@ -55,6 +58,19 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
     } finally {
       setIsAuditing(false);
     }
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'bg-green-500/10 text-green-600 border-green-500/20';
+    if (score >= 50) return 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20';
+    return 'bg-red-500/10 text-red-600 border-red-500/20';
+  };
+
+  const getTrendIcon = (current: number, previous?: number) => {
+    if (previous === undefined) return null;
+    if (current > previous) return <TrendingUp className="h-4 w-4 text-green-500" />;
+    if (current < previous) return <TrendingDown className="h-4 w-4 text-red-500" />;
+    return <Minus className="h-4 w-4 text-yellow-500" />;
   };
 
   if (!data) return null;
@@ -250,14 +266,15 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
             ) : (
               <div className="space-y-6">
                 {/* Overall Score */}
-                <Card className="border-border bg-card/50">
+                <Card className={`border-border ${getScoreColor(evaluation.score)}`}>
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-semibold flex items-center gap-2">
-                        <ShieldCheck className="h-5 w-5 text-primary" />
+                        <ShieldCheck className="h-5 w-5" />
                         Compliance Score
+                        {getTrendIcon(evaluation.score, evaluations?.[1]?.score)}
                       </h3>
-                      <Badge variant={evaluation.score > 70 ? 'default' : 'destructive'} className="text-lg px-3 py-1">
+                      <Badge variant="outline" className={`text-lg px-3 py-1 ${getScoreColor(evaluation.score)}`}>
                         {evaluation.score}/100
                       </Badge>
                     </div>
@@ -314,6 +331,35 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
                   <Bot className="h-3 w-3" />
                   Auditado por {evaluation.aiModel} • {formatDistanceToNow(new Date(evaluation.createdAt), { addSuffix: true, locale: ptBR })}
                 </div>
+
+                {/* History Section */}
+                {history.length > 0 && (
+                  <div className="mt-8 space-y-4 pb-4">
+                    <Separator />
+                    <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2 pt-2">
+                      <Clock className="h-4 w-4" />
+                      Histórico de Auditorias
+                    </h3>
+                    <div className="space-y-3">
+                      {history.map((h, idx) => (
+                        <div key={h.id} className="bg-muted/30 border border-border p-3 rounded-lg flex justify-between items-start gap-3 text-sm animate-in slide-in-from-bottom-2 duration-300">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              {getTrendIcon(h.score, evaluations?.[idx + 2]?.score)}
+                              <p className="line-clamp-2 italic text-muted-foreground font-serif">"{h.summary}"</p>
+                            </div>
+                            <p className="text-[10px] mt-2 text-muted-foreground uppercase tracking-wider">
+                              {formatDistanceToNow(new Date(h.createdAt), { addSuffix: true, locale: ptBR })}
+                            </p>
+                          </div>
+                          <Badge variant="outline" className={`shrink-0 font-mono ${getScoreColor(h.score)}`}>
+                            {h.score}/100
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </TabsContent>

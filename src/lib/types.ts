@@ -75,6 +75,20 @@ export interface Tenant {
     avg_human_minutes_per_interaction: number;
     operator_hourly_rate: number;
   };
+
+  // ISO Management (Accountability)
+  ai_system_owner_id?: string;
+  risk_owner_id?: string;
+  compliance_officer_id?: string;
+
+  // Settings / Privacy
+  settings?: {
+    aiNoticeMessage?: string;
+    retentionDays?: number;
+    anonymizationEnabled?: boolean;
+    session_timeout?: number;
+  };
+
   limits: {
     llmTokens: number;
     messages: number;
@@ -329,6 +343,7 @@ export interface Agent {
   // Functional Behavior
   lifecycleStage: AILifecycleStage; // IMPACTS: Sandbox restriction, dispatch rules
   autonomyLevel: 1 | 2 | 3 | 4 | 5; // IMPACTS: Human fallback, tool usage
+  contextWindow: number; // For n8n RAG/Memory parametrization
 
   riskAssessment?: AIRiskAssessment;
   role?: string; // For UI display
@@ -361,6 +376,9 @@ export interface Agent {
     n8n_workflow_id?: string;
     voice_provider: 'retell' | null;
   };
+
+  // Real DB Governance fields
+  applied_policies?: string[];
 }
 
 // ============ AI Governance Types ============
@@ -422,10 +440,15 @@ export interface AIIncident {
   description: string;
   createdAt: Date;
   resolvedAt?: Date;
+  resolvedBy?: string;
+  resolverName?: string;
   status: 'open' | 'investigating' | 'resolved';
   actionTaken?: string;
   reportedBy: string;
   attachments: IncidentAttachment[];
+  agentName?: string;
+  userName?: string;
+  userIdentifier?: string;
 }
 
 // ============ Conversational Flow Types ============
@@ -794,4 +817,45 @@ export interface BillingAlert {
   thresholdPercent: number;
   isActive: boolean;
   lastTriggeredAt?: Date;
+}
+
+export type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
+
+export interface Campaign {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  name: string;
+  description?: string;
+  status: CampaignStatus;
+  startDate: Date;
+  endDate?: Date;
+  startTime?: string;
+  endTime?: string;
+  initialMessage?: string;
+  dailyLimit: number;
+  totalContacts: number;
+  sentCount: number;
+  responseCount: number;
+  metadata?: Record<string, any>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OutboundContact {
+  id: string;
+  tenantId: string;
+  agentId: string;
+  campaignId?: string; // Linked to a strategic campaign
+  contactName?: string;
+  contactPhone: string;
+  metadata?: Record<string, any>;
+  status: 'pending' | 'processing' | 'sent' | 'failed';
+  errorMessage?: string;
+  retryCount: number;
+  responseDetected: boolean;
+  scheduledAt: Date;
+  lastAttemptAt?: Date;
+  sentAt?: Date;
+  createdAt: Date;
 }

@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Conversations from "./pages/Conversations";
 import Consumption from "./pages/Consumption";
 import Agents from "./pages/Agents";
+import Campaigns from "./pages/Campaigns";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Users from "./pages/Users";
@@ -26,6 +27,7 @@ import Contacts from "./pages/Contacts";
 import LeadCRM from "@/pages/LeadCRM";
 import Quality from "./pages/Quality";
 import FinancialSummary from "./pages/FinancialSummary";
+import SelectTenant from "./pages/SelectTenant";
 
 
 const queryClient = new QueryClient();
@@ -40,6 +42,7 @@ const App = () => (
           <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/select-tenant" element={<ProtectedRoute><SelectTenant /></ProtectedRoute>} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/pending-approval" element={<PendingApproval />} />
 
@@ -49,6 +52,7 @@ const App = () => (
             <Route path="/conversations" element={<ProtectedRoute><Conversations /></ProtectedRoute>} />
             <Route path="/consumption" element={<ProtectedRoute><Consumption /></ProtectedRoute>} />
             <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
+            <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
             <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />

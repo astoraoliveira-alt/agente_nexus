@@ -12,7 +12,7 @@ export const AuthService = {
             .eq('provider_id', providerId)
             .single();
 
-        if (error) return null;
+        if (error || !data) return null;
         return this.mapUser(data);
     },
 
@@ -26,7 +26,7 @@ export const AuthService = {
             .eq('email', email)
             .single();
 
-        if (error) return null;
+        if (error || !data) return null;
         return this.mapUser(data);
     },
 

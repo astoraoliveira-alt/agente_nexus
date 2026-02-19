@@ -501,8 +501,7 @@ export default function Agents() {
                         onValueChange={(v: any) => setFormData({
                           ...formData,
                           brainConfig: {
-                            systemPrompt: formData.brainConfig?.systemPrompt || '',
-                            temperature: formData.brainConfig?.temperature || 0.5,
+                            ...formData.brainConfig,
                             modelId: v
                           }
                         })}
@@ -528,7 +527,7 @@ export default function Agents() {
                       </div>
                       <Input
                         type="range"
-                        step="0.1"
+                        step="0.01"
                         min="0"
                         max="1"
                         className="h-11 accent-accent"
@@ -536,12 +535,39 @@ export default function Agents() {
                         onChange={(e) => setFormData({
                           ...formData,
                           brainConfig: {
-                            systemPrompt: formData.brainConfig?.systemPrompt || '',
-                            modelId: formData.brainConfig?.modelId || 'gpt-4o',
+                            ...formData.brainConfig,
                             temperature: parseFloat(e.target.value)
                           }
                         })}
                       />
+                    </div>
+                    <div className="md:col-span-12 space-y-3 p-4 bg-accent/5 border border-accent/10 rounded-lg">
+                      <div className="flex justify-between items-center">
+                        <div className="space-y-0.5">
+                          <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Memória Dinâmica (Janela de Contexto)</Label>
+                          <p className="text-[10px] text-muted-foreground italic">Define quantas mensagens anteriores a IA deve "lembrar" para manter o contexto.</p>
+                        </div>
+                        <Badge variant="outline" className="text-accent border-accent/30 bg-accent/5">
+                          {formData.contextWindow || 10} mensagens
+                        </Badge>
+                      </div>
+                      <Input
+                        type="range"
+                        step="1"
+                        min="1"
+                        max="50"
+                        className="h-8 accent-accent cursor-pointer"
+                        value={formData.contextWindow || 10}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          contextWindow: parseInt(e.target.value)
+                        })}
+                      />
+                      <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+                        <span>Econômico (1)</span>
+                        <span>Equilibrado (15)</span>
+                        <span>Longa Memória (50)</span>
+                      </div>
                     </div>
                   </div>
 

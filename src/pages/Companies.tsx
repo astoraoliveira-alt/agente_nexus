@@ -394,8 +394,8 @@ export default function Companies() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => {
-                        switchTenant(company.id);
+                      <DropdownMenuItem onClick={async () => {
+                        await switchTenant(company.id);
                         toast.success(`Acessando ambiente: ${company.name}`);
                         navigate('/');
                       }}>

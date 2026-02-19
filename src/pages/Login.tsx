@@ -66,19 +66,17 @@ export default function Login() {
 
         if (data.user) {
           // Check Business Status via Service
-          const userProfile = await AuthService.getUserByProviderId(data.user.id);
+          let userProfile = await AuthService.getUserByProviderId(data.user.id);
 
           // Handle First-Time Login / Auto-Link
           if (!userProfile) {
-            const linked = await AuthService.linkProviderToUser(email, data.user.id);
-            if (linked) {
-              toast.success(`Bem-vindo de volta, ${linked.name}`);
-            } else {
-              // If checking by email fails too, it's a raw unlinked user ??
-              // Could be a very old user or database inconsistency.
-              // For now, let AppContext handle the "No Profile" state (it might redirect or show error)
+            userProfile = await AuthService.linkProviderToUser(email, data.user.id);
+            if (userProfile) {
+              toast.success(`Bem-vindo de volta, ${userProfile.name}`);
             }
-          } else {
+          }
+
+          if (userProfile) {
             if (userProfile.status === 'blocked') {
               toast.error('Acesso Bloqueado. Contate o administrador.');
               await supabase.auth.signOut();
@@ -93,14 +91,17 @@ export default function Login() {
           toast.success('Login realizado com sucesso.');
 
           // Legacy Session Set (for ProtectedRoute immediate check)
-          // Ideally we remove this dependency, but keeping for stability
           localStorage.setItem('davos_session', JSON.stringify({
             user: { email: data.user.email },
             token: data.session.access_token
           }));
 
-          // Redirect - Force Reload to Ensure Context Refresh
-          window.location.href = '/';
+          // Redirect logic based on role
+          if (userProfile?.role === 'super_admin') {
+            window.location.href = '/select-tenant';
+          } else {
+            window.location.href = '/';
+          }
         }
       }
     } catch (err: any) {

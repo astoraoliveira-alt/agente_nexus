@@ -9,6 +9,7 @@ import {
   Shield,
   Moon,
   Sun,
+  Megaphone,
   ChevronLeft,
   ChevronRight,
   LogOut,
@@ -65,6 +66,7 @@ export function AppSidebar() {
     { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
     { title: 'Contatos', url: '/contacts', icon: Users },
     { title: 'Agentes', url: '/agents', icon: Bot },
+    { title: 'Campanhas', url: '/campaigns', icon: Megaphone },
   ];
 
   const handleLogout = () => {
@@ -221,9 +223,12 @@ export function AppSidebar() {
 
         {/* Platform Admin Section (Super Admin Only) */}
         {isSuperAdmin && (
-          <div className="px-3 mt-4">
+          <div className={cn(
+            "mt-4 pt-4 border-t border-sidebar-border/60 bg-blue-500/5 pb-2 mx-2 rounded-xl transition-all duration-300",
+            collapsed ? "px-1" : "px-1"
+          )}>
             {!collapsed && (
-              <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Admin Davos</p>
+              <p className="text-[10px] text-blue-500/80 font-black uppercase tracking-[0.2em] px-3 mb-2">Admin Davos</p>
             )}
             <ul className="space-y-1">
               {platformNavItems.map((item) => (
@@ -231,12 +236,15 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
-                      collapsed && 'justify-center'
+                      'flex items-center gap-3 px-3 py-2 text-xs font-semibold text-sidebar-foreground/70 hover:bg-blue-500/10 hover:text-blue-600 transition-all rounded-lg',
+                      collapsed && 'justify-center px-0'
                     )}
-                    activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                    activeClassName="bg-blue-500/10 text-blue-600 border-l-2 border-blue-500"
                   >
-                    <item.icon className="h-5 w-5 flex-shrink-0" />
+                    <item.icon className={cn(
+                      "h-5 w-5 flex-shrink-0 transition-colors",
+                      "group-hover:text-blue-500"
+                    )} />
                     {!collapsed && <span>{item.title}</span>}
                   </NavLink>
                 </li>

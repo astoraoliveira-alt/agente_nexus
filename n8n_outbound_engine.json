@@ -1,0 +1,111 @@
+{
+    "name": "Outbound Engine - Scheduler",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "minutes",
+                            "minutesInterval": 10
+                        }
+                    ]
+                }
+            },
+            "id": "76628994-049d-4357-9477-9669899fb58d",
+            "name": "Schedule Trigger",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.1,
+            "position": [
+                460,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "url": "https://wyfmyipbvoggusclwdhj.supabase.co/rest/v1/campaigns",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendHeaders": true,
+                "headerParameters": {
+                    "parameters": [
+                        {
+                            "name": "apikey",
+                            "value": "={{$node[\"Vars\"].json[\"service_role\"]}}"
+                        },
+                        {
+                            "name": "Authorization",
+                            "value": "=\"Bearer \" + {{$node[\"Vars\"].json[\"service_role\"]}}"
+                        }
+                    ]
+                },
+                "options": {
+                    "queryParameters": {
+                        "parameters": [
+                            {
+                                "name": "status",
+                                "value": "eq.active"
+                            }
+                        ]
+                    }
+                }
+            },
+            "id": "e6f47700-117a-426b-8772-9114770ce8fd",
+            "name": "Get Active Campaigns",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                860,
+                460
+            ]
+        },
+        {
+            "parameters": {
+                "values": {
+                    "string": [
+                        {
+                            "name": "service_role",
+                            "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU"
+                        },
+                        {
+                            "name": "supabase_url",
+                            "value": "https://wyfmyipbvoggusclwdhj.supabase.co"
+                        }
+                    ]
+                }
+            },
+            "id": "0384772b-117a-426b-8772-9114770ce8fd",
+            "name": "Vars",
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.2,
+            "position": [
+                660,
+                460
+            ]
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Vars",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Vars": {
+            "main": [
+                [
+                    {
+                        "node": "Get Active Campaigns",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

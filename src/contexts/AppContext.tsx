@@ -64,7 +64,7 @@ interface AppContextType {
   isLoading: boolean;
 }
 
-const AppContext = createContext<AppContextType | undefined>(undefined);
+export const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -126,8 +126,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             // 5. Tenant Logic
             const savedTenantId = localStorage.getItem('davos_active_tenant_id');
-            // Prefer saved tenant if valid, else user's home tenant
-            const tenantIdToLoad = savedTenantId || businessUser.tenantId;
+            // Prefer saved tenant if valid. 
+            // For Super Admin, if NO saved tenant, we don't force a fallback yet, let them choose.
+            // For others, we fallback to their home tenantId.
+            const tenantIdToLoad = savedTenantId || (businessUser.role === 'super_admin' ? null : businessUser.tenantId);
 
             if (tenantIdToLoad) {
               const tenant = await api.getTenant(tenantIdToLoad);
@@ -204,9 +206,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Initial Load & Polling (Relaxed to 15s to prevent thrashing)
+    // Initial Load & Polling (Relaxed to 20s to prevent thrashing)
     loadConversationsList();
-    intervalId = setInterval(loadConversationsList, 15000);
+    intervalId = setInterval(loadConversationsList, 20000);
 
     return () => clearInterval(intervalId);
   }, [currentTenant]);
@@ -237,10 +239,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     fetchMessages();
 
-    // Optional: Poll active conversation more frequently? 
-    // Or rely on the 5s global poll? The global poll DOES NOT fetch messages anymore.
-    // So we MUST poll the active conversation messages separately if we want realtime chat.
-    const msgInterval = setInterval(fetchMessages, 3000); // 3s poll for active chat
+    // Relaxed to 5s for active chat
+    const msgInterval = setInterval(fetchMessages, 5000);
     return () => clearInterval(msgInterval);
 
   }, [selectedConversation?.id]);
