@@ -22,7 +22,11 @@ import {
     ShieldCheck,
     Pencil,
     Eye,
-    X
+    X,
+    ArrowUpDown,
+    ArrowUp,
+    ArrowDown,
+    AlertCircle
 } from "lucide-react";
 import {
     Card,
@@ -81,6 +85,8 @@ export default function Campaigns() {
     const [isLoadingContacts, setIsLoadingContacts] = useState(false);
     const [selectedCampaignForImport, setSelectedCampaignForImport] = useState<string | null>(null);
     const [viewContacts, setViewContacts] = useState<any[]>([]);
+    const [contactSearch, setContactSearch] = useState("");
+    const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -403,6 +409,7 @@ export default function Campaigns() {
         setIsContactsViewOpen(true);
         try {
             const contacts = await api.getOutboundQueue(currentTenant.id, undefined, campaignId);
+            console.log("DEBUG - Contatos recebidos da API:", contacts.length, contacts);
             setViewContacts(contacts);
         } catch (error) {
             toast({
@@ -430,9 +437,61 @@ export default function Campaigns() {
         }
     };
 
+    const totalSent = campaigns.reduce((acc, curr) => acc + (curr.sentCount || 0), 0);
+    const totalResponses = campaigns.reduce((acc, curr) => acc + (curr.responseCount || 0), 0);
+    const totalFailures = campaigns.reduce((acc, curr) => acc + (curr.failedCount || 0), 0);
+    const avgResponseRate = totalSent > 0 ? ((totalResponses / totalSent) * 100).toFixed(1) : "0.0";
+
     const filteredCampaigns = campaigns.filter(c =>
         c.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    // Lógica de Filtro e Ordenação dos Contatos
+    const processedContacts = viewContacts.filter(contact => {
+        if (!contactSearch) return true;
+        const searchLower = contactSearch.toLowerCase();
+        // Verifica nome
+        if (contact.contactName && contact.contactName.toLowerCase().includes(searchLower)) return true;
+        // Verifica telefone
+        if (contact.contactPhone && contact.contactPhone.includes(searchLower)) return true;
+        return false;
+    }).sort((a, b) => {
+        if (!sortConfig) return 0;
+
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        // Tratamento especial para status e nome (string)
+        if (typeof aValue === 'string') aValue = aValue.toLowerCase();
+        if (typeof bValue === 'string') bValue = bValue.toLowerCase();
+
+        // Tratamento para data (sentAt) - assumindo string ISO ou Date
+        if (sortConfig.key === 'sentAt') {
+            aValue = a.sentAt ? new Date(a.sentAt).getTime() : 0;
+            bValue = b.sentAt ? new Date(b.sentAt).getTime() : 0;
+        }
+
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const requestSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    const getSortIcon = (key: string) => {
+        if (!sortConfig || sortConfig.key !== key) {
+            return <ArrowUpDown className="ml-2 h-3 w-3 text-muted-foreground opacity-50" />;
+        }
+        return sortConfig.direction === 'asc'
+            ? <ArrowUp className="ml-2 h-3 w-3 text-accent" />
+            : <ArrowDown className="ml-2 h-3 w-3 text-accent" />;
+    };
 
     return (
         <MainLayout>
@@ -575,7 +634,7 @@ export default function Campaigns() {
 
                 <div className="p-6 space-y-6">
                     {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                         <Card className="bg-accent/5 border-accent/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
@@ -586,30 +645,7 @@ export default function Campaigns() {
                                 <div className="text-xs text-muted-foreground mt-1">Disparos realizados</div>
                             </CardContent>
                         </Card>
-                        <Card className="bg-blue-500/5 border-blue-500/20">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Respostas</span>
-                                    <MessageSquare className="h-4 w-4 text-blue-500" />
-                                </div>
-                                <div className="text-2xl font-bold">{campaigns.reduce((acc, c) => acc + (c.responseCount || 0), 0)}</div>
-                                <div className="text-xs text-muted-foreground mt-1">Interações detectadas</div>
-                            </CardContent>
-                        </Card>
-                        <Card className="bg-green-500/5 border-green-500/20">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">ROI / Conversão</span>
-                                    <TrendingUp className="h-4 w-4 text-green-500" />
-                                </div>
-                                <div className="text-2xl font-bold">
-                                    {campaigns.length > 0 && campaigns.reduce((acc, c) => acc + (c.sentCount || 0), 0) > 0
-                                        ? ((campaigns.reduce((acc, c) => acc + (c.responseCount || 0), 0) / campaigns.reduce((acc, c) => acc + (c.sentCount || 1), 0)) * 100).toFixed(1)
-                                        : 0}%
-                                </div>
-                                <div className="text-xs text-muted-foreground mt-1">Média global de resposta</div>
-                            </CardContent>
-                        </Card>
+
                         <Card className="bg-amber-500/5 border-amber-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
@@ -618,6 +654,41 @@ export default function Campaigns() {
                                 </div>
                                 <div className="text-2xl font-bold">{campaigns.reduce((acc, c) => acc + ((c.totalContacts || 0) - (c.sentCount || 0)), 0)}</div>
                                 <div className="text-xs text-muted-foreground mt-1">Contatos aguardando disparo</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="bg-blue-500/5 border-blue-500/20">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-muted-foreground">Respostas</span>
+                                    <MessageSquare className="h-4 w-4 text-blue-500" />
+                                </div>
+                                <div className="text-2xl font-bold text-accent">{totalResponses}</div>
+                                <p className="text-xs text-muted-foreground">Interações detectadas</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="bg-red-500/5 border-red-500/20">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-muted-foreground">Falhas de Envio</span>
+                                    <AlertCircle className="h-4 w-4 text-red-500" />
+                                </div>
+                                <div className="text-2xl font-bold text-red-500">{totalFailures}</div>
+                                <p className="text-xs text-muted-foreground">Erros de entrega registrados</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="bg-green-500/5 border-green-500/20">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-muted-foreground">ROI / Conversão</span>
+                                    <TrendingUp className="h-4 w-4 text-green-500" />
+                                </div>
+                                <div className="text-2xl font-bold">
+                                    {avgResponseRate}%
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">Média global de resposta</div>
                             </CardContent>
                         </Card>
                     </div>
@@ -647,6 +718,7 @@ export default function Campaigns() {
                                             <TableHead>Status</TableHead>
                                             <TableHead className="text-center">Leads</TableHead>
                                             <TableHead className="text-center">Envios</TableHead>
+                                            <TableHead className="text-center text-red-500">Falhas</TableHead>
                                             <TableHead>Progresso</TableHead>
                                             <TableHead>Vigência</TableHead>
                                             <TableHead className="text-right">Respostas</TableHead>
@@ -671,6 +743,9 @@ export default function Campaigns() {
                                                 </TableCell>
                                                 <TableCell className="text-center font-semibold text-accent">
                                                     {campaign.sentCount || 0}
+                                                </TableCell>
+                                                <TableCell className="text-center font-semibold text-red-500">
+                                                    {campaign.failedCount || 0}
                                                 </TableCell>
                                                 <TableCell className="w-[150px]">
                                                     <div className="flex flex-col gap-1">
@@ -854,7 +929,7 @@ export default function Campaigns() {
                                     onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-3 gap-4">
                                 <div className="grid gap-2">
                                     <Label htmlFor="edit-limit">Limite Diário</Label>
                                     <Input
@@ -873,6 +948,16 @@ export default function Campaigns() {
                                         className="bg-accent/5"
                                         value={format(new Date(editingCampaign.startDate), "yyyy-MM-dd")}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: new Date(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-end">Fim</Label>
+                                    <Input
+                                        id="edit-end"
+                                        type="date"
+                                        className="bg-accent/5"
+                                        value={editingCampaign.endDate ? format(new Date(editingCampaign.endDate), "yyyy-MM-dd") : ""}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, endDate: e.target.value ? new Date(e.target.value) : undefined })}
                                     />
                                 </div>
                             </div>
@@ -927,23 +1012,32 @@ export default function Campaigns() {
 
             {/* View Contacts Modal */}
             <Dialog open={isContactsViewOpen} onOpenChange={setIsContactsViewOpen}>
-                <DialogContent className="sm:max-w-[700px] max-h-[80vh] flex flex-col p-6 border-accent/20">
+                <DialogContent className="sm:max-w-[1000px] max-h-[80vh] flex flex-col p-6 border-accent/20">
                     <DialogHeader>
                         <div className="flex items-center justify-between">
                             <DialogTitle className="text-xl font-bold flex items-center gap-2">
                                 <Users className="h-5 w-5 text-accent" />
-                                Lista de Contatos da Campanha
+                                Lista de Contatos da Campanha ({processedContacts.length})
                             </DialogTitle>
-                            <Button variant="ghost" size="icon" onClick={() => setIsContactsViewOpen(false)}>
-                                <X className="h-4 w-4" />
-                            </Button>
                         </div>
                         <DialogDescription>
-                            Visualize todos os leads importados e o status atual do processamento de cada um.
+                            Visualize todos os leads importados e o status atual do processo.
                         </DialogDescription>
+
+                        <div className="mt-4">
+                            <div className="relative">
+                                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Buscar por nome ou telefone..."
+                                    className="pl-8 bg-accent/5 border-accent/20"
+                                    value={contactSearch}
+                                    onChange={(e) => setContactSearch(e.target.value)}
+                                />
+                            </div>
+                        </div>
                     </DialogHeader>
 
-                    <div className="flex-1 overflow-y-auto min-h-[400px] py-4">
+                    <div className="flex-1 overflow-y-auto min-h-[300px] py-4 pr-1">
                         {isLoadingContacts ? (
                             <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
                                 <Clock className="h-5 w-5 animate-spin" />
@@ -954,19 +1048,47 @@ export default function Campaigns() {
                                 <Users className="h-12 w-12" />
                                 <p>Nenhum contato encontrado nesta campanha.</p>
                             </div>
+                        ) : processedContacts.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground opacity-50">
+                                <Search className="h-12 w-12" />
+                                <p>Nenhum contato encontrado com este filtro.</p>
+                            </div>
                         ) : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Nome</TableHead>
-                                        <TableHead>Telefone</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="text-right">Ação</TableHead>
+                                        <TableHead
+                                            className="cursor-pointer hover:text-accent select-none"
+                                            onClick={() => requestSort('contactName')}
+                                        >
+                                            <div className="flex items-center">
+                                                Nome {getSortIcon('contactName')}
+                                            </div>
+                                        </TableHead>
+                                        <TableHead
+                                            className="cursor-pointer hover:text-accent select-none"
+                                            onClick={() => requestSort('contactPhone')}
+                                        >
+                                            <div className="flex items-center">
+                                                Telefone {getSortIcon('contactPhone')}
+                                            </div>
+                                        </TableHead>
+                                        <TableHead
+                                            className="cursor-pointer hover:text-accent select-none"
+                                            onClick={() => requestSort('status')}
+                                        >
+                                            <div className="flex items-center">
+                                                Status {getSortIcon('status')}
+                                            </div>
+                                        </TableHead>
+
+
+                                        <TableHead>Detalhes do Erro</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {viewContacts.map((contact) => (
-                                        <TableRow key={contact.id}>
+                                    {processedContacts.map((contact, index) => (
+                                        <TableRow key={`${contact.id}-${index}`} className={`hover:bg-accent/5 ${contact.status === 'failed' ? 'bg-red-500/5' : ''}`}>
                                             <TableCell className="font-medium text-xs">{contact.contactName || "Sem Nome"}</TableCell>
                                             <TableCell className="text-xs">{contact.contactPhone}</TableCell>
                                             <TableCell>
@@ -979,23 +1101,29 @@ export default function Campaigns() {
                                                             contact.status === 'failed' ? 'Falhou' : contact.status}
                                                 </Badge>
                                             </TableCell>
-                                            <TableCell className="text-right">
-                                                <div className="text-[10px] text-muted-foreground">
-                                                    {contact.sentAt ? format(new Date(contact.sentAt), "dd/MM HH:mm") : '-'}
-                                                </div>
+                                            <TableCell className="text-xs text-muted-foreground max-w-[250px] truncate" title={contact.errorMessage || ""}>
+                                                {contact.errorMessage ? (
+                                                    <span className="text-red-400 flex items-center gap-1">
+                                                        <AlertCircle className="h-3 w-3" />
+                                                        {contact.errorMessage}
+                                                    </span>
+                                                ) : (
+                                                    <span className="opacity-50">-</span>
+                                                )}
                                             </TableCell>
+
                                         </TableRow>
                                     ))}
                                 </TableBody>
                             </Table>
                         )}
                     </div>
-                    <DialogFooter className="sticky bottom-0 bg-background pt-4">
+                    <div className="pt-4 border-t border-accent/10">
                         <Button className="w-full" onClick={() => setIsContactsViewOpen(false)}>Fechar Listagem</Button>
-                    </DialogFooter>
+                    </div>
                 </DialogContent>
             </Dialog>
 
-        </MainLayout>
+        </MainLayout >
     );
 }

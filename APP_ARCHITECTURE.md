@@ -1,6 +1,6 @@
 # Agent Nexus Hub - Documentação da Arquitetura (Completa & Detalhada)
-> **Última Atualização:** 11/Fev/2026
-> **Versão:** 6.0 (Master Orchestrator & Multimedia Support)
+> **Última Atualização:** 19/Fev/2026
+> **Versão:** 7.0 (Positive Reinforcement & Campaign Manager)
 > **Status:** Mestre (Fonte Única da Verdade)
 > **Fonte Primária:** `database/schema.sql`
 
@@ -98,6 +98,20 @@ O sistema agora suporta RAG (Retrieval-Augmented Generation) nativo por agente.
 -   **Vinculação**: Relação N:1 com `agents`. Um documento pertence a um agente específico.
 -   **Fluxo N8N**: O RPC `get_agent_context` agora retorna automaticamente os snippets de conhecimento mais relevantes para a query do usuário, injetando no Contexto do Agente.
 
+### 4.2 RAG de Reforço Positivo ("Success Memory")
+Além do conhecimento estático (PDFs), o sistema agora possui **aprendizado contínuo** com base no feedback das conversas (notas 4 e 5).
+
+1.  **Captura (Batch Job):** Um fluxo diário no N8N:
+    -   Busca conversas recentes com *Score >= 75*.
+    -   Usa LLM para analisar *por que* deu certo (estratégia).
+    -   Sanitiza PII (Remove nomes/telefones).
+    -   Gera embeddings e salva na tabela `agent_success_memory`.
+2.  **Recuperação (Híbrida no Chat):**
+    -   Antes de chamar o AI Agent, o fluxo gera embedding da pergunta atual.
+    -   Consulta `match_success_memory_as_system` para achar estratégias similares.
+    -   Injeta no System Prompt: *"Em situações similares, funcionou bem fazer X, Y, Z"*.
+3.  **Resultado:** O Agente "imita" seus melhores momentos, criando um flywheel de qualidade.
+
 ### 4.2 Agentes como Unidade de Governança (ISO 42001)
 Na arquitetura do Nexus, um **Agente** é um Ativo Corporativo sujeito a auditoria.
 
@@ -178,9 +192,20 @@ Evoluímos de múltiplas chamadas sequenciais para uma arquitetura baseada em **
 
 ---
 
-## 9. Inteligência de Leads (CRM)
+## 9. Inteligência de Leads & Campanhas (CRM V2)
 
-### 9.1 Qualificação Automática
+### 9.1 Campanhas de Outbound (Disparos em Massa)
+Novo módulo para gestão de listas de transmissão e reativação.
+
+1.  **Importação Inteligente:** Suporte a `.csv`, `.xls`, `.xlsx`. Detecta colunas de Nome/Telefone e deduplica automaticamente contatos existentes.
+2.  **Fila de Disparo (`campaign_tracking`):**
+    -   Cada contato vira um item na fila com status (`pending`, `sent`, `failed`).
+    -   Trigger `trg_track_campaign_response` detecta respostas do usuário (Inbound) e marca conversão.
+3.  **Atomicidade:**
+    -   O n8n chama `handle_outbound_sent` (RPC) para garantir que um envio só seja marcado como sucesso se a mensagem realmente saiu.
+    -   Rastreamento de falhas agregado (`failed_count`) visível no Dashboard.
+
+### 9.2 Qualificação Automática (Score)
 Conversas auditadas geram Score.
 -   **Score >= 80:** Lead Quente 🔥 (Tags automáticas aplicadas).
 -   **Visualização Kanban:** `/lead-crm` organiza contatos por estágio de funil, movidos automaticamente pela IA ou manualmente.

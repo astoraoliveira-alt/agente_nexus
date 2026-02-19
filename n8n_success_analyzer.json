@@ -1,0 +1,330 @@
+{
+    "name": "Daily Success Analyzer (Batch)",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "cronExpression",
+                            "expression": "0 3 * * *"
+                        }
+                    ]
+                }
+            },
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1.2,
+            "position": [
+                20,
+                340
+            ],
+            "id": "e6f8c7d0-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+            "name": "Schedule Trigger"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "url",
+                            "name": "SUPABASE_URL",
+                            "value": "https://your-project.supabase.co",
+                            "type": "string"
+                        },
+                        {
+                            "id": "service_role",
+                            "name": "SUPABASE_SERVICE_ROLE",
+                            "value": "your-service-role-key",
+                            "type": "string"
+                        },
+                        {
+                            "id": "min_score",
+                            "name": "MIN_SCORE",
+                            "value": 75,
+                            "type": "number"
+                        },
+                        {
+                            "id": "openai_model",
+                            "name": "OPENAI_MODEL",
+                            "value": "gpt-4o",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.2,
+            "position": [
+                220,
+                340
+            ],
+            "id": "5f4e3d2c-1b0a-9c8d-7e6f-5a4b3c2d1e0f",
+            "name": "Vars (Config)"
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT\n    c.id as conversation_id,\n    c.tenant_id,\n    c.agent_id,\n    e.score as evaluation_score,\n    a.name as agent_name,\n    c.user_identifier as user_phone_masked\nFROM conversations c\nJOIN evaluations e ON e.conversation_id = c.id\nJOIN agents a ON c.agent_id = a.id\nWHERE \n    e.score >= $1\n    AND c.created_at >= NOW() - INTERVAL '24 hours'\n    AND NOT EXISTS (\n        SELECT 1 FROM agent_success_memory asm \n        WHERE asm.original_conversation_id = c.id\n    )\nLIMIT 50;",
+                "additionalFields": {
+                    "queryParams": "={{ $('Vars (Config)').item.json.MIN_SCORE }}"
+                }
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.4,
+            "position": [
+                420,
+                340
+            ],
+            "id": "9a8b7c6d-5e4f-3a2b-1c0d-9e8f7a6b5c4d",
+            "name": "Fetch Candidates",
+            "credentials": {
+                "postgres": {
+                    "id": "your-postgres-cred-id",
+                    "name": "Supabase Connection"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "batchSize": 1,
+                "options": {}
+            },
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                620,
+                340
+            ],
+            "id": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+            "name": "Loop Conversations"
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT get_conversation_transcript($1) as transcript;",
+                "additionalFields": {
+                    "queryParams": "={{ $json.conversation_id }}"
+                }
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.4,
+            "position": [
+                820,
+                240
+            ],
+            "id": "2b3c4d5e-6f7a-8b9c-0d1e-2f3a4b5c6d7e",
+            "name": "Get Transcript",
+            "credentials": {
+                "postgres": {
+                    "id": "your-postgres-cred-id",
+                    "name": "Supabase Connection"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "resource": "chat",
+                "model": "={{ $('Vars (Config)').item.json.OPENAI_MODEL }}",
+                "messages": {
+                    "values": [
+                        {
+                            "role": "system",
+                            "content": "Você é um Analista de Estratégia de IA sênior. Sua tarefa é extrair \"Lições Aprendidas\" de logs de chat bem-sucedidos para treinar futuras IAs.\n\nREGRAS DE PRIVACIDADE CRÍTICAS:\n1. REMOVA TODOS OS NOMES PRÓPRIOS (de pessoas e empresas). Substitua por [Cliente] ou [Empresa].\n2. REMOVA TODOS OS TELEFONES, E-MAILS E ENDEREÇOS.\n3. REMOVA VALORES FINANCEIROS ESPECÍFICOS se forem dados sensíveis do cliente. Mantenha preços de produtos se forem públicos.\n\nSEU OBJETIVO:\nIdentificar:\n1. Intenção: O que o usuário queria?\n2. Estratégia: O que a IA fez que funcionou bem? (Tom de voz, ordem de argumentos, tipo de pergunta).\n\nFORMATO DE SAÍDA (JSON Puro):\n{\n  \"user_intent\": \"Resumo curto da intenção (ex: Negociação de Dívida)\",\n  \"strategic_summary\": \"Texto descritivo da estratégia (ex: A IA usou empatia ao reconhecer a dificuldade financeira antes de propor o parcelamento...)\",\n  \"tags\": [\"negociacao\", \"empatia\", \"financeiro\"]\n}"
+                        },
+                        {
+                            "role": "user",
+                            "content": "={{ $json.transcript }}"
+                        }
+                    ]
+                },
+                "jsonOutput": true
+            },
+            "type": "@n8n/n8n-nodes-langchain.openAi",
+            "typeVersion": 1.4,
+            "position": [
+                1020,
+                240
+            ],
+            "id": "3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f",
+            "name": "Analyze Strategy (OpenAI)",
+            "credentials": {
+                "openaiApi": {
+                    "id": "your-openai-cred-id",
+                    "name": "OpenAI Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Robust JSON Parsing\nconst input = $input.item.json.message.content;\nlet parsed;\n\ntry {\n  if (typeof input === 'object') {\n    parsed = input;\n  } else {\n    // Try to find the JSON block (greedy match between first { and last })\n    const jsonMatch = input.match(/\\{.*\\}/s);\n    if (jsonMatch) {\n        parsed = JSON.parse(jsonMatch[0]);\n    } else {\n        // Fallback: try parsing the whole string\n        parsed = JSON.parse(input);\n    }\n  }\n} catch (e) {\n  parsed = { \n      error: \"Failed to parse JSON\", \n      raw: input, \n      message: e.message \n  };\n}\n\n// Add metadata tags\nif (!parsed.tags) parsed.tags = [];\nparsed.tags.push(\"success_memory\");\n\nreturn { json: parsed };"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1220,
+                240
+            ],
+            "id": "4d5e6f7a-8b9c-0d1e-2f3a-4b5c6d7e8f9a",
+            "name": "Parse JSON"
+        },
+        {
+            "parameters": {
+                "model": "text-embedding-3-small",
+                "text": "={{ $json.strategic_summary }}"
+            },
+            "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+            "typeVersion": 1.1,
+            "position": [
+                1420,
+                400
+            ],
+            "id": "5e6f7a8b-9c0d-1e2f-3a4b-5c6d7e8f9a0b",
+            "name": "Generate Embedding",
+            "credentials": {
+                "openaiApi": {
+                    "id": "your-openai-cred-id",
+                    "name": "OpenAI Account"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "mode": "runOnceForEachItem",
+                "jsCode": "// Prepare data for Postgres RPC\nconst agent_id = $('Loop Conversations').item.json.agent_id;\nconst conversation_id = $('Loop Conversations').item.json.conversation_id;\nconst score = $('Loop Conversations').item.json.evaluation_score;\nconst analysis = $('Parse JSON').item.json;\nconst embedding = $('Generate Embedding').item.json.embedding;\n\nreturn {\n  json: {\n    agent_id,\n    conversation_id,\n    score,\n    user_intent: analysis.user_intent,\n    strategic_summary: analysis.strategic_summary,\n    tags: analysis.tags,\n    embedding\n  }\n};"
+            },
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1620,
+                240
+            ],
+            "id": "6f7a8b9c-0d1e-2f3a-4b5c-6d7e8f9a0b1c",
+            "name": "Prepare Data"
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT store_success_memory(\n    $1::uuid, \n    $2::uuid, \n    $3::text, \n    $4::text, \n    $5::int, \n    $6::text[], \n    $7::vector\n);",
+                "additionalFields": {
+                    "queryParams": "={{ [$json.agent_id, $json.conversation_id, $json.user_intent, $json.strategic_summary, $json.score, $json.tags, JSON.stringify($json.embedding)] }}"
+                }
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.4,
+            "position": [
+                1820,
+                240
+            ],
+            "id": "7a8b9c0d-1e2f-3a4b-5c6d-7e8f9a0b1c2d",
+            "name": "Store Memory (RPC)",
+            "credentials": {
+                "postgres": {
+                    "id": "your-postgres-cred-id",
+                    "name": "Supabase Connection"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "Schedule Trigger": {
+            "main": [
+                [
+                    {
+                        "node": "Vars (Config)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Vars (Config)": {
+            "main": [
+                [
+                    {
+                        "node": "Fetch Candidates",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Fetch Candidates": {
+            "main": [
+                [
+                    {
+                        "node": "Loop Conversations",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop Conversations": {
+            "main": [
+                [
+                    {
+                        "node": "Get Transcript",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Get Transcript": {
+            "main": [
+                [
+                    {
+                        "node": "Analyze Strategy (OpenAI)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Analyze Strategy (OpenAI)": {
+            "main": [
+                [
+                    {
+                        "node": "Parse JSON",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Parse JSON": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Generate Embedding": {
+            "main": [
+                [
+                    {
+                        "node": "Prepare Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Prepare Data": {
+            "main": [
+                [
+                    {
+                        "node": "Store Memory (RPC)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    }
+}

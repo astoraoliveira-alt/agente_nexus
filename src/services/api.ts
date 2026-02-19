@@ -1786,7 +1786,11 @@ export const api = {
             dailyLimit: c.daily_limit,
             totalContacts: c.total_contacts,
             sentCount: c.sent_count,
+            failedCount: c.failed_count,
             responseCount: c.response_count,
+            startTime: c.start_time,
+            endTime: c.end_time,
+            initialMessage: c.initial_message,
             metadata: c.metadata,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)

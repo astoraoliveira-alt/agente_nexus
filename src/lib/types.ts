@@ -837,6 +837,7 @@ export interface Campaign {
   totalContacts: number;
   sentCount: number;
   responseCount: number;
+  failedCount?: number;
   metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
