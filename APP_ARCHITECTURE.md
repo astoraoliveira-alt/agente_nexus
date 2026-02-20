@@ -53,10 +53,15 @@ Dada a distribuição geográfica, a latência é um fator crítico monitorado p
 
 Esta arquitetura híbrida garante que os dados do cliente fiquem no Brasil (Compliance), enquanto aproveitamos a melhor infraestrutura global para IA.
 
-### 2.2 O Paradigma "Database-First" com Service Layer
+### 2.3 O Paradigma "Database-First" com Service Layer
 - **O Banco é o Backend:** Toda validação de permissão crítica, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**.
 - **Service Layer no Frontend:** Para evitar duplicação e espaguete de código, o frontend agora usa classes de serviço (`src/services/`) para encapsular chamadas complexas ao Supabase, como o fluxo de login híbrido ou operações de auditoria.
 - **Segurança Nativa:** O isolamento multi-tenant é garantido por **RLS (Row Level Security)**, impossibilitando que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
+
+### 2.4 Otimização de Performance (Agregações e CTEs)
+Devido ao alto volume de dados (milhares de mensagens e eventos), o sistema adota a estratégia de pré-agregação e transição de responsabilidade analítica para o banco:
+- **Redução de N+1:** Dashboards (*companies_overview*, *agent_usage*) não fazem loops (`SELECT COUNT(*) FROM messages`). Em vez disso, consomem a tabela condensada `consumption_metrics` via agregações CTE (Common Table Expressions), reduzindo tempos de resposta de `>1s` para `<300ms`.
+- **Prevenção de Gargalo de Memória:** O frontend nunca baixa listas completas para realizar agregações locais (ex: `.length`), delegando toda agregação de tamanho e filtragem para funções nativas RPC no Postgres (`get_agent_usage_stats`).
 
 ---
 

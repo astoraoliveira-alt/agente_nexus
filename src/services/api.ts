@@ -505,13 +505,9 @@ export const api = {
 
         if (agentsError) throw agentsError;
 
-        // 2. Fetch Conversation Stats (Realtime Aggregation)
-        const { data: conversationsData } = await supabase
-            .from('conversations')
-            .select('id, agent_id, status')
-            .eq('tenant_id', tenantId);
+        // 2. Removed Client-Side Conversation Fetching (Optimized to RPC)
 
-        // 3. Fetch Token & Message Usage Stats (RPC)
+        // 3. Fetch Token, Message & Conversation Usage Stats (RPC)
         let usageMap: Record<string, any> = {};
         try {
             const { data: usageData, error: usageError } = await supabase
@@ -529,11 +525,10 @@ export const api = {
 
         // 4. Map & Aggregate
         return agentsData.map(dbAgent => {
-            const agentConvs = conversationsData?.filter((c: any) => c.agent_id === dbAgent.id) || [];
-            const activeCount = agentConvs.filter((c: any) => c.status !== 'closed').length;
-            const totalCount = agentConvs.length;
+            const u = usageMap[dbAgent.id] || { total_tokens: 0, total_messages: 0, recorded_cost: 0, total_conversations: 0, active_conversations: 0 };
 
-            const u = usageMap[dbAgent.id] || { total_tokens: 0, total_messages: 0, recorded_cost: 0 };
+            const activeCount = Number(u.active_conversations || 0);
+            const totalCount = Number(u.total_conversations || 0);
 
             // RE-CALCULATE COST (Sync with Consumption Dashboard logic)
             let totalCost = 0;
