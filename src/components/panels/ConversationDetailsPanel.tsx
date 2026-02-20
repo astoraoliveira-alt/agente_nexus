@@ -1,4 +1,4 @@
-import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2, TrendingUp, TrendingDown, Minus, Hourglass } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -240,11 +240,24 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
             ) : !evaluation ? (
               <div className="flex flex-col items-center justify-center pt-10 text-muted-foreground gap-4 text-center">
                 <div className="bg-muted p-4 rounded-full">
-                  <ShieldCheck className="h-8 w-8 text-muted-foreground/50" />
+                  {data.status === 'closed' ? (
+                    <Hourglass className="h-8 w-8 text-amber-500/70 animate-pulse" />
+                  ) : (
+                    <ShieldCheck className="h-8 w-8 text-muted-foreground/50" />
+                  )}
                 </div>
                 <div>
-                  <p className="font-medium">Nenhuma auditoria encontrada</p>
-                  <p className="text-xs max-w-[200px] mt-1">Esta conversa ainda não foi auditada pela IA.</p>
+                  {data.status === 'closed' ? (
+                    <>
+                      <p className="font-medium text-amber-600 dark:text-amber-500">Auditoria na Fila</p>
+                      <p className="text-xs max-w-[250px] mt-1">A auditoria desta conversa está na fila e será gerada automaticamente em breve. Isso pode demorar alguns minutos.</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-medium">Nenhuma auditoria encontrada</p>
+                      <p className="text-xs max-w-[200px] mt-1">Esta conversa ainda não foi auditada pela IA.</p>
+                    </>
+                  )}
                 </div>
                 <Button
                   variant="outline"

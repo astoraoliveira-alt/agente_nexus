@@ -1,0 +1,157 @@
+{
+    "name": "Audit Queue Worker (Nexus)",
+    "nodes": [
+        {
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {
+                            "field": "minutes",
+                            "minutesInterval": 15
+                        }
+                    ]
+                }
+            },
+            "id": "cdef1234-5678-abcd-ef01-23456789abcd",
+            "name": "Cron (15 Min)",
+            "type": "n8n-nodes-base.scheduleTrigger",
+            "typeVersion": 1,
+            "position": [
+                200,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "operation": "executeQuery",
+                "query": "SELECT * FROM get_pending_audits(50, 5);"
+            },
+            "id": "1234abcd-5678-cdef-9012-abcdef123456",
+            "name": "Supabase (Postgres)",
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.2,
+            "position": [
+                420,
+                240
+            ]
+        },
+        {
+            "parameters": {},
+            "id": "03bb0e08-cf5c-4e89-98dd-f7e9140fa7be",
+            "name": "Loop",
+            "type": "n8n-nodes-base.splitInBatches",
+            "typeVersion": 3,
+            "position": [
+                640,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "method": "POST",
+                "url": "https://seu-dominio-n8n.com/webhook/audit-conversation",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "record",
+                            "value": "={{ \n{\n  \"id\": $json.conversation_id,\n  \"tenantId\": $json.tenant_id,\n  \"agentId\": $json.agent_id\n} \n}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "abcdef12-3456-7890-abcd-ef1234567890",
+            "name": "Trigger Webhook Auditoria",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                860,
+                240
+            ]
+        },
+        {
+            "parameters": {
+                "amount": 5,
+                "unit": "seconds"
+            },
+            "id": "abc12345-wait-node-8899-abcdefg00001",
+            "name": "Wait (Rate Limit)",
+            "type": "n8n-nodes-base.wait",
+            "typeVersion": 1,
+            "position": [
+                1080,
+                240
+            ],
+            "webhookId": "9f9a4fa1-c300-4b53-8380-492ab2a5f782"
+        }
+    ],
+    "pinData": {},
+    "connections": {
+        "Cron (15 Min)": {
+            "main": [
+                [
+                    {
+                        "node": "Supabase (Postgres)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Supabase (Postgres)": {
+            "main": [
+                [
+                    {
+                        "node": "Loop",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Loop": {
+            "main": [
+                [
+                    {
+                        "node": "Trigger Webhook Auditoria",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Trigger Webhook Auditoria": {
+            "main": [
+                [
+                    {
+                        "node": "Wait (Rate Limit)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Wait (Rate Limit)": {
+            "main": [
+                [
+                    {
+                        "node": "Loop",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "active": false,
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "versionId": "f0fe1163-9993-4a1d-b6eb-5d5d6ec1af57",
+    "meta": {
+        "instanceId": "6c3cc17f-442c-47fc-b13c-c824c77aa7a4"
+    },
+    "id": "p0yL2zX3cQ7RvKs9",
+    "tags": []
+}

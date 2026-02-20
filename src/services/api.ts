@@ -558,6 +558,7 @@ export const api = {
                 lifecycleStage: dbAgent.lifecycle_stage,
                 autonomyLevel: dbAgent.autonomy_level,
                 contextWindow: dbAgent.context_window || 10,
+                sessionTimeoutSeconds: dbAgent.session_timeout_seconds || 3600,
                 policies: dbAgent.applied_policies || [],
                 brainConfig: {
                     ...dbAgent.brain_config,
@@ -599,6 +600,7 @@ export const api = {
             voice_config: agent.voiceConfig || {},
             applied_policies: agent.policies || [],
             context_window: agent.contextWindow || 10,
+            session_timeout_seconds: agent.sessionTimeoutSeconds || 3600,
             type: agent.type || 'conversational',
             integration_config: agent.integrationConfig || {},
             ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {})
@@ -623,6 +625,7 @@ export const api = {
             brainConfig: data.brain_config,
             voiceConfig: data.voice_config,
             contextWindow: data.context_window || 10,
+            sessionTimeoutSeconds: data.session_timeout_seconds || 3600,
             integrationConfig: data.integration_config,
             totalConversations: data.total_conversations || 0,
             activeConversations: data.active_conversations || 0,
@@ -640,6 +643,7 @@ export const api = {
         if (updates.lifecycleStage) dbPayload.lifecycle_stage = updates.lifecycleStage;
         if (updates.autonomyLevel) dbPayload.autonomy_level = updates.autonomyLevel;
         if (updates.contextWindow) dbPayload.context_window = updates.contextWindow;
+        if (updates.sessionTimeoutSeconds !== undefined) dbPayload.session_timeout_seconds = updates.sessionTimeoutSeconds;
         if (updates.brainConfig) {
             dbPayload.brain_config = {
                 ...updates.brainConfig,
@@ -673,6 +677,7 @@ export const api = {
             lifecycleStage: data.lifecycle_stage,
             autonomyLevel: data.autonomy_level,
             contextWindow: data.context_window || 10,
+            sessionTimeoutSeconds: data.session_timeout_seconds || 3600,
             policies: data.applied_policies || [],
             brainConfig: data.brain_config,
             voiceConfig: data.voice_config,

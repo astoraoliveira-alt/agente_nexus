@@ -23,7 +23,7 @@ import { UnauditedConversationsPanel } from '@/components/panels/UnauditedConver
 
 const PANEL_TITLES: Record<SlideOverContentType, string> = {
   'conversation-details': 'Detalhes da Conversa',
-  'agent-config': 'Configuração do Agente',
+  'agent-config': 'Detalhes do Agente',
   'consumption-details': 'Detalhes de Consumo',
   'user-profile': 'Meu Perfil',
   'company-details': 'Detalhes da Empresa',

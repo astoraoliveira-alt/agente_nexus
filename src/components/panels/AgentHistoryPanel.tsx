@@ -6,6 +6,8 @@ import { History, Calendar, User, ArrowRight, Loader2, Info, MessageSquare, Term
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
+import { useApp } from '@/contexts/AppContext';
 
 interface AgentHistoryPanelProps {
     agent: Agent;
@@ -30,9 +32,39 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
+    const { currentUser } = useApp();
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [period, setPeriod] = useState<string>('7');
+    const [period, setPeriod] = useState<string>('1');
+
+    const ExpandableValue = ({ value, isOld }: { value: any, isOld?: boolean }) => {
+        const [expanded, setExpanded] = useState(false);
+
+        if (value === 'N/A') return <span className="text-muted-foreground italic text-xs">vazio</span>;
+        if (typeof value === 'boolean') return <span className="text-xs font-medium">{value ? 'Sim' : 'Não'}</span>;
+
+        const strValue = String(value);
+        const isLong = strValue.length > 80;
+
+        return (
+            <div className={cn(
+                "text-xs p-2 rounded border mt-1 font-mono break-all relative",
+                isOld ? "bg-muted/30 text-muted-foreground border-border/50" : "bg-muted/50 text-foreground border-border"
+            )}>
+                <div className={cn(!expanded && isLong && "line-clamp-2", isOld && "line-through")}>
+                    {strValue}
+                </div>
+                {isLong && (
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        className="text-[10px] text-accent mt-2 hover:underline font-semibold block uppercase tracking-wider"
+                    >
+                        {expanded ? 'Ver menos' : 'Ver mais'}
+                    </button>
+                )}
+            </div>
+        );
+    };
 
     useEffect(() => {
         if (agent?.id) {
@@ -64,23 +96,6 @@ export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
         });
 
         return changes;
-    };
-
-    const formatValue = (key: string, val: any) => {
-        if (val === 'N/A') return <span className="text-muted-foreground italic">vazio</span>;
-        if (typeof val === 'boolean') return val ? 'Sim' : 'Não';
-
-        // Handle long prompts
-        if (key.includes('systemPrompt') && typeof val === 'string' && val.length > 50) {
-            return (
-                <div className="flex items-center gap-1 text-[10px] bg-slate-900 px-1 rounded border border-slate-800">
-                    <Terminal className="h-3 w-3" />
-                    <span className="truncate max-w-[150px]">{val}</span>
-                </div>
-            );
-        }
-
-        return val.toString();
     };
 
     if (loading) {
@@ -119,6 +134,7 @@ export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
                             <SelectValue placeholder="Selecione..." />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="1">Últimas 24 Horas</SelectItem>
                             <SelectItem value="7">Últimos 7 dias</SelectItem>
                             <SelectItem value="15">Últimos 15 dias</SelectItem>
                             <SelectItem value="30">Último Mês</SelectItem>
@@ -153,7 +169,7 @@ export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
                                     <div className="flex items-center gap-1">
                                         <User className="h-3 w-3 text-muted-foreground" />
                                         <span className="text-xs font-semibold">
-                                            {log.actor_name || log.actor?.full_name || 'Admin'}
+                                            {log.actor_name || log.actor?.full_name || currentUser?.name || 'Sistema'}
                                         </span>
                                     </div>
                                 </div>
@@ -170,23 +186,33 @@ export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
                                         </div>
 
                                         {diffs.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {diffs.map((diff, idx) => (
-                                                    <div key={idx} className="flex flex-col gap-1 p-2 bg-background border border-border rounded-sm">
-                                                        <span className="text-[10px] text-muted-foreground font-bold uppercase">
-                                                            {FIELD_LABELS[diff.key] || diff.key}
-                                                        </span>
-                                                        <div className="flex items-center gap-2 text-xs">
-                                                            <div className="text-muted-foreground line-through flex items-center gap-1">
-                                                                {formatValue(diff.key, diff.oldVal)}
-                                                            </div>
-                                                            <ArrowRight className="h-3 w-3 text-accent shrink-0" />
-                                                            <div className="font-bold text-accent flex items-center gap-1">
-                                                                {formatValue(diff.key, diff.newVal)}
+                                            <div className="space-y-3">
+                                                {diffs.map((diff, idx) => {
+                                                    const isLongOld = typeof diff.oldVal === 'string' && diff.oldVal.length > 80;
+                                                    const isLongNew = typeof diff.newVal === 'string' && diff.newVal.length > 80;
+                                                    const isLong = isLongOld || isLongNew;
+
+                                                    return (
+                                                        <div key={idx} className="flex flex-col gap-2 p-3 bg-background border border-border rounded-md">
+                                                            <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
+                                                                {FIELD_LABELS[diff.key] || diff.key}
+                                                            </span>
+                                                            <div className={cn("flex", isLong ? "flex-col gap-2" : "items-center gap-4")}>
+                                                                <div className={cn("flex-1", !isLong && "max-w-[45%]")}>
+                                                                    <ExpandableValue value={diff.oldVal} isOld />
+                                                                </div>
+
+                                                                <div className={cn("flex items-center justify-center", isLong ? "py-1" : "shrink-0")}>
+                                                                    <ArrowRight className="h-4 w-4 text-accent" />
+                                                                </div>
+
+                                                                <div className={cn("flex-1", !isLong && "max-w-[45%]")}>
+                                                                    <ExpandableValue value={diff.newVal} />
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         ) : (
                                             <div className="flex items-center gap-2 text-xs text-muted-foreground p-2 border border-dashed border-border rounded-sm">

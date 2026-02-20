@@ -344,6 +344,7 @@ export interface Agent {
   lifecycleStage: AILifecycleStage; // IMPACTS: Sandbox restriction, dispatch rules
   autonomyLevel: 1 | 2 | 3 | 4 | 5; // IMPACTS: Human fallback, tool usage
   contextWindow: number; // For n8n RAG/Memory parametrization
+  sessionTimeoutSeconds?: number;
 
   riskAssessment?: AIRiskAssessment;
   role?: string; // For UI display
@@ -359,6 +360,7 @@ export interface Agent {
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
     n8n_webhook_url?: string;
+    response_mode?: 'match_input' | 'text_only' | 'audio_only';
   };
 
   // Usage Metrics (Aggregated)

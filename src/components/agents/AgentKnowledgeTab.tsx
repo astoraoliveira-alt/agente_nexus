@@ -59,7 +59,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
             !file.name.endsWith('.doc') && !file.name.endsWith('.docx') &&
             !file.name.endsWith('.xls') && !file.name.endsWith('.xlsx') &&
             !file.name.endsWith('.json') && !file.name.endsWith('.txt')) {
-            toast.error('Tipo de arquivo não suportado. Use PDF, TXT, JSON, Word ou Excel.');
+            toast.error('Tipo de arquivo não suportado. Use PDF, TXT, Word ou Excel.');
             return;
         }
 
@@ -181,11 +181,8 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                     <BookOpen className="h-5 w-5 text-accent" />
                 </div>
                 <div>
-                    <h4 className="text-sm font-bold uppercase tracking-wider text-accent font-mono">Arquitetura de Conhecimento (RAG)</h4>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-                        Injete documentos na memória de longo prazo deste agente. O conteúdo será extraído e enviado ao n8n como contexto estruturado,
-                        permitindo respostas precisas baseadas nos seus próprios dados.
-                    </p>
+                    <h4 className="text-sm font-bold uppercase tracking-wider text-accent font-mono">Arquitetura de Conhecimento</h4>
+                    <p className="text-xs text-muted-foreground mt-1">Faça upload de documentos para munir a IA de informações específicas do seu negócio.</p>
                 </div>
             </div>
 
@@ -219,7 +216,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                             <>
                                 <Upload className="h-8 w-8 text-muted-foreground mb-3 group-hover:text-accent transition-colors" />
                                 <p className="text-sm font-bold secondary-text uppercase tracking-wider">Upload de Conhecimento</p>
-                                <p className="text-[10px] text-muted-foreground mt-1">PDF, Word, Excel, TXT, JSON (Máx 5MB)</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">PDF, Word, Excel, TXT (Máx 5MB)</p>
                             </>
                         )}
                     </div>
@@ -323,7 +320,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
             <div className="p-3 border-l-2 border-accent bg-accent/5 flex items-center gap-3">
                 <CheckCircle2 className="h-4 w-4 text-accent" />
                 <p className="text-[10px] text-muted-foreground italic">
-                    <strong>Integração Ativa:</strong> O n8n filtrará dinamicamente estes conteúdos para otimizar o consumo de tokens.
+                    <strong>Integração Ativa:</strong> O sistema filtrará dinamicamente estes conteúdos para otimizar o consumo de tokens.
                 </p>
             </div>
         </div >

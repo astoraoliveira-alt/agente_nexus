@@ -40,6 +40,7 @@ const Contacts = () => {
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -121,8 +122,9 @@ const Contacts = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!currentTenant) return;
+        if (!currentTenant || isSubmitting) return;
 
+        setIsSubmitting(true);
         try {
             const contactData = {
                 tenantId: currentTenant.id,
@@ -150,6 +152,8 @@ const Contacts = () => {
                 description: "Verifique os dados e tente novamente. O identificador deve ser único.",
                 variant: "destructive"
             });
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
@@ -363,8 +367,10 @@ const Contacts = () => {
                             </div>
 
                             <DialogFooter>
-                                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
-                                <Button type="submit">Salvar</Button>
+                                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>Cancelar</Button>
+                                <Button type="submit" disabled={isSubmitting}>
+                                    {isSubmitting ? "Salvando..." : "Salvar"}
+                                </Button>
                             </DialogFooter>
                         </form>
                     </DialogContent>

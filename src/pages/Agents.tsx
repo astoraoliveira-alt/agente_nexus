@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -109,7 +109,8 @@ export default function Agents() {
         channels: ['text'],
         status: 'active',
         activeConversations: 0,
-        totalConversations: 0
+        totalConversations: 0,
+        sessionTimeoutSeconds: 3600
       });
     }
     setIsDialogOpen(true);
@@ -302,10 +303,7 @@ export default function Agents() {
                       {agent.lifecycleStage.charAt(0).toUpperCase() + agent.lifecycleStage.slice(1)}
                     </Badge>
                   )}
-                </div>
 
-                {/* Line 2: Governance & Risk */}
-                <div className="flex flex-wrap gap-2 mb-4">
                   {/* Risk Badge */}
                   {agent.riskLevel && (
                     <Badge variant="outline" className={`
@@ -314,16 +312,10 @@ export default function Agents() {
                         agent.riskLevel === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
                           'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'}
                     `}>
-                      <ShieldAlert className="h-3 w-3" />
-                      Risco {agent.riskLevel === 'high' ? 'Crítico' : agent.riskLevel === 'medium' ? 'Médio' : 'Baixo'}
+                      <ShieldCheck className="h-3 w-3" />
+                      Risco {agent.riskLevel === 'high' ? 'Alto' : agent.riskLevel === 'medium' ? 'Médio' : 'Baixo'}
                     </Badge>
                   )}
-
-                  {/* Autonomy Badge */}
-                  <Badge variant="outline" className="text-[10px] h-5 gap-1 border-primary/20 text-primary">
-                    <Settings className="h-3 w-3" />
-                    Autonomia L{agent.autonomyLevel || 1}
-                  </Badge>
 
                   {/* Policies Badge */}
                   {agent.policies && agent.policies.length > 0 && (
@@ -413,7 +405,7 @@ export default function Agents() {
                   }}
                 >
                   <Settings className="h-4 w-4 mr-2" />
-                  Configurar
+                  Detalhes
                 </Button>
               </div>
             ))}
@@ -452,21 +444,12 @@ export default function Agents() {
                   {formData.type === 'whatsapp' && (
                     <TabsTrigger value="evolution" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
                       <MessageCircle className="h-4 w-4" />
-                      WhatsApp (Evolution)
+                      WhatsApp
                     </TabsTrigger>
                   )}
                 </TabsList>
 
                 <TabsContent value="brain" className="p-6 space-y-6">
-                  <div className="bg-amber-500/10 border border-amber-500/20 p-3 mb-6 rounded-md flex items-start gap-3">
-                    <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-sm font-semibold text-amber-500">Persistência em Tempo Real</h4>
-                      <p className="text-xs text-muted-foreground mt-1 text-[10px]">
-                        As configurações de <strong>Prompt, Risco e Autonomia</strong> impactam o comportamento do N8N imediatamente.
-                      </p>
-                    </div>
-                  </div>
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-6 shrink-0">
                     <div className="md:col-span-8 space-y-2">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Identidade da Inteligência</Label>
@@ -485,45 +468,38 @@ export default function Agents() {
                       >
                         <SelectTrigger className="h-12"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="conversational">Conversacional (Padrão)</SelectItem>
-                          <SelectItem value="embedded">Agente Embarcado (Widget)</SelectItem>
-                          <SelectItem value="whatsapp">WhatsApp Business API</SelectItem>
+                          <SelectItem value="conversational">Conversacional (Voz)</SelectItem>
+                          <SelectItem value="embedded">Conversacional (Site)</SelectItem>
+                          <SelectItem value="whatsapp">Conversacional (WhatsApp)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-6 shrink-0">
-                    <div className="md:col-span-6 space-y-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0 mt-6">
+                    <div className="space-y-2">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Modelo LLM (Cérebro)</Label>
                       <Select
                         value={formData.brainConfig?.modelId || 'gpt-4o'}
-                        onValueChange={(v: any) => setFormData({
-                          ...formData,
-                          brainConfig: {
-                            ...formData.brainConfig,
-                            modelId: v
-                          }
-                        })}
+                        onValueChange={(v: any) => setFormData({ ...formData, brainConfig: { ...formData.brainConfig, modelId: v } })}
                       >
-                        <SelectTrigger className="h-11 font-mono">
-                          <SelectValue placeholder="Selecione o modelo" />
-                        </SelectTrigger>
+                        <SelectTrigger className="font-mono text-sm h-11"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="gpt-5o">gpt-5o</SelectItem>
-                          <SelectItem value="gpt-5o-mini">gpt-5o-mini</SelectItem>
-                          <SelectItem value="gpt-4o">gpt-4o</SelectItem>
-                          <SelectItem value="gpt-4o-mini">gpt-4o-mini</SelectItem>
-                          <SelectItem value="o1-preview">o1-preview</SelectItem>
+                          <SelectItem value="gpt-4o">GPT-4 Omni (Padrão)</SelectItem>
+                          <SelectItem value="gpt-4o-mini">GPT-4o Mini (Rápido)</SelectItem>
+                          <SelectItem value="o1-preview">o1-preview (Gênio)</SelectItem>
                           <SelectItem value="o1-mini">o1-mini</SelectItem>
                           <SelectItem value="claude-3-5-sonnet-latest">claude-3-5-sonnet-latest</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="md:col-span-6 space-y-2">
+
+                    <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Temperatura: {formData.brainConfig?.temperature || 0.5}</Label>
-                        <span className="text-[10px] text-muted-foreground italic">0.0 (Rígido) &rarr; 1.0 (Criativo)</span>
+                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">
+                          Temp: {formData.brainConfig?.temperature || 0.5}
+                        </Label>
+                        <span className="text-[9px] text-muted-foreground italic">1.0 (Criativo)</span>
                       </div>
                       <Input
                         type="range"
@@ -541,33 +517,24 @@ export default function Agents() {
                         })}
                       />
                     </div>
-                    <div className="md:col-span-12 space-y-3 p-4 bg-accent/5 border border-accent/10 rounded-lg">
+
+                    <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <div className="space-y-0.5">
-                          <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Memória Dinâmica (Janela de Contexto)</Label>
-                          <p className="text-[10px] text-muted-foreground italic">Define quantas mensagens anteriores a IA deve "lembrar" para manter o contexto.</p>
-                        </div>
-                        <Badge variant="outline" className="text-accent border-accent/30 bg-accent/5">
-                          {formData.contextWindow || 10} mensagens
-                        </Badge>
+                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Memória: {formData.contextWindow || 10}</Label>
+                        <span className="text-[9px] text-muted-foreground italic">50 (Longo)</span>
                       </div>
                       <Input
                         type="range"
                         step="1"
                         min="1"
                         max="50"
-                        className="h-8 accent-accent cursor-pointer"
+                        className="h-11 accent-accent cursor-pointer"
                         value={formData.contextWindow || 10}
                         onChange={(e) => setFormData({
                           ...formData,
                           contextWindow: parseInt(e.target.value)
                         })}
                       />
-                      <div className="flex justify-between text-[10px] text-muted-foreground px-1">
-                        <span>Econômico (1)</span>
-                        <span>Equilibrado (15)</span>
-                        <span>Longa Memória (50)</span>
-                      </div>
                     </div>
                   </div>
 
@@ -588,7 +555,7 @@ export default function Agents() {
                         }
                       })}
                     ></textarea>
-                    <p className="text-[10px] text-muted-foreground">O n8n usará este prompt como base para a personalidade da IA.</p>
+                    <p className="text-[10px] text-muted-foreground">O motor usará este prompt como base para a personalidade da IA.</p>
                   </div>
 
                   <div className="flex-1 flex flex-col space-y-2 min-h-[300px]">
@@ -608,7 +575,7 @@ export default function Agents() {
                         }
                       })}
                     ></textarea>
-                    <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o n8n injete a fala do usuário dinamicamente.</p>
+                    <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o sistema injete a fala do usuário dinamicamente.</p>
                   </div>
                 </TabsContent>
 
@@ -631,7 +598,7 @@ export default function Agents() {
                         <MessageSquare className="h-6 w-6" />
                         <div className="text-left">
                           <p className="font-bold">WhatsApp / Texto</p>
-                          <p className="text-[10px] opacity-70">Conversas escritas e JSON</p>
+                          <p className="text-[10px] opacity-70">Conversas em texto e dados</p>
                         </div>
                       </Button>
                       <Button
@@ -647,7 +614,7 @@ export default function Agents() {
                         <Phone className="h-6 w-6" />
                         <div className="text-left">
                           <p className="font-bold">Voz / Telefone</p>
-                          <p className="text-[10px] opacity-70">Ligação em tempo real (Retell)</p>
+                          <p className="text-[10px] opacity-70">Ligação em tempo real</p>
                         </div>
                       </Button>
                     </div>
@@ -655,6 +622,84 @@ export default function Agents() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {/* Voice Config */}
+                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
+                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
+                        <Workflow className="h-4 w-4" /> Orquestração (Agente de Comunicação)
+                      </h4>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Webhook do Motor</Label>
+                          <Input
+                            className="h-9 font-mono text-[10px] bg-muted/30 text-foreground border-border"
+                            value={formData.integrationConfig?.n8n_webhook_url || ''}
+                            readOnly
+                          />
+                          <p className="text-[9px] text-muted-foreground italic leading-tight">
+                            Este link conecta o Dashboard ao Motor de Execução, orquestrando fluxos de conversa e lógica de negócio do agente.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 animate-in slide-in-from-top-1">
+                          <Label className="text-xs">Formato de Resposta (Mídia)</Label>
+                          <Select
+                            value={formData.integrationConfig?.response_mode || 'match_input'}
+                            onValueChange={(v: any) => setFormData({
+                              ...formData,
+                              integrationConfig: { ...formData.integrationConfig, response_mode: v }
+                            })}
+                          >
+                            <SelectTrigger className="h-9 text-xs bg-muted/30 border-border"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="match_input">Dinâmico (Mimetiza o Usuário: Áudio ⇆ Áudio)</SelectItem>
+                              <SelectItem value="text_only">Apenas Texto (Força mensagem escrita)</SelectItem>
+                              <SelectItem value="audio_only">Apenas Áudio (Força mensagem de voz)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[9px] text-muted-foreground italic leading-tight">
+                            Comportamento do agente na devolução de mensagens pelo WhatsApp ou WebChat.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 animate-in slide-in-from-top-1">
+                          <Label className="text-xs">Tempo de Expiração da Sessão (minutos)</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            max="1440"
+                            className="h-9 font-mono text-xs bg-muted/30 text-foreground border-border"
+                            value={formData.sessionTimeoutSeconds ? Math.floor(formData.sessionTimeoutSeconds / 60) : 60}
+                            onChange={(e) => {
+                              const minutes = parseInt(e.target.value);
+                              if (!isNaN(minutes)) {
+                                setFormData({
+                                  ...formData,
+                                  sessionTimeoutSeconds: minutes * 60
+                                });
+                              }
+                            }}
+                          />
+                          <p className="text-[9px] text-muted-foreground italic leading-tight">
+                            Tempo de inatividade limite antes que a conversação seja encerrada pelo sistema. Padrão: 60 minutos.
+                          </p>
+                        </div>
+
+                        {formData.type === 'whatsapp' && (
+                          <div className="space-y-2 animate-in slide-in-from-top-1">
+                            <Label className="text-xs font-bold text-accent">Nome da Instância Evolution</Label>
+                            <Input
+                              className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
+                              value={formData.evolution_instance || ''}
+                              onChange={(e) => setFormData({ ...formData, evolution_instance: e.target.value })}
+                              placeholder="Ex: d Davos-Nexus-Zap"
+                            />
+                            <p className="text-[9px] text-muted-foreground italic leading-tight">
+                              Necessário para que o sistema identifique este agente automaticamente no fluxo de WhatsApp.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
                       <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
                         <Headphones className="h-4 w-4" /> Configuração de Voz
@@ -670,7 +715,7 @@ export default function Agents() {
                             <SelectContent>
                               <SelectItem value="none">Desativado</SelectItem>
                               <SelectItem value="vapi">VAPI (Principal)</SelectItem>
-                              <SelectItem value="retell">Retell AI</SelectItem>
+                              <SelectItem value="retell">Motor de Voz Alternativo</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
@@ -687,7 +732,7 @@ export default function Agents() {
                         )}
                         {formData.voiceConfig?.provider === 'retell' && (
                           <div className="space-y-2 animate-in slide-in-from-top-1">
-                            <Label className="text-xs">Retell Agent ID</Label>
+                            <Label className="text-xs">ID do Agente de Voz</Label>
                             <Input
                               className="h-8 text-xs font-mono"
                               value={formData.voiceConfig?.retellAgentId || ''}
@@ -710,41 +755,6 @@ export default function Agents() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* N8N Config */}
-                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
-                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
-                        <Workflow className="h-4 w-4" /> Orquestração (N8N)
-                      </h4>
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label className="text-xs">Webhook do N8N</Label>
-                          <Input
-                            className="h-9 font-mono text-[10px] bg-slate-950 text-accent border-accent/20"
-                            value={formData.integrationConfig?.n8n_webhook_url || ''}
-                            readOnly
-                          />
-                          <p className="text-[9px] text-muted-foreground italic leading-tight">
-                            Este link conecta o Dashboard ao Motor de Execução n8n, orquestrando fluxos de conversa e lógica de negócio do agente.
-                          </p>
-                        </div>
-
-                        {formData.type === 'whatsapp' && (
-                          <div className="space-y-2 animate-in slide-in-from-top-1">
-                            <Label className="text-xs font-bold text-accent">Nome da Instância Evolution</Label>
-                            <Input
-                              className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
-                              value={formData.evolution_instance || ''}
-                              onChange={(e) => setFormData({ ...formData, evolution_instance: e.target.value })}
-                              placeholder="Ex: d Davos-Nexus-Zap"
-                            />
-                            <p className="text-[9px] text-muted-foreground italic leading-tight">
-                              Necessário para que o n8n identifique este agente automaticamente no fluxo de WhatsApp.
-                            </p>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -954,23 +964,36 @@ export default function Agents() {
                     evolutionInstance={formData.evolution_instance}
                     evolutionToken={formData.evolution_token}
                     onInstanceLinked={(instanceName, token) => {
-                      setFormData(prev => ({
-                        ...prev,
-                        evolution_instance: instanceName,
-                        evolution_token: token
-                      }));
-                      toast.success('Vínculo preparado. Salve o agente para confirmar.');
+                      if (formData.evolution_instance !== instanceName) {
+                        setFormData(prev => ({
+                          ...prev,
+                          evolution_instance: instanceName,
+                          evolution_token: token
+                        }));
+                        toast.success('Vínculo preparado. Salve o agente para confirmar.');
+                      }
                     }}
                   />
                 </TabsContent>
               </Tabs>
             </div>
 
-            <div className="p-6 border-t border-border flex justify-end gap-3 bg-muted/20">
-              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
-              <Button className="bg-accent hover:bg-accent/90" onClick={handleSave}>
-                {editingAgent ? 'Salvar Alterações' : 'Criar Agente'}
-              </Button>
+            <div className="p-4 border-t border-border flex items-center justify-between gap-3 bg-muted/20">
+              <div className="bg-amber-500/10 border border-amber-500/20 p-2 rounded-md flex items-center gap-2 max-w-lg">
+                <ShieldAlert className="h-4 w-4 text-amber-500 shrink-0" />
+                <div>
+                  <h4 className="text-[11px] font-semibold text-amber-500 leading-tight">Persistência em Tempo Real</h4>
+                  <p className="text-[10px] text-muted-foreground leading-tight">
+                    As configurações de <strong>Prompt, Risco e Autonomia</strong> impactam o comportamento do agente de comunicação imediatamente.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
+                <Button className="bg-accent hover:bg-accent/90" onClick={handleSave}>
+                  {editingAgent ? 'Salvar Alterações' : 'Criar Agente'}
+                </Button>
+              </div>
             </div>
           </DialogContent>
         </Dialog>

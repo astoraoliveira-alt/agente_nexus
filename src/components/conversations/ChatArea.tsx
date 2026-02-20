@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
@@ -185,18 +185,39 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'default' | 'mobile'>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userScrolledUpRef = useRef(false);
+
+  const prevMessagesLength = useRef(conversation?.messages?.length || 0);
+  const prevConversationId = useRef(conversation?.id);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    // Consider "scrolled up" if the user is more than 150px away from the bottom
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 150;
+    userScrolledUpRef.current = !isAtBottom;
+  };
 
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
     // 1. Silent Refresh Strategy
     // If the user is Searching (highlightTerm active), we DO NOT auto-scroll.
-    // This allows them to read history without being yanked to the bottom on every poll.
     if (highlightTerm) return;
 
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    const isDifferentConversation = prevConversationId.current !== conversation?.id;
+    const currentLength = conversation?.messages?.length || 0;
+    const hasNewMessages = currentLength > prevMessagesLength.current;
+
+    // Only scroll if we switched conversations, OR if there are new messages AND the user hasn't scrolled up to read history.
+    if (isDifferentConversation || (hasNewMessages && !userScrolledUpRef.current)) {
+      if (messagesEndRef.current) {
+        messagesEndRef.current.scrollIntoView({ behavior: isDifferentConversation ? "auto" : "smooth" });
+      }
     }
-  }, [conversation?.messages, highlightTerm]);
+
+    prevMessagesLength.current = currentLength;
+    prevConversationId.current = conversation?.id;
+  }, [conversation?.messages, conversation?.id, highlightTerm]);
 
   // Permissions & Restrictions
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
@@ -433,7 +454,11 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
       ) : (
         <>
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            className="flex-1 overflow-y-auto p-4 space-y-4"
+          >
             {conversation.messages.map((message) => (
               <div
                 key={message.id}

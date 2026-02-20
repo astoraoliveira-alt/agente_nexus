@@ -662,45 +662,18 @@ export default function Consumption() {
             </TabsContent>
 
             <TabsContent value="cost" className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div className="kpi-card lg:col-span-1">
-                  <h3 className="font-semibold mb-6">Breakdown de Custos (Etapa 6)</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={pieData} cx="50%" cy="50%" innerRadius={40} outerRadius={80} paddingAngle={5} dataKey="value">
-                          {pieData.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
-                        </Pie>
-                        <RechartsTooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="space-y-2 mt-4">
-                    {pieData.map((d, i) => (
-                      <div key={d.name} className="flex justify-between text-sm">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[i] }} />
-                          <span>{d.name}</span>
-                        </div>
-                        <span className="font-bold">R$ {d.value.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="kpi-card lg:col-span-2">
-                  <h3 className="font-semibold mb-6">Custos Diários Totais</h3>
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={dailyTimeline}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                        <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                        <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
-                        <RechartsTooltip />
-                        <Bar dataKey="cost" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} name="Custo (R$)" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+              <div className="kpi-card">
+                <h3 className="font-semibold mb-6">Custos Diários Totais</h3>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={dailyTimeline}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                      <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                      <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
+                      <RechartsTooltip />
+                      <Bar dataKey="cost" fill="hsl(var(--primary))" radius={[2, 2, 0, 0]} name="Custo (R$)" />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             </TabsContent>

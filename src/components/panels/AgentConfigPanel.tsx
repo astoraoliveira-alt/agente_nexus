@@ -1,12 +1,13 @@
-import { Bot, MessageSquare, Phone, Activity, Settings2, Zap, ShieldCheck, Headphones, MessageCircle, Globe, Sparkles } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Activity, Settings2, Zap, ShieldCheck, Headphones, MessageCircle, Globe, Sparkles, Database, FileText } from 'lucide-react';
 import { Agent } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 interface AgentConfigPanelProps {
   data: Agent;
@@ -14,6 +15,23 @@ interface AgentConfigPanelProps {
 
 export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
   const [isActive, setIsActive] = useState(data?.status === 'active');
+  const [knowledgeFiles, setKnowledgeFiles] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (data?.id) {
+      api.getAgentKnowledge(data.id)
+        .then(items => {
+          const uniqueNames = Array.from(new Set(
+            items.map(item => {
+              const name = item.name || '';
+              return name.includes('(Parte') ? name.split('(Parte')[0].trim() : name;
+            }).filter(Boolean)
+          ));
+          setKnowledgeFiles(uniqueNames);
+        })
+        .catch(err => console.error("Error fetching agent knowledge:", err));
+    }
+  }, [data?.id]);
 
   if (!data) return null;
 
@@ -141,6 +159,23 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
               </div>
             </div>
           )}
+
+          {(data.department_id || data.cost_center) && (
+            <div className="pt-2 border-t mt-3 flex justify-between">
+              {data.department_id && (
+                <div>
+                  <span className="text-xs text-muted-foreground block">Departamento</span>
+                  <span className="text-xs font-medium">{data.department_id}</span>
+                </div>
+              )}
+              {data.cost_center && (
+                <div className="text-right">
+                  <span className="text-xs text-muted-foreground block">Centro de Custo</span>
+                  <span className="text-xs font-mono">{data.cost_center}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -170,17 +205,20 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
           Orquestração
         </h4>
         <div className="space-y-4">
-          <div className="p-3 bg-slate-950 rounded border border-slate-800">
-            <Label className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">N8N Webhook Callback</Label>
-            <div className="mt-1 text-xs break-all font-mono text-slate-300">
+          <div className="p-3 bg-muted/30 rounded border border-border">
+            <Label className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">N8N Webhook Callback</Label>
+            <div className="mt-1 text-xs break-all font-mono text-foreground">
               {data.integrationConfig?.n8n_webhook_url || 'N/A'}
             </div>
           </div>
 
           {data.evolution_instance && (
-            <div className="p-3 bg-emerald-950/20 rounded border border-emerald-900/30">
-              <Label className="text-[10px] text-emerald-500 uppercase font-bold tracking-widest">Instância Evolution (WhatsApp)</Label>
-              <div className="mt-1 text-xs font-mono text-emerald-400">
+            <div className="p-3 bg-muted/30 rounded border border-border">
+              <Label className="text-[10px] text-emerald-500 uppercase font-bold tracking-widest flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Instância Evolution (WhatsApp)
+              </Label>
+              <div className="mt-1 text-xs font-mono font-medium text-foreground">
                 {data.evolution_instance}
               </div>
             </div>
@@ -198,14 +236,20 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
         </h4>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             <div className="p-3 bg-muted/50 rounded-md">
-              <Label className="text-[10px] text-muted-foreground uppercase font-bold">Modelo LLM</Label>
-              <p className="text-sm font-mono font-bold mt-1">{data.brainConfig?.modelId || 'gpt-4o'}</p>
+              <Label className="text-[10px] text-muted-foreground uppercase font-bold">LLM</Label>
+              <p className="text-sm font-mono font-bold mt-1 truncate" title={data.brainConfig?.modelId || 'gpt-4o'}>
+                {data.brainConfig?.modelId || 'gpt-4o'}
+              </p>
             </div>
             <div className="p-3 bg-muted/50 rounded-md">
-              <Label className="text-[10px] text-muted-foreground uppercase font-bold">Temperatura</Label>
+              <Label className="text-[10px] text-muted-foreground uppercase font-bold">Temp.</Label>
               <p className="text-sm font-mono font-bold mt-1 text-accent">{data.brainConfig?.temperature || 0.5}</p>
+            </div>
+            <div className="p-3 bg-muted/50 rounded-md">
+              <Label className="text-[10px] text-muted-foreground uppercase font-bold truncate" title="Memória Dinâmica">Memória</Label>
+              <p className="text-sm font-mono font-bold mt-1 text-accent">{data.contextWindow || 10} msgs</p>
             </div>
           </div>
 
@@ -222,18 +266,65 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
             </div>
           </div>
 
-          {data.brainConfig?.userPromptTemplate && (
-            <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-md">
-              <Label className="text-[10px] text-amber-500 uppercase font-bold tracking-widest">User Message Template</Label>
-              <div className="mt-1 text-[11px] font-mono text-amber-200/70 leading-relaxed italic">
-                "{data.brainConfig.userPromptTemplate}"
+          {data.brainConfig?.systemPrompt && (
+            <div className="p-3 bg-muted/30 border border-border rounded-md">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-blue-500 uppercase font-bold tracking-widest flex items-center gap-1">
+                  <Bot className="w-3 h-3" />
+                  System Prompt (Personalidade)
+                </Label>
+                <span className="text-[9px] text-muted-foreground">{data.brainConfig.systemPrompt.length} chars</span>
+              </div>
+              <div className="mt-2 text-[12px] font-mono text-muted-foreground leading-relaxed italic bg-background/50 p-2 rounded border border-border/50">
+                <p className="line-clamp-3" title={data.brainConfig.systemPrompt}>
+                  "{data.brainConfig.systemPrompt}"
+                </p>
               </div>
             </div>
           )}
 
-          <p className="text-[9px] text-muted-foreground mt-2 italic">* Editável na seção de Configuração Avançada.</p>
+          {data.brainConfig?.userPromptTemplate && (
+            <div className="p-3 bg-muted/30 border border-border rounded-md">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-amber-500 uppercase font-bold tracking-widest flex items-center gap-1">
+                  <MessageSquare className="w-3 h-3" />
+                  User Message Template
+                </Label>
+                <span className="text-[9px] text-muted-foreground">Template</span>
+              </div>
+              <div className="mt-2 text-[12px] font-mono text-muted-foreground leading-relaxed italic bg-background/50 p-2 rounded border border-border/50">
+                <p className="line-clamp-2" title={data.brainConfig.userPromptTemplate}>
+                  "{data.brainConfig.userPromptTemplate}"
+                </p>
+              </div>
+            </div>
+          )}
+
+          <p className="text-[9px] text-muted-foreground mt-2 italic">* O conteúdo completo está editável na seção de Configuração Avançada do Agente.</p>
         </div>
       </div>
+
+      {/* Knowledge Base */}
+      {knowledgeFiles.length > 0 && (
+        <>
+          <Separator />
+          <div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Base de Conhecimento
+            </h4>
+            <div className="p-3 bg-muted/30 border border-border rounded-md flex items-center gap-4">
+              <div className="h-10 w-10 bg-accent/10 rounded-full flex flex-shrink-0 items-center justify-center">
+                <FileText className="h-5 w-5 text-accent" />
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <p className="text-sm font-semibold text-foreground truncate">{knowledgeFiles.length} Arquivo{knowledgeFiles.length !== 1 ? 's' : ''} Anexado{knowledgeFiles.length !== 1 ? 's' : ''}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{knowledgeFiles.join(' • ')}</p>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       <Separator />
 

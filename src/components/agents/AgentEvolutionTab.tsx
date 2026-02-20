@@ -27,7 +27,7 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
     useEffect(() => {
         console.log('AgentEvolutionTab Mounted', { agentId, tenantSlug, evolutionInstance });
         if (evolutionInstance) {
-            checkStatus(evolutionInstance);
+            checkStatus(evolutionInstance, false);
         }
     }, [evolutionInstance]);
 
