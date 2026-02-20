@@ -5,6 +5,7 @@ import { Agent } from '@/lib/types';
 import { History, Calendar, User, ArrowRight, Loader2, Info, MessageSquare, Terminal } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface AgentHistoryPanelProps {
     agent: Agent;
@@ -31,15 +32,17 @@ const FIELD_LABELS: Record<string, string> = {
 export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
     const [logs, setLogs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [period, setPeriod] = useState<string>('7');
 
     useEffect(() => {
         if (agent?.id) {
             setLoading(true);
-            api.getAgentAuditLogs(agent.id)
+            const days = period === 'all' ? 'all' : parseInt(period, 10);
+            api.getAgentAuditLogs(agent.id, days)
                 .then(setLogs)
                 .finally(() => setLoading(false));
         }
-    }, [agent?.id]);
+    }, [agent?.id, period]);
 
     const getDiff = (oldObj: any, newObj: any, prefix = ''): { key: string; oldVal: any; newVal: any }[] => {
         const changes: { key: string; oldVal: any; newVal: any }[] = [];
@@ -104,9 +107,28 @@ export function AgentHistoryPanel({ agent }: AgentHistoryPanelProps) {
 
     return (
         <div className="p-6 space-y-6">
-            <div className="space-y-1">
-                <h3 className="font-bold text-xl">{agent.name}</h3>
-                <p className="text-sm text-muted-foreground">Linha do tempo de evolução do agente</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                    <h3 className="font-bold text-xl">{agent.name}</h3>
+                    <p className="text-sm text-muted-foreground">Linha do tempo de evolução do agente</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground shrink-0">Período:</span>
+                    <Select value={period} onValueChange={setPeriod} disabled={loading}>
+                        <SelectTrigger className="w-[150px] h-9 text-xs font-medium">
+                            <SelectValue placeholder="Selecione..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="7">Últimos 7 dias</SelectItem>
+                            <SelectItem value="15">Últimos 15 dias</SelectItem>
+                            <SelectItem value="30">Último Mês</SelectItem>
+                            <SelectItem value="60">Últimos 2 Meses</SelectItem>
+                            <SelectItem value="90">Últimos 3 Meses</SelectItem>
+                            <SelectItem value="180">Últimos 6 Meses</SelectItem>
+                            <SelectItem value="all">Todo o Histórico</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
 
             <Separator />

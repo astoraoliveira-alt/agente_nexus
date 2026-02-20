@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { extractTextFromFile } from '@/lib/file-parsers';
+import { chunkText } from '@/lib/text-chunker';
 
 interface AgentKnowledgeTabProps {
     agentId: string;
@@ -16,6 +18,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
     const [items, setItems] = useState<KnowledgeItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isUploading, setIsUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<string | null>(null);
     const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
     useEffect(() => {
@@ -47,11 +50,16 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
             'text/plain',
             'application/json',
             'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         ];
 
-        if (!allowedTypes.includes(file.type) && !file.name.endsWith('.doc') && !file.name.endsWith('.docx')) {
-            toast.error('Tipo de arquivo não suportado. Use PDF, TXT, JSON ou Word.');
+        if (!allowedTypes.includes(file.type) &&
+            !file.name.endsWith('.doc') && !file.name.endsWith('.docx') &&
+            !file.name.endsWith('.xls') && !file.name.endsWith('.xlsx') &&
+            !file.name.endsWith('.json') && !file.name.endsWith('.txt')) {
+            toast.error('Tipo de arquivo não suportado. Use PDF, TXT, JSON, Word ou Excel.');
             return;
         }
 
@@ -62,69 +70,96 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
 
         try {
             setIsUploading(true);
+            setUploadProgress('Lendo arquivo...');
 
-            // Simulating text extraction for now
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                const textContent = event.target?.result as string;
+            // Genuine Client-Side File Parsing
+            const textContent = await extractTextFromFile(file);
 
-                try {
-                    // Integration: Backend triggers embedding generation automatically via Database Trigger
-                    // const embedding = await api.generateEmbedding(textContent); // REMOVED FOR SECURITY
-
-                    await api.addKnowledgeItem({
-                        agentId,
-                        tenantId,
-                        name: file.name,
-                        content: textContent,
-                        fileType: file.name.split('.').pop() || 'doc',
-                        fileSize: file.size,
-                        fileUrl: '#', // Simulated URL
-                        embedding: [] // Backend will populate this
-                    });
-
-                    toast.success('Documento adicionado e indexado');
-                    loadKnowledge();
-                } catch (err) {
-                    console.error(err);
-                    toast.error('Erro ao processar conhecimento');
-                } finally {
-                    setIsUploading(false);
-                }
-            };
-
-            if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
-                // Simulated PDF extraction
-                setTimeout(() => {
-                    reader.onload({ target: { result: `[Extração Simulada de PDF: ${file.name}] Conteúdo denso e estruturado para o agente.` } } as any);
-                }, 1500);
-            } else if (file.name.endsWith('.doc') || file.name.endsWith('.docx')) {
-                // Simulated Word extraction
-                setTimeout(() => {
-                    reader.onload({ target: { result: `[Extração Simulada de Word: ${file.name}] Conteúdo do documento Word indexado para consulta.` } } as any);
-                }, 1500);
-            } else {
-                reader.readAsText(file);
+            if (!textContent || textContent.trim() === '') {
+                throw new Error('Não foi possível extrair nenhum texto legível do arquivo.');
             }
 
-        } catch (error) {
-            console.error('Upload error:', error);
-            toast.error('Erro no upload');
+            setUploadProgress('Fatiando texto explicativo...');
+            const chunks = chunkText(textContent);
+
+            if (chunks.length === 0) {
+                throw new Error('O arquivo não contém texto válido após o fatiamento.');
+            }
+
+            // Client-Side Embedding Generation using OpenAI API for each chunk
+            for (let i = 0; i < chunks.length; i++) {
+                setUploadProgress(`Processando parte ${i + 1} de ${chunks.length}...`);
+
+                const chunk = chunks[i];
+                const embedding = await api.generateEmbedding(chunk);
+
+                // Add suffix for chunking visibility
+                const chunkSuffix = chunks.length > 1 ? ` (Parte ${i + 1}/${chunks.length})` : '';
+                const baseNameLength = file.name.lastIndexOf('.');
+                const baseName = baseNameLength > -1 ? file.name.substring(0, baseNameLength) : file.name;
+                const extension = baseNameLength > -1 ? file.name.substring(baseNameLength) : '';
+                const finalName = `${baseName}${chunkSuffix}${extension}`;
+
+                await api.addKnowledgeItem({
+                    agentId,
+                    tenantId,
+                    name: finalName,
+                    content: chunk,
+                    fileType: file.name.split('.').pop() || 'doc',
+                    fileSize: Math.floor(file.size / chunks.length), // approximate chunk size
+                    fileUrl: '#', // Simulated URL for now since storage is mock
+                    embedding: embedding
+                });
+            }
+
+
+            loadKnowledge();
+
+        } catch (error: any) {
+            console.error('Upload/Extraction error:', error);
+            toast.error('Erro no processamento', {
+                description: error.message || 'Falha ao processar arquivo'
+            });
+        } finally {
             setIsUploading(false);
+            setUploadProgress(null);
+            // Reset input so user can upload same file again if it failed
+            e.target.value = '';
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!window.confirm('Excluir este conhecimento permanentemente?')) return;
+    const handleDelete = async (id: string, name: string) => {
+        // Check if this is a chunked file like "Documento (Parte 1/5).pdf"
+        const isChunk = name.includes('(Parte');
+        const baseNamePrefix = isChunk ? name.split('(Parte')[0] + '(Parte' : null;
+
+        if (baseNamePrefix) {
+            if (!window.confirm('Este arquivo possui várias partes. Deseja excluir TODAS as partes vinculadas a este documento para não deixar lixo residual?')) return;
+        } else {
+            if (!window.confirm('Excluir este conhecimento permanentemente?')) return;
+        }
 
         try {
             setIsDeleting(id);
-            await api.deleteKnowledgeItem(id);
-            setItems(prev => prev.filter(i => i.id !== id));
-            toast.success('Documento removido');
+            if (baseNamePrefix) {
+                // Find all siblings in the current UI state that match this prefix
+                const siblingItems = items.filter(item => item.name.startsWith(baseNamePrefix));
+
+                // Delete them all sequentially to keep the UI simple (could be parallelized)
+                for (const sibling of siblingItems) {
+                    await api.deleteKnowledgeItem(sibling.id);
+                }
+
+                setItems(prev => prev.filter(i => !i.name.startsWith(baseNamePrefix)));
+
+            } else {
+                await api.deleteKnowledgeItem(id);
+                setItems(prev => prev.filter(i => i.id !== id));
+
+            }
         } catch (error) {
             console.error('Delete error:', error);
-            toast.error('Erro ao remover');
+            toast.error('Erro ao remover arquivo(s)');
         } finally {
             setIsDeleting(null);
         }
@@ -162,7 +197,7 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                     className="hidden"
                     onChange={handleFileUpload}
                     disabled={isUploading}
-                    accept=".pdf,.txt,.json,.doc,.docx"
+                    accept=".pdf,.txt,.json,.doc,.docx,.xls,.xlsx"
                 />
                 <label
                     htmlFor="kb-upload"
@@ -176,13 +211,15 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                         {isUploading ? (
                             <>
                                 <Loader2 className="h-8 w-18 text-accent animate-spin mb-3" />
-                                <p className="text-xs font-mono uppercase tracking-widest text-accent animate-pulse">Indexando Documento...</p>
+                                <p className="text-xs font-mono uppercase tracking-widest text-accent animate-pulse">
+                                    {uploadProgress || 'Processando...'}
+                                </p>
                             </>
                         ) : (
                             <>
                                 <Upload className="h-8 w-8 text-muted-foreground mb-3 group-hover:text-accent transition-colors" />
                                 <p className="text-sm font-bold secondary-text uppercase tracking-wider">Upload de Conhecimento</p>
-                                <p className="text-[10px] text-muted-foreground mt-1">PDF, Word, TXT ou JSON (Máx 5MB)</p>
+                                <p className="text-[10px] text-muted-foreground mt-1">PDF, Word, Excel, TXT, JSON (Máx 5MB)</p>
                             </>
                         )}
                     </div>
@@ -193,7 +230,9 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
             <div className="border border-border bg-background overflow-hidden shadow-sm">
                 <div className="bg-muted/50 px-4 py-2 border-b border-border flex justify-between items-center">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Documentos Indexados</span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{items.length} total</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                        {Array.from(new Set(items.map(i => i.name.includes('(Parte') ? i.name.split('(Parte')[0].trim() : i.name))).length} total
+                    </span>
                 </div>
 
                 {isLoading ? (
@@ -208,8 +247,28 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                     </div>
                 ) : (
                     <div className="divide-y divide-border">
-                        {items.map((item) => (
-                            <div key={item.id} className="group hover:bg-accent/5 transition-colors p-4 flex items-center justify-between">
+                        {Array.from(
+                            items.reduce((acc, item) => {
+                                const isChunk = item.name.includes('(Parte');
+                                const baseName = isChunk ? item.name.split('(Parte')[0].trim() : item.name;
+
+                                if (!acc.has(baseName)) {
+                                    acc.set(baseName, {
+                                        ...item,
+                                        displayId: item.id, // ID of the first chunk encountered used for deletion tracing
+                                        displayName: baseName, // The clean name without (Parte X/Y)
+                                        totalSize: item.fileSize || 0,
+                                        chunked: isChunk
+                                    });
+                                } else {
+                                    // Aggregate size for chunked files
+                                    const existing = acc.get(baseName)!;
+                                    existing.totalSize += (item.fileSize || 0);
+                                }
+                                return acc;
+                            }, new Map<string, any>()).values()
+                        ).map((item: any) => (
+                            <div key={item.displayName} className="group hover:bg-accent/5 transition-colors p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 bg-muted/30 border border-border flex items-center justify-center shrink-0">
                                         {item.fileType?.includes('pdf') ? (
@@ -223,10 +282,10 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                                         )}
                                     </div>
                                     <div className="min-w-0">
-                                        <h5 className="text-sm font-bold truncate max-w-[300px] text-foreground">{item.name}</h5>
+                                        <h5 className="text-sm font-bold truncate max-w-[300px] text-foreground">{item.displayName}</h5>
                                         <div className="flex items-center gap-3 mt-1">
                                             <span className="text-[10px] font-mono text-muted-foreground uppercase">{item.fileType || 'Doc'}</span>
-                                            <span className="text-[10px] font-mono text-muted-foreground pl-3 border-l border-border">{formatSize(item.fileSize || 0)}</span>
+                                            <span className="text-[10px] font-mono text-muted-foreground pl-3 border-l border-border">{formatSize(item.totalSize)}</span>
                                             <span className="text-[10px] font-mono text-muted-foreground pl-3 border-l border-border">
                                                 {item.createdAt.toLocaleDateString('pt-BR')}
                                             </span>
@@ -244,10 +303,10 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                                         variant="ghost"
                                         size="icon"
                                         className="h-8 w-8 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-none border border-transparent hover:border-red-500/10 transition-all"
-                                        onClick={() => handleDelete(item.id)}
-                                        disabled={isDeleting === item.id}
+                                        onClick={() => handleDelete(item.displayId, item.name)}
+                                        disabled={isDeleting === item.displayId || (isDeleting !== null && !!items.find(i => i.id === isDeleting)?.name.includes(item.displayName.split('.')[0]))}
                                     >
-                                        {isDeleting === item.id ? (
+                                        {isDeleting === item.displayId ? (
                                             <Loader2 className="h-4 w-4 animate-spin" />
                                         ) : (
                                             <Trash2 className="h-4 w-4" />
@@ -267,6 +326,6 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                     <strong>Integração Ativa:</strong> O n8n filtrará dinamicamente estes conteúdos para otimizar o consumo de tokens.
                 </p>
             </div>
-        </div>
+        </div >
     );
 }

@@ -34,10 +34,11 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
     const callEvolutionManager = async (action: string, payload: any = {}) => {
         try {
             // Option 2: Direct Client-Side Fetch (Bypasses Edge Function SSL limit)
-            const baseUrl = import.meta.env.VITE_EVOLUTION_API_URL;
+            // Use Vite proxy in development to bypass ERR_CERT_AUTHORITY_INVALID
+            const baseUrl = import.meta.env.DEV ? '/evolution-api' : import.meta.env.VITE_EVOLUTION_API_URL;
             const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY;
 
-            if (!baseUrl || !apiKey) {
+            if (!import.meta.env.VITE_EVOLUTION_API_URL || !apiKey) {
                 throw new Error('Evolution API não configurada no .env.local (VITE_EVOLUTION_...)');
             }
 

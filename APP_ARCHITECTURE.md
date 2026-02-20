@@ -91,12 +91,13 @@ A tabela `auth.users` (Supabase) gerencia apenas credenciais e sessões. A tabel
 
 ## 4. Governança de Agentes & Knowledge Base (RAG)
 
-### 4.1 Knowledge Base (RAG Gerenciado)
-O sistema agora suporta RAG (Retrieval-Augmented Generation) nativo por agente.
--   **Tabela `agent_knowledge`**: Armazena fragmentos de conhecimento.
--   **Embeddings**: Supabase `pgvector` armazena vetores semânticos.
--   **Vinculação**: Relação N:1 com `agents`. Um documento pertence a um agente específico.
--   **Fluxo N8N**: O RPC `get_agent_context` agora retorna automaticamente os snippets de conhecimento mais relevantes para a query do usuário, injetando no Contexto do Agente.
+### 4.1 Knowledge Base (RAG Gerenciado & Chunking)
+O sistema agora suporta RAG (Retrieval-Augmented Generation) nativo por agente, com processamento **100% Client-Side** para reduzir carga no backend:
+-   **Extração Universal:** Suporte a `.pdf` (via `pdfjs-dist` + Vite WebWorkers), `.docx` (via `mammoth`), `.xlsx` e texto/json diretamente no browser (`src/lib/file-parsers.ts`).
+-   **Semantic Chunking:** Documentos grandes são quebrados em fragmentos (chunks) menores usando `src/lib/text-chunker.ts` para otimizar o limite de tokens (`top_k=X`).
+-   **Embeddings Client-Side:** O próprio frontend chama a API da OpenAI para gerar vetores antes da inserção (`api.ts`).
+-   **Persistência Grânular & UI Integrada:** A tabela `agent_knowledge` armazena as fatias individualmente (ex: `Apostila.pdf (Parte 1/5)`), mas a UI agrupa essas fatias magicamente, apresentando como um único arquivo para o usuário.
+-   **Fluxo N8N:** O RPC `get_agent_context` retorna as partes mais relevantes (chunks precisos) baseados no *Cosyne Similarity* via `pgvector`.
 
 ### 4.2 RAG de Reforço Positivo ("Success Memory")
 Além do conhecimento estático (PDFs), o sistema agora possui **aprendizado contínuo** com base no feedback das conversas (notas 4 e 5).
