@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import {
   ShieldCheck, FileText, AlertTriangle, Activity,
   Search, Plus, Eye, Pencil, ExternalLink, MoreVertical, Trash2, Paperclip, X,
-  Bold, Italic, List
+  Bold, Italic, List, Sparkles, Loader2
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -48,6 +48,7 @@ export default function Governance() {
   const [policies, setPolicies] = useState<AIPolicy[]>([]);
   const [incidents, setIncidents] = useState<AIIncident[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [isSuggesting, setIsSuggesting] = useState(false);
 
   const loadData = async () => {
     if (!currentTenant) return;
@@ -140,24 +141,34 @@ export default function Governance() {
   const handleSavePolicy = async () => {
     if (!currentTenant) return;
     try {
+      console.log('Saving policy. Editing:', !!editingPolicy, 'Form ID:', policyForm.id);
+
+      const payload = {
+        ...policyForm,
+        tenantId: currentTenant.id,
+        id: editingPolicy?.id || policyForm.id
+      };
+
       if (editingPolicy) {
-        // Update logic (to be added to api if needed, or use create for now if it handles upsert)
-        // For now, let's assume we create/update via the same pattern
-        await api.createPolicy({ ...policyForm, tenantId: currentTenant.id } as AIPolicy);
+        await api.createPolicy(payload as AIPolicy);
         toast.success('Política atualizada');
       } else {
         await api.createPolicy({
-          ...policyForm,
-          tenantId: currentTenant.id,
+          ...payload,
           isActive: true
         } as Partial<AIPolicy>);
         toast.success('Política criada');
       }
+
       // Reload
+      console.log('Reloading policies...');
       const updated = await api.getPolicies(currentTenant.id);
+      console.log('Received policies count:', updated.length);
       setPolicies(updated);
       setIsPolicyDialogOpen(false);
+      setEditingPolicy(null);
     } catch (error) {
+      console.error('Error saving policy:', error);
       toast.error('Erro ao salvar política');
     }
   };
@@ -170,6 +181,34 @@ export default function Governance() {
       toast.success('Política removida');
     } catch (error) {
       toast.error('Erro ao remover política');
+    }
+  };
+
+  const handleSuggestAI = async () => {
+    if (!policyForm.name) {
+      toast.error('Dê um nome à política para que eu possa sugerir regras');
+      return;
+    }
+
+    setIsSuggesting(true);
+    try {
+      const suggestions = await api.generatePolicySuggestions(policyForm.name);
+
+      setPolicyForm(prev => ({
+        ...prev,
+        rules: {
+          canDo: [...(prev.rules?.canDo || []), ...suggestions.canDo],
+          cannotDo: [...(prev.rules?.cannotDo || []), ...suggestions.cannotDo],
+          transferConditions: [...(prev.rules?.transferConditions || []), ...suggestions.transferConditions]
+        }
+      }));
+
+      toast.success('Sugestões geradas com sucesso!');
+    } catch (error) {
+      console.error('AI Suggestion Error:', error);
+      toast.error('Falha ao gerar sugestões por IA');
+    } finally {
+      setIsSuggesting(false);
     }
   };
 
@@ -567,17 +606,17 @@ export default function Governance() {
 
             {/* Policy Dialog */}
             <Dialog open={isPolicyDialogOpen} onOpenChange={setIsPolicyDialogOpen}>
-              <DialogContent>
+              <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>{editingPolicy ? 'Editar Política' : 'Nova Política'}</DialogTitle>
                   <DialogDescription>
                     Defina as regras e diretrizes de governança para os agentes de IA.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="space-y-4 py-4 overflow-y-auto max-h-[70vh] px-1">
                   <div className="space-y-2">
                     <Label>Nome</Label>
-                    <Input value={policyForm.name} onChange={(e) => setPolicyForm({ ...policyForm, name: e.target.value })} />
+                    <Input value={policyForm.name} onChange={(e) => setPolicyForm({ ...policyForm, name: e.target.value })} placeholder="Ex: Política de Privacidade e Ética" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -598,13 +637,196 @@ export default function Governance() {
                       </Select>
                     </div>
                   </div>
-                  <div className="flex justify-end gap-3 pt-2">
+
+                  <div className="space-y-4 pt-4 border-t border-border">
+                    <div className="flex justify-between items-center">
+                      <Label className="text-sm font-semibold flex items-center gap-2">
+                        Regras de Comportamento
+                      </Label>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5 border-accent/30 hover:border-accent hover:bg-accent/10"
+                        onClick={handleSuggestAI}
+                        disabled={isSuggesting}
+                      >
+                        {isSuggesting ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-3.5 w-3.5 text-accent" />
+                        )}
+                        Sugerir por IA
+                      </Button>
+                    </div>
+
+                    {/* Can Do */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-xs text-green-600 font-bold uppercase tracking-wider text-[10px]">O que a IA PODE fazer</Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] bg-green-500/10 hover:bg-green-500/20 text-green-600"
+                          onClick={() => setPolicyForm({
+                            ...policyForm,
+                            rules: {
+                              ...policyForm.rules!,
+                              canDo: [...(policyForm.rules?.canDo || []), '']
+                            }
+                          })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Adicionar
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {policyForm.rules?.canDo.map((rule, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <Input
+                              value={rule}
+                              onChange={(e) => {
+                                const newRules = [...policyForm.rules!.canDo];
+                                newRules[idx] = e.target.value;
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, canDo: newRules }
+                                });
+                              }}
+                              placeholder="Ex: Pode emitir faturas"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              onClick={() => {
+                                const newRules = policyForm.rules!.canDo.filter((_, i) => i !== idx);
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, canDo: newRules }
+                                });
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Cannot Do */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-xs text-destructive font-bold uppercase tracking-wider text-[10px]">O que a IA NÃO PODE fazer</Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-600"
+                          onClick={() => setPolicyForm({
+                            ...policyForm,
+                            rules: {
+                              ...policyForm.rules!,
+                              cannotDo: [...(policyForm.rules?.cannotDo || []), '']
+                            }
+                          })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Adicionar
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {policyForm.rules?.cannotDo.map((rule, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <Input
+                              value={rule}
+                              onChange={(e) => {
+                                const newRules = [...policyForm.rules!.cannotDo];
+                                newRules[idx] = e.target.value;
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, cannotDo: newRules }
+                                });
+                              }}
+                              placeholder="Ex: Não pode dar descontos > 10%"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              onClick={() => {
+                                const newRules = policyForm.rules!.cannotDo.filter((_, i) => i !== idx);
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, cannotDo: newRules }
+                                });
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Transfer Conditions */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-xs text-blue-600 font-bold uppercase tracking-wider text-[10px]">Quando TRANSFERIR para Humano</Label>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-[10px] bg-blue-500/10 hover:bg-blue-500/20 text-blue-600"
+                          onClick={() => setPolicyForm({
+                            ...policyForm,
+                            rules: {
+                              ...policyForm.rules!,
+                              transferConditions: [...(policyForm.rules?.transferConditions || []), '']
+                            }
+                          })}
+                        >
+                          <Plus className="h-3 w-3 mr-1" /> Adicionar
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {policyForm.rules?.transferConditions.map((rule, idx) => (
+                          <div key={idx} className="flex gap-2">
+                            <Input
+                              value={rule}
+                              onChange={(e) => {
+                                const newRules = [...policyForm.rules!.transferConditions];
+                                newRules[idx] = e.target.value;
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, transferConditions: newRules }
+                                });
+                              }}
+                              placeholder="Ex: O cliente usar linguagem ofensiva"
+                            />
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="shrink-0"
+                              onClick={() => {
+                                const newRules = policyForm.rules!.transferConditions.filter((_, i) => i !== idx);
+                                setPolicyForm({
+                                  ...policyForm,
+                                  rules: { ...policyForm.rules!, transferConditions: newRules }
+                                });
+                              }}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-4 border-t border-border">
                     <Button variant="outline" onClick={() => setIsPolicyDialogOpen(false)}>Cancelar</Button>
                     <Button className="bg-accent hover:bg-accent/90" onClick={handleSavePolicy}>
-                      {editingPolicy ? 'Salvar' : 'Criar'}
+                      {editingPolicy ? 'Salvar Alterações' : 'Criar Política'}
                     </Button>
                   </div>
                 </div>
+
               </DialogContent>
             </Dialog>
           </TabsContent>

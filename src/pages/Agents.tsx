@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -36,14 +36,16 @@ import {
 } from "@/components/ui/tooltip";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Agent, AILifecycleStage } from '@/lib/types';
+import { Agent, AILifecycleStage, AIPolicy } from '@/lib/types';
 import { AgentKnowledgeTab } from '@/components/agents/AgentKnowledgeTab';
 import { AgentEvolutionTab } from '@/components/agents/AgentEvolutionTab';
+import { Checkbox } from '@/components/ui/checkbox';
 
 export default function Agents() {
   const { openSlideOver, currentTenant, currentUser } = useApp();
   const [search, setSearch] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [availablePolicies, setAvailablePolicies] = useState<AIPolicy[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
 
@@ -62,17 +64,21 @@ export default function Agents() {
   );
 
   useEffect(() => {
-    async function loadAgents() {
+    async function loadData() {
       if (currentTenant) {
         try {
-          const data = await api.getAgents(currentTenant.id);
-          setAgents(data);
+          const [agentsData, policiesData] = await Promise.all([
+            api.getAgents(currentTenant.id),
+            api.getPolicies(currentTenant.id)
+          ]);
+          setAgents(agentsData);
+          setAvailablePolicies(policiesData);
         } catch (error) {
-          toast.error('Erro ao carregar agentes');
+          toast.error('Erro ao carregar dados');
         }
       }
     }
-    loadAgents();
+    loadData();
   }, [currentTenant]);
 
   const handleCloneAgent = async (agent: Agent) => {
@@ -110,7 +116,18 @@ export default function Agents() {
         status: 'active',
         activeConversations: 0,
         totalConversations: 0,
-        sessionTimeoutSeconds: 3600
+        sessionTimeoutSeconds: 3600,
+        policies: [],
+        brainConfig: {
+          modelId: 'gpt-4o',
+          temperature: 0.5,
+          maxTokens: 2048,
+          systemPrompt: '',
+          userPromptTemplate: ''
+        },
+        integrationConfig: {
+          response_mode: 'match_input'
+        }
       });
     }
     setIsDialogOpen(true);
@@ -476,7 +493,7 @@ export default function Agents() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 shrink-0 mt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 shrink-0 mt-6">
                     <div className="space-y-2">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Modelo LLM (Cérebro)</Label>
                       <Select
@@ -533,6 +550,25 @@ export default function Agents() {
                         onChange={(e) => setFormData({
                           ...formData,
                           contextWindow: parseInt(e.target.value)
+                        })}
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <Label className="text-[10px] font-bold secondary-text text-accent uppercase tracking-wider">Max Tokens</Label>
+                        <span className="text-[9px] font-mono font-bold">{formData.brainConfig?.maxTokens || 2048}</span>
+                      </div>
+                      <Input
+                        type="number"
+                        className="h-9 font-mono text-xs bg-muted/30"
+                        value={formData.brainConfig?.maxTokens || 2048}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          brainConfig: {
+                            ...formData.brainConfig,
+                            maxTokens: parseInt(e.target.value)
+                          }
                         })}
                       />
                     </div>
@@ -878,6 +914,43 @@ export default function Agents() {
                     </div>
 
                     <div className="space-y-6">
+                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-muted/5">
+                        <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest border-b border-border/50 pb-2 flex items-center gap-2">
+                          <FileText className="h-3 w-3" /> Políticas Aplicadas
+                        </h4>
+                        <div className="grid grid-cols-1 gap-2 pt-2">
+                          {availablePolicies.length === 0 ? (
+                            <p className="text-[10px] text-muted-foreground italic">Nenhuma política cadastrada em Governança.</p>
+                          ) : (
+                            availablePolicies.map((policy) => (
+                              <div key={policy.id} className="flex items-center space-x-2 p-2 rounded hover:bg-muted/50 transition-colors">
+                                <Checkbox
+                                  id={`policy-${policy.id}`}
+                                  checked={formData.policies?.includes(policy.name)}
+                                  onCheckedChange={(checked) => {
+                                    const current = formData.policies || [];
+                                    const next = checked
+                                      ? [...current, policy.name]
+                                      : current.filter(p => p !== policy.name);
+                                    setFormData({ ...formData, policies: next });
+                                  }}
+                                />
+                                <Label
+                                  htmlFor={`policy-${policy.id}`}
+                                  className="text-xs font-medium cursor-pointer flex-1"
+                                >
+                                  {policy.name}
+                                  <span className="ml-2 text-[10px] text-muted-foreground font-normal">v{policy.version}</span>
+                                </Label>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <p className="text-[9px] text-muted-foreground mt-2 border-t border-border/50 pt-2 italic">
+                          As regras destas políticas (Pode/Não Pode) serão injetadas automaticamente no prompt do agente.
+                        </p>
+                      </div>
+
                       <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-muted/5">
                         <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest border-b border-border/50 pb-2">Matriz de Risco</h4>
                         <div className="space-y-4 pt-2">
