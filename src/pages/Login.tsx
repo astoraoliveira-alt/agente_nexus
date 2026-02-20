@@ -286,7 +286,7 @@ export default function Login() {
         </div>
 
         {/* Full-Body AI Agent - Aura: Enthusiastic & Alive */}
-        <div className={`absolute inset-0 flex flex-col items-center justify-between py-10 xl:py-14 z-20 transition-all duration-[2000ms] ease-out delay-500 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-110 blur-2xl'}`}>
+        <div className={`absolute inset-0 flex flex-col items-center justify-between py-10 xl:py-14 z-20 transition-all duration-1000 ease-out delay-500 ${mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-110 blur-2xl'}`}>
 
           {/* Internal Zoom Container for Right Panel Items */}
           <div className="flex-1 flex flex-col items-center justify-between w-full scale-[0.85] xl:scale-90 origin-center h-full">
