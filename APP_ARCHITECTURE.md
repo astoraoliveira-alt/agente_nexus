@@ -1,6 +1,6 @@
 # Agent Nexus Hub - Documentação da Arquitetura (Completa & Detalhada)
-> **Última Atualização:** 19/Fev/2026
-> **Versão:** 7.0 (Positive Reinforcement & Campaign Manager)
+> **Última Atualização:** 20/Fev/2026
+> **Versão:** 7.5 (Audit Queue & Performance V7)
 > **Status:** Mestre (Fonte Única da Verdade)
 > **Fonte Primária:** `database/schema.sql`
 
@@ -62,6 +62,8 @@ Esta arquitetura híbrida garante que os dados do cliente fiquem no Brasil (Comp
 Devido ao alto volume de dados (milhares de mensagens e eventos), o sistema adota a estratégia de pré-agregação e transição de responsabilidade analítica para o banco:
 - **Redução de N+1:** Dashboards (*companies_overview*, *agent_usage*) não fazem loops (`SELECT COUNT(*) FROM messages`). Em vez disso, consomem a tabela condensada `consumption_metrics` via agregações CTE (Common Table Expressions), reduzindo tempos de resposta de `>1s` para `<300ms`.
 - **Prevenção de Gargalo de Memória:** O frontend nunca baixa listas completas para realizar agregações locais (ex: `.length`), delegando toda agregação de tamanho e filtragem para funções nativas RPC no Postgres (`get_agent_usage_stats`).
+- **Otimização RLS V7 (Statement Caching):** Resolvemos latências críticas (>2s) em tabelas como `companies` e `conversations` aplicando o padrão de **(SELECT function())** dentro das políticas de RLS. Isso força o PostgreSQL a avaliar a permissão uma única vez por statement em vez de uma vez por linha.
+- **Índices Compostos de Consumo:** Adicionado índice `idx_messages_tenant_created` para acelerar drasticamente o agrupamento de métricas financeiras em tempo real.
 
 ---
 
@@ -125,6 +127,7 @@ Na arquitetura do Nexus, um **Agente** é um Ativo Corporativo sujeito a auditor
 2.  **`lifecycle_stage`**: `development` -> `validation` -> `production` -> `retired`.
 3.  **`brain_config` (JSONB)**: Contém System Prompt, Modelo, Temperatura e agora **`user_prompt_template`** (para motores burros/N8N).
 4.  **Enforcement de Governança (Master RPC)**: Toda validação de status (`active`), limites de concorrência e estágio de ciclo de vida é centralizada na RPC `n8n_orchestrator`, impedindo que o n8n processe mensagens para agentes inativos ou empresas suspensas.
+5.  **Gestão de Inatividade (Session Timeout)**: Implementado controle de `session_timeout_minutes` por agente. Um trigger via `pg_cron` (ou processo externo) monitora o `last_message_at` e encerra automaticamente conversas inativas, garantindo que o fluxo de auditoria seja disparado após a janela de interação.
 
 ---
 
@@ -134,7 +137,8 @@ Na arquitetura do Nexus, um **Agente** é um Ativo Corporativo sujeito a auditor
 -   **`ai_active`**: N8N processa via LLM.
 -   **`human_active`**: Operador assume. N8N pára.
 -   **`closed`**: Finalizada.
--   *Auditoria de Qualidade:* Conversas fechadas entram em fila de auditoria (`Quality.tsx`) para avaliação humana, alimentando o score do agente.
+-   *Auditoria de Qualidade (Fila Automática):* Conversas fechadas sem avaliação entram na fila automática via RPC `get_pending_audits`. Um workflow N8N worker processa essa fila sequencialmente (com loop e wait de 5s) para garantir 100% de cobertura de auditoria conforme exigido pela ISO 42001.
+-   *Re-auditoria Manual:* Botão habilitado no painel de detalhes para casos de discordância ou necessidade de reprocessamento manual.
 
 ### 5.2 Integração de Voz (VAPI) - Idempotência
 A integração de voz é assíncrona e segura.
@@ -300,7 +304,7 @@ Auditoria técnica de uso para faturamento.
 *   **Saldo de Inteligência:** Visualização de Tokens gastos vs Contratados.
 *   **Heatmap de Utilização:** Matriz de calor (Dia da Semana x Hora) para identificar picos de carga.
 *   **Breakdown por Agente:** Custo individualizado por agente (quem gasta mais?).
-*   **Breakdown por Canal:** Custo separado por WhatsApp, Web Chat e Voz.
+*   **Custos Diários Totais:** Gráfico expandido de barras para análise temporal de gastos (Substituiu o Pie Chart de Breakdown para maior clareza temporal).
 *   **Predictor de Fatura:** Projeção linear de custo final baseada no consumo atual.
 
 ---
