@@ -28,4 +28,33 @@
   3. Atualizar o frontend (`AgentDetails.tsx`) para processar e renderizar botões de conexão de forma automatizada via loop com base na prop `channel.type`, reduzindo os cases manuais de React.
 
 ---
+
+---
+
+## 3. Platform Evolution: Roadmap de Blindagem (Q1/Q2 2026)
+> **Alinhamento Multi-Agente**: Sequência baseada nas recomendações de `@[product-owner]`, `@[backend-specialist]` e `@[frontend-specialist]`.
+
+### Faixa 1: Estabilidade & Performance (Blindagem de Código)
+- **Perspectiva**: `@[frontend-specialist]` (Prevenção de Regressões).
+- **Ações**:
+  1. **Tipagem Automática (Schema-First)**: Bloquear o build se o frontend desviar do banco.
+  2. **Playwright Visual Core**: Criar screenshots "North Star" das telas de Dashboard e Conversas.
+  3. **Master RPC (`get_dashboard_summary`)**: Reduzir 20+ chamadas para 1.
+
+### Faixa 2: Segurança & Compliance (Mascaramento)
+- **Perspectiva**: `@[backend-specialist]` (Security-First) & `@[product-owner]` (Legal).
+- **Ações**:
+  1. **Postgres Masking Function**: Regras de Regex movidas da camada UI para a camada SQL.
+  2. **View `secure_messages`**: Filtro obrigatório para usuários com perfil `operador`.
+  3. **DPO Override**: Liberação de visualização de PII apenas mediante Role específica.
+
+### Faixa 3: UX Operacional & Valor (Real-time Handoff)
+- **Perspectiva**: `@[product-owner]` (Valor de Negócio) & `Architect` (Realtime).
+- **Ações**:
+  1. **Supabase Realtime**: Ativar WebSocket na tabela `conversations`.
+  2. **IA Attention Logic**: Flag `needs_attention` disparado pela IA (N8N) quando o sentimento cai abaixo de -0.7.
+  3. **Visual Alert**: "Dashboard Pulsante" para notificações críticas sem Refresh.
+
+---
+
 *(Append items here as the system scales and edges cases are consciously dropped in favor of release deadlines).*

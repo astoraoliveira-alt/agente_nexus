@@ -17,47 +17,54 @@ export default function Index() {
   const { currentTenant, openSlideOver, conversations } = useApp();
   const navigate = useNavigate();
 
-  // 1. Fetch Data
-  // Removed duplicate conversations query - using AppContext data now
+  // 1. Fetch Consolidated Dashboard Data (Agents + Tenant)
+  const { data: dashboardData, isLoading: loadingDashboard } = useQuery({
+    queryKey: ['dashboard-summary', currentTenant?.id],
+    queryFn: () => currentTenant ? api.getDashboardSummary(currentTenant.id) : Promise.resolve(null),
+    enabled: !!currentTenant,
+    staleTime: 60000, // 1 minute
+  });
+
+  const agents = dashboardData?.agents || [];
+  const tenantDetails = dashboardData?.tenant || currentTenant;
 
   const { data: consumption, isLoading: loadingConsumption } = useQuery({
     queryKey: ['consumption', currentTenant?.id],
     queryFn: () => currentTenant ? api.getConsumptionMetrics(currentTenant.id, 30) : Promise.resolve([]),
     enabled: !!currentTenant,
-  });
-
-  const { data: agents, isLoading: loadingAgents } = useQuery({
-    queryKey: ['agents', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getAgents(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
+    staleTime: 30000,
   });
 
   const { data: incidents, isLoading: loadingIncidents } = useQuery({
     queryKey: ['incidents', currentTenant?.id],
     queryFn: () => currentTenant ? api.getIncidents(currentTenant.id) : Promise.resolve([]),
     enabled: !!currentTenant,
+    staleTime: 30000,
   });
 
   const { data: evaluations, isLoading: loadingEvaluations } = useQuery({
     queryKey: ['evaluations', currentTenant?.id],
     queryFn: () => currentTenant ? api.getEvaluations(currentTenant.id) : Promise.resolve([]),
     enabled: !!currentTenant,
+    staleTime: 60000,
   });
 
   const { data: users, isLoading: loadingUsers } = useQuery({
     queryKey: ['users', currentTenant?.id],
     queryFn: () => currentTenant ? api.getUsers(currentTenant.id) : Promise.resolve([]),
     enabled: !!currentTenant,
+    staleTime: 60000,
   });
 
   const { data: contacts, isLoading: loadingContacts } = useQuery({
     queryKey: ['contacts', currentTenant?.id],
     queryFn: () => currentTenant ? api.getContacts(currentTenant.id) : Promise.resolve([]),
     enabled: !!currentTenant,
+    staleTime: 60000,
   });
 
   /* 2. Calculate Loading State */
-  const isLoading = loadingConsumption || loadingAgents || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
+  const isLoading = loadingDashboard || loadingConsumption || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
 
   // 2. Calculate KPIs
   const activeConversations = conversations?.filter(c => c.status !== 'closed').length || 0;
@@ -75,7 +82,7 @@ export default function Index() {
       { label: 'Ruim', variant: 'critical' as const };
 
   // Consumption Logic
-  const limits = currentTenant?.limits || { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 };
+  const limits = tenantDetails?.limits || { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 };
   const totalTokens = consumption?.filter(m => m.metricType === 'tokens').reduce((acc, m) => acc + m.value, 0) || 0;
   const consumptionLimit = (limits.llmTokens as number) || 1; // Avoid division by zero
   const consumptionPercentage = (totalTokens / consumptionLimit) * 100;
@@ -590,7 +597,7 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Uso do Plano</h3>
-                <Badge variant="secondary" className="capitalize">{currentTenant?.plan || 'Flex'}</Badge>
+                <Badge variant="secondary" className="capitalize">{tenantDetails?.planName || tenantDetails?.plan || 'Flex'}</Badge>
               </div>
               <div className="space-y-4">
                 <div>

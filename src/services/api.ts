@@ -37,6 +37,45 @@ export const api = {
         } as unknown as User;
     },
 
+    async getDashboardSummary(tenantId: string): Promise<{ agents: Agent[], tenant: Company }> {
+        const { data, error } = await supabase.rpc('get_dashboard_summary', { p_tenant_id: tenantId });
+        if (error) throw error;
+
+        return {
+            agents: data.agents.map((dbAgent: any) => ({
+                id: dbAgent.id,
+                name: dbAgent.name,
+                tenantId: dbAgent.tenant_id,
+                status: dbAgent.status,
+                channels: dbAgent.channels || [],
+                totalConversations: Number(dbAgent.total_conversations || 0),
+                activeConversations: Number(dbAgent.active_conversations || 0),
+                maxConcurrentConversations: dbAgent.max_concurrency,
+                usage: {
+                    totalTokens: Number(dbAgent.total_tokens || 0),
+                    totalMessages: Number(dbAgent.total_messages || 0),
+                    totalCost: Number(dbAgent.recorded_cost || 0),
+                },
+                brainConfig: dbAgent.brain_config,
+                lifecycleStage: dbAgent.lifecycle_stage,
+                riskLevel: dbAgent.risk_level,
+                type: dbAgent.type,
+                integration: {
+                    n8n_webhook_url: dbAgent.integration_config?.n8n_webhook_url || `https://n8n.webhook/${dbAgent.id}`
+                }
+            })),
+            tenant: {
+                ...data.tenant.company,
+                planName: data.tenant.plan?.name,
+                planPrices: {
+                    llmTokenPrice: Number(data.tenant.plan?.llm_token_price || 0),
+                    messagePrice: Number(data.tenant.plan?.message_price || 0),
+                },
+                limits: data.tenant.plan?.default_limits || {}
+            } as unknown as Company
+        };
+    },
+
     async getUserById(userId: string): Promise<User | null> {
         const { data, error } = await supabase
             .from('users')

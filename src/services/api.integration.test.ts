@@ -227,4 +227,16 @@ describe('Local API REST Latency & Integrity Tests (Supabase DB)', () => {
         console.log(`⏱️ [LATENCY] getIncidents: ${(end - start).toFixed(2)}ms`);
         expect(Array.isArray(incidents)).toBe(true);
     });
+
+    it('should fetch consolidated dashboard summary (Master RPC)', async () => {
+        const start = performance.now();
+        const summary = await api.getDashboardSummary(tenantId);
+        const end = performance.now();
+
+        recordLatency('getDashboardSummary (Master RPC)', start, end);
+        console.log(`⏱️ [LATENCY] getDashboardSummary: ${(end - start).toFixed(2)}ms`);
+        expect(summary).toBeDefined();
+        expect(Array.isArray(summary.agents)).toBe(true);
+        expect(summary.tenant).toBeDefined();
+    });
 });
