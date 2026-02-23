@@ -377,8 +377,8 @@ export default function Agents() {
                     <div>
                       <p className="text-lg font-bold leading-tight">
                         {agent.usage?.totalCost
-                          ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 4 }).format(agent.usage.totalCost)
-                          : 'R$ 0,0000'}
+                          ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(agent.usage.totalCost)
+                          : 'R$ 0,00'}
                       </p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Custo Estimado</p>
                     </div>
@@ -391,7 +391,8 @@ export default function Agents() {
                         <span className="text-[9px] text-muted-foreground uppercase">Tokens</span>
                       </div>
 
-                      {(agent.type === 'whatsapp' || agent.type === 'embedded') && (
+                      {/* Always show messages if they exist (> 0) or if it's predominantly a text agent */}
+                      {((agent.usage?.totalMessages || 0) > 0 || !agent.channels.includes('voice')) && (
                         <div className="flex flex-col">
                           <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
                             {(agent.usage?.totalMessages || 0).toLocaleString()}
@@ -400,7 +401,8 @@ export default function Agents() {
                         </div>
                       )}
 
-                      {agent.channels.includes('voice') && (
+                      {/* Always show minutes if it's a voice agent or has voice usage */}
+                      {(agent.channels.includes('voice') || ((agent.usage?.totalStt || 0) + (agent.usage?.totalTts || 0)) > 0) && (
                         <div className="flex flex-col">
                           <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
                             {((agent.usage?.totalStt || 0) + (agent.usage?.totalTts || 0)).toFixed(1)}
