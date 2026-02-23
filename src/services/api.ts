@@ -1339,6 +1339,8 @@ export const api = {
         const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
         const finalUrl = baseUrl.endsWith('/audit-conversation') ? baseUrl : `${baseUrl}/audit-conversation`;
 
+        console.log('triggerAudit payload:', conversationId, context);
+
         try {
             const response = await fetch(finalUrl, {
                 method: 'POST',
@@ -1346,9 +1348,13 @@ export const api = {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
+                    type: 'MANUAL',
+                    table: 'conversations',
+                    schema: 'public',
                     record: {
                         id: conversationId,
-                        ...context // Inject dynamic context (tenantId, agentId)
+                        tenant_id: context?.tenantId,
+                        agent_id: context?.agentId
                     }
                 })
             });
