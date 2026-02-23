@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { ArtifactsDrawer } from './ArtifactsDrawer';
 import { maskSensitiveData } from '@/lib/masking';
 
 interface ChatAreaProps {
@@ -183,6 +184,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
+  const [artifactsDrawerOpen, setArtifactsDrawerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'default' | 'mobile'>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -323,6 +325,8 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                 </span>
               </>
             )}
+
+
           </div>
         </div>
 
@@ -351,7 +355,15 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Control Buttons */}
+          <button
+            onClick={() => setArtifactsDrawerOpen(true)}
+            className="flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer bg-muted/50 px-3 py-0.5 rounded-md border border-border/50 h-8 mr-1 shadow-sm"
+            title="Ver arquivos e gravações da conversa"
+          >
+            <Paperclip className="h-4 w-4 text-muted-foreground" />
+            <span className="font-medium text-muted-foreground text-xs hidden xl:inline-block">Arquivos (WAV/Docs)</span>
+          </button>
+
           {/* Control Buttons */}
           <div className="flex items-center gap-2">
             {isReadOnly ? (
@@ -618,6 +630,13 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           </div>
         </>
       )}
+
+      {/* Slide-over Artifacts Drawer */}
+      <ArtifactsDrawer
+        conversationId={conversation.id}
+        isOpen={artifactsDrawerOpen}
+        onOpenChange={setArtifactsDrawerOpen}
+      />
     </div >
   );
 }

@@ -139,10 +139,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else {
           console.log('👋 No active session.');
           localStorage.removeItem('davos_session'); // Clear stale session if exists
+          await supabase.auth.signOut().catch(() => { }); // Force wipe supabase dirty tokens
         }
       } catch (err) {
         console.error('❌ Boot Error:', err);
         localStorage.removeItem('davos_session'); // Safety clear
+        await supabase.auth.signOut().catch(() => { }); // Force wipe supabase dirty tokens
       } finally {
         setIsLoading(false);
       }
