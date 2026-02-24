@@ -5,7 +5,7 @@ import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { cn, getPhoneticRegex } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useApp } from '@/contexts/AppContext';
@@ -166,12 +166,16 @@ function AudioMessage({ message }: AudioMessageProps) {
 const HighlightText = ({ text, term }: { text: string; term?: string }) => {
   if (!term || !text) return <>{text}</>;
 
-  const parts = text.split(new RegExp(`(${term})`, 'gi'));
+  const regex = getPhoneticRegex(term, 'gi');
+  const fallbackRegex = new RegExp(`(${term})`, 'gi');
+  const activeRegex = regex || fallbackRegex;
+
+  const parts = text.split(activeRegex);
   return (
     <span>
       {parts.map((part, i) =>
-        part.toLowerCase() === term.toLowerCase() ? (
-          <span key={i} className="bg-yellow-200 text-black px-0.5 rounded-sm font-semibold">{part}</span>
+        i % 2 === 1 && part ? (
+          <span key={i} className="highlighted-search-match bg-yellow-200 text-black px-0.5 rounded-sm font-semibold">{part}</span>
         ) : (
           part
         )
@@ -203,8 +207,17 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   // Auto-scroll to bottom whenever messages change
   useEffect(() => {
     // 1. Silent Refresh Strategy
-    // If the user is Searching (highlightTerm active), we DO NOT auto-scroll.
-    if (highlightTerm) return;
+    // If the user is Searching (highlightTerm active), we DO NOT auto-scroll to bottom.
+    // Instead we scroll to the first highlighted term in the chat.
+    if (highlightTerm && scrollContainerRef.current) {
+      setTimeout(() => {
+        const firstMatch = scrollContainerRef.current?.querySelector('.highlighted-search-match');
+        if (firstMatch) {
+          firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+      return;
+    }
 
     const isDifferentConversation = prevConversationId.current !== conversation?.id;
     const currentLength = conversation?.messages?.length || 0;

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { MessageSquare, Phone, Bot, User, Filter, X } from 'lucide-react';
 import { Conversation } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +37,6 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
   }, [conversations]);
 
   // 2. Filter Logic
-  // 2. Filter Logic
   const filteredConversations = useMemo(() => {
     if (!searchTerm) {
       return agentFilter
@@ -45,25 +44,17 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         : conversations;
     }
 
-    const term = searchTerm.toLowerCase();
-
     return conversations.filter(c => {
       const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
       if (!matchesAgent) return false;
 
-      // Check User Name
-      if (c.userName.toLowerCase().includes(term)) return true;
+      if (phoneticMatch(c.userName, searchTerm)) return true;
+      if (phoneticMatch(c.lastMessage, searchTerm)) return true;
 
-      // Check Last Message
-      if (c.lastMessage.toLowerCase().includes(term)) return true;
-
-      // Check Content in ALL messages history
-      const hasMessageMatch = c.messages.some(m => {
-        const contentMatch = m.content?.toLowerCase().includes(term);
-        const transMatch = m.transcription?.toLowerCase().includes(term);
-        return contentMatch || transMatch;
-      });
-
+      const hasMessageMatch = c.messages.some(m =>
+        phoneticMatch(m.content || '', searchTerm) ||
+        phoneticMatch(m.transcription || '', searchTerm)
+      );
       return hasMessageMatch;
     });
   }, [conversations, searchTerm, agentFilter]);

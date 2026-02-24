@@ -98,8 +98,17 @@ export default function Consumption() {
     const stage = agent ? agent.lifecycleStage : 'production';
     if (!isMetricBillable(stage)) return 0;
 
-    const prices = (currentTenant as any)?.planPrices;
-    if (!prices || Object.keys(prices).length === 0) return m.cost;
+    let prices = (currentTenant as any)?.planPrices;
+    // Fallback if tenant JSON is missing prices
+    if (!prices || Object.keys(prices).length === 0) {
+      prices = {
+        basePrice: 2499.00,
+        llmTokenPrice: 0.10, // R$ 0.10 por 1k tokens
+        messagePrice: 1.00,  // R$ 1.00 por mensagem
+        sttMinutePrice: 0.30,
+        ttsMinutePrice: 0.30
+      };
+    }
 
     if (m.metricType === 'tokens') return (m.value / 1000) * (prices.llmTokenPrice || 0);
     if (m.metricType === 'messages') return m.value * (prices.messagePrice || 0);
@@ -123,12 +132,14 @@ export default function Consumption() {
     filteredMetrics.forEach(m => {
       const cost = calculateMetricCost(m);
 
+      // Calculate total cost for all metrics exactly once
+      totals.totalCost += cost;
+
       if (m.metricType === 'tokens') {
         totals.tokens += m.value;
         totals.costLLM += cost;
       } else if (m.metricType === 'messages') {
         totals.messages += m.value;
-        totals.totalCost += cost; // Explicitly adding message cost since it wasn't being tracked in a separate total
       } else if (m.metricType === 'stt_minutes') {
         totals.stt += m.value;
         totals.costSTT += cost;
@@ -136,8 +147,6 @@ export default function Consumption() {
         totals.tts += m.value;
         totals.costTTS += cost;
       }
-
-      if (m.metricType !== 'messages') totals.totalCost += cost;
     });
 
     return totals;
@@ -506,7 +515,9 @@ export default function Consumption() {
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">Mensalidade Ativa</span>
                   <CreditCard className="h-3.5 w-3.5 text-muted-foreground" />
                 </div>
-                <p className="text-xl font-bold tracking-tight">R$ {((currentTenant as any)?.planPrices?.basePrice || 0).toFixed(2)}</p>
+                <p className="text-xl font-bold tracking-tight">
+                  R$ {(((currentTenant as any)?.planPrices?.basePrice) || 2499.00).toFixed(2)}
+                </p>
                 <p className="text-[9px] text-muted-foreground mt-1 font-medium">Valor fixo contratado</p>
               </div>
 
@@ -517,7 +528,7 @@ export default function Consumption() {
                 </div>
                 <p className="text-2xl font-bold">
                   R$ {(() => {
-                    const basePrice = (currentTenant as any)?.planPrices?.basePrice || 0;
+                    const basePrice = ((currentTenant as any)?.planPrices?.basePrice) || 2499.00;
                     const usageCost = summary.totalCost;
                     const feeCoversUsage = (currentTenant as any)?.planDetails?.monthlyFeeCoversUsage;
 
@@ -599,7 +610,7 @@ export default function Consumption() {
                       <div className="p-2 bg-muted rounded">
                         <div className="flex justify-between items-start">
                           <p className="text-muted-foreground">Tokens (LLM)</p>
-                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0).toFixed(2)}/1k</span>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0.10).toFixed(2)}/1k</span>
                         </div>
                         <p className="font-mono">{(agent.tokens / 1000).toFixed(1)}k</p>
                         <p className="text-[10px] text-accent font-semibold">R$ {(agent.tokenCost || 0).toFixed(2)}</p>
@@ -607,7 +618,7 @@ export default function Consumption() {
                       <div className="p-2 bg-muted rounded">
                         <div className="flex justify-between items-start">
                           <p className="text-muted-foreground">Mensagens</p>
-                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 0).toFixed(2)}/un</span>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 1.00).toFixed(2)}/un</span>
                         </div>
                         <p className="font-mono">{agent.messages}</p>
                         <p className="text-[10px] text-primary font-semibold">R$ {(agent.messageCost || 0).toFixed(2)}</p>
@@ -642,7 +653,7 @@ export default function Consumption() {
                       <div className="p-2 bg-muted rounded">
                         <div className="flex justify-between items-start">
                           <p className="text-muted-foreground">Tokens (LLM)</p>
-                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0).toFixed(2)}/1k</span>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.llmTokenPrice || 0.10).toFixed(2)}/1k</span>
                         </div>
                         <p className="font-mono">{(channel.tokens / 1000).toFixed(1)}k</p>
                         <p className="text-[10px] text-accent font-semibold">R$ {(channel.tokenCost || 0).toFixed(2)}</p>
@@ -650,7 +661,7 @@ export default function Consumption() {
                       <div className="p-2 bg-muted rounded">
                         <div className="flex justify-between items-start">
                           <p className="text-muted-foreground">Mensagens</p>
-                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 0).toFixed(2)}/un</span>
+                          <span className="text-[9px] text-muted-foreground/60 italic">R$ {((currentTenant as any)?.planPrices?.messagePrice || 1.00).toFixed(2)}/un</span>
                         </div>
                         <p className="font-mono">{channel.messages}</p>
                         <p className="text-[10px] text-primary font-semibold">R$ {(channel.messageCost || 0).toFixed(2)}</p>
