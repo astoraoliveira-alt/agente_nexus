@@ -1953,5 +1953,30 @@ export const api = {
             .eq('id', id);
 
         if (error) throw error;
+    },
+
+    async getConversationCost(conversationId: string): Promise<number> {
+        // Use RPC for reliable JSONB filtering on the server side
+        const { data, error } = await supabase.rpc('get_conversation_cost', {
+            p_conversation_id: conversationId
+        });
+
+        if (error) {
+            console.error('Error fetching conversation cost:', error);
+            // Fallback to client-side filter if RPC fails/doesn't exist yet
+            const { data: fallbackData } = await supabase
+                .from('consumption_metrics')
+                .select('cost, metadata')
+                .not('metadata', 'is', null); // Fetch all non-null metadata rows (warning: heavy) to filter in JS as last resort
+            
+            if (fallbackData) {
+                 return fallbackData
+                    .filter((row: any) => row.metadata?.conversation_id === conversationId)
+                    .reduce((acc: number, curr: any) => acc + Number(curr.cost), 0);
+            }
+            return 0;
+        }
+
+        return Number(data || 0);
     }
 };

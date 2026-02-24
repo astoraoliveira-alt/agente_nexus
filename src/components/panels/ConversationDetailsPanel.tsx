@@ -1,4 +1,4 @@
-import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2, TrendingUp, TrendingDown, Minus, Hourglass } from 'lucide-react';
+import { User, Bot, MessageSquare, Clock, Phone, ShieldCheck, AlertTriangle, Play, ThumbsUp, Loader2, TrendingUp, TrendingDown, Minus, Hourglass, CircleDollarSign } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
@@ -25,6 +25,13 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
     queryKey: ['evaluation-history', data.id],
     queryFn: () => api.getEvaluationHistory(data.id),
     enabled: !!data.id
+  });
+
+  const { data: conversationCost, isLoading: isLoadingCost } = useQuery({
+    queryKey: ['conversation-cost', data.id],
+    queryFn: () => api.getConversationCost(data.id),
+    enabled: !!data.id,
+    refetchInterval: 5000 // Poll every 5s to update cost in real-time
   });
 
   const evaluation = evaluations?.[0]; // Latest one
@@ -191,6 +198,18 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
                   <MessageSquare className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Mensagens:</span>
                   <span>{data.messages.length}</span>
+                </div>
+
+                <div className="flex items-center gap-2 text-sm">
+                  <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-muted-foreground">Custo Estimado:</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400">
+                    {isLoadingCost ? (
+                        <span className="animate-pulse">Calculando...</span>
+                    ) : (
+                        new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 3 }).format(conversationCost || 0)
+                    )}
+                  </span>
                 </div>
               </div>
             </div>
