@@ -122,7 +122,7 @@ export default function Index() {
   // ROI Calculation: 2 minutes saved per AI message (market benchmark)
   const totalTimeSavedMinutes = totalMessages * 2;
   const roiHours = Math.floor(totalTimeSavedMinutes / 60);
-  const roiMins = totalTimeSavedMinutes % 60;
+  const roiMins = Math.round(totalTimeSavedMinutes % 60);
   const timeSavedDisplay = roiHours > 0 ? `${roiHours}h ${roiMins}m` : `${roiMins}m`;
 
   // Incident Metrics
@@ -141,7 +141,7 @@ export default function Index() {
   const interesseBaixoCount = contacts?.filter(c => (['Interesse Baixo', 'lead', 'Lead'].includes(c.lifecycleStatus || '') || !c.lifecycleStatus)).length || 0;
 
   // 3. Prepare Chart Data
-  // Daily Usage (Last 30 days)
+  // Daily Usage (Last 30 days) - Messages Focus
   const last30Days = eachDayOfInterval({
     start: subDays(new Date(), 29),
     end: new Date(),
@@ -149,25 +149,25 @@ export default function Index() {
 
   const dailyUsageData = last30Days.map(date => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    const dayTokens = consumption?.filter(m =>
-      m.metricType === 'tokens' && format(new Date(m.timestamp), 'yyyy-MM-dd') === dateStr
+    const dayMessages = consumption?.filter(m =>
+      m.metricType === 'messages' && format(new Date(m.timestamp), 'yyyy-MM-dd') === dateStr
     ).reduce((acc, m) => acc + m.value, 0) || 0;
 
     return {
       date: format(date, 'dd/MM'),
-      tokens: dayTokens,
+      messages: dayMessages,
     };
   });
 
-  // Consumption by Agent
+  // Consumption by Agent - Messages Focus
   const consumptionByAgent = agents?.map(agent => {
-    const agentTokens = consumption?.filter(m => m.agentId === agent.id && m.metricType === 'tokens')
+    const agentMessages = consumption?.filter(m => m.agentId === agent.id && m.metricType === 'messages')
       .reduce((acc, m) => acc + m.value, 0) || 0;
     return {
       agentName: agent.name,
-      tokens: agentTokens,
+      messages: agentMessages,
     };
-  }).sort((a, b) => b.tokens - a.tokens).slice(0, 5) || [];
+  }).sort((a, b) => b.messages - a.messages).slice(0, 5) || [];
 
   if (isLoading) {
     return (
@@ -229,14 +229,14 @@ export default function Index() {
             />
 
             <KPICard
-              title="Consumo do Plano"
-              value={consumptionPercentage > 100
-                ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
-                : `${consumptionPercentage.toFixed(0)}%`
+              title="Uso de Mensagens"
+              value={messageUsagePct > 100
+                ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
+                : `${messageUsagePct.toFixed(0)}%`
               }
-              subtitle={`${(totalTokens / 1000).toFixed(0)}k de ${consumptionLimit >= 1000000 ? `${(consumptionLimit / 1000000).toFixed(0)}M` : `${(consumptionLimit / 1000).toFixed(0)}k`} tokens`}
+              subtitle={`${totalMessages.toLocaleString()} de ${(limits.messages || 0).toLocaleString()} contratadas`}
               icon={BarChart3}
-              variant={consumptionPercentage > 100 ? 'critical' : consumptionPercentage > 80 ? 'warning' : 'default'}
+              variant={messageUsagePct > 100 ? 'critical' : messageUsagePct > 80 ? 'warning' : 'default'}
               onClick={() => navigate('/consumption')}
             />
           </div>
@@ -399,13 +399,13 @@ export default function Index() {
             {/* Usage Over Time */}
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Consumo nos Últimos 30 Dias (Tokens)</h3>
+                <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Volume de Interações (30d)</h3>
                 <Badge variant="secondary">{format(new Date(), 'MMMM yyyy', { locale: ptBR })}</Badge>
               </div>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={dailyUsageData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis
                       dataKey="date"
                       stroke="hsl(var(--muted-foreground))"
@@ -416,7 +416,6 @@ export default function Index() {
                       stroke="hsl(var(--muted-foreground))"
                       fontSize={10}
                       tickLine={false}
-                      tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
                     />
                     <Tooltip
                       contentStyle={{
@@ -428,29 +427,13 @@ export default function Index() {
                     />
                     <Line
                       type="monotone"
-                      dataKey="tokens"
-                      stroke="hsl(var(--accent))"
-                      strokeWidth={2}
-                      dot={{ r: 2, fill: 'hsl(var(--accent))' }}
+                      dataKey="messages"
+                      name="Mensagens"
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={3}
+                      dot={false}
                       activeDot={{ r: 4 }}
-                    >
-                      <LabelList
-                        dataKey="tokens"
-                        position="top"
-                        content={(props: any) => {
-                          const { x, y, value, index } = props;
-                          // Only show the last value to avoid clutter
-                          if (index === dailyUsageData.length - 1) {
-                            return (
-                              <text x={x} y={y - 10} fill="hsl(var(--accent))" fontSize={10} fontWeight="bold" textAnchor="middle">
-                                {value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value}
-                              </text>
-                            );
-                          }
-                          return null;
-                        }}
-                      />
-                    </Line>
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -459,7 +442,7 @@ export default function Index() {
             {/* Consumption by Agent */}
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Consumo por Agente</h3>
+                <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Interações por Agente</h3>
                 <button
                   className="text-sm text-accent hover:underline"
                   onClick={() => navigate('/consumption')}
@@ -470,13 +453,12 @@ export default function Index() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={consumptionByAgent} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                     <XAxis
                       type="number"
                       stroke="hsl(var(--muted-foreground))"
                       fontSize={10}
                       tickLine={false}
-                      tickFormatter={(value) => value >= 1000000 ? `${(value / 1000000).toFixed(1)}M` : value >= 1000 ? `${(value / 1000).toFixed(0)}k` : value}
                     />
                     <YAxis
                       type="category"
@@ -493,13 +475,12 @@ export default function Index() {
                         borderRadius: '0',
                       }}
                       labelStyle={{ color: 'hsl(var(--foreground))' }}
-                      formatter={(value: number) => `${value.toLocaleString()} tokens`}
+                      formatter={(value: number) => `${value.toLocaleString()} mensagens`}
                     />
-                    <Bar dataKey="tokens" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]}>
+                    <Bar dataKey="messages" name="Mensagens" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]}>
                       <LabelList
-                        dataKey="tokens"
+                        dataKey="messages"
                         position="right"
-                        formatter={(value: number) => value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value}
                         className="fill-muted-foreground text-[10px]"
                       />
                     </Bar>
@@ -596,38 +577,13 @@ export default function Index() {
             {/* Plan Usage */}
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Uso do Plano</h3>
+                <h3 className="font-semibold">Faturamento (Planos)</h3>
                 <Badge variant="secondary" className="capitalize">{tenantDetails?.planName || tenantDetails?.plan || 'Flex'}</Badge>
               </div>
               <div className="space-y-4">
                 <div>
                   <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-muted-foreground font-medium">Tokens LLM</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">{(totalTokens / 1000).toFixed(1)}k / {consumptionLimit >= 1000000 ? `${(consumptionLimit / 1000000).toFixed(0)}M` : `${(consumptionLimit / 1000).toFixed(0)}k`}</span>
-                      <span className={cn(
-                        "font-bold",
-                        consumptionPercentage > 100 ? "text-destructive" : "text-muted-foreground"
-                      )}>
-                        {consumptionPercentage > 100
-                          ? `Excedido ${(consumptionPercentage - 100).toFixed(0)}%`
-                          : `${consumptionPercentage.toFixed(0)}%`
-                        }
-                      </span>
-                    </div>
-                  </div>
-                  <Progress
-                    value={Math.min(consumptionPercentage, 100)}
-                    className={cn(
-                      "h-2",
-                      consumptionPercentage > 100 && "[&>div]:bg-destructive"
-                    )}
-                  />
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-muted-foreground font-medium">Mensagens</span>
+                    <span className="text-muted-foreground font-medium">Uso de Mensagens</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">{totalMessages.toLocaleString()} / {(limits.messages || 1).toLocaleString()}</span>
                       <span className={cn(
@@ -652,7 +608,7 @@ export default function Index() {
 
                 <div>
                   <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-muted-foreground font-medium">Voz (STT/TTS)</span>
+                    <span className="text-muted-foreground font-medium">Uso de Voz (Vapi)</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">{(consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0).toFixed(0)} / {limits.sttMinutes || 0} min</span>
                       <span className="font-bold text-muted-foreground">
@@ -667,6 +623,7 @@ export default function Index() {
                 </div>
               </div>
             </div>
+
           </div>
         </div>
       </div>
