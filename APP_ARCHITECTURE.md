@@ -809,8 +809,14 @@ src/
 ├─ contexts/
 │   └─ AppContext.tsx   # Auth, tenant, conversas, slide-over
 ├─ services/
-│   ├─ api.ts           # Camada de acesso ao Supabase (~1983 linhas)
-│   └─ auth.ts          # AuthService: login híbrido, auto-link
+│   ├─ api.ts           # Facade agregadora (God object fatiado)
+│   ├─ auth.service.ts  # Autenticação (Login, Sessão)
+│   ├─ agents.service.ts # Serviços de IA (RAG, Governance)
+│   ├─ conversations.service.ts # Chat, Mensagens e Audits
+│   ├─ financial.service.ts # DRE, Custos e Pricing
+│   ├─ incidents.service.ts # Resolução ISO 42001
+│   ├─ dashboard.service.ts # Analytics central 
+│   └─ [...outros_modulos] # Users, Plans, Campaigns, etc.
 ├─ lib/
 │   ├─ types.ts         # Tipos TypeScript (~865 linhas)
 │   ├─ supabase.ts      # Singleton do cliente Supabase
@@ -933,9 +939,9 @@ VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 | Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. |
 | `_capabilities` pattern | Média | Flag de capabilidade em runtime para fallback degradado de queries. Substituir por schema detection na boot. |
 | Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` não persistem estágios no banco ainda (TODO). |
-| Transferência de Conversa com OperatorId | Média | `transferConversation` só registra mensagem, não atualiza `assigned_operator_id`. |
-| Testes E2E | Alta | Cobertura com Playwright para fluxos críticos (login, takeover, billing). |
-| `agent_success_memory` RLS | Média | Tabela criada mas RLS pode precisar revisão para o worflow N8N. |
+| Transferência de Conversa | Média | Precisa atualizar `assigned_operator_id` no banco ao transferir, não só no frontend/notas. |
+| Testes E2E Completos | Média | Implementados testes de integração da API (Vitest), mas falta automação UI (Playwright) em fluxos como Playgrounds e Billing. |
+| Webhook de Validação de Identidade (N8N) | Alta | A fundação e UI no Hub do Identity Gate estão prontos, falta o N8N realizar efetivamente o `POST` para validar a chave transacional preenchida na UI. |
 
 ### 20.2 Arquitetura Futura
 
