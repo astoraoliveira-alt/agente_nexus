@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { Agent, AILifecycleStage, AIPolicy } from '@/lib/types';
 import { AgentKnowledgeTab } from '@/components/agents/AgentKnowledgeTab';
 import { AgentEvolutionTab } from '@/components/agents/AgentEvolutionTab';
+import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 
 export default function Agents() {
@@ -454,6 +455,10 @@ export default function Agents() {
                   <TabsTrigger value="governance" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
                     <ShieldAlert className="h-4 w-4" />
                     Governança & Risco
+                  </TabsTrigger>
+                  <TabsTrigger value="tools" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Ferramentas & APIs
                   </TabsTrigger>
                   <TabsTrigger value="knowledge" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
@@ -913,6 +918,67 @@ export default function Agents() {
                           </div>
                         </div>
                       </div>
+
+                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-red-500/5">
+                        <h4 className="text-xs font-bold uppercase text-red-500 tracking-widest border-b border-red-500/10 pb-2 flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4" /> Identity Gate (Gatekeeper)
+                        </h4>
+                        <div className="space-y-4 pt-2 flex flex-col">
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="identity-gate-switch"
+                              checked={!!formData.brainConfig?.capabilities?.identity_gate?.enabled}
+                              onCheckedChange={(checked) => {
+                                setFormData(prev => ({
+                                  ...prev,
+                                  brainConfig: {
+                                    ...prev.brainConfig,
+                                    capabilities: {
+                                      ...prev.brainConfig?.capabilities,
+                                      identity_gate: {
+                                        ...prev.brainConfig?.capabilities?.identity_gate,
+                                        enabled: checked
+                                      }
+                                    }
+                                  }
+                                }))
+                              }}
+                            />
+                            <Label htmlFor="identity-gate-switch" className="text-sm font-semibold cursor-pointer">
+                              Exigir Validação de CPF/CNPJ (Sessão Transacional)
+                            </Label>
+                          </div>
+                          {formData.brainConfig?.capabilities?.identity_gate?.enabled && (
+                            <div className="space-y-2 animate-in slide-in-from-top-1">
+                              <Label className="text-xs text-muted-foreground">Intenções Protegidas (Ex: boletos, pagar)</Label>
+                              <Input
+                                placeholder="Boletos, Faturas, Contratos, Pagamento"
+                                className="h-9 font-mono text-xs bg-muted/30"
+                                value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(', ')}
+                                onChange={(e) => {
+                                  const intents = e.target.value.split(',').map(i => i.trim()).filter(Boolean);
+                                  setFormData(prev => ({
+                                    ...prev,
+                                    brainConfig: {
+                                      ...prev.brainConfig,
+                                      capabilities: {
+                                        ...prev.brainConfig?.capabilities,
+                                        identity_gate: {
+                                          ...prev.brainConfig?.capabilities?.identity_gate,
+                                          protected_intents: intents
+                                        }
+                                      }
+                                    }
+                                  }))
+                                }}
+                              />
+                              <p className="text-[9px] text-muted-foreground italic">
+                                O Gatekeeper forçará o usuário a fornecer documento antes de processar pedidos nesses assuntos.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-6">
@@ -1011,6 +1077,69 @@ export default function Agents() {
                           )}
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="tools" className="p-6 space-y-6">
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-accent">
+                      <Settings className="h-4 w-4" /> Ferramentas e Webhooks (Mock API)
+                    </h4>
+                    <p className="text-xs text-muted-foreground">Configure as ferramentas que o LLM poderá acionar durante a conversa (n8n Functions).</p>
+
+                    <div className="space-y-4 border border-border/50 p-4 rounded-lg bg-muted/5">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-bold">Ferramenta 1: Consultar Boletos (Mock)</Label>
+                        <Switch
+                          checked={!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')}
+                          onCheckedChange={(checked) => {
+                            const currentTools = formData.brainConfig?.tools || [];
+                            if (checked) {
+                              setFormData(prev => ({
+                                ...prev,
+                                brainConfig: {
+                                  ...prev.brainConfig,
+                                  tools: [...currentTools, {
+                                    name: 'consultar_boletos',
+                                    description: 'Retorna a lista de faturas do cliente',
+                                    webhook_url: ''
+                                  }]
+                                }
+                              }));
+                            } else {
+                              setFormData(prev => ({
+                                ...prev,
+                                brainConfig: {
+                                  ...prev.brainConfig,
+                                  tools: currentTools.filter((t: any) => t.name !== 'consultar_boletos')
+                                }
+                              }));
+                            }
+                          }}
+                        />
+                      </div>
+
+                      {!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos') && (
+                        <div className="space-y-2 pt-2 animate-in slide-in-from-top-1">
+                          <Label className="text-xs text-muted-foreground">Webhook URL da Ferramenta</Label>
+                          <Input
+                            placeholder="https://n8n.seuservidor.com/webhook/consultar-boleto"
+                            className="h-9 font-mono text-xs bg-muted/30"
+                            value={(formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')?.webhook_url) || ''}
+                            onChange={(e) => {
+                              const updatedTools = (formData.brainConfig?.tools || []).map((t: any) =>
+                                t.name === 'consultar_boletos' ? { ...t, webhook_url: e.target.value } : t
+                              );
+                              setFormData(prev => ({
+                                ...prev,
+                                brainConfig: { ...prev.brainConfig, tools: updatedTools }
+                              }));
+                            }}
+                          />
+                          <p className="text-[10px] text-muted-foreground italic">Crie um webhook no n8n e coloque a URL aqui.</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </TabsContent>

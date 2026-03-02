@@ -311,6 +311,38 @@ export interface AgentBrainConfig {
   maxTokens?: number; // Added based on recent conv history
   knowledgeBaseId?: string;
   budget_share_pct?: number; // Smart Usage Allocation
+
+  // Identity & Transactional Framework
+  capabilities?: {
+    conversation_mode?: 'open' | 'transactional';
+    identity_gate?: {
+      enabled?: boolean;
+      protected_intents?: string[];
+    };
+  };
+
+  // Tools & Actions
+  tools?: {
+    name: string;
+    description: string;
+    webhook_url: string;
+  }[];
+}
+
+// ============ Security & Identity Types ============
+export type SecuritySessionStatus = 'unauthenticated' | 'active' | 'locked' | 'expired';
+
+export interface ConversationSecuritySession {
+  id: string;
+  conversation_id: string;
+  agent_id: string;
+  status: SecuritySessionStatus;
+  validated_identifier?: string;
+  failed_attempts: number;
+  locked_until?: Date;
+  expires_at?: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface AgentVoiceConfig {

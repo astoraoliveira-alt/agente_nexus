@@ -1,8 +1,8 @@
 -- Davos Nexus - Complete Database Schema (Consolidated)
--- Generated: 2026-02-17
+-- Generated: 2026-02-27
 -- 
 -- 🔴 CRITICAL: This file is the SINGLE SOURCE OF TRUTH for the database structure.
--- It combines the base schema with all modules (Plans, Evaluations, Knowledge Base, Audit).
+-- It combines the base schema with all modules (Plans, Evaluations, Knowledge Base, Audit, Campaigns V2, Memory).
 
 -- =============================================
 -- BRAZIL STANDARD CONFIGURATION
@@ -12,13 +12,14 @@ SET DATESTYLE TO 'Postgres, DMY';
 
 -- Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "vector"; -- Required for embeddings
 
 -- =============================================
 -- ENUMS
 -- =============================================
 DO $$ BEGIN
     CREATE TYPE tenant_status AS ENUM ('active', 'suspended', 'trial');
-    CREATE TYPE plan_type AS ENUM ('fixed', 'flex', 'unlimited', 'enterprise'); -- 'enterprise' added from plans table usage
+    CREATE TYPE plan_type AS ENUM ('fixed', 'flex', 'unlimited', 'enterprise');
     CREATE TYPE agent_status AS ENUM ('active', 'inactive');
     CREATE TYPE risk_level AS ENUM ('low', 'medium', 'high', 'critical');
     CREATE TYPE lifecycle_stage AS ENUM ('development', 'validation', 'production', 'monitoring', 'retired');
@@ -29,6 +30,7 @@ DO $$ BEGIN
     CREATE TYPE metric_type AS ENUM ('tokens', 'messages', 'stt_minutes', 'tts_minutes');
     CREATE TYPE incident_severity AS ENUM ('low', 'medium', 'high', 'critical');
     CREATE TYPE incident_status AS ENUM ('open', 'investigating', 'resolved');
+    CREATE TYPE campaign_status AS ENUM ('draft', 'active', 'paused', 'completed', 'cancelled');
 EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
@@ -42,7 +44,7 @@ CREATE TABLE IF NOT EXISTS companies (
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL UNIQUE, 
     status tenant_status DEFAULT 'trial',
-    plan_tier plan_type DEFAULT 'fixed',
+    plan_tier TEXT DEFAULT 'fixed',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
@@ -56,7 +58,8 @@ CREATE TABLE IF NOT EXISTS companies (
 
     -- Configuration
     plan_details JSONB DEFAULT '{}'::jsonb, 
-    privacy_settings JSONB DEFAULT '{"anonymization": false, "retention_days": 365}'::jsonb
+    privacy_settings JSONB DEFAULT '{"anonymization": false, "retention_days": 365}'::jsonb,
+    roi_config JSONB DEFAULT '{"operator_hourly_rate": 30.0, "avg_human_minutes_per_interaction": 2.5}'::jsonb
 );
 
 CREATE INDEX IF NOT EXISTS idx_companies_slug ON companies(slug);
@@ -87,18 +90,13 @@ CREATE TABLE IF NOT EXISTS plans (
     stt_minute_price NUMERIC DEFAULT 0,
     tts_minute_price NUMERIC DEFAULT 0,
     default_limits JSONB DEFAULT '{}'::JSONB,
+    monthly_fee_covers_usage BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Plans RLS
 ALTER TABLE plans ENABLE ROW LEVEL SECURITY;
-
--- Cleanup old policies (from previous script versions)
-DROP POLICY IF EXISTS "Allow public read access" ON plans;
-DROP POLICY IF EXISTS "Allow public write access" ON plans;
-DROP POLICY IF EXISTS "Allow public update access" ON plans;
-DROP POLICY IF EXISTS "Allow public delete access" ON plans;
 
 DROP POLICY IF EXISTS "everyone_read_plans" ON plans;
 CREATE POLICY "everyone_read_plans" ON plans FOR SELECT USING (true);
@@ -151,6 +149,13 @@ CREATE TABLE IF NOT EXISTS users (
     avatar_url VARCHAR(1024),
     role VARCHAR(50) DEFAULT 'viewer', 
     is_active BOOLEAN DEFAULT TRUE,
+    
+    -- Auth V2 additions (Decoupled Authentication)
+    provider_id VARCHAR(255),
+    provider VARCHAR(50) DEFAULT 'supabase',
+    status VARCHAR(50) DEFAULT 'pending',
+    owner_id UUID REFERENCES users(id),
+
     last_login_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -165,7 +170,7 @@ DROP POLICY IF EXISTS "Users Register Self" ON users;
 CREATE POLICY "Users Register Self" ON users FOR INSERT WITH CHECK (auth.uid() = id);
 
 -- =============================================
--- 3. AGENTS
+-- 3. AGENTS & INTELLIGENCE
 -- =============================================
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -189,12 +194,23 @@ CREATE TABLE IF NOT EXISTS agents (
     brain_config JSONB NOT NULL DEFAULT '{}'::jsonb, 
     voice_config JSONB DEFAULT '{}'::jsonb,
     integration_config JSONB DEFAULT '{}'::jsonb,
+    context_window INT DEFAULT 10,
+    session_timeout_seconds INT DEFAULT 3600,
+
+    -- Evolution API Integrarions
+    evolution_instance VARCHAR(255),
+    evolution_token TEXT,
 
     -- Agent Type
     type VARCHAR(50) DEFAULT 'conversational' CHECK (type IN ('embedded', 'whatsapp', 'conversational')),
 
     channels TEXT[], 
     applied_policies TEXT[], 
+    
+    -- Control & Cost Track
+    last_actor_name TEXT,
+    department_id TEXT,
+    cost_center TEXT,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -206,7 +222,7 @@ ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Manage Agents" ON agents;
 CREATE POLICY "Tenant Manage Agents" ON agents FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
--- AGENT KNOWLEDGE BASE (Added Module)
+-- AGENT KNOWLEDGE BASE (RAG)
 CREATE TABLE IF NOT EXISTS agent_knowledge (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),
@@ -216,6 +232,7 @@ CREATE TABLE IF NOT EXISTS agent_knowledge (
     file_url VARCHAR(1024), 
     file_type VARCHAR(50), 
     file_size INTEGER, 
+    embedding vector(1536), -- Dimension setup for OpenAI `text-embedding-3-small`
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -224,14 +241,31 @@ ALTER TABLE agent_knowledge ENABLE ROW LEVEL SECURITY;
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_agent ON agent_knowledge(agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_tenant ON agent_knowledge(tenant_id);
 
--- RLS for Knowledge Base
--- Cleanup old policies
-DROP POLICY IF EXISTS "Users can view knowledge for their tenant" ON agent_knowledge;
-DROP POLICY IF EXISTS "Users can manage knowledge for their tenant" ON agent_knowledge;
-
 DROP POLICY IF EXISTS "Tenant Manage Knowledge" ON agent_knowledge;
 CREATE POLICY "Tenant Manage Knowledge" ON agent_knowledge FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
+-- AGENT SUCCESS MEMORY (Positive Reinforcement RAG)
+CREATE TABLE IF NOT EXISTS agent_success_memory (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES companies(id),
+    original_conversation_id UUID,
+    user_intent VARCHAR(255),
+    strategic_summary TEXT NOT NULL,
+    full_dialogue_snippet TEXT,
+    score INT,
+    tags TEXT[] DEFAULT '{}'::text[],
+    embedding vector(1536),
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_success_memory_agent ON agent_success_memory(agent_id);
+ALTER TABLE agent_success_memory ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Tenant Access Success Memory" ON agent_success_memory;
+CREATE POLICY "Tenant Access Success Memory" ON agent_success_memory FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
 -- =============================================
 -- 4. GOVERNANCE & LOGS
@@ -255,15 +289,20 @@ CREATE TABLE IF NOT EXISTS incidents (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),
     agent_id UUID REFERENCES agents(id),
+    conversation_id UUID,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     severity incident_severity DEFAULT 'medium',
     status incident_status DEFAULT 'open',
     reported_by UUID REFERENCES users(id),
-    resolved_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
-    attachments JSONB DEFAULT '[]'::jsonb 
+    -- Resolution Control
+    resolved_by UUID REFERENCES users(id),
+    action_taken TEXT,
+    resolved_at TIMESTAMP WITH TIME ZONE,
+    
+    attachments JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 ALTER TABLE incidents ENABLE ROW LEVEL SECURITY;
@@ -328,20 +367,22 @@ DROP POLICY IF EXISTS "Tenant Access Agent Flows" ON agent_flows;
 CREATE POLICY "Tenant Access Agent Flows" ON agent_flows FOR ALL USING (agent_id IN (SELECT id FROM agents WHERE tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())));
 
 -- =============================================
--- 6. CONVERSATIONS & MESSAGES
+-- 6. CONTACTS & CAMPAIGNS (CRM)
 -- =============================================
 
 CREATE TABLE IF NOT EXISTS contacts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),
-    name VARCHAR(255) NOT NULL,
-    identifier VARCHAR(255) NOT NULL UNIQUE, 
+    name VARCHAR(255),
+    identifier VARCHAR(255), 
     email VARCHAR(255),
     phone VARCHAR(255),
-    avatar_url VARCHAR(1024),
+    avatar_url TEXT,
     
     tags TEXT[] DEFAULT '{}',
     channel VARCHAR(50), 
+    lifecycle_status VARCHAR(50) DEFAULT 'lead',
+    sentiment VARCHAR(50),
     
     extra_info JSONB DEFAULT '{}'::jsonb,
     
@@ -354,6 +395,67 @@ CREATE INDEX IF NOT EXISTS idx_contacts_identifier ON contacts(identifier);
 ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Manage Contacts" ON contacts;
 CREATE POLICY "Tenant Manage Contacts" ON contacts FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+
+CREATE TABLE IF NOT EXISTS campaigns (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    status campaign_status DEFAULT 'draft',
+    start_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    end_date DATE,
+    start_time TEXT DEFAULT '09:00',
+    end_time TEXT DEFAULT '18:00',
+    daily_limit INTEGER DEFAULT 50,
+    initial_message TEXT,
+    
+    total_contacts INTEGER DEFAULT 0,
+    sent_count INTEGER DEFAULT 0,
+    failed_count INTEGER DEFAULT 0,
+    response_count INTEGER DEFAULT 0,
+    
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_campaigns_tenant ON campaigns(tenant_id);
+
+CREATE TABLE IF NOT EXISTS outbound_queue (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    agent_id UUID NOT NULL REFERENCES agents(id),
+    campaign_id UUID REFERENCES campaigns(id) ON DELETE CASCADE,
+    contact_name VARCHAR(255),
+    contact_phone VARCHAR(255) NOT NULL,
+    
+    status VARCHAR(20) DEFAULT 'pending',
+    error_message TEXT,
+    retry_count INTEGER DEFAULT 0,
+    response_detected BOOLEAN DEFAULT false,
+    
+    metadata JSONB DEFAULT '{}'::jsonb,
+    
+    scheduled_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    last_attempt_at TIMESTAMP WITH TIME ZONE,
+    sent_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- UNIQUE constraint for intelligent idempotency per campaign
+    UNIQUE(campaign_id, contact_phone)
+);
+
+ALTER TABLE outbound_queue ENABLE ROW LEVEL SECURITY;
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_tenant ON outbound_queue(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_campaign ON outbound_queue(campaign_id);
+-- Fast querying for the n8n workers processing pending messages
+CREATE INDEX IF NOT EXISTS idx_outbound_queue_status_retry ON outbound_queue(status, retry_count) WHERE status = 'pending';
+
+-- =============================================
+-- 7. CONVERSATIONS & MESSAGES
+-- =============================================
 
 CREATE TABLE IF NOT EXISTS conversations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -374,7 +476,10 @@ CREATE TABLE IF NOT EXISTS conversations (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     
     voice_status VARCHAR(50), 
-    is_simulation BOOLEAN DEFAULT FALSE
+    is_simulation BOOLEAN DEFAULT FALSE,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    duration_seconds INTEGER DEFAULT 0,
+    sentiment VARCHAR(50)
 );
 
 CREATE INDEX IF NOT EXISTS idx_conversations_tenant ON conversations(tenant_id);
@@ -394,11 +499,11 @@ CREATE TABLE IF NOT EXISTS messages (
     sender_type VARCHAR(20) NOT NULL, 
     sender_name VARCHAR(255),
     
-    audio_url VARCHAR(1024),
+    audio_url TEXT,
     transcription TEXT,
-    image_url VARCHAR(1024),
+    image_url TEXT,
     
-    -- VAPI Integ
+    -- VAPI Integ & Metadata
     external_id VARCHAR(255),
     external_order INT,
     metadata JSONB DEFAULT '{}'::jsonb,
@@ -415,7 +520,30 @@ ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Messages" ON messages;
 CREATE POLICY "Tenant Access Messages" ON messages FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
--- EVALUATIONS (Added Module)
+CREATE TABLE IF NOT EXISTS conversation_artifacts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    message_id UUID, 
+    agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+    platform VARCHAR(50) NOT NULL,
+    file_type VARCHAR(50) NOT NULL,
+    storage_path VARCHAR(255),
+    external_url TEXT,
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conv_artifacts_tenant ON conversation_artifacts(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_conv_artifacts_conv ON conversation_artifacts(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conv_artifacts_agent ON conversation_artifacts(agent_id);
+
+ALTER TABLE conversation_artifacts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Tenant Access Conversation Artifacts" ON conversation_artifacts 
+FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+
+-- EVALUATIONS (QA/Auditoria)
 CREATE TABLE IF NOT EXISTS evaluations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),
@@ -428,7 +556,7 @@ CREATE TABLE IF NOT EXISTS evaluations (
     tags TEXT[], 
     criteria_results JSONB DEFAULT '{}'::jsonb,
     
-    ai_model VARCHAR(50), 
+    ai_model VARCHAR(255), 
     processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -436,10 +564,8 @@ CREATE TABLE IF NOT EXISTS evaluations (
 CREATE INDEX IF NOT EXISTS idx_evaluations_tenant ON evaluations(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_conversation ON evaluations(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_evaluations_score ON evaluations(score);
-ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
 
--- Cleanup old policy
-DROP POLICY IF EXISTS "Allow tenant read access" ON evaluations;
+ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Tenant Insert Evaluations" ON evaluations;
 CREATE POLICY "Tenant Insert Evaluations" ON evaluations FOR INSERT WITH CHECK (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
@@ -448,7 +574,7 @@ DROP POLICY IF EXISTS "Tenant Read Evaluations" ON evaluations;
 CREATE POLICY "Tenant Read Evaluations" ON evaluations FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
 -- =============================================
--- 7. CONSUMPTION & METRICS
+-- 8. CONSUMPTION & METRICS
 -- =============================================
 
 CREATE TABLE IF NOT EXISTS consumption_metrics (
@@ -460,8 +586,8 @@ CREATE TABLE IF NOT EXISTS consumption_metrics (
     metric_type metric_type NOT NULL,
     
     value NUMERIC NOT NULL, 
-    cost NUMERIC(10, 4) NOT NULL, 
-    currency VARCHAR(3) DEFAULT 'BRL',
+    cost NUMERIC NOT NULL, 
+    currency VARCHAR(255) DEFAULT 'BRL',
     
     metadata JSONB, 
     
@@ -478,7 +604,7 @@ DROP POLICY IF EXISTS "Tenant Read Consumption" ON consumption_metrics;
 CREATE POLICY "Tenant Read Consumption" ON consumption_metrics FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
 -- =============================================
--- 8. AUDIT LOGS
+-- 9. AUDIT & LOGS
 -- =============================================
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -488,14 +614,14 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     actor_name VARCHAR(255),
     
     action VARCHAR(255) NOT NULL,
-    target_type VARCHAR(50) NOT NULL,
+    target_type VARCHAR(255) NOT NULL,
     target_id UUID,
     
     state_before JSONB,
     state_after JSONB,
     details TEXT,
     
-    ip_address VARCHAR(45),
+    ip_address VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -505,16 +631,16 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Audit Logs" ON audit_logs;
 CREATE POLICY "Tenant Access Audit Logs" ON audit_logs FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
 
--- INTEGRATION LOGS (Added Module)
+-- INTEGRATION LOGS
 CREATE TABLE IF NOT EXISTS integration_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID REFERENCES companies(id),
-    provider VARCHAR(50) DEFAULT 'vapi',
+    provider VARCHAR(255) DEFAULT 'vapi',
     external_id VARCHAR(255), 
     payload JSONB NOT NULL,
-    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status VARCHAR(20) DEFAULT 'success', 
-    error_details TEXT
+    status VARCHAR(255) DEFAULT 'success', 
+    error_details TEXT,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_integration_logs_provider_ext ON integration_logs(provider, external_id);
@@ -534,16 +660,14 @@ CREATE TABLE IF NOT EXISTS chat_histories_memory (
 );
 
 ALTER TABLE chat_histories_memory ENABLE ROW LEVEL SECURITY;
--- Note: No tenant_id, so we rely on Service Role for access or specific ID-based policies if needed later.
--- Defaulting to deny all for anon/auth to prevent leaks, assuming server-side usage only.
 
--- AGENT AUDIT LOGS (Added Module)
+-- AGENT AUDIT LOGS
 CREATE TABLE IF NOT EXISTS agent_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     actor_id UUID, 
     actor_name TEXT, 
-    action VARCHAR(50) NOT NULL, 
+    action VARCHAR(255) NOT NULL, 
     old_state JSONB,
     new_state JSONB,
     changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -553,12 +677,13 @@ ALTER TABLE agent_audit_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Read Agent Logs" ON agent_audit_logs;
 CREATE POLICY "Tenant Read Agent Logs" ON agent_audit_logs FOR SELECT USING (agent_id IN (SELECT id FROM agents WHERE tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())));
 
--- PLAN AUDIT LOGS (Added Module)
+-- PLAN AUDIT LOGS
 CREATE TABLE IF NOT EXISTS plan_audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     plan_id TEXT NOT NULL REFERENCES plans(id),
     actor_id UUID, 
-    action VARCHAR(50) NOT NULL, 
+    actor_name TEXT,
+    action VARCHAR(255) NOT NULL, 
     old_state JSONB,
     new_state JSONB,
     changed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -569,7 +694,7 @@ DROP POLICY IF EXISTS "Super Admin Read Plan Logs" ON plan_audit_logs;
 CREATE POLICY "Super Admin Read Plan Logs" ON plan_audit_logs FOR SELECT USING (auth.uid() IN (SELECT id FROM users WHERE role = 'super_admin'));
 
 -- =============================================
--- 9. FUNCTIONS & TRIGGERS
+-- 10. FUNCTIONS & TRIGGERS
 -- =============================================
 
 -- Agent Audit Trigger
@@ -620,7 +745,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 DROP TRIGGER IF EXISTS trg_audit_plans ON plans;
 CREATE TRIGGER trg_audit_plans AFTER INSERT OR UPDATE OR DELETE ON plans FOR EACH ROW EXECUTE FUNCTION audit_plan_changes();
 
--- Evaluation Functions
+-- Evaluation Functions (Legacy Interface)
 CREATE OR REPLACE FUNCTION get_conversation_transcript(p_conversation_id UUID)
 RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -656,8 +781,8 @@ BEGIN
     RETURNING id INTO v_eval_id;
     
     IF p_score < 40 THEN
-        INSERT INTO incidents (tenant_id, agent_id, title, description, severity, status) 
-        VALUES (v_tenant_id, v_agent_id, 'Low Quality Interaction Detected (Score: ' || p_score || ')', 'Automated Audit Flag: ' || p_summary, 'medium', 'open');
+        INSERT INTO incidents (tenant_id, agent_id, conversation_id, title, description, severity, status) 
+        VALUES (v_tenant_id, v_agent_id, p_conversation_id, 'Low Quality Interaction Detected (Score: ' || p_score || ')', 'Automated Audit Flag: ' || p_summary, 'medium', 'open');
     END IF;
 
     RETURN jsonb_build_object('success', true, 'evaluation_id', v_eval_id);
@@ -667,7 +792,7 @@ $$;
 GRANT EXECUTE ON FUNCTION get_conversation_transcript(UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION save_evaluation(UUID, INT, TEXT, TEXT[], JSONB, VARCHAR) TO authenticated, service_role;
 
--- Usage Stats Function (Updated Version)
+-- Usage Stats Function
 CREATE OR REPLACE FUNCTION get_agent_usage_stats(p_tenant_id UUID)
 RETURNS TABLE (
     agent_id UUID,
@@ -713,38 +838,223 @@ BEGIN
 END;
 $$;
 
--- Record Usage Function
-CREATE OR REPLACE FUNCTION record_usage(
-    p_agent_id TEXT,
-    p_metric_type TEXT,
-    p_value NUMERIC,
-    p_cost NUMERIC,
-    p_metadata JSONB DEFAULT '{}'::jsonb
+-- ============================================================================
+-- TRANSACTIONAL AGENT FRAMEWORK (B2B Identity Gate)
+-- MVP Phase 1: Security Sessions and Gateway RPC
+-- ============================================================================
+
+-- 1. Create Enum for Security Status
+DO $$ BEGIN
+    CREATE TYPE session_security_status AS ENUM ('unauthenticated', 'active', 'locked', 'expired');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+-- 2. Create Security Sessions Table
+CREATE TABLE IF NOT EXISTS public.conversation_security_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID NOT NULL REFERENCES public.conversations(id) ON DELETE CASCADE,
+    agent_id UUID NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+    status session_security_status DEFAULT 'unauthenticated',
+    validated_identifier VARCHAR(255),
+    failed_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    
+    -- Constraint: Only one session per conversation/agent combo
+    UNIQUE (conversation_id, agent_id)
+);
+
+-- 3. Indexes for fast lookup
+CREATE INDEX IF NOT EXISTS idx_conv_sec_session_conv ON public.conversation_security_sessions(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_conv_sec_agent ON public.conversation_security_sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_conv_sec_expires ON public.conversation_security_sessions(expires_at);
+
+-- 4. Enable Row Level Security (RLS)
+ALTER TABLE public.conversation_security_sessions ENABLE ROW LEVEL SECURITY;
+
+-- Policy to allow dashboard users to view sessions associated with their tenant's conversations
+CREATE POLICY "Users can view security sessions of their tenant's conversations"
+    ON public.conversation_security_sessions FOR SELECT
+    USING (
+        conversation_id IN (
+            SELECT id FROM public.conversations
+            WHERE tenant_id IN (
+                SELECT c.id FROM public.companies c
+                WHERE c.id = auth.uid() OR c.id IN (
+                    SELECT tenant_id FROM public.users WHERE id = auth.uid()
+                )
+            )
+        )
+    );
+
+-- 5. RPC Security Brain (evaluate_conversation_security)
+CREATE OR REPLACE FUNCTION public.evaluate_conversation_security(
+    p_agent_id UUID,
+    p_conversation_id UUID,
+    p_intent TEXT
 )
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-    v_agent_uuid UUID;
-    v_tenant_id UUID;
-    v_new_id UUID;
-    v_dept_id TEXT;
-    v_cost_center TEXT;
-    v_metric_key TEXT;
-    v_alert_triggered BOOLEAN := false;
+    v_agent_config JSONB;
+    v_identity_gate JSONB;
+    v_is_enabled BOOLEAN;
+    v_protected_intents TEXT[];
+    v_session RECORD;
 BEGIN
-    v_agent_uuid := p_agent_id::UUID;
-    SELECT tenant_id, department_id, cost_center INTO v_tenant_id, v_dept_id, v_cost_center FROM agents WHERE id = v_agent_uuid;
-    IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'Agent not found'; END IF;
+    -- Step 1: Get Agent Capabilities
+    SELECT brain_config INTO v_agent_config 
+    FROM public.agents 
+    WHERE id = p_agent_id;
 
-    INSERT INTO consumption_metrics (tenant_id, agent_id, channel, metric_type, value, cost, metadata, department_id, cost_center, recorded_at)
-    VALUES (
-        v_tenant_id, v_agent_uuid, 
-        (SELECT CASE WHEN type = 'whatsapp' THEN 'whatsapp'::conversation_channel WHEN type = 'embedded' THEN 'text'::conversation_channel ELSE 'text'::conversation_channel END FROM agents WHERE id = v_agent_uuid),
-        p_metric_type::metric_type, p_value, p_cost, p_metadata, v_dept_id, v_cost_center, NOW()
-    ) RETURNING id INTO v_new_id;
+    v_identity_gate := v_agent_config->'capabilities'->'identity_gate';
+    v_is_enabled := COALESCE((v_identity_gate->>'enabled')::boolean, false);
+    
+    -- Feature Flag Rollout Strategy (Allow execution if security gate is disabled)
+    IF NOT v_is_enabled THEN
+        RETURN jsonb_build_object(
+            'allowToolExecution', true,
+            'requiresValidation', false,
+            'session_status', 'unauthenticated'
+        );
+    END IF;
 
-    RETURN jsonb_build_object('success', true, 'metric_id', v_new_id);
+    -- Extract protected intents arrays safely
+    IF v_identity_gate->'protected_intents' IS NOT NULL AND jsonb_typeof(v_identity_gate->'protected_intents') = 'array' THEN
+        SELECT ARRAY(
+            SELECT jsonb_array_elements_text(v_identity_gate->'protected_intents')
+        ) INTO v_protected_intents;
+    ELSE
+        v_protected_intents := ARRAY[]::TEXT[];
+    END IF;
+
+    -- If intent is not protected, allow it
+    IF NOT (p_intent = ANY(v_protected_intents)) THEN
+        RETURN jsonb_build_object(
+            'allowToolExecution', true,
+            'requiresValidation', false,
+            'session_status', 'unauthenticated'
+        );
+    END IF;
+
+    -- Step 2: Check Session
+    SELECT * INTO v_session
+    FROM public.conversation_security_sessions
+    WHERE conversation_id = p_conversation_id 
+      AND agent_id = p_agent_id
+    ORDER BY created_at DESC 
+    LIMIT 1;
+
+    -- Lazy Expiration Check
+    IF v_session.expires_at IS NOT NULL AND v_session.expires_at < now() AND v_session.status = 'active' THEN
+        UPDATE public.conversation_security_sessions 
+        SET status = 'expired', updated_at = now()
+        WHERE id = v_session.id;
+        v_session.status := 'expired';
+    END IF;
+
+    -- Step 3: Evaluate Output
+    IF v_session IS NOT NULL AND v_session.status = 'active' THEN
+        -- Granted!
+        RETURN jsonb_build_object(
+            'allowToolExecution', true,
+            'requiresValidation', false,
+            'session_status', 'active',
+            'validated_identifier', v_session.validated_identifier
+        );
+    ELSE
+        -- Denied / Needs Validation
+        RETURN jsonb_build_object(
+            'allowToolExecution', false,
+            'requiresValidation', true,
+            'session_status', COALESCE(v_session.status::text, 'unauthenticated')
+        );
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.attempt_session_authentication(
+    p_agent_id UUID,
+    p_conversation_id UUID,
+    p_identifier TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_session RECORD;
+    v_cleaned_identifier TEXT;
+BEGIN
+    -- 1. Limpa a formatação (ex: tira traços e pontos do CNPJ/CPF)
+    v_cleaned_identifier := regexp_replace(p_identifier, '\D', '', 'g');
+
+    -- 2. Busca a sessão atual
+    SELECT * INTO v_session
+    FROM public.conversation_security_sessions
+    WHERE conversation_id = p_conversation_id AND agent_id = p_agent_id;
+
+    IF v_session IS NULL THEN
+        INSERT INTO public.conversation_security_sessions (conversation_id, agent_id, status)
+        VALUES (p_conversation_id, p_agent_id, 'unauthenticated')
+        RETURNING * INTO v_session;
+    END IF;
+
+    -- 3. BRUTE FORCE PROTECTION
+    IF v_session.status = 'locked' THEN
+        IF v_session.locked_until > now() THEN
+            RETURN jsonb_build_object(
+                'success', false, 
+                'message', 'Security Triggered: Sessão bloqueada por excesso de tentativas. Tente novamente mais tarde.'
+            );
+        ELSE
+            UPDATE public.conversation_security_sessions 
+            SET status = 'unauthenticated', failed_attempts = 0, locked_until = NULL, updated_at = now()
+            WHERE id = v_session.id;
+            v_session.status := 'unauthenticated';
+            v_session.failed_attempts := 0;
+        END IF;
+    END IF;
+
+    -- 4. IDENTITY VALIDATION (MVP Sintática 11 ou 14 chars)
+    IF length(v_cleaned_identifier) = 11 OR length(v_cleaned_identifier) = 14 THEN
+        UPDATE public.conversation_security_sessions
+        SET status = 'active', 
+            validated_identifier = v_cleaned_identifier,
+            failed_attempts = 0,
+            expires_at = now() + interval '1 hour',
+            updated_at = now()
+        WHERE id = v_session.id;
+
+        RETURN jsonb_build_object(
+            'success', true, 
+            'message', 'Autenticação concluída! O Gatekeeper de Segurança está aberto.'
+        );
+    ELSE
+        UPDATE public.conversation_security_sessions
+        SET failed_attempts = failed_attempts + 1,
+            status = CASE WHEN failed_attempts + 1 >= 5 THEN 'locked' ELSE 'unauthenticated' END,
+            locked_until = CASE WHEN failed_attempts + 1 >= 5 THEN now() + interval '15 minutes' ELSE NULL END,
+            updated_at = now()
+        WHERE id = v_session.id
+        RETURNING failed_attempts, status INTO v_session;
+
+        IF v_session.status = 'locked' THEN
+            RETURN jsonb_build_object(
+                'success', false, 
+                'message', 'ACESSO BLOQUEADO: 5 tentativas falhas. A sessão foi trancada por 15 minutos.'
+            );
+        ELSE
+            RETURN jsonb_build_object(
+                'success', false, 
+                'message', 'Documento inválido. Tentativa ' || v_session.failed_attempts || ' de 5 antes do bloqueio.'
+            );
+        END IF;
+    END IF;
 END;
 $$;
