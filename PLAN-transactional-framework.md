@@ -85,3 +85,18 @@ A mudança estrutural que separa produto de chatbot comum. A Sensibilidade é at
 - [x] Banco de dados preserva integridade relacional entre `agents` e `conversations`.
 - [x] Agent Config fallback: `false` para agentes novos ou antigos (Estratégia de Rollout respeitada sem quebrar instâncias).
 - [x] N8N recusando ferramentas financeiras quando executado a frio sem injeção prévia autorizada no BD.
+
+---
+
+## 7. O Que Falta Fazer (Próximos Passos / Backlog)
+
+Com a fundação criada (Sessões no Banco, UI de configuração), os próximos passos evolutivos são:
+
+1. **Integração de API Externa de Validação:** 
+   * Na UI já injetamos o campo `webhook_url` para a validação. Falta o motor principal (N8N) consumir essa URL prestando o CNPJ/CPF do requisitante e interpretar a resposta de Sucesso/Falha para autorizar a chave.
+   
+2. **Ciclo de Vida da Sessão (Encerramento Automático):** 
+   * Expandir a lógica para respeitar a variável `sessionTimeoutSeconds` (timeout de inatividade). Se a última mensagem for mais antiga que esse limite, a sessão entra em estado `expired` e forçará um reenvio do dado seguro na próxima interação.
+
+3. **Otimização de Contexto e Tools (Prompts no Hub):**
+   * Migração de prompts e descrições do Sistema/Usuário out-of-the-box pelo Agent Nexus Hub. Hoje parte já foi migrada para a interface de "Brains", porém o orquestrador (N8N) deve começar a consumir os system_prompts como sua fonte absoluta da verdade.

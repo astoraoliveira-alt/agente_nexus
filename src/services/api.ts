@@ -32,6 +32,20 @@ export const api = {
         const { data, error } = await supabase.rpc('get_dashboard_summary', { p_tenant_id: tenantId });
         if (error) throw error;
 
+        // Fetch davos costs to accurately calculate internal operational cost for each agent
+        let costRates = { llm: 0, msg: 0, voice: 0, twilio: 0 };
+        try {
+            const davosCosts = await this.getDavosCosts(tenantId);
+            costRates = {
+                llm: Number(davosCosts.find(c => c.itemKey === 'llm_internal_rate')?.costValue || 0),
+                msg: Number(davosCosts.find(c => c.itemKey === 'msg_whatsapp')?.costValue || 0),
+                voice: Number(davosCosts.find(c => c.itemKey === 'voice_internal_rate')?.costValue || 0),
+                twilio: Number(davosCosts.find(c => c.itemKey === 'twilio_variable')?.costValue || 0),
+            };
+        } catch (err) {
+            console.error('Failed to fetch davos costs for agent cost calculation', err);
+        }
+
         // Plan detail mapping with all price components
         const plan = data.tenant.plan;
         const prices = {
@@ -48,16 +62,13 @@ export const api = {
                 const recordedCost = Number(dbAgent.recorded_cost || 0);
                 let totalCost = recordedCost;
 
-                // IF prices are available, ALWAYS RE-CALCULATE (Sync with Consumption page logic)
-                // This ensures we show the "Plan" cost charged to the client, overriding technical recorded cost.
-                const hasPrices = prices && (prices.llmTokenPrice > 0 || prices.messagePrice > 0 || prices.sttMinutePrice > 0 || prices.ttsMinutePrice > 0);
-
-                if (hasPrices && (stage === 'production' || stage === 'monitoring')) {
+                if (stage === 'production' || stage === 'monitoring') {
                     totalCost = 0;
-                    totalCost += (Number(dbAgent.total_tokens || 0) / 1000) * (prices.llmTokenPrice || 0);
-                    totalCost += Number(dbAgent.total_messages || 0) * (prices.messagePrice || 0);
-                    totalCost += Number(dbAgent.total_stt || 0) * (prices.sttMinutePrice || 0);
-                    totalCost += Number(dbAgent.total_tts || 0) * (prices.ttsMinutePrice || 0);
+                    // Calculate Internal Operational Cost (Davos Costs)
+                    totalCost += (Number(dbAgent.total_tokens || 0) / 1000) * costRates.llm;
+                    totalCost += Number(dbAgent.total_messages || 0) * costRates.msg; // WhatsApp/Messaging cost
+                    totalCost += Number(dbAgent.total_stt || 0) * (costRates.voice + costRates.twilio);
+                    totalCost += Number(dbAgent.total_tts || 0) * (costRates.voice + costRates.twilio);
                 }
 
                 return {
@@ -80,6 +91,12 @@ export const api = {
                     lifecycleStage: dbAgent.lifecycle_stage,
                     riskLevel: dbAgent.risk_level,
                     type: dbAgent.type,
+                    evolution_instance: dbAgent.evolution_instance,
+                    evolution_token: dbAgent.evolution_token,
+                    sessionTimeoutSeconds: dbAgent.session_timeout_seconds || 3600,
+                    contextWindow: dbAgent.context_window || 10,
+                    voiceConfig: dbAgent.voice_config || {},
+                    integrationConfig: dbAgent.integration_config || {},
                     integration: {
                         n8n_webhook_url: dbAgent.integration_config?.n8n_webhook_url || `https://n8n.webhook/${dbAgent.id}`
                     }
@@ -1968,9 +1985,9 @@ export const api = {
                 .from('consumption_metrics')
                 .select('cost, metadata')
                 .not('metadata', 'is', null); // Fetch all non-null metadata rows (warning: heavy) to filter in JS as last resort
-            
+
             if (fallbackData) {
-                 return fallbackData
+                return fallbackData
                     .filter((row: any) => row.metadata?.conversation_id === conversationId)
                     .reduce((acc: number, curr: any) => acc + Number(curr.cost), 0);
             }

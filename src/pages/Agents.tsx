@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -581,44 +583,46 @@ export default function Agents() {
                     </div>
                   </div>
 
-                  <div className="flex-1 flex flex-col space-y-2 min-h-[300px]">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Prompt de Sistema (Personalidade & Regras)</Label>
-                      <Badge variant="outline" className="text-[10px] font-mono border-red-500/30 text-red-500">OBRIGATÓRIO</Badge>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[300px]">
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Prompt de Sistema (Personalidade & Regras)</Label>
+                        <Badge variant="outline" className="text-[10px] font-mono border-muted text-muted-foreground">OBRIGATÓRIO</Badge>
+                      </div>
+                      <Textarea
+                        className="flex-1 p-4 font-mono text-sm bg-[#0B1A28] text-blue-50 rounded-md border border-[#1A2E44] focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed h-[300px] shadow-inner"
+                        placeholder="Instrua sua inteligência aqui... Ex: Você é uma assistente de vendas focada em conversão, utilize uma linguagem direta e cordial."
+                        value={formData.brainConfig?.systemPrompt || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          brainConfig: {
+                            ...formData.brainConfig,
+                            systemPrompt: e.target.value
+                          }
+                        })}
+                      />
+                      <p className="text-[10px] text-muted-foreground">O motor usará este prompt como base para a personalidade da IA.</p>
                     </div>
-                    <textarea
-                      className="flex-1 p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed"
-                      placeholder="Instrua sua inteligência aqui... Ex: Você é uma assistente de vendas focada em conversão, utilize uma linguagem direta e cordial."
-                      value={formData.brainConfig?.systemPrompt || ''}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        brainConfig: {
-                          ...formData.brainConfig,
-                          systemPrompt: e.target.value
-                        }
-                      })}
-                    ></textarea>
-                    <p className="text-[10px] text-muted-foreground">O motor usará este prompt como base para a personalidade da IA.</p>
-                  </div>
 
-                  <div className="flex-1 flex flex-col space-y-2 min-h-[300px]">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm font-bold secondary-text text-amber-500 uppercase tracking-wider">Template da Mensagem do Usuário (Motor Burro)</Label>
-                      <Badge variant="outline" className="text-[10px] font-mono border-red-500/30 text-red-500">OBRIGATÓRIO</Badge>
+                    <div className="flex flex-col space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Template da Mensagem do Usuário</Label>
+                        <Badge variant="outline" className="text-[10px] font-mono border-muted text-muted-foreground">OBRIGATÓRIO</Badge>
+                      </div>
+                      <Textarea
+                        className="flex-1 p-4 font-mono text-sm bg-[#0B1A28] text-blue-50 rounded-md border border-[#1A2E44] focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed h-[300px] shadow-inner"
+                        placeholder="Ex: Responda a seguinte dúvida usando o contexto acima: {message}"
+                        value={formData.brainConfig?.userPromptTemplate || ''}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          brainConfig: {
+                            ...formData.brainConfig,
+                            userPromptTemplate: e.target.value
+                          }
+                        })}
+                      />
+                      <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o sistema injete a fala do usuário dinamicamente.</p>
                     </div>
-                    <textarea
-                      className="flex-1 p-4 font-mono text-sm bg-slate-950 text-slate-100 rounded-md border border-slate-800 focus:ring-2 focus:ring-amber-500 outline-none resize-none leading-relaxed"
-                      placeholder="Ex: Responda a seguinte dúvida usando o contexto acima: {message}"
-                      value={formData.brainConfig?.userPromptTemplate || ''}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        brainConfig: {
-                          ...formData.brainConfig,
-                          userPromptTemplate: e.target.value
-                        }
-                      })}
-                    ></textarea>
-                    <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o sistema injete a fala do usuário dinamicamente.</p>
                   </div>
                 </TabsContent>
 
@@ -665,20 +669,20 @@ export default function Agents() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     {/* Voice Config */}
-                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
-                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
-                        <Workflow className="h-4 w-4" /> Orquestração (Agente de Comunicação)
+                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-card shadow-sm">
+                      <h4 className="text-sm font-semibold uppercase flex items-center gap-2 text-muted-foreground border-b border-border pb-3">
+                        <Workflow className="h-4 w-4" /> Orquestração (Integração de Workflows)
                       </h4>
-                      <div className="space-y-4">
+                      <div className="space-y-4 pt-2">
                         <div className="space-y-2">
-                          <Label className="text-xs">Webhook do Motor</Label>
+                          <Label className="text-xs font-semibold">URL do Webhook Principal</Label>
                           <Input
                             className="h-9 font-mono text-[10px] bg-muted/30 text-foreground border-border"
                             value={formData.integrationConfig?.n8n_webhook_url || ''}
                             readOnly
                           />
                           <p className="text-[9px] text-muted-foreground italic leading-tight">
-                            Este link conecta o Dashboard ao Motor de Execução, orquestrando fluxos de conversa e lógica de negócio do agente.
+                            Este link conecta o sistema ao seu Workflow Principal para processar conversas com lógicas específicas.
                           </p>
                         </div>
 
@@ -743,8 +747,8 @@ export default function Agents() {
                       </div>
                     </div>
 
-                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-muted/10">
-                      <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-muted-foreground">
+                    <div className="space-y-4 border border-border/50 p-5 rounded-lg bg-card shadow-sm">
+                      <h4 className="text-sm font-semibold uppercase flex items-center gap-2 text-muted-foreground border-b border-border pb-3">
                         <Headphones className="h-4 w-4" /> Configuração de Voz
                       </h4>
                       <div className="grid grid-cols-1 gap-4">
@@ -806,8 +810,8 @@ export default function Agents() {
                 <TabsContent value="governance" className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
-                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-blue-500/5">
-                        <h4 className="text-xs font-bold uppercase text-blue-500 tracking-widest border-b border-blue-500/10 pb-2">Status & Ciclo de Vida</h4>
+                      <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                        <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3">Status e Ciclo de Vida</h4>
                         <div className="space-y-4 pt-2">
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
@@ -864,8 +868,8 @@ export default function Agents() {
                         </div>
                       </div>
 
-                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-orange-500/5">
-                        <h4 className="text-xs font-bold uppercase text-orange-500 tracking-widest border-b border-orange-500/10 pb-2">Segurança & Autonomia</h4>
+                      <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                        <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3">Segurança e Autonomia</h4>
                         <div className="space-y-4 pt-2">
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
@@ -919,9 +923,9 @@ export default function Agents() {
                         </div>
                       </div>
 
-                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-red-500/5">
-                        <h4 className="text-xs font-bold uppercase text-red-500 tracking-widest border-b border-red-500/10 pb-2 flex items-center gap-2">
-                          <ShieldCheck className="h-4 w-4" /> Identity Gate (Gatekeeper)
+                      <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                        <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3 flex items-center gap-2">
+                          <ShieldCheck className="h-4 w-4" /> Gateway de Identidade (Validação)
                         </h4>
                         <div className="space-y-4 pt-2 flex flex-col">
                           <div className="flex items-center space-x-2">
@@ -949,32 +953,153 @@ export default function Agents() {
                             </Label>
                           </div>
                           {formData.brainConfig?.capabilities?.identity_gate?.enabled && (
-                            <div className="space-y-2 animate-in slide-in-from-top-1">
-                              <Label className="text-xs text-muted-foreground">Intenções Protegidas (Ex: boletos, pagar)</Label>
-                              <Input
-                                placeholder="Boletos, Faturas, Contratos, Pagamento"
-                                className="h-9 font-mono text-xs bg-muted/30"
-                                value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(', ')}
-                                onChange={(e) => {
-                                  const intents = e.target.value.split(',').map(i => i.trim()).filter(Boolean);
-                                  setFormData(prev => ({
-                                    ...prev,
-                                    brainConfig: {
-                                      ...prev.brainConfig,
-                                      capabilities: {
-                                        ...prev.brainConfig?.capabilities,
-                                        identity_gate: {
-                                          ...prev.brainConfig?.capabilities?.identity_gate,
-                                          protected_intents: intents
+                            <div className="space-y-4 animate-in slide-in-from-top-1">
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">Intenções Protegidas (Ex: boletos, faturas)</Label>
+                                <Input
+                                  placeholder="Boletos, Faturas, Contratos, Pagamento"
+                                  className="h-9 font-mono text-xs bg-muted/30"
+                                  value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(', ')}
+                                  onChange={(e) => {
+                                    const intents = e.target.value.split(',').map(i => i.trim()).filter(Boolean);
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      brainConfig: {
+                                        ...prev.brainConfig,
+                                        capabilities: {
+                                          ...prev.brainConfig?.capabilities,
+                                          identity_gate: {
+                                            ...prev.brainConfig?.capabilities?.identity_gate,
+                                            protected_intents: intents
+                                          }
                                         }
                                       }
-                                    }
-                                  }))
-                                }}
-                              />
-                              <p className="text-[9px] text-muted-foreground italic">
-                                O Gatekeeper forçará o usuário a fornecer documento antes de processar pedidos nesses assuntos.
-                              </p>
+                                    }))
+                                  }}
+                                />
+                                <p className="text-[9px] text-muted-foreground italic">
+                                  O Gatekeeper forçará o usuário a fornecer documento antes de processar pedidos nesses assuntos.
+                                </p>
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">Método de Validação</Label>
+                                <Select
+                                  value={formData.brainConfig?.capabilities?.identity_gate?.validation_method || 'formula'}
+                                  onValueChange={(value: 'formula' | 'api') => {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      brainConfig: {
+                                        ...prev.brainConfig,
+                                        capabilities: {
+                                          ...prev.brainConfig?.capabilities,
+                                          identity_gate: {
+                                            ...prev.brainConfig?.capabilities?.identity_gate,
+                                            validation_method: value
+                                          }
+                                        }
+                                      }
+                                    }))
+                                  }}
+                                >
+                                  <SelectTrigger className="h-9 text-xs">
+                                    <SelectValue placeholder="Selecione o método" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="formula">Fórmula (Tamanho e Dígitos)</SelectItem>
+                                    <SelectItem value="api">API Externa (Webhook Dinâmico)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {formData.brainConfig?.capabilities?.identity_gate?.validation_method === 'api' && (
+                                <div className="space-y-2 animate-in slide-in-from-top-1">
+                                  <Label className="text-xs text-muted-foreground">URL da API de Validação Externa</Label>
+                                  <Input
+                                    placeholder="https://sua-api.com.br/validar-doc?doc="
+                                    className="h-9 font-mono text-xs bg-muted/30"
+                                    value={formData.brainConfig?.capabilities?.identity_gate?.api_url || ''}
+                                    onChange={(e) => {
+                                      setFormData(prev => ({
+                                        ...prev,
+                                        brainConfig: {
+                                          ...prev.brainConfig,
+                                          capabilities: {
+                                            ...prev.brainConfig?.capabilities,
+                                            identity_gate: {
+                                              ...prev.brainConfig?.capabilities?.identity_gate,
+                                              api_url: e.target.value
+                                            }
+                                          }
+                                        }
+                                      }))
+                                    }}
+                                  />
+                                  <p className="text-[9px] text-muted-foreground italic">
+                                    O sistema fará uma chamada GET para esta URL enviando o documento. Ex: ?doc=123
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label className="text-xs text-muted-foreground">System Prompt (Gatekeeper)</Label>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs">
+                                        <p className="text-xs">O prompt que governa o AI Agent quando a sessão está bloqueada ou expirada.</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </div>
+                                <Textarea
+                                  className="min-h-[80px] text-xs font-mono bg-muted/30"
+                                  placeholder="Você atua como um sistema rígido de validação..."
+                                  value={formData.brainConfig?.capabilities?.identity_gate?.gatekeeper_system_prompt || ''}
+                                  onChange={(e) => {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      brainConfig: {
+                                        ...prev.brainConfig,
+                                        capabilities: {
+                                          ...prev.brainConfig?.capabilities,
+                                          identity_gate: {
+                                            ...prev.brainConfig?.capabilities?.identity_gate,
+                                            gatekeeper_system_prompt: e.target.value
+                                          }
+                                        }
+                                      }
+                                    }))
+                                  }}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label className="text-xs text-muted-foreground">Mensagem de Sucesso (Opcional)</Label>
+                                <Input
+                                  placeholder="Autenticação concluída! O Gatekeeper está aberto."
+                                  className="h-9 text-xs bg-muted/30"
+                                  value={formData.brainConfig?.capabilities?.identity_gate?.validation_success_message || ''}
+                                  onChange={(e) => {
+                                    setFormData(prev => ({
+                                      ...prev,
+                                      brainConfig: {
+                                        ...prev.brainConfig,
+                                        capabilities: {
+                                          ...prev.brainConfig?.capabilities,
+                                          identity_gate: {
+                                            ...prev.brainConfig?.capabilities?.identity_gate,
+                                            validation_success_message: e.target.value
+                                          }
+                                        }
+                                      }
+                                    }))
+                                  }}
+                                />
+                              </div>
                             </div>
                           )}
                         </div>
@@ -982,9 +1107,9 @@ export default function Agents() {
                     </div>
 
                     <div className="space-y-6">
-                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-muted/5">
-                        <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest border-b border-border/50 pb-2 flex items-center gap-2">
-                          <FileText className="h-3 w-3" /> Políticas Aplicadas
+                      <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                        <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3 flex items-center gap-2">
+                          <FileText className="h-4 w-4" /> Políticas Aplicadas
                         </h4>
                         <div className="grid grid-cols-1 gap-2 pt-2">
                           {availablePolicies.length === 0 ? (
@@ -1019,8 +1144,8 @@ export default function Agents() {
                         </p>
                       </div>
 
-                      <div className="space-y-3 p-4 border border-border/50 rounded-lg bg-muted/5">
-                        <h4 className="text-xs font-bold uppercase text-muted-foreground tracking-widest border-b border-border/50 pb-2">Matriz de Risco</h4>
+                      <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                        <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3">Matriz de Risco</h4>
                         <div className="space-y-4 pt-2">
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5">
@@ -1082,15 +1207,15 @@ export default function Agents() {
                 </TabsContent>
 
                 <TabsContent value="tools" className="p-6 space-y-6">
-                  <div className="space-y-4">
-                    <h4 className="text-sm font-bold uppercase flex items-center gap-2 text-accent">
-                      <Settings className="h-4 w-4" /> Ferramentas e Webhooks (Mock API)
+                  <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
+                    <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3 flex items-center gap-2">
+                      <Settings className="h-4 w-4" /> Ferramentas e Integrações
                     </h4>
-                    <p className="text-xs text-muted-foreground">Configure as ferramentas que o LLM poderá acionar durante a conversa (n8n Functions).</p>
+                    <p className="text-xs text-muted-foreground pt-2">Configure as funções de negócio e automações que o Agente poderá acionar durante a conversa (via Workflow).</p>
 
-                    <div className="space-y-4 border border-border/50 p-4 rounded-lg bg-muted/5">
+                    <div className="space-y-4 border border-border/50 p-4 rounded-lg bg-muted/5 mt-4">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold">Ferramenta 1: Consultar Boletos (Mock)</Label>
+                        <Label className="text-xs font-bold">Ferramenta 1: Consultar Faturas e Boletos</Label>
                         <Switch
                           checked={!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')}
                           onCheckedChange={(checked) => {
@@ -1122,9 +1247,9 @@ export default function Agents() {
 
                       {!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos') && (
                         <div className="space-y-2 pt-2 animate-in slide-in-from-top-1">
-                          <Label className="text-xs text-muted-foreground">Webhook URL da Ferramenta</Label>
+                          <Label className="text-xs text-muted-foreground">URL do Workflow da Ferramenta</Label>
                           <Input
-                            placeholder="https://n8n.seuservidor.com/webhook/consultar-boleto"
+                            placeholder="https://seu-servidor.com/webhook/consultar-boleto"
                             className="h-9 font-mono text-xs bg-muted/30"
                             value={(formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')?.webhook_url) || ''}
                             onChange={(e) => {
@@ -1137,7 +1262,7 @@ export default function Agents() {
                               }));
                             }}
                           />
-                          <p className="text-[10px] text-muted-foreground italic">Crie um webhook no n8n e coloque a URL aqui.</p>
+                          <p className="text-[10px] text-muted-foreground italic">Insira a URL do Workflow encarregado de executar esta ferramenta.</p>
                         </div>
                       )}
                     </div>

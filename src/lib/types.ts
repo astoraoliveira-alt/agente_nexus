@@ -318,6 +318,10 @@ export interface AgentBrainConfig {
     identity_gate?: {
       enabled?: boolean;
       protected_intents?: string[];
+      gatekeeper_system_prompt?: string;
+      validation_success_message?: string;
+      validation_method?: 'formula' | 'api';
+      api_url?: string;
     };
   };
 

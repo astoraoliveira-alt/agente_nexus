@@ -569,48 +569,80 @@ export default function Companies() {
               </TabsContent>
 
 
-              <TabsContent value="costs" className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { key: 'vps', label: 'Custo VPS (Mensal)' },
-                    { key: 'n8n', label: 'Custo n8n (Mensal)' },
-                    { key: 'vapi_fixed', label: 'Vapi Fixo (Mensal)' },
-                    { key: 'vapi_variable', label: 'Vapi Var (Por Min)' },
-                    { key: 'llm_internal_rate', label: 'Custo LLM Davos (1k tokens)' },
-                    { key: 'voice_internal_rate', label: 'Custo Voz Davos (Por Min)' },
-                    { key: 'twilio_fixed', label: 'Twilio Fixo (Mensal)' },
-                    { key: 'twilio_variable', label: 'Twilio Var (Por Min)' },
-                  ].map(item => {
-                    const cost = companyCosts.find(c => c.itemKey === item.key);
-                    return (
-                      <div key={item.key} className="space-y-2">
-                        <Label>{item.label}</Label>
-                        <DecimalInput
-                          placeholder="0,00"
-                          value={cost?.costValue || 0}
-                          onChange={(val) => {
-                            setCompanyCosts(prev => {
-                              const existing = prev.find(p => p.itemKey === item.key);
-                              if (existing) {
-                                return prev.map(p => p.itemKey === item.key ? { ...p, costValue: val } : p);
-                              }
-                              return [...prev, {
-                                itemKey: item.key,
-                                itemLabel: item.label,
-                                costValue: val,
-                                isRecurring: !item.key.includes('variable'),
-                                tenantId: editingCompany?.id || '',
-                                id: '',
-                                createdAt: new Date(),
-                                updatedAt: new Date()
-                              }];
-                            });
-                          }}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+              <TabsContent value="costs" className="space-y-6 py-4 max-h-[60vh] overflow-y-auto pr-2 scrollbar-thin">
+                {[
+                  {
+                    title: "Infraestrutura Fixa (Mensal)",
+                    items: [
+                      { key: 'vps', label: 'Servidor Web/Domínio' },
+                      { key: 'n8n', label: 'Servidor Workflow (Evolution/n8n)' },
+                      { key: 'vps_db', label: 'Servidor Banco de Dados' },
+                      { key: 'storage_egress', label: 'Armazenamento e Banda' },
+                      { key: 'vector_db', label: 'Banco de Dados Vetorial (RAG)' },
+                    ]
+                  },
+                  {
+                    title: "Telefonia e Mensageria",
+                    items: [
+                      { key: 'phone_setup', label: 'Custo Aquisição Número (Setup Único)' },
+                      { key: 'twilio_fixed', label: 'Manutenção Mensal Número' },
+                      { key: 'vapi_fixed', label: 'Custos Fixos API Voz (Mensal)' },
+                    ]
+                  },
+                  {
+                    title: "Custos Variáveis (Motor de IA e APIs)",
+                    items: [
+                      { key: 'llm_internal_rate', label: 'Motor LLM (Por 1k Tokens)' },
+                      { key: 'msg_whatsapp', label: 'Mensageria Oficial WhatsApp (Por Msg)' },
+                      { key: 'voice_internal_rate', label: 'Comunicação de Voz (Por Minuto)' },
+                      { key: 'twilio_variable', label: 'Outras APIs (Tradução/Transcrição STT/TTS)' },
+                    ]
+                  },
+                  {
+                    title: "Operação e Gestão",
+                    items: [
+                      { key: 'bpo_people', label: 'Custo de Pessoas / BPO (Mensal)' },
+                    ]
+                  }
+                ].map(section => (
+                  <div key={section.title} className="space-y-4 border border-border/50 p-5 rounded-lg bg-card shadow-sm">
+                    <h4 className="text-sm font-semibold uppercase text-accent border-b border-border pb-3">
+                      {section.title}
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                      {section.items.map(item => {
+                        const cost = companyCosts.find(c => c.itemKey === item.key);
+                        return (
+                          <div key={item.key} className="space-y-2">
+                            <Label className="text-xs font-medium text-muted-foreground">{item.label}</Label>
+                            <DecimalInput
+                              placeholder="0,00"
+                              value={cost?.costValue || 0}
+                              onChange={(val) => {
+                                setCompanyCosts(prev => {
+                                  const existing = prev.find(p => p.itemKey === item.key);
+                                  if (existing) {
+                                    return prev.map(p => p.itemKey === item.key ? { ...p, costValue: val } : p);
+                                  }
+                                  return [...prev, {
+                                    itemKey: item.key,
+                                    itemLabel: item.label,
+                                    costValue: val,
+                                    isRecurring: !['phone_setup', 'llm_internal_rate', 'voice_internal_rate', 'msg_whatsapp', 'twilio_variable'].includes(item.key),
+                                    tenantId: editingCompany?.id || '',
+                                    id: '',
+                                    createdAt: new Date(),
+                                    updatedAt: new Date()
+                                  }];
+                                });
+                              }}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </TabsContent>
             </Tabs>
 
@@ -675,7 +707,7 @@ export default function Companies() {
             </div>
           </DialogContent>
         </Dialog>
-      </div>
-    </MainLayout>
+      </div >
+    </MainLayout >
   );
 }

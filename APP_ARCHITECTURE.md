@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 27/Fev/2026
-> **Versão:** 9.0 (Audit, Campaigns V2, Artifacts, Financial DRE)
+> **Última Atualização:** 02/Mar/2026
+> **Versão:** 10.0 (Identity Gate UI, DRE Refactor, Agent Layout Modernization)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 

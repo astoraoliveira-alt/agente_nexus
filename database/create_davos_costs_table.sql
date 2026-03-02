@@ -20,3 +20,4 @@ CREATE INDEX IF NOT EXISTS idx_davos_costs_tenant ON company_davos_costs(tenant_
 
 -- Commentary
 COMMENT ON TABLE company_davos_costs IS 'Stores internal costs paid by Davos for each tenant infrastructure and services.';
+COMMENT ON COLUMN company_davos_costs.item_key IS 'vps, n8n, vapi_fixed, vapi_variable, twilio_fixed, twilio_variable, llm_internal_rate, voice_internal_rate, msg_whatsapp';
