@@ -774,11 +774,11 @@ Estratégia de merge: compara `lastMessageTime` e `status` para decidir se realm
    - Mede qualidade da conexão do operador
 
 2. **Backend Pings (Edge Function `check-health`):**
-   - Supabase BR como ponto central de medição
-   - Dispara requisições HEAD/GET para: N8N (BRL), Evolution API (BRL), OpenAI/VAPI (USA)
+   - Supabase US West como ponto central de medição
+   - Dispara requisições HEAD/GET para: N8N (Utah), Evolution API (Utah), OpenAI/VAPI (USA)
 
 **Indicadores de Saúde:**
-- 🟢 **Saudável:** < 200ms (BR) ou < 800ms (USA)
+- 🟢 **Saudável:** < 200ms (Acesso Intrarregião US)
 - 🟡 **Degradado:** Latência 50% acima da média histórica
 - 🔴 **Offline:** Timeout ou erro 5xx
 
@@ -945,7 +945,9 @@ VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 
 ### 20.2 Arquitetura Futura
 
-- **Supabase Realtime:** Channels para atualização push de conversas.
+- **Supabase Realtime:** Channels para atualização push de conversas (Resolve o problema do Polling escalar excessivamente quando 500+ operadores estiverem on-line).
+- **Clusterização N8N Multi-Instance (SPOF Mitigation):** Com Redis já implantado, a evolução madura prevê desmembrar o webhook num Load Balancer operando múltiplos wokers n8n, impedindo queda local generalizada (Inbound/Outbound/Identity).
+- **Fusão de Risk Level com Identity Gate:** Vincular gatilhos automáticos ("Se risk_level for critical, ative transação requerida").
 - **Smart Usage Allocation:** `brain_config.budget_share_pct` + `monthly_limit_brl` para controle de orçamento por agente.
 - **Multi-LLM por Agente:** Provider registry dinâmico além de OpenAI/Anthropic.
 - **Mobile App:** React Native para operadores em campo.
