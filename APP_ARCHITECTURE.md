@@ -40,14 +40,15 @@ A arquitetura do Nexus Hub é um modelo híbrido **Service-Oriented Frontend + D
 | | Formulários | **React Hook Form + Zod** | — | Validação tipada no cliente antes de qualquer chamada à API. |
 | | Gráficos | **Recharts** | — | Dashboards financeiros, heatmaps de consumo e barras de uso. |
 | | 3D | **@splinetool/react-spline** | — | Elementos visuais 3D na landing. |
-| **Backend** | Banco de Dados | **PostgreSQL 15+** | 🇧🇷 Supabase (São Paulo) | Core do sistema. Dados sensíveis (LGPD) residem no Brasil. |
-| | API Layer | **PostgREST** | 🇧🇷 Supabase | Exposição automática do schema via REST. Segura por RLS. |
-| | RPC Layer | **PL/pgSQL Functions** | 🇧🇷 Supabase | Lógica de negócio crítica (orquestração, financeiro, auditoria) executada no banco. |
-| | Auth | **Supabase Auth + `public.users`** | 🇧🇷 Supabase | Sessão JWT gerenciada pelo Supabase. Perfil de negócio em `public.users`. |
-| | Edge Functions | **Deno / Node.js** | 🇧🇷 Supabase Edge | Webhooks e `check-health` de monitoramento. |
-| | Storage | **Supabase Storage** | 🇧🇷 Supabase | Bucket `incident-attachments` para uploads de evidências de incidentes. |
-| **Orquestração** | Workflow Engine | **n8n (Node.js)** | 🇧🇷 VPS (Brasil) | Motor de fluxos que orquestra a lógica de IA. Consome as RPCs do Postgres. |
-| **Canais** | WhatsApp | **Evolution API (Node)** | 🇧🇷 VPS (Brasil) | Gateway de mensagem WhatsApp. |
+| **Backend** | Banco de Dados | **PostgreSQL 15+** | �� Supabase (US West) | Core do sistema. Armazenamento centralizado. |
+| | API Layer | **PostgREST** | �� Supabase (US West) | Exposição automática do schema via REST. Segura por RLS. |
+| | RPC Layer | **PL/pgSQL Functions** | �� Supabase (US West) | Lógica de negócio crítica (orquestração, financeiro, auditoria) executada no banco. |
+| | Auth | **Supabase Auth + `public.users`** | �� Supabase (US West) | Sessão JWT gerenciada pelo Supabase. Perfil de negócio em `public.users`. |
+| | Edge Functions | **Deno / Node.js** | �� Supabase Edge | Webhooks e `check-health` de monitoramento. |
+| | Storage | **Supabase Storage** | �� Supabase (US West) | Bucket `incident-attachments` para uploads de evidências de incidentes. |
+| **Orquestração** | Workflow Engine | **n8n (Node.js)** | �� VPS (Utah, US) | Motor de fluxos que orquestra a lógica de IA. Consome as RPCs do Postgres. |
+| | Caching / Scale | **Redis** | 🇺🇸 VPS (Utah, US) | Atua em conjunto com o n8n para **paralelizar** a execução e escalar chamadas em massa. |
+| **Canais** | WhatsApp | **Evolution API (Node)** | �� VPS (Utah, US) | Gateway de mensagem WhatsApp. |
 | | Voz | **VAPI** | 🇺🇸 USA (Global) | Processamento de voz. Integração bidirecional via webhook `sync_vapi_call`. |
 | **Inference** | LLM Brain | **OpenAI API (GPT-4o, text-embedding-3-small)** | 🇺🇸 USA | Raciocínio, geração de embeddings (client-side), sugestão de políticas. |
 | | Alternativo | **Anthropic (Claude 3.5)** | 🇺🇸 USA | Configurável por agente no campo `brain_config.modelId`. |
@@ -67,11 +68,11 @@ gpt-tokenizer@3, @splinetool/react-spline@4
 | Rota | Latência Alvo | Observação |
 | :--- | :--- | :--- |
 | User → Frontend (Vercel CDN) | ~100–150ms | Carregamento inicial |
-| User → Database (Supabase BR) | <50ms | Operações CRUD rápidas |
-| Supabase → N8N (BR) | <30ms | Gatilhos de webhook internos |
-| Supabase → LLM (USA) | ~400–800ms | Gargalo natural da inferência |
+| User → Database (Supabase US West) | ~120-180ms | Operações CRUD e Sync de UI |
+| Supabase ↔ N8N / Evolution (Utah) | <20ms | Comunicação Backend ultra-rápida (Mesma Costa) |
+| Supabase/N8N → LLM (OpenAI/Anthropic) | ~200-400ms | Inferência e APIs na mesma região reduzem latência do salto geográfico |
 
-Esta arquitetura garante que dados do cliente fiquem no Brasil (LGPD), enquanto a infraestrutura global de IA é aproveitada via N8N.
+Esta arquitetura garante altíssima coesão e velocidade entre os motores vitais do sistema (Banco + N8N + LLM), pois todos compartilham o eixo Oeste dos Estados Unidos, reduzindo atritos do processamento síncrono da IA, e utilizando o Redis local no N8N para escalonamento de alto volume.
 
 ### 2.4 O Paradigma "Database-First" com Service Layer
 
