@@ -228,6 +228,38 @@ describe('Local API REST Latency & Integrity Tests (Supabase DB)', () => {
         expect(Array.isArray(incidents)).toBe(true);
     });
 
+    it('should fetch plans efficiently', async () => {
+        const start = performance.now();
+        const plans = await api.getPlans();
+        const end = performance.now();
+
+        recordLatency('getPlans', start, end);
+        console.log(`⏱️ [LATENCY] getPlans: ${(end - start).toFixed(2)}ms`);
+        expect(Array.isArray(plans)).toBe(true);
+    });
+
+    it('should fetch davos costs efficiently', async () => {
+        const start = performance.now();
+        const costs = await api.getDavosCosts(tenantId);
+        const end = performance.now();
+
+        recordLatency('getDavosCosts', start, end);
+        console.log(`⏱️ [LATENCY] getDavosCosts: ${(end - start).toFixed(2)}ms`);
+        expect(Array.isArray(costs)).toBe(true);
+    });
+
+
+
+    it('should fetch policies efficiently', async () => {
+        const start = performance.now();
+        const policies = await api.getPolicies(tenantId);
+        const end = performance.now();
+
+        recordLatency('getPolicies', start, end);
+        console.log(`⏱️ [LATENCY] getPolicies: ${(end - start).toFixed(2)}ms`);
+        expect(Array.isArray(policies)).toBe(true);
+    });
+
     it('should fetch consolidated dashboard summary (Master RPC)', async () => {
         const start = performance.now();
         const summary = await api.getDashboardSummary(tenantId);
