@@ -1,0 +1,72 @@
+async getInitialUser(): Promise<User | null> {
+async getDashboardSummary(tenantId: string): Promise<{ agents: Agent[], tenant: Company }> {
+async getUserById(userId: string): Promise<User | null> {
+async getUsers(tenantId: string): Promise<User[]> {
+async getUserByEmail(email: string): Promise<User | null> {
+async getCompanyUsers(tenantId: string): Promise<User[]> {
+async updateAgentUsage(agentId: string, usage: Partial<Agent['usage']>): Promise<void> {
+async generateEmbedding(text: string): Promise<number[]> {
+async createUser(user: Partial<User>): Promise<User> {
+async updateUser(userId: string, updates: Partial<User>): Promise<User> {
+async deleteUser(userId: string): Promise<void> {
+async getTenant(tenantId: string): Promise<Company | null> {
+async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void> {
+async updateCompanyGovernance(tenantId: string, governanceData: { ai_system_owner_id?: string, risk_owner_id?: string, compliance_officer_id?: string }): Promise<void> {
+async getPlans(): Promise<PlanCatalog[]> {
+async createPlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
+async updatePlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
+async getPlanAuditLogs(planId: string): Promise<any[]> {
+async getCompanies(): Promise<(Company & { _count?: { agents: number; users: number; tokens: number } })[]> {
+async createCompany(company: Partial<Company>): Promise<Company | null> {
+async updateCompany(company: Partial<Company> & { id: string }): Promise<Company | null> {
+async deleteCompany(tenantId: string): Promise<void> {
+async getAgentUsageStats(tenantId: string): Promise<any[]> {
+async getAgents(tenantId: string): Promise<Agent[]> {
+async createAgent(agent: Partial<Agent>): Promise<Agent> {
+async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
+async getAgentKnowledge(agentId: string): Promise<KnowledgeItem[]> {
+async addKnowledgeItem(item: Partial<KnowledgeItem>): Promise<KnowledgeItem> {
+async deleteKnowledgeItem(itemId: string): Promise<void> {
+async getAgentAuditLogs(agentId: string, days: number | 'all' = 7): Promise<any[]> {
+async deleteAgent(agentId: string): Promise<void> {
+async getFlows(tenantId: string): Promise<ConversationalFlow[]> {
+async createFlow(flow: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
+async updateFlow(flowId: string, updates: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
+async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
+async getConversationMessages(conversationId: string): Promise<import('@/lib/types').Message[]> {
+async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
+async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
+async updateConversationStatus(conversationId: string, status: string): Promise<void> {
+async closeConversation(conversationId: string): Promise<void> {
+async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]> {
+async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {
+async getContacts(tenantId: string): Promise<Contact[]> {
+async createContact(contact: Partial<Contact>): Promise<Contact | null> {
+async updateContact(contactId: string, updates: Partial<Contact>): Promise<Contact | null> {
+async deleteContact(contactId: string): Promise<boolean> {
+async getEvaluations(tenantId: string): Promise<import('@/lib/types').Evaluation[]> {
+async getUnauditedConversations(tenantId: string): Promise<any[]> {
+async getEvaluationByConversation(conversationId: string): Promise<import('@/lib/types').Evaluation | null> {
+async getEvaluationHistory(conversationId: string): Promise<import('@/lib/types').Evaluation[]> {
+async triggerAudit(conversationId: string, context?: { tenantId: string; agentId?: string }): Promise<boolean> {
+async getTenantUsage(tenantId: string): Promise<any> {
+async getIncidents(tenant_id: string): Promise<import('@/lib/types').AIIncident[]> {
+async createIncident(incident: Partial<import('@/lib/types').AIIncident>): Promise<void> {
+async deleteIncident(id: string): Promise<void> {
+async resolveIncident(id: string, actionTaken: string, resolvedBy?: string, attachments?: any[]): Promise<void> {
+async uploadIncidentAttachment(file: File): Promise<string> {
+async getPolicies(tenant_id: string): Promise<import('@/lib/types').AIPolicy[]> {
+async createPolicy(policy: Partial<import('@/lib/types').AIPolicy>): Promise<void> {
+async generatePolicySuggestions(policyName: string): Promise<any> {
+async deletePolicy(id: string): Promise<void> {
+async updateAgentGovernance(agentId: string, governance: { risk_level?: string, autonomy_level?: number, lifecycle_stage?: string, applied_policies?: string[] }): Promise<void> {
+async getFinancialReport(month: number, year: number): Promise<import('@/lib/types').FinancialReportRecord[]> {
+async getDavosCosts(tenantId: string): Promise<import('@/lib/types').CompanyDavosCost[]> {
+async updateDavosCost(cost: Partial<import('@/lib/types').CompanyDavosCost> & { tenantId: string; itemKey: string }): Promise<void> {
+async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string): Promise<import('@/lib/types').OutboundContact[]> {
+async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {
+async getCampaigns(tenantId: string): Promise<import('@/lib/types').Campaign[]> {
+async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise<import('@/lib/types').Campaign> {
+async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign>): Promise<void> {
+async deleteCampaign(id: string): Promise<void> {
+async getConversationCost(conversationId: string): Promise<number> {
