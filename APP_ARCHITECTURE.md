@@ -77,7 +77,9 @@ Esta arquitetura garante altíssima coesão e velocidade entre os motores vitais
 ### 2.4 O Paradigma "Database-First" com Service Layer
 
 - **O Banco é o Backend:** Toda validação de permissão crítica, cálculos de billing e integridade de dados ocorre em **PL/pgSQL**. O `PostgREST` expõe o schema de forma segura.
-- **Service Layer no Frontend (`src/services/api.ts`):** Classe singleton com ~1983 linhas. Encapsula todo acesso ao Supabase (CRUD + RPC calls). Traduz `snake_case` (DB) para `camelCase` (frontend).
+- **Service Layer no Frontend (Modularizada `src/services/`):** 
+  - Anteriormente centralizada em um "God Object" de mais de 2.000 linhas (`api.ts`), a camada foi refatorada e dividida por domínios (`auth.service.ts`, `agents.service.ts`, `financial.service.ts`, `conversations.service.ts`, etc).
+  - O antigo arquivo `api.ts` atua agora apenas como uma **Facade** (Fachada) injetando o supabase e agregando os submódulos, garantindo compatibilidade com o resto do sistema (Zero quebras de UI ou dependências circulares). Traduz `snake_case` (DB) para `camelCase` (frontend).
 - **Contexto Global (`src/contexts/AppContext.tsx`):** React Context utilizando `AppProvider` para gerenciar estado global: usuário autenticado, tenant ativo, lista de conversas e painel lateral (slide-over). Faz polling de conversas a cada 20s e mensagens a cada 5s.
 - **Segurança Nativa por RLS:** Isolamento multi-tenant garantido pelo PostgreSQL. Impossível que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
 
