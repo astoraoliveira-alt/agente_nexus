@@ -1163,7 +1163,13 @@ export default function Agents() {
                             </div>
                             <Select
                               value={formData.riskLevel}
-                              onValueChange={(v: any) => setFormData({ ...formData, riskLevel: v })}
+                              onValueChange={(v: any) => {
+                                const newFormData = { ...formData, riskLevel: v } as any;
+                                if (v === 'high' && newFormData.capabilities?.identity_gate) {
+                                  newFormData.capabilities.identity_gate.enabled = true;
+                                }
+                                setFormData(newFormData);
+                              }}
                             >
                               <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
                               <SelectContent>
