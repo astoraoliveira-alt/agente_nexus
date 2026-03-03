@@ -13,6 +13,24 @@ const formatWaTime = (dateStr: string) => {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+// Helper for parsing raw JSON messages from Webhooks/LLMs
+export const parseMessageContent = (rawText: string) => {
+    if (!rawText) return '';
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('={') || trimmed.startsWith('{')) {
+        try {
+            const jsonStr = trimmed.startsWith('=') ? trimmed.substring(1) : trimmed;
+            const parsed = JSON.parse(jsonStr);
+            if (parsed && typeof parsed.content === 'string') return parsed.content;
+            if (parsed && typeof parsed.output === 'string') return parsed.output;
+            if (parsed && typeof parsed.text === 'string') return parsed.text;
+        } catch (e) {
+            // Ignore parse errors, return raw text
+        }
+    }
+    return rawText;
+};
+
 interface WhatsAppViewProps {
     conversation: Conversation;
     onBack?: () => void; // For mobile context if needed
@@ -114,7 +132,7 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                                     </span>
 
                                     <div className="relative z-10">
-                                        <span className="whitespace-pre-wrap break-words">{maskSensitiveData(msg.content, maskingEnabled)}</span>
+                                        <span className="whitespace-pre-wrap break-words">{maskSensitiveData(parseMessageContent(msg.content), maskingEnabled)}</span>
                                     </div>
 
                                     <div className="absolute right-2 bottom-1 flex items-center space-x-1 select-none pointer-events-none">

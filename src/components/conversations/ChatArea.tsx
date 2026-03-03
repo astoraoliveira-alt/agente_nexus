@@ -184,6 +184,31 @@ const HighlightText = ({ text, term }: { text: string; term?: string }) => {
   );
 };
 
+// Helper for parsing raw JSON messages from Webhooks/LLMs
+const parseMessageContent = (rawText: string) => {
+  if (!rawText) return '';
+  const trimmed = rawText.trim();
+  // Check if it looks like a noisy JSON string (e.g. ={\n "content": "..."\n})
+  if (trimmed.startsWith('={') || trimmed.startsWith('{')) {
+    try {
+      const jsonStr = trimmed.startsWith('=') ? trimmed.substring(1) : trimmed;
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed.content === 'string') {
+        return parsed.content;
+      }
+      if (parsed && typeof parsed.output === 'string') {
+        return parsed.output;
+      }
+      if (parsed && typeof parsed.text === 'string') {
+        return parsed.text;
+      }
+    } catch (e) {
+      // Ignore parse errors, return raw text
+    }
+  }
+  return rawText;
+};
+
 export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
   const [messageInput, setMessageInput] = useState('');
@@ -544,7 +569,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                           message.sender === 'user' ? "-left-2" : "-right-2"
                         )}
                         onClick={() => {
-                          const textToCopy = message.content || message.transcription || '';
+                          const textToCopy = parseMessageContent(message.content) || message.transcription || '';
                           if (textToCopy) {
                             navigator.clipboard.writeText(textToCopy);
                             toast.success('Mensagem copiada!');
@@ -567,7 +592,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                         <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
                       ) : (
                         <p className="text-sm custom-markdown leading-relaxed">
-                          <HighlightText text={maskSensitiveData(message.content, maskingEnabled)} term={highlightTerm} />
+                          <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
                         </p>
                       )}
                     </div>
