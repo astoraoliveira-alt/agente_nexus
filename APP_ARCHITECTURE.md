@@ -544,7 +544,7 @@ Um **Agente** é um Ativo Corporativo sujeito a auditoria. O Nexus implementa as
 
 | Campo | Valores | Impacto Funcional |
 | :--- | :--- | :--- |
-| `risk_level` | `low` / `medium` / `high` / `critical` | Agentes `critical` exigem aprovação humana antes de responder. |
+| `risk_level` | `low` / `medium` / `high` / `critical` | Agentes `high` ou `critical` exigem aprovação/transação segura. Mudança para `high` ativa o **Identity Gate** automaticamente no Frontend. |
 | `lifecycle_stage` | `development` → `validation` → `production` → `monitoring` → `retired` | Apenas `production` e `monitoring` são exibidos no cálculo de custo de plano. |
 | `autonomy_level` | 1–5 | Define limite de ação autônoma. Nível 5 exige HITL. |
 | `context_window` | Inteiro | Qtd. de mensagens no contexto enviado ao LLM via N8N. |
@@ -947,7 +947,6 @@ VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 
 - **Supabase Realtime:** Channels para atualização push de conversas (Resolve o problema do Polling escalar excessivamente quando 500+ operadores estiverem on-line).
 - **Clusterização N8N Multi-Instance (SPOF Mitigation):** Com Redis já implantado, a evolução madura prevê desmembrar o webhook num Load Balancer operando múltiplos wokers n8n, impedindo queda local generalizada (Inbound/Outbound/Identity).
-- **Fusão de Risk Level com Identity Gate:** Vincular gatilhos automáticos ("Se risk_level for critical, ative transação requerida").
 - **Smart Usage Allocation:** `brain_config.budget_share_pct` + `monthly_limit_brl` para controle de orçamento por agente.
 - **Multi-LLM por Agente:** Provider registry dinâmico além de OpenAI/Anthropic.
 - **Mobile App:** React Native para operadores em campo.
