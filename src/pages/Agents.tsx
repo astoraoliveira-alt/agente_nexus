@@ -959,9 +959,9 @@ export default function Agents() {
                                 <Input
                                   placeholder="Boletos, Faturas, Contratos, Pagamento"
                                   className="h-9 font-mono text-xs bg-muted/30"
-                                  value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(', ')}
+                                  value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(',')}
                                   onChange={(e) => {
-                                    const intents = e.target.value.split(',').map(i => i.trim()).filter(Boolean);
+                                    const intents = e.target.value.split(',');
                                     setFormData(prev => ({
                                       ...prev,
                                       brainConfig: {
@@ -975,6 +975,25 @@ export default function Agents() {
                                         }
                                       }
                                     }))
+                                  }}
+                                  onBlur={() => {
+                                    setFormData(prev => {
+                                      const currentIntents = prev.brainConfig?.capabilities?.identity_gate?.protected_intents || [];
+                                      const cleanedIntents = currentIntents.map(i => i.trim()).filter(Boolean);
+                                      return {
+                                        ...prev,
+                                        brainConfig: {
+                                          ...prev.brainConfig,
+                                          capabilities: {
+                                            ...prev.brainConfig?.capabilities,
+                                            identity_gate: {
+                                              ...prev.brainConfig?.capabilities?.identity_gate,
+                                              protected_intents: cleanedIntents
+                                            }
+                                          }
+                                        }
+                                      }
+                                    })
                                   }}
                                 />
                                 <p className="text-[9px] text-muted-foreground italic">
