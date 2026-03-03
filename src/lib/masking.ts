@@ -30,9 +30,9 @@ export function maskSensitiveData(text: string | null | undefined, enabled: bool
 
     let maskedText = text;
 
-    // Mask CPF -> 12.***.***-34 (First 2 digits, Last 2 digits)
+    // Mask CPF -> 123.***.***-34 (First 3 digits, Last 2 digits)
     maskedText = maskedText.replace(PATTERNS.CPF, (match, p1, p2, p3, p4) => {
-        return `${p1.slice(0, 2)}.***.***-${p4}`;
+        return `${p1}.***.***-${p4}`;
     });
 
     // Mask Email -> jo***@domain.com
