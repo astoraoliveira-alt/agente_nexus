@@ -30,6 +30,17 @@ BEGIN
     WHERE conversation_id = p_conversation_id AND agent_id = p_agent_id
     ORDER BY created_at DESC LIMIT 1;
 
+    -- Handle Explicit Logout/Reset Intent (FORÇA RESET IMEDIATO)
+    IF p_intent IN ('logout', 'switch_user', 'reset_session') THEN
+        IF v_session.id IS NOT NULL THEN
+            UPDATE public.conversation_security_sessions
+            SET status = 'expired', updated_at = now(), validated_identifier = NULL
+            WHERE id = v_session.id;
+            v_session.status := 'expired';
+            v_session.validated_identifier := NULL;
+        END IF;
+    END IF;
+
     -- Expire sessions if elapsed
     IF v_session.expires_at IS NOT NULL AND v_session.expires_at < now() AND v_session.status::text IN ('active', 'unauthenticated', 'locked') THEN
         UPDATE public.conversation_security_sessions
@@ -42,22 +53,6 @@ BEGIN
         RETURN jsonb_build_object('allowToolExecution', true, 'requiresValidation', false, 'session_status', 'unauthenticated');
     END IF;
     
-    -- Handle Explicit Logout/Reset Intent
-    IF p_intent IN ('logout', 'switch_user', 'reset_session') THEN
-        IF v_session.id IS NOT NULL THEN
-            UPDATE public.conversation_security_sessions
-            SET status = 'expired', updated_at = now(), validated_identifier = NULL
-            WHERE id = v_session.id;
-        END IF;
-        -- FORÇA O GATILHO DO GATEKEEPER IMEDIATAMENTE
-        RETURN jsonb_build_object(
-            'allowToolExecution', false, 
-            'requiresValidation', true, 
-            'session_status', 'unauthenticated', 
-            'webhook_url', v_identity_gate->>'webhook_url'
-        );
-    END IF;
-
     -- State Machine logic: If intent is protected and no valid lock exists, CREATE or UPDATE an unauthenticated lock.
     IF v_is_protected AND (v_session.id IS NULL OR v_session.status::text = 'expired') THEN
         INSERT INTO public.conversation_security_sessions (conversation_id, agent_id, status, expires_at)
@@ -72,15 +67,18 @@ BEGIN
         RETURNING * INTO v_session;
     END IF;
 
-    -- Evaluate routing depending heavily on the lock state (Not just the intent word string)
-    IF v_session.id IS NOT NULL AND v_session.status::text = 'active' THEN
+    -- Evaluate routing
+    IF v_session.id IS NOT NULL AND v_session.status::text = 'active' AND v_session.validated_identifier IS NOT NULL THEN
         -- Safely passed.
         RETURN jsonb_build_object('allowToolExecution', true, 'requiresValidation', false, 'session_status', 'active', 'validated_identifier', v_session.validated_identifier, 'webhook_url', v_identity_gate->>'webhook_url');
     ELSIF v_session.id IS NOT NULL AND v_session.status::text IN ('unauthenticated', 'locked') THEN
-        -- Lock is engaged. Ignore whatever intent words the user sent! Only route them to Gatekeeper.
+        -- Lock is engaged.
         RETURN jsonb_build_object('allowToolExecution', false, 'requiresValidation', true, 'session_status', v_session.status::text, 'webhook_url', v_identity_gate->>'webhook_url');
+    ELSIF v_session.id IS NOT NULL AND v_session.status::text = 'expired' AND v_is_protected THEN
+        -- Was expired but requested something protected? Force re-auth!
+        RETURN jsonb_build_object('allowToolExecution', false, 'requiresValidation', true, 'session_status', 'unauthenticated', 'webhook_url', v_identity_gate->>'webhook_url');
     ELSE
-        -- Free path. No intent was hit and no lock is engaged.
+        -- Free path or Expired General talk.
         RETURN jsonb_build_object('allowToolExecution', true, 'requiresValidation', false, 'session_status', COALESCE(v_session.status::text, 'unauthenticated'), 'webhook_url', v_identity_gate->>'webhook_url');
     END IF;
 END;
