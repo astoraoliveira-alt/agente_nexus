@@ -48,7 +48,7 @@ BEGIN
     VALUES (
         p_conversation_id,
         p_tenant_id,
-        p_content,
+        public.clean_message_content(p_content),
         p_sender_type,
         p_sender_name,
         p_message_type,
