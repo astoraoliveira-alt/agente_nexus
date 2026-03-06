@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe } from 'lucide-react';
+import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import {
     DropdownMenu,
@@ -232,17 +232,21 @@ const Contacts = () => {
                                             <TableCell>
                                                 <div className="flex gap-2">
                                                     {contact.channel === 'whatsapp' ? (
-                                                        <Badge variant="outline" className="gap-1 bg-green-500/5 text-green-600 border-green-500/20">
-                                                            <Phone className="h-3 w-3" /> WhatsApp
+                                                        <Badge variant="outline" className="gap-1 bg-[#25D366]/5 text-[#075E54] border-[#25D366]/20 dark:text-[#25D366]">
+                                                            <Smartphone className="h-3 w-3" /> WhatsApp
                                                         </Badge>
-                                                    ) : contact.channel === 'embedded' ? (
-                                                        <Badge variant="outline" className="gap-1 bg-blue-500/5 text-blue-600 border-blue-500/20">
-                                                            <Globe className="h-3 w-3" /> Landing Page
+                                                    ) : contact.channel === 'voice' ? (
+                                                        <Badge variant="outline" className="gap-1 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-500/20 dark:border-purple-500/30 dark:text-purple-400">
+                                                            <Phone className="h-3 w-3" /> Voz
+                                                        </Badge>
+                                                    ) : contact.channel === 'text' || contact.channel === 'embedded' ? (
+                                                        <Badge variant="outline" className="gap-1 bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-500/20 dark:border-blue-500/30 dark:text-blue-400">
+                                                            <MessageSquare className="h-3 w-3" /> Web
                                                         </Badge>
                                                     ) : (
                                                         <>
                                                             {(contact.phone || /^\d+$/.test(contact.identifier?.replace(/\D/g, '') || '')) && (
-                                                                <Badge variant="outline" className="gap-1"><Phone className="h-3 w-3" /> WhatsApp</Badge>
+                                                                <Badge variant="outline" className="gap-1"><Smartphone className="h-3 w-3" /> WhatsApp</Badge>
                                                             )}
                                                             {(contact.email || contact.identifier?.includes('@')) && (
                                                                 <Badge variant="outline" className="gap-1"><Mail className="h-3 w-3" /> Email</Badge>

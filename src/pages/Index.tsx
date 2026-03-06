@@ -369,30 +369,6 @@ export default function Index() {
             </div>
           </div>
 
-          {/* Legacy General Metrics Row (Consolidated) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="kpi-card">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Bot className="h-4 w-4" />
-                <span className="text-xs">Intervenções Humanas</span>
-              </div>
-              <p className="text-2xl font-bold">{humanInterventions.toLocaleString()}</p>
-            </div>
-            <div className="kpi-card">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <Workflow className="h-4 w-4" />
-                <span className="text-xs">Agentes em Produção</span>
-              </div>
-              <p className="text-2xl font-bold">{agents?.filter(a => a.lifecycleStage === 'production').length || 0}</p>
-            </div>
-            <div className="kpi-card">
-              <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                <TrendingUp className="h-4 w-4" />
-                <span className="text-xs">Total Conversas (Mês)</span>
-              </div>
-              <p className="text-2xl font-bold">{totalConversations.toLocaleString()}</p>
-            </div>
-          </div>
 
           {/* Charts Row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -440,52 +416,69 @@ export default function Index() {
             </div>
 
             {/* Consumption by Agent */}
-            <div className="kpi-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Interações por Agente</h3>
+            <div className="kpi-card flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Eficiência por Agente</h3>
+                  <p className="text-[10px] text-muted-foreground italic">Ranking por volume de conversas</p>
+                </div>
                 <button
-                  className="text-sm text-accent hover:underline"
-                  onClick={() => navigate('/consumption')}
+                  className="text-xs text-accent hover:underline font-medium"
+                  onClick={() => navigate('/agents')}
                 >
-                  Ver todos
+                  Gerenciar Agentes
                 </button>
               </div>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={consumptionByAgent} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis
-                      type="number"
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={10}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="agentName"
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={10}
-                      tickLine={false}
-                      width={100}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '0',
-                      }}
-                      labelStyle={{ color: 'hsl(var(--foreground))' }}
-                      formatter={(value: number) => `${value.toLocaleString()} mensagens`}
-                    />
-                    <Bar dataKey="messages" name="Mensagens" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]}>
-                      <LabelList
-                        dataKey="messages"
-                        position="right"
-                        className="fill-muted-foreground text-[10px]"
-                      />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+
+              <div className="flex-1 space-y-4">
+                {agents.sort((a: any, b: any) => (b.totalConversations || 0) - (a.totalConversations || 0)).slice(0, 5).map((agent: any) => {
+                  const convs = agent.totalConversations || 0;
+                  const msgs = agent.usage?.totalMessages || 0;
+                  const avg = convs > 0 ? (msgs / convs).toFixed(1) : '0';
+
+                  return (
+                    <div key={agent.id} className="group relative">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent ring-1 ring-accent/20">
+                            <Bot className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold leading-none mb-1">{agent.name}</p>
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                              <MessageSquare className="h-2 w-2" /> {msgs.toLocaleString()} mensagens totais
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-mono font-bold leading-none">{convs}</p>
+                          <p className="text-[9px] uppercase tracking-tighter text-muted-foreground font-bold">Conversas</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-accent transition-all duration-500"
+                            style={{ width: `${Math.min((convs / (agents[0]?.totalConversations || 1)) * 100, 100)}%` }}
+                          />
+                        </div>
+                        <div className="w-20 text-right">
+                          <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">
+                            {avg} msg/conv
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {agents.length === 0 && (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-8 border border-dashed border-border rounded-lg">
+                    <Bot className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                    <p className="text-sm text-muted-foreground italic">Nenhum agente ativo este mês</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

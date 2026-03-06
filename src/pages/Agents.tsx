@@ -270,6 +270,10 @@ export default function Agents() {
                           <History className="h-4 w-4 mr-2" />
                           Ver Histórico
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCloneAgent(agent); }}>
+                          <Copy className="h-4 w-4 mr-2" />
+                          Duplicar
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
                           <Trash2 className="h-4 w-4 mr-2" />
@@ -405,10 +409,10 @@ export default function Agents() {
                       )}
 
                       {/* Always show minutes if it's a voice agent or has voice usage */}
-                      {(agent.channels.includes('voice') || ((agent.usage?.totalStt || 0) + (agent.usage?.totalTts || 0)) > 0) && (
+                      {(agent.channels.includes('voice') || Math.max(agent.usage?.totalStt || 0, agent.usage?.totalTts || 0) > 0) && (
                         <div className="flex flex-col">
                           <span className="text-[11px] font-mono font-bold text-muted-foreground leading-none">
-                            {((agent.usage?.totalStt || 0) + (agent.usage?.totalTts || 0)).toFixed(1)}
+                            {Math.max((agent.usage?.totalStt || 0), (agent.usage?.totalTts || 0)).toFixed(1)}
                           </span>
                           <span className="text-[9px] text-muted-foreground uppercase">Min</span>
                         </div>

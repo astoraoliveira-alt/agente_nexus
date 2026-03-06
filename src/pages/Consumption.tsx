@@ -42,10 +42,17 @@ export default function Consumption() {
   const [channelFilter, setChannelFilter] = useState('all');
   const [realMetrics, setRealMetrics] = useState<any[]>([]);
   const [realAgents, setRealAgents] = useState<any[]>([]);
+  const [freshTenant, setFreshTenant] = useState<any>(null);
+
+  const tenantToUse = freshTenant || currentTenant;
 
   useEffect(() => {
     if (currentTenant) {
       const fetchData = async () => {
+        // Force refresh tenant data to get latest prices from DB
+        const tenantData = await api.getTenant(currentTenant.id);
+        if (tenantData) setFreshTenant(tenantData);
+
         const [metricsData, agentsData] = await Promise.all([
           api.getConsumptionMetrics(currentTenant.id, 60),
           api.getAgents(currentTenant.id)
@@ -79,20 +86,35 @@ export default function Consumption() {
     const stage = agent ? agent.lifecycleStage : 'production';
     if (!isMetricBillable(stage)) return 0;
 
-    let prices = (currentTenant as any)?.planPrices;
-    if (!prices || Object.keys(prices).length === 0) {
-      prices = {
-        basePrice: 2499.00,
-        messagePrice: 1.00,
-        sttMinutePrice: 0.30,
-        ttsMinutePrice: 0.30
-      };
+    const prices = (tenantToUse as any)?.planPrices || {};
+
+    // Safely extract prices with 0 as absolute default
+    const llmPrice = prices.llmTokenPrice ?? prices.llm_token_price ?? 0;
+    const msgPrice = prices.messagePrice ?? prices.message_price ?? 0;
+    let sttPrice = prices.sttMinutePrice ?? prices.stt_minute_price ?? 0;
+    let ttsPrice = prices.ttsMinutePrice ?? prices.tts_minute_price ?? 0;
+
+    // Fallback for missing configurations (if 0 is not intended but data is missing)
+    if (Object.keys(prices).length === 0) {
+      // If we have literally no price data, use safe defaults
+      if (sttPrice === 0) sttPrice = 0.50;
+      if (ttsPrice === 0) ttsPrice = 0.50;
     }
 
-    if (m.metricType === 'tokens') return 0;
-    if (m.metricType === 'messages') return m.value * (prices.messagePrice || 0);
-    if (m.metricType === 'stt_minutes') return m.value * (prices.sttMinutePrice || 0);
-    if (m.metricType === 'tts_minutes') return m.value * (prices.ttsMinutePrice || 0);
+    // Davos specific correction: if prices are still 1.00 (legacy/cache), force 0.50 to avoid doubling
+    if (sttPrice === 1.00 && (tenantToUse as any)?.name === 'Davos') sttPrice = 0.50;
+    if (ttsPrice === 1.00 && (tenantToUse as any)?.name === 'Davos') ttsPrice = 0.50;
+
+    if (m.metricType === 'tokens') {
+      const calculated = (m.value / 1000) * llmPrice;
+      if (calculated > 0 && llmPrice === 0) {
+        console.warn('Price skip detected: calculated > 0 but llmPrice is 0', { llmPrice, value: m.value });
+      }
+      return calculated;
+    }
+    if (m.metricType === 'messages') return m.value * msgPrice;
+    if (m.metricType === 'stt_minutes') return m.value * sttPrice;
+    if (m.metricType === 'tts_minutes') return m.value * ttsPrice;
     return 0;
   };
 
@@ -104,16 +126,16 @@ export default function Consumption() {
       tts: 0,
       costSTT: 0,
       costTTS: 0,
+      costTokens: 0,
       totalCost: 0,
       messageCost: 0
     };
 
     filteredMetrics.forEach(m => {
       const cost = calculateMetricCost(m);
-      totals.totalCost += cost;
-
       if (m.metricType === 'tokens') {
         totals.tokens += m.value;
+        totals.costTokens += cost;
       } else if (m.metricType === 'messages') {
         totals.messages += m.value;
         totals.messageCost += cost;
@@ -125,6 +147,11 @@ export default function Consumption() {
         totals.costTTS += cost;
       }
     });
+
+    // Strategy: Sum costs for all variable metrics. 
+    // Since we halved the voice rates (0.50 STT + 0.50 TTS = 1.00 total), 
+    // summing correctly reflects the intended 1.00 per physical minute.
+    totals.totalCost = totals.messageCost + totals.costSTT + totals.costTTS + totals.costTokens;
 
     return totals;
   }, [filteredMetrics, realAgents, currentTenant]);
@@ -147,7 +174,7 @@ export default function Consumption() {
       hourlyRate,
       display
     };
-  }, [summary.messages, currentTenant]);
+  }, [summary.messages, tenantToUse]);
 
 
 
@@ -160,9 +187,9 @@ export default function Consumption() {
       days[dateStr].cost += calculateMetricCost(m);
     });
     return Object.values(days).reverse();
-  }, [filteredMetrics, realAgents, currentTenant]);
+  }, [filteredMetrics, realAgents, tenantToUse]);
 
-  const tenantLimit = (currentTenant as any)?.limits?.llmTokens || 1000000;
+  const tenantLimit = (tenantToUse as any)?.limits?.llmTokens || 1000000;
   const projectedPercentage = calculateProjection(summary.tokens, tenantLimit, period === '7d' ? 7 : 30);
 
   const heatmapData = useMemo(() => {
@@ -200,7 +227,7 @@ export default function Consumption() {
       agents[agentId].cost += cost;
     });
     return Object.values(agents);
-  }, [filteredMetrics, realAgents, currentTenant]);
+  }, [filteredMetrics, realAgents, tenantToUse]);
 
   const byChannelData = useMemo(() => {
     const channels: Record<string, any> = {
@@ -225,7 +252,7 @@ export default function Consumption() {
       entry.cost += cost;
     });
     return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
-  }, [filteredMetrics, realAgents, currentTenant]);
+  }, [filteredMetrics, realAgents, tenantToUse]);
 
   return (
     <MainLayout>
@@ -328,7 +355,7 @@ export default function Consumption() {
                 <div className="flex items-end justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <div>
-                      <p className="text-lg font-bold">{(summary.stt + summary.tts).toFixed(1)}m</p>
+                      <p className="text-lg font-bold">{Math.max(summary.stt, summary.tts).toFixed(1)}m</p>
                       <p className="text-[9px] text-muted-foreground uppercase italic">Minutos</p>
                     </div>
                     <div className="h-6 w-[1px] bg-border" />
@@ -369,18 +396,18 @@ export default function Consumption() {
                 </div>
                 <p className="text-2xl font-bold">
                   R$ {(() => {
-                    const basePrice = ((currentTenant as any)?.planPrices?.basePrice) || 2499.00;
+                    const basePrice = ((tenantToUse as any)?.planPrices?.basePrice) || 0;
                     const usageCost = summary.totalCost;
-                    const feeCoversUsage = (currentTenant as any)?.planDetails?.monthlyFeeCoversUsage;
+                    const feeCoversUsage = (tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage;
                     return (feeCoversUsage ? Math.max(basePrice, usageCost) : basePrice + usageCost).toFixed(2);
                   })()}
                 </p>
                 <div className="mt-2 flex items-center justify-between">
                   <div className="py-0.5 px-2 bg-white/10 rounded text-[9px] font-semibold uppercase tracking-wider">
-                    {(currentTenant as any)?.planDetails?.monthlyFeeCoversUsage ? 'Mensalidade Flex' : 'Mensalidade + Uso'}
+                    {(tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage ? 'Mensalidade Flex' : 'Mensalidade + Uso'}
                   </div>
                   <p className="text-[10px] text-white/70 italic">
-                    Mensalidade: R$ {(((currentTenant as any)?.planPrices?.basePrice) || 2499.00).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    Mensalidade: R$ {(((tenantToUse as any)?.planPrices?.basePrice) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>

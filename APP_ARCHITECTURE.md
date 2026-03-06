@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 03/Mar/2026
-> **Versão:** 11.0 (Identity Validation Refactor, Security Gatekeeper, Alpargatas Style)
+> **Última Atualização:** 06/Mar/2026
+> **Versão:** 12.0 (Unified Pricing v2, Dashboard Efficiency, Voice Cost Anti-Double Counting)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -365,10 +365,12 @@ companies (tenants)
 | `base_price` | NUMERIC | Mensalidade base (BRL) |
 | `llm_token_price` | NUMERIC | Preço por 1k tokens |
 | `message_price` | NUMERIC | Preço por mensagem |
-| `stt_minute_price` | NUMERIC | Preço por minuto STT |
-| `tts_minute_price` | NUMERIC | Preço por minuto TTS |
+| `stt_minute_price` | NUMERIC | Preço por minuto STT (Entrada) |
+| `tts_minute_price` | NUMERIC | Preço por minuto TTS (Saída) |
 | `default_limits` | JSONB | `{llmTokens, messages, sttMinutes, ttsMinutes, agents, users}` |
 | `monthly_fee_covers_usage` | BOOLEAN | Se a mensalidade já cobre o consumo |
+
+> **Nota de Arquitetura (V2):** O preço de "Voz" foi segmentado em STT e TTS para permitir margens mais precisas por motor, mas para fins de **custo fixo por minuto de chamada**, o sistema utiliza a soma de ambos na venda e o maior valor entre eles no custo interno da Davos.
 
 #### `conversation_security_sessions` (Transactional Identity Gate)
 | Coluna | Tipo | Descrição |
@@ -669,6 +671,10 @@ Visão executiva exclusiva do Super Admin via RPC `get_financial_report`:
 - **Alerta automático** quando margem < 20%
 
 Os custos internos da Davos são editáveis via `company_davos_costs` (tabela CRUD no `/financials`).
+
+### 12.6 Lógica Anti-Duplicidade de Custos (Voz)
+
+Para evitar inflar o custo operacional (DRE), a RPC `get_financial_report` utiliza a métrica `GREATEST(val_stt, val_tts)` para calcular o custo variável de minutos de voz. Isso garante que, embora o banco grave dois registros (um por motor), a cobrança de custo interno da Davos reflita apenas a minutagem real da chamada telefônica.
 
 ---
 

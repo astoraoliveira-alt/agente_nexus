@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { MessageSquare, Phone, Bot, User, Filter, X } from 'lucide-react';
+import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -191,8 +191,8 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                     </span>
                   </div>
 
-                  {/* Agent Info Badge */}
-                  <div className="flex items-center gap-1.5 mb-1.5">
+                  {/* Agent & Channel Info Badges */}
+                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                     <Badge variant="secondary" className={cn(
                       "h-4 px-1 rounded-[2px] text-[9px] font-normal gap-1",
                       conv.status !== 'closed'
@@ -202,10 +202,22 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                       <Bot className="h-2.5 w-2.5" />
                       {conv.agentName || 'Agente'}
                     </Badge>
+
+                    {/* Channel Badge */}
+                    <Badge variant="secondary" className={cn(
+                      "h-4 px-1.5 rounded-[2px] text-[9px] font-medium gap-1 border-transparent flex-shrink-0",
+                      conv.channel === 'voice' ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400" :
+                        conv.channel === 'whatsapp' ? "bg-[#25D366]/10 text-[#075E54] dark:bg-[#25D366]/20 dark:text-[#25D366]" :
+                          "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                    )}>
+                      {conv.channel === 'voice' ? <Phone className="h-2.5 w-2.5" /> : conv.channel === 'whatsapp' ? <Smartphone className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                      <span>{conv.channel === 'voice' ? 'Voz' : conv.channel === 'whatsapp' ? 'WhatsApp' : 'Web'}</span>
+                    </Badge>
+
                     {conv.status === 'closed' && (
                       <Badge
                         variant="secondary"
-                        className="h-4 px-1.5 text-[9px] font-medium bg-slate-100 text-slate-500 border-transparent"
+                        className="h-4 px-1.5 text-[9px] font-medium bg-slate-100 text-slate-500 border-transparent dark:bg-slate-800 dark:text-slate-400"
                       >
                         Fechada
                       </Badge>
@@ -216,6 +228,8 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                     <div className="flex-1 truncate flex items-center gap-1.5">
                       {conv.channel === 'voice' ? (
                         <Phone className="h-3 w-3" />
+                      ) : conv.channel === 'whatsapp' ? (
+                        <Smartphone className="h-3 w-3" />
                       ) : (
                         <MessageSquare className="h-3 w-3" />
                       )}

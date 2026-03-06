@@ -207,8 +207,12 @@ export default function Plans() {
                                                 <span className="font-medium text-xs">R$ {plan.messagePrice.toFixed(2)}</span>
                                             </div>
                                             <div className="flex justify-between items-center text-sm">
-                                                <span className="text-muted-foreground">Voz (min)</span>
-                                                <span className="font-medium text-xs">R$ {plan.sttMinutePrice.toFixed(2)}</span>
+                                                <span className="text-muted-foreground">Voz (Total/min)</span>
+                                                <span className="font-bold text-accent">R$ {(plan.sttMinutePrice + plan.ttsMinutePrice).toFixed(2)}</span>
+                                            </div>
+                                            <div className="col-span-2 flex justify-end gap-2 mt-0.5">
+                                                <span className="text-[10px] text-muted-foreground">STT: R$ {plan.sttMinutePrice.toFixed(2)}</span>
+                                                <span className="text-[10px] text-muted-foreground">TTS: R$ {plan.ttsMinutePrice.toFixed(2)}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -361,12 +365,29 @@ export default function Plans() {
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label>Preço Minuto Voz (R$)</Label>
+                                            <Label>Voz STT (Minuto R$)</Label>
                                             <Input
                                                 type="number" step="0.01"
                                                 value={editingPlan ? editingPlan.sttMinutePrice : newPlan.sttMinutePrice}
-                                                onChange={(e) => editingPlan ? setEditingPlan({ ...editingPlan, sttMinutePrice: Number(e.target.value), ttsMinutePrice: Number(e.target.value) }) : setNewPlan({ ...newPlan, sttMinutePrice: Number(e.target.value), ttsMinutePrice: Number(e.target.value) })}
+                                                onChange={(e) => editingPlan ? setEditingPlan({ ...editingPlan, sttMinutePrice: Number(e.target.value) }) : setNewPlan({ ...newPlan, sttMinutePrice: Number(e.target.value) })}
                                             />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Voz TTS (Minuto R$)</Label>
+                                            <Input
+                                                type="number" step="0.01"
+                                                value={editingPlan ? editingPlan.ttsMinutePrice : newPlan.ttsMinutePrice}
+                                                onChange={(e) => editingPlan ? setEditingPlan({ ...editingPlan, ttsMinutePrice: Number(e.target.value) }) : setNewPlan({ ...newPlan, ttsMinutePrice: Number(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div className="col-span-2 p-3 bg-accent/5 border border-accent/20 rounded-lg flex items-center justify-between">
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-bold text-accent uppercase tracking-wider">Custo Total de Voz</span>
+                                                <span className="text-[10px] text-muted-foreground">Preço final por minuto físico de ligação (Soma de STT + TTS)</span>
+                                            </div>
+                                            <div className="text-lg font-mono font-bold text-accent">
+                                                R$ {((editingPlan ? editingPlan.sttMinutePrice : (newPlan.sttMinutePrice || 0)) + (editingPlan ? editingPlan.ttsMinutePrice : (newPlan.ttsMinutePrice || 0))).toFixed(2)}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

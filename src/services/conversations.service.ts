@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const conversationsService = {
-async getConversationMessages(conversationId: string): Promise<import('@/lib/types').Message[]> {
+    async getConversationMessages(conversationId: string): Promise<import('@/lib/types').Message[]> {
         const { data, error } = await supabase
             .from('messages')
             .select('*')
@@ -15,7 +15,17 @@ async getConversationMessages(conversationId: string): Promise<import('@/lib/typ
             return [];
         }
 
-        // Reverse to maintain chronological order in UI
+        // Se as mensagens vieram em bloco da VAPI, elas terão o mesmo created_at (transação do banco).
+        // Aqui, nós garantimos a ordem usando o external_order (que a VAPI envia) como critério de desempate
+        // para que quando dermos o `.reverse()`, a transcrição fique perfeita de cima para baixo.
+        data.sort((a, b) => {
+            const timeA = new Date(a.created_at).getTime();
+            const timeB = new Date(b.created_at).getTime();
+            if (timeB !== timeA) return timeB - timeA; // Descending by time
+            return (b.external_order || 0) - (a.external_order || 0); // Descending by order
+        });
+
+        // Reverse to maintain chronological order in UI (mais antigas primeiro / no topo)
         const chronData = [...data].reverse();
 
         return chronData.map((m: any) => {
@@ -45,7 +55,7 @@ async getConversationMessages(conversationId: string): Promise<import('@/lib/typ
         }) as import('@/lib/types').Message[];
     },
 
-async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
+    async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
         // Fetch conversation to get tenant_id AND agent config (for Webhook)
         const { data: conv } = await supabase
             .from('conversations')
@@ -120,7 +130,7 @@ async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai'
         }
     },
 
-async triggerAudit(conversationId: string, context?: { tenantId: string; agentId?: string }): Promise<boolean> {
+    async triggerAudit(conversationId: string, context?: { tenantId: string; agentId?: string }): Promise<boolean> {
         const baseUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
         const finalUrl = baseUrl.endsWith('/audit-conversation') ? baseUrl : `${baseUrl}/audit-conversation`;
 
@@ -150,7 +160,7 @@ async triggerAudit(conversationId: string, context?: { tenantId: string; agentId
         }
     },
 
-async getConversationCost(conversationId: string): Promise<number> {
+    async getConversationCost(conversationId: string): Promise<number> {
         // Use RPC for reliable JSONB filtering on the server side
         const { data, error } = await supabase.rpc('get_conversation_cost', {
             p_conversation_id: conversationId

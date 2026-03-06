@@ -624,7 +624,7 @@ export interface Conversation {
   userAvatar?: string;
   agentName?: string;
   agentType?: 'embedded' | 'whatsapp' | 'conversational';
-  channel: 'text' | 'voice';
+  channel: 'text' | 'voice' | 'whatsapp';
   status: 'ai_active' | 'human_active' | 'closed';
   assignedOperator?: string;
   lastMessage: string;
@@ -651,7 +651,7 @@ export interface Contact {
   phone?: string; // Explicit phone field
   avatarUrl?: string;
   tags?: string[];
-  channel?: 'embedded' | 'whatsapp' | 'conversational';
+  channel?: 'embedded' | 'whatsapp' | 'conversational' | 'voice' | 'text';
   extraInfo?: Record<string, any>; // JSONB
   lifecycleStatus?: string;
   createdAt: Date;

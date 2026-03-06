@@ -8,12 +8,14 @@ import { Slider } from '@/components/ui/slider';
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { api } from '@/services/api';
+import { useApp } from '@/contexts/AppContext';
 
 interface AgentConfigPanelProps {
   data: Agent;
 }
 
 export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
+  const { currentTenant } = useApp();
   const [isActive, setIsActive] = useState(data?.status === 'active');
   const [knowledgeFiles, setKnowledgeFiles] = useState<string[]>([]);
 
@@ -58,6 +60,16 @@ export function AgentConfigPanel({ data }: AgentConfigPanelProps) {
           <p className="text-sm text-muted-foreground">ID: {data.id}</p>
         </div>
       </div>
+
+      {currentTenant && (
+        <div className="mt-2 p-3 bg-muted/30 border border-border rounded-md">
+          <Label className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Empresa (Tenant)</Label>
+          <div className="flex flex-col mt-1">
+            <span className="text-sm font-semibold">{currentTenant.name}</span>
+            <span className="text-xs font-mono text-muted-foreground">ID: {currentTenant.id}</span>
+          </div>
+        </div>
+      )}
 
       <Separator />
 
