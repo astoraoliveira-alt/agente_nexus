@@ -306,6 +306,7 @@ export interface FinancialReportRecord {
 export interface AgentBrainConfig {
   systemPrompt?: string;
   userPromptTemplate?: string;
+  greetingMessage?: string;
   modelId?: string; // 'gpt-4' | 'claude-3-opus'
   temperature?: number;
   maxTokens?: number; // Added based on recent conv history

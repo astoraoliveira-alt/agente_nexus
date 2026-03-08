@@ -126,7 +126,8 @@ export default function Agents() {
           temperature: 0.5,
           maxTokens: 2048,
           systemPrompt: '',
-          userPromptTemplate: ''
+          userPromptTemplate: '',
+          greetingMessage: ''
         },
         integrationConfig: {
           response_mode: 'match_input'
@@ -585,6 +586,26 @@ export default function Agents() {
                         })}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Mensagem de Saudação (Início da Conversa)</Label>
+                      <Badge variant="outline" className="text-[10px] font-mono border-muted text-muted-foreground uppercase">Opcional</Badge>
+                    </div>
+                    <Textarea
+                      className="bg-muted/30 border-accent/20 focus:border-accent min-h-[80px]"
+                      placeholder="Ex: Olá! Sou o assistente virtual da Davos Nexus. Como posso te ajudar hoje?"
+                      value={formData.brainConfig?.greetingMessage || ''}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        brainConfig: {
+                          ...formData.brainConfig,
+                          greetingMessage: e.target.value
+                        }
+                      })}
+                    />
+                    <p className="text-[10px] text-muted-foreground">Esta mensagem será enviada automaticamente pelo n8n quando uma saudação for detectada.</p>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-[300px]">
