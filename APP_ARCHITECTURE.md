@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 06/Mar/2026
-> **Versão:** 12.0 (Unified Pricing v2, Dashboard Efficiency, Voice Cost Anti-Double Counting)
+> **Última Atualização:** 09/Mar/2026
+> **Versão:** 13.0 (Multi-Instance WhatsApp v2, ISO 42001 Risk Scoring, Automated Webhooks)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -284,6 +284,7 @@ companies (tenants)
 | `evolution_instance` | VARCHAR | Nome da instância na Evolution API |
 | `evolution_token` | VARCHAR | Token da instância |
 | `applied_policies` | TEXT[] | IDs/nomes de políticas vinculadas |
+| `risk_score` | NUMERIC | Score acumulado de risco (ISO 42001) |
 | `last_actor_name` | TEXT | Último usuário que alterou o agente (auditoria UI) |
 
 #### `conversations`
@@ -592,6 +593,19 @@ interface AIPolicy {
 
 A UI gera sugestões de regras usando GPT-4o-mini via `api.generatePolicySuggestions()`.
 
+### 10.5 Sistema de Score de Risco Acumulado (ISO 42001)
+
+O Nexus agora utiliza uma matriz de risco dinâmica que avalia incidentes em tempo real durante a conversa. O bloqueio de funções críticas ("Identity Gate") não é mais binário, mas baseado em peso acumulado:
+
+| Severidade do Incidente | Peso (Score) | Ação Recomendada |
+| :--- | :--- | :--- |
+| **Critical** | 3.0 | Bloqueio imediato da sessão segura. |
+| **High** | 1.0 | Alerta de compliance e restrição de ferramentas financeiras. |
+| **Medium** | 0.3 | Log de auditoria e monitoramento intensivo. |
+| **Low** | 0.0 | Registro informativo apenas. |
+
+A RPC `evaluate_conversation_security` soma os pesos dos incidentes ativos na conversa. Se o score ultrapassar o limite configurado (padrão: 1.0), as ferramentas protegidas são desativadas preventivamente.
+
 ---
 
 ## 11. Módulo de Qualidade (QA & Auditoria)
@@ -797,7 +811,27 @@ Estratégia de merge: compara `lastMessageTime` e `status` para decidir se realm
 
 ---
 
-## 17. Componentes da Interface (Arquitetura UI)
+## 18. Integração WhatsApp (Evolution API v2)
+
+O módulo de WhatsApp foi redesenhado para suportar **provisionamento dinâmico** e evitar configurações manuais na Evolution API.
+
+### 18.1 Provisionamento Automático de Instância
+
+Ao criar uma conexão para um agente, o Nexus Hub envia um payload de configuração completa:
+- **Auto-Webhook:** Configura a URL de destino (n8n/Backend) e marca como `enabled: true`.
+- **Base64 Support:** Habilita `base64: true` para garantir que o sistema processe arquivos e mídias sem depender de storage externo da Evolution.
+- **Event Filtering:** Ativa especificamente `MESSAGES_UPSERT` para otimizar o consumo de banda.
+- **Unificação de UI:** A URL do Webhook Principal do agente foi movida para a aba de WhatsApp, tornando-se **obrigatória** para a criação de novas instâncias.
+
+### 18.2 Fluxo de Conexão (Pairing)
+
+1. **Identificação:** Se o nome da instância não existir ou for alterado, o sistema entra em modo "Create & Connect".
+2. **Polling Ativo:** O frontend realiza polling recursivo a cada 3s após a geração do QR Code para detectar a transição `DISCONNECTED → CONNECTED` instantaneamente.
+3. **Independência de Gateway:** O sistema suporta múltiplos números (instâncias) por tenant, cada um com seu próprio token e webhook, gerenciados centralmente na UI do agente.
+
+---
+
+## 19. Componentes da Interface (Arquitetura UI)
 
 ### 17.1 Estrutura de Diretórios do Frontend
 

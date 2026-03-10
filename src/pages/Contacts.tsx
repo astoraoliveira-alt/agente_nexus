@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare } from 'lucide-react';
+import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import {
     DropdownMenu,
@@ -20,6 +20,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MainLayout } from '@/components/layout/MainLayout';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -30,6 +32,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { ContactStatsHeader } from '@/components/crm/ContactStatsHeader';
 
 const Contacts = () => {
     const { currentTenant } = useApp();
@@ -48,7 +51,8 @@ const Contacts = () => {
         identifier: '',
         email: '',
         phone: '',
-        tags: ''
+        tags: '',
+        status: 'active'
     });
 
     useEffect(() => {
@@ -83,7 +87,8 @@ const Contacts = () => {
                 identifier: contact.identifier,
                 email: contact.email || '',
                 phone: contact.phone || '',
-                tags: contact.tags?.join(', ') || ''
+                tags: contact.tags?.join(', ') || '',
+                status: contact.status || 'active'
             });
         } else {
             setEditingContact(null);
@@ -92,7 +97,8 @@ const Contacts = () => {
                 identifier: '',
                 email: '',
                 phone: '',
-                tags: ''
+                tags: '',
+                status: 'active'
             });
         }
         setIsDialogOpen(true);
@@ -120,6 +126,21 @@ const Contacts = () => {
         }
     };
 
+    const handleToggleBanStatus = async (contact: Contact) => {
+        try {
+            const newStatus = contact.status === 'banned' ? 'active' : 'banned';
+            await api.updateContact(contact.id, { status: newStatus });
+            toast({ title: newStatus === 'banned' ? "Contato banido com sucesso" : "Contato desbanido com sucesso" });
+            loadContacts();
+        } catch (error) {
+            toast({
+                title: "Erro ao atualizar status",
+                description: "Não foi possível atualizar o status do contato.",
+                variant: "destructive"
+            });
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentTenant || isSubmitting) return;
@@ -132,6 +153,7 @@ const Contacts = () => {
                 identifier: formData.identifier,
                 email: formData.email || undefined,
                 phone: formData.phone || undefined,
+                status: formData.status,
                 tags: formData.tags.split(',').map(t => t.trim()).filter(t => t),
                 extraInfo: {} // Reset or keep existing? Usually update doesn't clear unless scoped. 
             };
@@ -176,10 +198,21 @@ const Contacts = () => {
                     </Button>
                 </div>
 
+                <ContactStatsHeader contacts={contacts} />
+
                 <Card>
                     <CardHeader>
                         <div className="flex justify-between items-center">
-                            <CardTitle>Base de Contatos</CardTitle>
+                            <div className="flex items-center gap-4">
+                                <CardTitle>Base de Contatos</CardTitle>
+                                <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
+                                    {searchTerm ? (
+                                        <>Filtrados: <span className="text-foreground font-bold">{filteredContacts.length}</span> / {contacts.length}</>
+                                    ) : (
+                                        <>Total: <span className="text-foreground font-bold">{contacts.length}</span></>
+                                    )}
+                                </span>
+                            </div>
                             <div className="relative w-64">
                                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -263,21 +296,28 @@ const Contacts = () => {
                                                 </div>
                                             </TableCell>
                                             <TableCell>
-                                                <Badge
-                                                    variant="outline"
-                                                    className={`capitalize whitespace-nowrap ${['Lead Quente', 'sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' :
-                                                        ['Interesse Médio', 'mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
-                                                            ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
-                                                                'bg-gray-500/5 text-gray-400 border-gray-500/10'
-                                                        }`}
-                                                >
-                                                    {
-                                                        ['sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'Lead Quente' :
-                                                            ['mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'Interesse Médio' :
-                                                                ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'Lead' :
-                                                                    (contact.lifecycleStatus || 'Sem Status')
-                                                    }
-                                                </Badge>
+                                                <div className="flex items-center gap-2">
+                                                    {contact.status === 'banned' && (
+                                                        <Badge variant="destructive" className="whitespace-nowrap uppercase text-[10px]">
+                                                            Banido
+                                                        </Badge>
+                                                    )}
+                                                    <Badge
+                                                        variant="outline"
+                                                        className={`capitalize whitespace-nowrap ${['Lead Quente', 'sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'bg-orange-500/10 text-orange-600 border-orange-500/20' :
+                                                            ['Interesse Médio', 'mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' :
+                                                                ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'bg-gray-500/10 text-gray-600 border-gray-500/20' :
+                                                                    'bg-gray-500/5 text-gray-400 border-gray-500/10'
+                                                            }`}
+                                                    >
+                                                        {
+                                                            ['sql', 'SQL'].includes(contact.lifecycleStatus || '') ? 'Lead Quente' :
+                                                                ['mql', 'MQL'].includes(contact.lifecycleStatus || '') ? 'Interesse Médio' :
+                                                                    ['Interesse Baixo', 'lead', 'Lead'].includes(contact.lifecycleStatus || '') ? 'Lead' :
+                                                                        (contact.lifecycleStatus || 'Sem Status')
+                                                        }
+                                                    </Badge>
+                                                </div>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground text-sm">
                                                 {new Date(contact.createdAt).toLocaleDateString()}
@@ -294,6 +334,16 @@ const Contacts = () => {
                                                         <DropdownMenuLabel>Ações</DropdownMenuLabel>
                                                         <DropdownMenuItem onClick={() => handleOpenDialog(contact)}>
                                                             <Edit className="mr-2 h-4 w-4" /> Editar
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            onClick={() => handleToggleBanStatus(contact)}
+                                                            className={contact.status === 'banned' ? "text-green-600" : "text-yellow-600"}
+                                                        >
+                                                            {contact.status === 'banned' ? (
+                                                                <><CheckCircle className="mr-2 h-4 w-4" /> Retirar Banimento</>
+                                                            ) : (
+                                                                <><Ban className="mr-2 h-4 w-4" /> Banir Contato</>
+                                                            )}
                                                         </DropdownMenuItem>
                                                         <DropdownMenuSeparator />
                                                         <DropdownMenuItem
@@ -369,6 +419,23 @@ const Contacts = () => {
                                     placeholder="vip, lead, suporte"
                                 />
                             </div>
+
+                            {editingContact && (
+                                <div className="flex items-center justify-between rounded-lg border p-4 shadow-sm bg-muted/30">
+                                    <div className="space-y-0.5">
+                                        <Label className="text-base">Acesso ao Agente (N8n)</Label>
+                                        <p className="text-sm text-muted-foreground">
+                                            {formData.status === 'banned'
+                                                ? "Este usuário está banido e o robô não responderá às suas mensagens via webhook."
+                                                : "O contato possui acesso normal pra interagir com o robô via celular/chat."}
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        checked={formData.status !== 'banned'}
+                                        onCheckedChange={(checked) => setFormData({ ...formData, status: checked ? 'active' : 'banned' })}
+                                    />
+                                </div>
+                            )}
 
                             <DialogFooter>
                                 <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>Cancelar</Button>
