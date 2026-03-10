@@ -622,6 +622,7 @@ export interface Conversation {
   agentId: string;
   userId: string;
   userName: string;
+  userStatus?: string;
   userAvatar?: string;
   agentName?: string;
   agentType?: 'embedded' | 'whatsapp' | 'conversational';
@@ -655,6 +656,7 @@ export interface Contact {
   channel?: 'embedded' | 'whatsapp' | 'conversational' | 'voice' | 'text';
   extraInfo?: Record<string, any>; // JSONB
   lifecycleStatus?: string;
+  status?: string;
   createdAt: Date;
   updatedAt: Date;
 }

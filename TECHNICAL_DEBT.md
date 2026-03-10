@@ -55,6 +55,17 @@
   2. **IA Attention Logic**: Flag `needs_attention` disparado pela IA (N8N) quando o sentimento cai abaixo de -0.7.
   3. **Visual Alert**: "Dashboard Pulsante" para notificações críticas sem Refresh.
 
+## 4. Nexus Hub Architecture v3.0: High-Performance Orchestration & Identity Persistence
+- **Categoria**: Performance, Segurança (ISO 42001) & Escalabilidade
+- **Impacto**: Crítico (Latência: -50%, Segurança: Cross-Conversation)
+- **Status**: ⏳ Deferred (Março 2026)
+- **Motivo do Adiamento**: O sistema atual (`n8n_orchestrator_v4`) é estável e atende bem à demanda presente (~1.4s de latência). Migrar para a v3 envolve mudanças profundas na estrutura de sessões (de UUID de conversa para Identificador de Usuário) e na lógica de orquestração do n8n. Dada a criticidade do fluxo de WhatsApp em produção, a mudança foi adiada para evitar riscos de regressão imediata. Prevalência da estabilidade sobre a otimização extrema.
+- **Plano de Solução (Plano de 4 Fases)**:
+  1. **Fase 1: "Single Shot" RPC & Identidade Global**: Implementar a RPC `orchestrate_ai_conversation_v5` unificando RAG (Knowledge + Memories), Histórico e Segurança em uma única chamada. Migrar a tabela `conversation_security_sessions` para ser baseada em `(tenant_id, user_identifier, agent_id)`, permitindo persistência de login entre diferentes janelas de conversa.
+  2. **Fase 2: Hardening de Segurança & n8n**: Eliminar o uso de `apikey` estática no workflow n8n (migrar para Credenciais nativas) e implementar filtros de *Prompt Injection* no input do usuário antes do processamento pela IA.
+  3. **Fase 3: Billing de Uso Real (Real-time Usage)**: Sincronizar o registro de consumo (`record_usage`) com o objeto `usage` retornado pela OpenAI/Anthropic, abandonando a estimativa fixa por mensagem para tokens reais.
+  4. **Fase 4: Paralelismo no n8n**: Reestruturar o workflow para executar gerações de embeddings e checagens de governança em nós paralelos, reduzindo caminhos seqüenciais desnecessários.
+
 ---
 
 *(Append items here as the system scales and edges cases are consciously dropped in favor of release deadlines).*

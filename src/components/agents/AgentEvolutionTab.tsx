@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, QrCode, Wifi, WifiOff, RefreshCw, LogOut } from 'lucide-react';
+import { Loader2, QrCode, Wifi, WifiOff, RefreshCw, LogOut, MessageSquare, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
@@ -14,10 +14,12 @@ interface AgentEvolutionTabProps {
     tenantSlug: string;
     evolutionInstance?: string; // Current instance name if attached
     evolutionToken?: string; // New field for instance-specific token
+    webhookUrl?: string; // Current webhook URL from agent config
     onInstanceLinked: (instanceName: string, token?: string) => void;
+    onWebhookUrlChange: (url: string) => void;
 }
 
-export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evolutionToken, onInstanceLinked }: AgentEvolutionTabProps) {
+export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evolutionToken, webhookUrl, onInstanceLinked, onWebhookUrlChange }: AgentEvolutionTabProps) {
     const [loading, setLoading] = useState(false);
     const [instanceName, setInstanceName] = useState(evolutionInstance || `${tenantSlug}-${agentId}`.toLowerCase().replace(/[^a-z0-9-]/g, ''));
     const [qrCode, setQrCode] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
 
             let endpoint = '';
             let method = 'GET';
-            let body = null;
+            let body: any = null;
 
             // Map actions to endpoints (logic moved from Edge Function to Client)
             switch (action) {
@@ -55,7 +57,17 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
                         instanceName: payload.instanceName,
                         token: crypto.randomUUID(),
                         qrcode: true,
-                        integration: "WHATSAPP-BAILEYS"
+                        integration: "WHATSAPP-BAILEYS",
+                        webhook_by_events: false,
+                        webhook: {
+                            enabled: true,
+                            url: payload.webhookUrl,
+                            by_events: false,
+                            base64: true,
+                            events: [
+                                "MESSAGES_UPSERT"
+                            ]
+                        }
                     };
                     break;
                 case 'connect':
@@ -137,19 +149,25 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
     };
 
     const createInstance = async () => {
+        if (!webhookUrl) {
+            toast.error('Webhook URL obrigatório', { description: 'Informe para onde a Evolution deve enviar as mensagens.' });
+            return;
+        }
         setLoading(true);
-        const data = await callEvolutionManager('create-instance', { instanceName });
+        const data = await callEvolutionManager('create-instance', { instanceName, webhookUrl });
         if (data) {
             // Evolution returns existing instance info if it already exists, or new one
             // If it has a QR code (base64) or token, we proceed
-            if (data.qrcode) {
+            if (data.qrcode?.base64) {
+                setQrCode(ensureBase64Prefix(data.qrcode.base64));
+                setStatus('CONNECTING');
                 toast.success('Instância Criada', { description: 'Escaneie o QR Code para conectar.' });
-                fetchQrCode();
-            } else if (data.instance?.status === 'open') {
+                startPolling();
+            } else if (data.instance?.status === 'open' || data.instance?.state === 'open') {
                 // Already connected?
                 checkStatus(instanceName);
             } else {
-                // Standard creation success
+                // Standard creation success, fetch QR separately
                 toast.success('Instância Criada', { description: 'Gerando QR Code...' });
                 fetchQrCode();
             }
@@ -157,25 +175,37 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
         setLoading(false);
     };
 
+    const ensureBase64Prefix = (base64: string) => {
+        if (base64 && !base64.startsWith('data:image')) {
+            return `data:image/png;base64,${base64}`;
+        }
+        return base64;
+    };
+
+    const startPolling = () => {
+        // Start polling for status
+        const poll = setInterval(async () => {
+            const statusData = await checkStatus(instanceName, false);
+            if (statusData && (statusData.instance?.state === 'open' || statusData.instance?.status === 'open')) {
+                clearInterval(poll);
+                setQrCode(null);
+            }
+        }, 3000);
+
+        // Stop polling after 2 minutes
+        setTimeout(() => clearInterval(poll), 120000);
+    };
+
     const fetchQrCode = async () => {
         setLoading(true);
         const data = await callEvolutionManager('connect', { instanceName });
         if (data) {
-            if (data.base64) {
-                setQrCode(data.base64);
+            const qrcodeBase64 = data.base64 || data.qrcode?.base64;
+            if (qrcodeBase64) {
+                setQrCode(ensureBase64Prefix(qrcodeBase64));
                 setStatus('CONNECTING');
-                // Start polling for status
-                const poll = setInterval(async () => {
-                    const statusData = await checkStatus(instanceName, false);
-                    if (statusData && statusData.instance?.state === 'open') {
-                        clearInterval(poll);
-                        setQrCode(null);
-                    }
-                }, 3000);
-
-                // Stop polling after 2 minutes
-                setTimeout(() => clearInterval(poll), 120000);
-            } else if (data.instance?.state === 'open') {
+                startPolling();
+            } else if (data.instance?.state === 'open' || data.instance?.status === 'open') {
                 setStatus('CONNECTED');
                 onInstanceLinked(instanceName);
             }
@@ -187,7 +217,7 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
         const data = await callEvolutionManager('status', { instanceName: infoInstance });
         if (data) {
             // Accessing state usually in data.instance.state or similar
-            const state = data.instance?.state || 'close';
+            const state = data.instance?.state || data.instance?.status || 'close';
 
             if (state === 'open') {
                 setStatus('CONNECTED');
@@ -238,61 +268,121 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
                         </Button>
                     </div>
                 </CardHeader>
-                <CardContent>
-                    {!evolutionInstance && status === 'DISCONNECTED' && !qrCode ? (
-                        <div className="flex flex-col gap-4 max-w-sm">
-                            <div className="grid w-full items-center gap-1.5">
-                                <Label htmlFor="instanceName">Nome da Instância</Label>
-                                <Input
-                                    id="instanceName"
-                                    value={instanceName}
-                                    onChange={(e) => setInstanceName(e.target.value)}
-                                    placeholder="ex: empresa-vendas"
-                                />
-                                <p className="text-xs text-muted-foreground">Nome único para identificar esta conexão na Evolution.</p>
-                            </div>
-                            <Button onClick={createInstance} disabled={loading} className="w-full">
-                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                Criar & Conectar
-                            </Button>
+                <CardContent className="space-y-6">
+                    {/* Instance Name - Always visible at top for clarity */}
+                    <div className="space-y-2 pb-4 border-b border-border/50">
+                        <Label htmlFor="instanceName" className="text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2">
+                            Nome da Instância na Evolution API
+                            <Badge variant="outline" className="h-4 text-[9px] font-normal uppercase">Identificador Único</Badge>
+                        </Label>
+                        <Input
+                            id="instanceName"
+                            value={instanceName}
+                            onChange={(e) => setInstanceName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                            disabled={status === 'CONNECTED' || loading || !!qrCode}
+                            placeholder="ex: empresa-vendas-zap"
+                            className="font-mono bg-muted/30 border-accent/10 focus:border-accent"
+                        />
+                        <p className="text-[10px] text-muted-foreground italic">
+                            {status === 'CONNECTED'
+                                ? "Conexão ativa. Para mudar o nome, desconecte a instância primeiro."
+                                : "Escolha um nome amigável (apenas letras, números e traços)."}
+                        </p>
+                    </div>
+
+                    {/* Webhook URL Input */}
+                    <div className="space-y-2 pb-4">
+                        <Label htmlFor="webhookUrl" className="text-xs font-bold uppercase tracking-wider text-accent flex items-center gap-2">
+                            Webhook URL (n8n/Backend)
+                            <Badge variant="secondary" className="h-4 text-[9px] font-normal uppercase">Destino das Mensagens</Badge>
+                        </Label>
+                        <Input
+                            id="webhookUrl"
+                            value={webhookUrl || ''}
+                            onChange={(e) => onWebhookUrlChange(e.target.value)}
+                            disabled={status === 'CONNECTED' || loading || !!qrCode}
+                            placeholder="https://n8n.seuservidor.com/webhook/..."
+                            className="bg-muted/30 border-accent/10 focus:border-accent"
+                        />
+                        <p className="text-[10px] text-muted-foreground italic">
+                            O agente enviará as mensagens recebidas para este endereço automaticamente.
+                        </p>
+                    </div>
+
+                    {status === 'DISCONNECTED' && !qrCode ? (
+                        <div className="flex flex-col items-center justify-center p-8 text-center border-2 border-dashed rounded-lg bg-muted/5">
+                            {(!evolutionInstance || instanceName !== evolutionInstance) ? (
+                                <>
+                                    <MessageSquare className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
+                                    <h3 className="text-lg font-medium">Nova Conexão Identificada</h3>
+                                    <p className="text-sm text-muted-foreground mb-6 max-w-xs">
+                                        O nome "<strong>{instanceName}</strong>" ainda não está vinculado. Deseja criar e conectar este número?
+                                    </p>
+                                    <Button onClick={createInstance} disabled={loading} className="w-full max-w-sm bg-accent hover:bg-accent/90">
+                                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                                        Criar & Gerar QR Code
+                                    </Button>
+                                </>
+                            ) : (
+                                <>
+                                    <WifiOff className="h-12 w-12 text-muted-foreground mb-4 opacity-20" />
+                                    <h3 className="text-lg font-medium">Instância Desconectada</h3>
+                                    <p className="text-sm text-muted-foreground mb-6 max-w-xs">
+                                        A instância <strong>{evolutionInstance}</strong> existe mas o WhatsApp não está pareado.
+                                    </p>
+                                    <Button onClick={fetchQrCode} disabled={loading} className="w-full max-w-sm">
+                                        {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <QrCode className="mr-2 h-4 w-4" />}
+                                        Conectar Dispositivo
+                                    </Button>
+                                </>
+                            )}
                         </div>
                     ) : qrCode ? (
-                        <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-lg bg-slate-50 dark:bg-slate-900/50">
-                            <h3 className="text-lg font-semibold mb-4">Escaneie o QR Code</h3>
-                            <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64 border-4 border-white rounded shadow-sm" />
-                            <p className="text-sm text-muted-foreground mt-4 text-center">
-                                Abra o WhatsApp no seu celular {'>'} Configurações {'>'} Aparelhos Conectados {'>'} Conectar Aparelho
-                            </p>
-                            <Button variant="ghost" className="mt-4 text-destructive" onClick={() => setQrCode(null)}>
-                                Cancelar
+                        <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-lg bg-accent/5 border-accent/20 animate-in zoom-in-95">
+                            <div className="text-center mb-6">
+                                <h3 className="text-lg font-bold text-accent italic">Davos Nexus Gatekeeper</h3>
+                                <p className="text-xs text-muted-foreground">Escaneie para ativar o Agente: <strong>{instanceName}</strong></p>
+                            </div>
+
+                            <div className="relative group p-4 bg-white rounded-xl shadow-xl border-4 border-white mb-6">
+                                <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+                                {loading && (
+                                    <div className="absolute inset-0 bg-white/50 flex items-center justify-center rounded-lg backdrop-blur-[1px]">
+                                        <Loader2 className="h-10 w-10 animate-spin text-accent" />
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="text-xs text-muted-foreground space-y-2 text-center max-w-xs mb-6 bg-white/50 p-3 rounded-lg border border-accent/10">
+                                <p className="font-semibold text-accent/80">Passo a passo no celular:</p>
+                                <p>1. Abra o WhatsApp {'>'} Configurações</p>
+                                <p>2. Clique em <strong>Aparelhos Conectados</strong></p>
+                                <p>3. Clique em <strong>Conectar um Aparelho</strong></p>
+                            </div>
+
+                            <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10" onClick={() => { setQrCode(null); setLoading(false); }}>
+                                Cancelar e Voltar
                             </Button>
                         </div>
-                    ) : status === 'CONNECTED' ? (
-                        <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50/50 dark:bg-green-900/10 border-green-200 dark:border-green-800">
-                            <div className="flex items-center gap-4">
-                                <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center text-green-600">
-                                    <Wifi className="h-6 w-6" />
+                    ) : status === 'CONNECTED' && (
+                        <div className="flex items-center justify-between p-6 border rounded-xl bg-green-500/5 border-green-500/20 shadow-sm animate-in slide-in-from-bottom-2">
+                            <div className="flex items-center gap-5">
+                                <div className="h-14 w-14 rounded-full bg-green-500/10 flex items-center justify-center text-green-500 border border-green-500/20">
+                                    <Wifi className="h-7 w-7" />
                                 </div>
                                 <div>
-                                    <h4 className="font-semibold text-green-900 dark:text-green-100">Conexão Estabelecida</h4>
-                                    <p className="text-sm text-green-700 dark:text-green-300">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-bold text-green-700 dark:text-green-400">Conexão Estabelecida</h4>
+                                        <Badge className="bg-green-500 h-4 text-[9px] uppercase">Online</Badge>
+                                    </div>
+                                    <p className="text-sm font-mono text-green-600 dark:text-green-500 mt-1">
                                         {connectionData?.ownerJid || instanceName}
                                     </p>
                                 </div>
                             </div>
-                            <Button variant="destructive" size="sm" onClick={logoutIndex} disabled={loading}>
+                            <Button variant="outline" size="sm" className="border-red-500/20 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-none" onClick={logoutIndex} disabled={loading}>
                                 <LogOut className="h-4 w-4 mr-2" />
                                 Desconectar
-                            </Button>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center p-8 text-center">
-                            <WifiOff className="h-12 w-12 text-muted-foreground mb-4" />
-                            <h3 className="text-lg font-medium">Instância Desconectada</h3>
-                            <p className="text-muted-foreground mb-4">A instância existe mas não está conectada ao WhatsApp.</p>
-                            <Button onClick={fetchQrCode} disabled={loading}>
-                                <QrCode className="h-4 w-4 mr-2" />
-                                Gerar Novo QR Code
                             </Button>
                         </div>
                     )}

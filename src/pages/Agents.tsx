@@ -699,17 +699,6 @@ export default function Agents() {
                         <Workflow className="h-4 w-4" /> Orquestração (Integração de Workflows)
                       </h4>
                       <div className="space-y-4 pt-2">
-                        <div className="space-y-2">
-                          <Label className="text-xs font-semibold">URL do Webhook Principal</Label>
-                          <Input
-                            className="h-9 font-mono text-[10px] bg-muted/30 text-foreground border-border"
-                            value={formData.integrationConfig?.n8n_webhook_url || ''}
-                            readOnly
-                          />
-                          <p className="text-[9px] text-muted-foreground italic leading-tight">
-                            Este link conecta o sistema ao seu Workflow Principal para processar conversas com lógicas específicas.
-                          </p>
-                        </div>
 
                         <div className="space-y-2 animate-in slide-in-from-top-1">
                           <Label className="text-xs">Formato de Resposta (Mídia)</Label>
@@ -1342,6 +1331,11 @@ export default function Agents() {
                     tenantSlug={currentTenant?.slug || 'demo'}
                     evolutionInstance={formData.evolution_instance}
                     evolutionToken={formData.evolution_token}
+                    webhookUrl={formData.integrationConfig?.n8n_webhook_url}
+                    onWebhookUrlChange={(url) => setFormData(prev => ({
+                      ...prev,
+                      integrationConfig: { ...prev.integrationConfig, n8n_webhook_url: url }
+                    }))}
                     onInstanceLinked={(instanceName, token) => {
                       if (formData.evolution_instance !== instanceName) {
                         setFormData(prev => ({

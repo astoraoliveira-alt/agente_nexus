@@ -179,11 +179,16 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
                     <div className="flex flex-col min-w-0">
-                      <span className={cn(
-                        "font-medium truncate transition-colors",
-                        conv.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-muted-foreground",
-                        selectedId === conv.id && "text-foreground"
-                      )}>{conv.userName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "font-medium truncate transition-colors",
+                          conv.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-muted-foreground",
+                          selectedId === conv.id && "text-foreground"
+                        )}>{conv.userName}</span>
+                        {conv.userStatus === 'banned' && (
+                          <Badge variant="destructive" className="h-4 px-1 scale-75 transform origin-left uppercase">Banido</Badge>
+                        )}
+                      </div>
                       <span className="text-[10px] text-muted-foreground font-mono">{conv.userId}</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground flex-shrink-0">

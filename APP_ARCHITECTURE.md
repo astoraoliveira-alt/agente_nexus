@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 09/Mar/2026
-> **Versão:** 13.0 (Multi-Instance WhatsApp v2, ISO 42001 Risk Scoring, Automated Webhooks)
+> **Última Atualização:** 10/Mar/2026
+> **Versão:** 13.1 (WhatsApp Image OCR Workflow, CRM Contact Stats, Multi-Path Normalization)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -918,7 +918,7 @@ WhatsApp/Voz → Evolution API → N8N Webhook
         ├─ Sincroniza contato (Unicidade por tenant_id + phone)
         └─ Retorna: {prompt, history, knowledge, contact_info, ...}
     → LLM Inference (OpenAI ou configurado no brain_config)
-    → record_message() (salva resposta + atualiza last_message_at)
+    → record_message() (salva resposta + atualiza last_message_at. Suporta p_message_type='image' e p_transcription)
     → record_usage() (registra tokens/mensagens consumidos)
 ```
 
@@ -935,7 +935,19 @@ Trigger: Webhook + Loop periódico
         └─ Wait 5s (throttle)
 ```
 
-### 18.3 Handoff Humano (HITL)
+### 18.3 Fluxo de Mídia (Imagens e OCR — Inbound)
+
+O sistema processa imagens enviadas pelo WhatsApp de forma autônoma:
+1. **Trigger:** Webhook recebe `message_type = 'imageMessage'`.
+2. **Mídia:** Chama Evolution API ("Obter mídia base64") para recuperar o binário via Base64.
+3. **Extração:** Envia o binário para o node "Analyze Image" (OpenAI Vision) com prompt de extração de texto (OCR).
+4. **Normalização (JavaScript):** O node `Normaliza Campos Imagem` utiliza lógica robusta para:
+   - Tratar aninhamento de dados dinâmico da LangChain (`[[{...}]]`).
+   - Consolidar `message` (texto extraído) e `image_base64`.
+   - Evitar loops de dependência no n8n lendo nodes externos apenas uma vez fora de iterações.
+5. **Agente de IA (Multi-Path Resilience):** O prompt do sistema no Agente de IA utiliza expressões condicionais (`isExecuted`) para buscar a mensagem do cliente no braço correto do fluxo (Texto vs Áudio vs Imagem), eliminando o erro de "Node hasn't been executed".
+
+### 18.4 Handoff Humano (HITL)
 
 ```
 Usuário: "quero falar com um atendente"

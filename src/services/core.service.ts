@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const coreService = {
-async getInitialUser(): Promise<User | null> {
+    async getInitialUser(): Promise<User | null> {
         // Consolidated search: find first active operator or super_admin in one query
         const { data, error } = await supabase
             .from('users')
@@ -22,7 +22,7 @@ async getInitialUser(): Promise<User | null> {
         } as unknown as User;
     },
 
-async getCompanyUsers(tenantId: string): Promise<User[]> {
+    async getCompanyUsers(tenantId: string): Promise<User[]> {
         const { data, error } = await supabase
             .from('users')
             .select('*')
@@ -40,7 +40,7 @@ async getCompanyUsers(tenantId: string): Promise<User[]> {
         })) as User[];
     },
 
-async updateAgentUsage(agentId: string, usage: Partial<Agent['usage']>): Promise<void> {
+    async updateAgentUsage(agentId: string, usage: Partial<Agent['usage']>): Promise<void> {
         const { error } = await supabase
             .from('agents')
             .update({
@@ -54,7 +54,7 @@ async updateAgentUsage(agentId: string, usage: Partial<Agent['usage']>): Promise
         if (error) throw error;
     },
 
-async generateEmbedding(text: string): Promise<number[]> {
+    async generateEmbedding(text: string): Promise<number[]> {
         const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
         if (!apiKey) {
             console.warn('VITE_OPENAI_API_KEY not found. Skipping embedding generation.');
@@ -89,7 +89,7 @@ async generateEmbedding(text: string): Promise<number[]> {
         }
     },
 
-async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void> {
+    async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void> {
         const { error } = await supabase
             .from('companies')
             .update({ privacy_settings: privacySettings })
@@ -98,7 +98,7 @@ async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void
         if (error) throw error;
     },
 
-async updateCompanyGovernance(tenantId: string, governanceData: { ai_system_owner_id?: string, risk_owner_id?: string, compliance_officer_id?: string }): Promise<void> {
+    async updateCompanyGovernance(tenantId: string, governanceData: { ai_system_owner_id?: string, risk_owner_id?: string, compliance_officer_id?: string }): Promise<void> {
         const { error } = await supabase
             .from('companies')
             .update(governanceData)
@@ -107,7 +107,7 @@ async updateCompanyGovernance(tenantId: string, governanceData: { ai_system_owne
         if (error) throw error;
     },
 
-async getPlanAuditLogs(planId: string): Promise<any[]> {
+    async getPlanAuditLogs(planId: string): Promise<any[]> {
         const { data, error } = await supabase
             .from('plan_audit_logs')
             .select('*, actor:users!actor_id(full_name)')
@@ -122,7 +122,7 @@ async getPlanAuditLogs(planId: string): Promise<any[]> {
         return data;
     },
 
-async getCompanies(): Promise<(Company & { _count?: { agents: number; users: number; tokens: number } })[]> {
+    async getCompanies(): Promise<(Company & { _count?: { agents: number; users: number; tokens: number } })[]> {
         const { data, error } = await supabase
             .rpc('get_companies_overview');
 
@@ -153,7 +153,7 @@ async getCompanies(): Promise<(Company & { _count?: { agents: number; users: num
         })) as unknown as (Company & { _count: { agents: number; users: number; tokens: number; messages: number }; planPrices: any })[];
     },
 
-async createCompany(company: Partial<Company>): Promise<Company | null> {
+    async createCompany(company: Partial<Company>): Promise<Company | null> {
         const dbCompany = {
             name: company.name,
             slug: company.slug,
@@ -178,7 +178,7 @@ async createCompany(company: Partial<Company>): Promise<Company | null> {
         return { ...company, id: data.id } as Company;
     },
 
-async updateCompany(company: Partial<Company> & { id: string }): Promise<Company | null> {
+    async updateCompany(company: Partial<Company> & { id: string }): Promise<Company | null> {
         // Prepare DB Payload
         const dbCompany: any = {};
         if (company.name) dbCompany.name = company.name;
@@ -204,7 +204,7 @@ async updateCompany(company: Partial<Company> & { id: string }): Promise<Company
         return company as Company;
     },
 
-async deleteCompany(tenantId: string): Promise<void> {
+    async deleteCompany(tenantId: string): Promise<void> {
         const { error } = await supabase.rpc('delete_company_cascade', { p_tenant_id: tenantId });
         if (error) {
             console.error('Error deleting company:', error);
@@ -212,7 +212,7 @@ async deleteCompany(tenantId: string): Promise<void> {
         }
     },
 
-async getAgentUsageStats(tenantId: string): Promise<any[]> {
+    async getAgentUsageStats(tenantId: string): Promise<any[]> {
         const { data, error } = await supabase
             .rpc('get_agent_usage_stats', { p_tenant_id: tenantId });
 
@@ -228,7 +228,7 @@ async getAgentUsageStats(tenantId: string): Promise<any[]> {
         }));
     },
 
-async getAgentKnowledge(agentId: string): Promise<KnowledgeItem[]> {
+    async getAgentKnowledge(agentId: string): Promise<KnowledgeItem[]> {
         const { data, error } = await supabase
             .from('agent_knowledge')
             .select('*')
@@ -253,7 +253,7 @@ async getAgentKnowledge(agentId: string): Promise<KnowledgeItem[]> {
         }));
     },
 
-async addKnowledgeItem(item: Partial<KnowledgeItem>): Promise<KnowledgeItem> {
+    async addKnowledgeItem(item: Partial<KnowledgeItem>): Promise<KnowledgeItem> {
         const dbPayload: any = {
             tenant_id: item.tenantId,
             agent_id: item.agentId,
@@ -289,7 +289,7 @@ async addKnowledgeItem(item: Partial<KnowledgeItem>): Promise<KnowledgeItem> {
         };
     },
 
-async deleteKnowledgeItem(itemId: string): Promise<void> {
+    async deleteKnowledgeItem(itemId: string): Promise<void> {
         const { error } = await supabase
             .from('agent_knowledge')
             .delete()
@@ -298,7 +298,7 @@ async deleteKnowledgeItem(itemId: string): Promise<void> {
         if (error) throw error;
     },
 
-async getAgentAuditLogs(agentId: string, days: number | 'all' = 7): Promise<any[]> {
+    async getAgentAuditLogs(agentId: string, days: number | 'all' = 7): Promise<any[]> {
         let query = supabase
             .from('agent_audit_logs')
             .select('*, actor:users!actor_id(full_name)')
@@ -320,7 +320,7 @@ async getAgentAuditLogs(agentId: string, days: number | 'all' = 7): Promise<any[
         return data;
     },
 
-async getFlows(tenantId: string): Promise<ConversationalFlow[]> {
+    async getFlows(tenantId: string): Promise<ConversationalFlow[]> {
         const { data, error } = await supabase
             .from('flows')
             .select('*, flow_stages(*)')
@@ -352,7 +352,7 @@ async getFlows(tenantId: string): Promise<ConversationalFlow[]> {
         })) as unknown as ConversationalFlow[];
     },
 
-async createFlow(flow: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
+    async createFlow(flow: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
         const dbPayload = {
             tenant_id: flow.tenant_id,
             name: flow.name,
@@ -380,7 +380,7 @@ async createFlow(flow: Partial<ConversationalFlow>): Promise<ConversationalFlow>
         } as ConversationalFlow;
     },
 
-async updateFlow(flowId: string, updates: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
+    async updateFlow(flowId: string, updates: Partial<ConversationalFlow>): Promise<ConversationalFlow> {
         const dbPayload: any = {};
         if (updates.name) dbPayload.name = updates.name;
         if (updates.description) dbPayload.description = updates.description;
@@ -405,7 +405,7 @@ async updateFlow(flowId: string, updates: Partial<ConversationalFlow>): Promise<
         } as ConversationalFlow;
     },
 
-async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
+    async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
         const select = this._capabilities.agents ? '*, agents(name, type)' : '*';
 
         let { data, error } = await supabase
@@ -428,6 +428,21 @@ async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
 
         if (error) throw error;
 
+        // Fetch contacts to get Ban Status
+        const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
+        let contactsMap = new Map<string, string>();
+        if (userIdentifiers.length > 0) {
+            const { data: contactsData } = await supabase
+                .from('contacts')
+                .select('identifier, status')
+                .eq('tenant_id', tenantId)
+                .in('identifier', userIdentifiers);
+
+            if (contactsData) {
+                contactsMap = new Map(contactsData.map(c => [c.identifier, c.status]));
+            }
+        }
+
         return (data as any[]).map(c => {
             return {
                 id: c.id,
@@ -437,6 +452,7 @@ async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
                 agentType: c.agents?.type as any, // 'embedded' | 'whatsapp' ...
                 userId: c.user_identifier,
                 userName: c.user_name || 'Cliente Sem Nome',
+                userStatus: contactsMap.get(c.user_identifier) || 'active',
                 channel: c.channel,
                 status: c.status,
                 assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
@@ -447,10 +463,10 @@ async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
                 messages: [], // Empty by default
                 createdAt: new Date(c.created_at)
             };
-        }) as Conversation[];
+        }) as unknown as Conversation[];
     },
 
-async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
+    async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
         const { error } = await supabase
             .from('audit_logs')
             .insert({
@@ -466,7 +482,7 @@ async logAudit(tenantId: string, actorId: string, actorName: string, action: str
         if (error) console.error('Failed to log audit:', error);
     },
 
-async updateConversationStatus(conversationId: string, status: string): Promise<void> {
+    async updateConversationStatus(conversationId: string, status: string): Promise<void> {
         const { error } = await supabase
             .from('conversations')
             .update({ status })
@@ -475,11 +491,11 @@ async updateConversationStatus(conversationId: string, status: string): Promise<
         if (error) throw error;
     },
 
-async closeConversation(conversationId: string): Promise<void> {
+    async closeConversation(conversationId: string): Promise<void> {
         return this.updateConversationStatus(conversationId, 'closed');
     },
 
-async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]> {
+    async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]> {
         const { data, error } = await supabase
             .rpc('get_detailed_consumption', {
                 p_tenant_id: tenantId,
@@ -504,7 +520,7 @@ async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]>
         }));
     },
 
-async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {
+    async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {
         // 1. Fetch current conversation to get Tenant ID for Audit
         const { data: conv } = await supabase.from('conversations').select('tenant_id, assigned_operator_id').eq('id', conversationId).single();
         if (!conv) throw new Error('Conversation not found');
@@ -541,7 +557,7 @@ async assignConversation(conversationId: string, operatorId: string | null, oper
         }
     },
 
-async getContacts(tenantId: string): Promise<Contact[]> {
+    async getContacts(tenantId: string): Promise<Contact[]> {
         const { data, error } = await supabase
             .from('contacts')
             .select('*')
@@ -565,12 +581,13 @@ async getContacts(tenantId: string): Promise<Contact[]> {
             channel: c.channel,
             extraInfo: c.extra_info,
             lifecycleStatus: c.lifecycle_status || 'lead',
+            status: c.status,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
         })) as Contact[];
     },
 
-async createContact(contact: Partial<Contact>): Promise<Contact | null> {
+    async createContact(contact: Partial<Contact>): Promise<Contact | null> {
         // Prepare DB object
         const dbContact = {
             tenant_id: contact.tenantId,
@@ -609,7 +626,7 @@ async createContact(contact: Partial<Contact>): Promise<Contact | null> {
         } as Contact;
     },
 
-async updateContact(contactId: string, updates: Partial<Contact>): Promise<Contact | null> {
+    async updateContact(contactId: string, updates: Partial<Contact>): Promise<Contact | null> {
         const dbUpdates: any = {};
         if (updates.name) dbUpdates.name = updates.name;
         if (updates.email) dbUpdates.email = updates.email;
@@ -619,6 +636,7 @@ async updateContact(contactId: string, updates: Partial<Contact>): Promise<Conta
         if (updates.channel) dbUpdates.channel = updates.channel;
         if (updates.extraInfo) dbUpdates.extra_info = updates.extraInfo;
         if (updates.lifecycleStatus) dbUpdates.lifecycle_status = updates.lifecycleStatus;
+        if (updates.status) dbUpdates.status = updates.status;
 
         const { data, error } = await supabase
             .from('contacts')
@@ -646,7 +664,7 @@ async updateContact(contactId: string, updates: Partial<Contact>): Promise<Conta
         } as Contact;
     },
 
-async deleteContact(contactId: string): Promise<boolean> {
+    async deleteContact(contactId: string): Promise<boolean> {
         const { error } = await supabase
             .from('contacts')
             .delete()
@@ -659,7 +677,7 @@ async deleteContact(contactId: string): Promise<boolean> {
         return true;
     },
 
-async getEvaluations(tenantId: string): Promise<import('@/lib/types').Evaluation[]> {
+    async getEvaluations(tenantId: string): Promise<import('@/lib/types').Evaluation[]> {
         const { data, error } = await supabase
             .from('evaluations')
             .select('*, agents(name), conversations(created_at, user_name)')
@@ -688,7 +706,7 @@ async getEvaluations(tenantId: string): Promise<import('@/lib/types').Evaluation
         }));
     },
 
-async getUnauditedConversations(tenantId: string): Promise<any[]> {
+    async getUnauditedConversations(tenantId: string): Promise<any[]> {
         const { data, error } = await supabase
             .rpc('get_unaudited_conversations', { p_tenant_id: tenantId });
 
@@ -700,7 +718,7 @@ async getUnauditedConversations(tenantId: string): Promise<any[]> {
         return data || [];
     },
 
-async getEvaluationByConversation(conversationId: string): Promise<import('@/lib/types').Evaluation | null> {
+    async getEvaluationByConversation(conversationId: string): Promise<import('@/lib/types').Evaluation | null> {
         const { data, error } = await supabase
             .from('evaluations')
             .select('*')
@@ -730,7 +748,7 @@ async getEvaluationByConversation(conversationId: string): Promise<import('@/lib
         };
     },
 
-async getEvaluationHistory(conversationId: string): Promise<import('@/lib/types').Evaluation[]> {
+    async getEvaluationHistory(conversationId: string): Promise<import('@/lib/types').Evaluation[]> {
         const { data, error } = await supabase
             .from('evaluations')
             .select('*')

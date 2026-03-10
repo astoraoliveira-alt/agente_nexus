@@ -103,7 +103,7 @@ export default function Governance() {
       case 'medium':
         return <Badge className="bg-warning text-warning-foreground">Médio</Badge>;
       default:
-        return <Badge variant="secondary">Baixo Risco</Badge>;
+        return <Badge variant="secondary">Baixo</Badge>;
     }
   };
 
@@ -998,6 +998,23 @@ export default function Governance() {
                           <SelectItem value="medium">Média</SelectItem>
                           <SelectItem value="high">Alta</SelectItem>
                           <SelectItem value="critical">Crítica</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-2">
+                      <Label>Status do Incidente</Label>
+                      <Select
+                        value={incidentForm.status}
+                        onValueChange={(v: any) => setIncidentForm({ ...incidentForm, status: v })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="open">Aberto</SelectItem>
+                          <SelectItem value="investigating">Em Investigação</SelectItem>
+                          <SelectItem value="resolved">Resolvido</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

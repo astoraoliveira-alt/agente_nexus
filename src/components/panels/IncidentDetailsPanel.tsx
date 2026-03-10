@@ -162,9 +162,34 @@ export function IncidentDetailsPanel({ data }: IncidentDetailsPanelProps) {
       {/* Description */}
       <div>
         <h4 className="text-sm font-medium text-muted-foreground mb-2">Descrição</h4>
-        <div className="text-sm bg-muted p-4 rounded-md space-y-3">
+        <div className="text-sm bg-muted p-4 rounded-md space-y-3 overflow-hidden">
           {(() => {
             if (!data.description) return <span className="text-muted-foreground italic">Sem descrição.</span>;
+
+            // Detect if there's JSON in the text (like the n8n tool output)
+            const jsonMatch = data.description.match(/(\{.*\}|\[.*\])$|Detalhes:\s*(\[.*\]|\{.*\})/s);
+
+            if (jsonMatch) {
+              const textPart = data.description.substring(0, jsonMatch.index).trim();
+              const jsonPart = jsonMatch[1] || jsonMatch[2];
+
+              try {
+                const parsed = JSON.parse(jsonPart);
+                return (
+                  <>
+                    <div className="leading-relaxed whitespace-pre-wrap">{textPart}</div>
+                    <div className="mt-2 pt-2 border-t border-border/50">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1 opacity-70">Dados Técnicos (JSON):</p>
+                      <pre className="p-3 bg-background/50 rounded border border-border/40 font-mono text-[11px] overflow-x-auto">
+                        {JSON.stringify(parsed, null, 2)}
+                      </pre>
+                    </div>
+                  </>
+                );
+              } catch (e) {
+                // Return original if JSON parsing fails
+              }
+            }
 
             // Simple Markdown Parser (Bold, Italic, Lists) + Tag detector
             const lines = data.description.split('\n');
@@ -201,7 +226,7 @@ export function IncidentDetailsPanel({ data }: IncidentDetailsPanelProps) {
 
               // Normal Line
               return (
-                <div key={index} className="min-h-[20px] leading-relaxed">
+                <div key={index} className="min-h-[20px] leading-relaxed whitespace-pre-wrap">
                   {line.split(/(\*\*.*?\*\*|_.*?_)/g).map((part, i) => {
                     if (part.startsWith('**') && part.endsWith('**')) return <strong key={i}>{part.slice(2, -2)}</strong>;
                     if (part.startsWith('_') && part.endsWith('_')) return <em key={i}>{part.slice(1, -1)}</em>;
