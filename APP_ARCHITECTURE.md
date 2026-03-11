@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 10/Mar/2026
-> **Versão:** 13.1 (WhatsApp Image OCR Workflow, CRM Contact Stats, Multi-Path Normalization)
+> **Última Atualização:** 11/Mar/2026
+> **Versão:** 13.2 (Transactional Gatekeeper Fix, N8N Tool Overload Resolution)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -427,8 +427,9 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 
 | RPC | Parâmetros | Papel |
 | :--- | :--- | :--- |
-| `evaluate_conversation_security` | `text, text, text` | O "Guarda": avalia se a sessão da conversa está ativa e permite/bloqueia ferramentas. |
-| `mock_validate_identity` | `text, text, text` | O "Validador": Checa documento no banco e abre sessão segura se encontrado. |
+| `evaluate_conversation_security` | `uuid, uuid, text` | O "Guarda": avalia a sessão ativa garantida por `UNIQUE(conversation_id, agent_id)` e permite/bloqueia intent. |
+| `mock_validate_identity` | `text, text, text` | O "Validador": autentica o documento e abre a sessão segura da conversa. |
+| `financial_get_customer_summary_safe` | `text, text, text` | Ferramenta Segura: intercepta o CPF do payload N8N mitigando Prompt Injection e lendo apenas o CPF do cofre (Gatekeeper). |
 
 ---
 
