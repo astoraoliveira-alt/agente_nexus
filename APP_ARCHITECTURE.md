@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 11/Mar/2026
-> **Versão:** 13.2 (Transactional Gatekeeper Fix, N8N Tool Overload Resolution)
+> **Última Atualização:** 16/Mar/2026
+> **Versão:** 14.0 (N8N Orchestrator V5, Security Flow Redesign, Session Expiry Fix)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -405,7 +405,8 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `n8n_orchestrator_v4` | V4 (master) | Em uma única transação: valida empresa/agente, gerencia concorrência, abre/reabre conversa, sincroniza contato e retorna contexto completo (prompt + histórico + knowledge). |
+| `n8n_orchestrator_v5` | **V5 (master atual)** | Versão consolidada que substitui a V4. Além de tudo que V4 fazia, adiciona: suporte a Meta API Token, hierarquia de sub-agentes, recuperação de `session_status` e `session_identifier` da tabela `conversation_security_sessions` (com verificação de `expires_at > NOW()` e expiração automática de sessões vencidas via UPDATE proativo). |
+| `n8n_orchestrator_v4` | V4 (legacy) | Versão anterior, mantida como fallback. Em processo de depreciação. |
 | `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. Atualiza `last_message_at`. |
 | `record_usage` | Atual | Registra evento de consumo. Detecta canal pelo tipo do agente. |
 | `sync_vapi_call` | V27 | Idempotente. Sincroniza chamada de voz VAPI: grava payload em `integration_logs`, sincroniza mensagens com chave `(conversation_id, external_id)`, calcula custo por duração. |
@@ -904,20 +905,30 @@ O sistema usa um único container `SlideOver` com 18 conteúdos dinamicamente in
 
 ---
 
-## 18. Integração N8N (Contrato V4 — Master Orchestrator)
+## 18. Integração N8N (Contrato V5 — Master Orchestrator)
 
 ### 18.1 Fluxo Principal de Mensagem Inbound
 
 ```
 WhatsApp/Voz → Evolution API → N8N Webhook
-    → n8n_orchestrator_v4() (uma única transação SQL):
+    → n8n_orchestrator_v5() (uma única transação SQL):
         ├─ Identifica agente pelo evolution_instance
         ├─ Valida status empresa (não 'suspended')
         ├─ Valida status agente (não 'inactive')
         ├─ Verifica concorrência (active_conversations < max_concurrency)
         ├─ Abre/Reabre conversa (Finite State Machine)
         ├─ Sincroniza contato (Unicidade por tenant_id + phone)
-        └─ Retorna: {prompt, history, knowledge, contact_info, ...}
+        ├─ Recupera session_status da conversation_security_sessions
+        │   ├─ Expira automaticamente sessões com expires_at < NOW()
+        │   └─ Retorna 'unauthenticated' se não há sessão ativa e válida
+        ├─ Retorna sub-agentes vinculados ao agente
+        └─ Retorna: {prompt, history, knowledge, contact_info, security:{session_status, session_identifier}, ...}
+    → IF Security (verifica session_status === 'active')
+        ├─ TRUE (autenticado): vai direto para Switch1 (performance — bypassa Gatekeeper)
+        └─ FALSE (não autenticado): chama RPC Security Gatekeeper → avalia intent → allowToolExecution
+    → Switch1 (roteia por should_use_tools do Formatar Contexto):
+        ├─ TRUE: AI Agent com Tools (financeiro, boletos, acordos)
+        └─ FALSE: AI Agent Sem Ferramentas (solicita autenticação CPF/CNPJ)
     → LLM Inference (OpenAI ou configurado no brain_config)
     → record_message() (salva resposta + atualiza last_message_at. Suporta p_message_type='image' e p_transcription)
     → record_usage() (registra tokens/mensagens consumidos)
@@ -1010,6 +1021,58 @@ VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 - **Smart Usage Allocation:** `brain_config.budget_share_pct` + `monthly_limit_brl` para controle de orçamento por agente.
 - **Multi-LLM por Agente:** Provider registry dinâmico além de OpenAI/Anthropic.
 - **Mobile App:** React Native para operadores em campo.
+
+---
+
+## 21. Histórico de Mudanças Críticas (Changelog Técnico)
+
+### V14.0 — 16/Mar/2026 — Security Flow Redesign
+
+#### 🐛 Bug Fix: `n8n_orchestrator_v5` — Sessão Expirada Retornando como `active`
+
+**Problema:** A query que recupera o `session_status` da tabela `conversation_security_sessions` não verificava o campo `expires_at`. Sessões com status `active` mas prazo vencido eram retornadas como autenticadas, permitindo acesso a ferramentas financeiras sem autenticação válida.
+
+**Fix aplicado** em `database/rpc/n8n_orchestrator_v5.sql`:
+```sql
+-- Expirar sessões que passaram do prazo (limpeza proativa)
+UPDATE public.conversation_security_sessions
+SET status = 'expired', updated_at = NOW()
+WHERE conversation_id = v_conversation_id
+  AND status = 'active'
+  AND expires_at < NOW();
+
+-- Buscar sessão ativa E dentro do prazo de validade
+SELECT status, validated_identifier INTO v_security_session_status, v_security_identifier
+FROM public.conversation_security_sessions
+WHERE conversation_id = v_conversation_id
+  AND status = 'active'
+  AND expires_at > NOW()         -- ← Verificação crítica adicionada
+ORDER BY created_at DESC LIMIT 1;
+```
+
+#### 🐛 Bug Fix: Switch1 — AI Agent com Tools Nunca Chamado
+
+**Problema:** A Rule 0 do nó `Switch1` exigia `$json.allowToolExecution === true`. Esse campo só existia quando o `RPC Security Gatekeeper` era executado. Para usuários já autenticados, o `IF Security` bypassava o Gatekeeper, deixando `allowToolExecution = undefined`, fazendo o Switch rodar sempre para o `AI Agent Sem Ferramentas`.
+
+**Fix:** Removida a dependência de `allowToolExecution`. O Switch1 agora usa exclusivamente `should_use_tools` do nó `Formatar Contexto`:
+
+| Output | Condição (nova) | Destino |
+| :--- | :--- | :--- |
+| 0 (Tools) | `should_use_tools === true` | AI Agent (Conversacional/RAG) com tools |
+| 1 (Sem Tools) | `should_use_tools !== true` | AI Agent (Sem Ferramentas) — solicita CPF |
+
+#### 🐛 Bug Fix: Texto `"Calling...Tool with input:"` Enviado ao WhatsApp
+
+**Problema:** A tabela `chat_histories_memory` (Postgres Chat Memory do LangChain) armazenava os textos intermediários de tool calls (ex: `"Calling Call n8n Workflow Tool with input: {...}"`) como mensagens. Em execuções subsequentes, o modelo lia esse histórico e reproduzia o padrão, enviando o texto técnico diretamente ao usuário.
+
+**Fixes:**
+1. **Limpeza de memória:** DELETE nas linhas da `chat_histories_memory` com `message::text ILIKE '%Calling %Tool%'`.
+2. **Guardrail de output** (Code in JavaScript V7): Adicionado filtro `else if (/^Calling .+Tool with input:/i.test(msg))` que intercepta e substitui por mensagem neutra antes do envio ao WhatsApp.
+3. **Desabilitar `Use Responses API`** no nó `OpenAI Chat Model`: A Responses API (nova API da OpenAI) mantém estado server-side e conflita com o Postgres Chat Memory (client-side). Deve permanecer **OFF** para compatibilidade.
+
+#### ⚠️ Regra Estabelecida: OpenAI Responses API
+
+> **NUNCA habilitar `Use Responses API`** nos nós de `OpenAI Chat Model` que utilizam `Postgres Chat Memory`. As duas tecnologias gerenciam estado de conversa de formas incompatíveis, causando o erro: `No tool call found for function call output with call_id [id]`.
 
 ---
 
