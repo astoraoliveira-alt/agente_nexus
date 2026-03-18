@@ -248,13 +248,14 @@ export default function Governance() {
         newText = text.substring(0, start) + '_' + text.substring(start, end) + '_' + text.substring(end);
         newCursorPos = end + 2;
         break;
-      case 'list':
+      case 'list': {
         const header = text.substring(0, start);
         const isOnNewLine = header.endsWith('\n') || header === '';
         const prefix = isOnNewLine ? '- ' : '\n- ';
         newText = text.substring(0, start) + prefix + text.substring(start, end) + text.substring(end);
         newCursorPos = end + prefix.length;
         break;
+      }
     }
 
     setIncidentForm(prev => ({ ...prev, description: newText }));

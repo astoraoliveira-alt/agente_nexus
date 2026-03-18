@@ -392,6 +392,9 @@ export interface Agent {
 
   // New Integration Fields
   type?: 'embedded' | 'whatsapp' | 'conversational';
+  parent_agent_id?: string; // New field for sub-agents
+  whatsapp_api_type?: 'evolution' | 'meta_official'; // New field for WhatsApp API type
+  meta_api_token?: string; // New field for Official Meta API
   evolution_instance?: string; // Evolution API instance name for dynamic lookup
   evolution_token?: string;
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
@@ -418,6 +421,32 @@ export interface Agent {
 
   // Real DB Governance fields
   applied_policies?: string[];
+
+  // Dynamic Gatekeeper & Security (V7)
+  is_gatekeeper?: boolean;
+  gatekeeper_scope?: 'specific' | 'tenant';
+  requires_security?: boolean;
+  gatekeeper_config?: any;
+}
+
+export interface AgentTool {
+  id: string;
+  tenant_id: string;
+  agent_id?: string;
+  name: string;
+  description: string;
+  parameters_schema: any;
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  url: string;
+  headers?: Record<string, string>;
+  query_params?: Record<string, string>;
+  body_mapping?: Record<string, any>;
+  response_mode: 'json' | 'text';
+  output_schema?: any;
+  is_active: boolean;
+  category: 'query' | 'action' | 'access_key'; // Dynamic Gatekeeper V7
+  created_at: Date;
+  updated_at: Date;
 }
 
 // ============ AI Governance Types ============
@@ -635,6 +664,7 @@ export interface Conversation {
   messages: Message[];
   createdAt: Date;
   isSimulation?: boolean; // Phase 2: Playground
+  active_agent_id?: string; // ID of the currently active agent (Parent or Gatekeeper)
   voiceStatus?: 'listening' | 'processing' | 'speaking' | 'idle'; // Phase 3: Realtime Status
 }
 

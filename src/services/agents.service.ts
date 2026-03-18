@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
+import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem, AgentTool } from '@/lib/types';
 
 export const agentsService = {
 async getAgents(tenantId: string): Promise<Agent[]> {
@@ -16,6 +16,7 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
         const dbPayload = {
             tenant_id: agent.tenantId,
             name: agent.name,
+            role: agent.role,
             status: agent.status || 'active',
             risk_level: agent.riskLevel || 'low',
             risk_score: agent.riskScore || 0,
@@ -29,7 +30,10 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             session_timeout_seconds: agent.sessionTimeoutSeconds || 3600,
             type: agent.type || 'conversational',
             integration_config: agent.integrationConfig || {},
-            ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {})
+            ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {}),
+            ...(agent.parent_agent_id ? { parent_agent_id: agent.parent_agent_id } : {}),
+            whatsapp_api_type: agent.whatsapp_api_type || 'evolution',
+            meta_api_token: agent.meta_api_token
         };
 
         const { data, error } = await supabase
@@ -56,13 +60,18 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             totalConversations: data.total_conversations || 0,
             activeConversations: data.active_conversations || 0,
             maxConcurrentConversations: data.max_concurrency || 50,
-            policies: data.applied_policies || []
+            policies: data.applied_policies || [],
+            parent_agent_id: data.parent_agent_id,
+            role: data.role,
+            whatsapp_api_type: data.whatsapp_api_type,
+            meta_api_token: data.meta_api_token
         } as unknown as Agent;
     },
 
 async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         const dbPayload: any = {};
         if (updates.name) dbPayload.name = updates.name;
+        if (updates.role) dbPayload.role = updates.role;
         if (updates.last_actor_name) dbPayload.last_actor_name = updates.last_actor_name;
         if (updates.status) dbPayload.status = updates.status;
         if (updates.riskLevel) dbPayload.risk_level = updates.riskLevel;
@@ -82,6 +91,11 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.evolution_instance !== undefined) dbPayload.evolution_instance = updates.evolution_instance;
         if (updates.integrationConfig) dbPayload.integration_config = updates.integrationConfig;
         if (updates.policies) dbPayload.applied_policies = updates.policies;
+        if (updates.parent_agent_id !== undefined) dbPayload.parent_agent_id = updates.parent_agent_id;
+        if (updates.whatsapp_api_type) dbPayload.whatsapp_api_type = updates.whatsapp_api_type;
+        if (updates.meta_api_token !== undefined) dbPayload.meta_api_token = updates.meta_api_token;
+        // Explicit boolean — must use !== undefined to capture false values
+        if (updates.requires_security !== undefined) dbPayload.requires_security = updates.requires_security;
 
         const { data, error } = await supabase
             .from('agents')
@@ -107,9 +121,16 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
             sessionTimeoutSeconds: data.session_timeout_seconds || 3600,
             policies: data.applied_policies || [],
             brainConfig: data.brain_config,
+            role: data.role,
             voiceConfig: data.voice_config,
             type: data.type,
             integrationConfig: data.integration_config || {},
+            parent_agent_id: data.parent_agent_id,
+            is_gatekeeper: data.is_gatekeeper || false,
+            gatekeeper_scope: data.gatekeeper_scope || null,
+            requires_security: data.requires_security || false,
+            whatsapp_api_type: data.whatsapp_api_type,
+            meta_api_token: data.meta_api_token,
             // Legacy mapping
             integration: {
                 voice_provider: data.voice_config?.provider === 'none' ? null : data.voice_config?.provider,
@@ -137,6 +158,56 @@ async updateAgentGovernance(agentId: string, governance: { risk_level?: string, 
                 applied_policies: governance.applied_policies
             })
             .eq('id', agentId);
+
+        if (error) throw error;
+    },
+
+    // ============ Agent Tools (Dynamic Hooks) ============
+    async getAgentTools(tenantId: string, agentId?: string): Promise<AgentTool[]> {
+        let query = supabase
+            .from('agent_tools')
+            .select('*')
+            .eq('tenant_id', tenantId);
+
+        if (agentId) {
+            query = query.or(`agent_id.eq.${agentId},agent_id.is.null`);
+        } else {
+            query = query.is('agent_id', null);
+        }
+
+        const { data, error } = await query.order('name', { ascending: true });
+        if (error) throw error;
+        return data as AgentTool[];
+    },
+
+    async createAgentTool(tool: Partial<AgentTool>): Promise<AgentTool> {
+        const { data, error } = await supabase
+            .from('agent_tools')
+            .insert(tool)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data as AgentTool;
+    },
+
+    async updateAgentTool(toolId: string, updates: Partial<AgentTool>): Promise<AgentTool> {
+        const { data, error } = await supabase
+            .from('agent_tools')
+            .update(updates)
+            .eq('id', toolId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data as AgentTool;
+    },
+
+    async deleteAgentTool(toolId: string): Promise<void> {
+        const { error } = await supabase
+            .from('agent_tools')
+            .delete()
+            .eq('id', toolId);
 
         if (error) throw error;
     }

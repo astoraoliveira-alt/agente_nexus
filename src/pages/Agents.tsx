@@ -38,11 +38,12 @@ import {
 } from "@/components/ui/tooltip";
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { Agent, AILifecycleStage, AIPolicy } from '@/lib/types';
+import { Agent, AILifecycleStage, AIPolicy, AgentTool } from '@/lib/types';
 import { AgentKnowledgeTab } from '@/components/agents/AgentKnowledgeTab';
 import { AgentEvolutionTab } from '@/components/agents/AgentEvolutionTab';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
+import { agentsService } from '@/services/agents.service';
 
 export default function Agents() {
   const { openSlideOver, currentTenant, currentUser } = useApp();
@@ -51,6 +52,75 @@ export default function Agents() {
   const [availablePolicies, setAvailablePolicies] = useState<AIPolicy[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+
+  // AgentTool CRUD state
+  const [agentTools, setAgentTools] = useState<AgentTool[]>([]);
+  const [loadingTools, setLoadingTools] = useState(false);
+  const [newTool, setNewTool] = useState<Partial<AgentTool>>({
+    name: '',
+    description: '',
+    method: 'POST',
+    url: '',
+    headers: {},
+    body_mapping: {},
+    query_params: {},
+    response_mode: 'json',
+    category: 'query',
+    is_active: true,
+  });
+  const [showNewToolForm, setShowNewToolForm] = useState(false);
+  const [newToolHeadersRaw, setNewToolHeadersRaw] = useState('{}');
+  const [newToolBodyRaw, setNewToolBodyRaw] = useState('{}');
+
+  // Sub-agent dialog state
+  const [isSubAgentDialogOpen, setIsSubAgentDialogOpen] = useState(false);
+  const [parentAgentForSub, setParentAgentForSub] = useState<Agent | null>(null);
+  const [subAgentFormData, setSubAgentFormData] = useState<Partial<Agent>>({});
+
+  const handleOpenSubAgentDialog = (parentAgent: Agent) => {
+    setParentAgentForSub(parentAgent);
+    setSubAgentFormData({
+      name: '',
+      role: 'Agente de Segurança',
+      riskLevel: 'low',
+      lifecycleStage: 'development',
+      channels: ['text'],
+      status: 'active',
+      type: parentAgent.type || 'conversational',
+      parent_agent_id: parentAgent.id,
+      is_gatekeeper: true,
+      gatekeeper_scope: 'specific',
+      requires_security: false,
+      brainConfig: {
+        modelId: 'gpt-4o',
+        temperature: 0.3,
+        systemPrompt: '',
+      },
+      integrationConfig: { response_mode: 'match_input' },
+    });
+    setIsSubAgentDialogOpen(true);
+  };
+
+  const handleSaveSubAgent = async () => {
+    if (!currentTenant || !parentAgentForSub) return;
+    if (!subAgentFormData.name?.trim()) {
+      toast.error('Informe um nome para o sub-agente.');
+      return;
+    }
+    try {
+      const created = await api.createAgent({
+        ...subAgentFormData,
+        tenantId: currentTenant.id,
+        last_actor_name: currentUser?.name || 'Sistema',
+      });
+      setAgents(prev => [created, ...prev]);
+      toast.success(`Sub-agente "${created.name}" criado com sucesso!`);
+      setIsSubAgentDialogOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Erro ao criar sub-agente.');
+    }
+  };
 
   // Form State
   const [formData, setFormData] = useState<Partial<Agent>>({
@@ -62,9 +132,15 @@ export default function Agents() {
     status: 'active'
   });
 
-  const filteredAgents = agents.filter(agent =>
+  // Only top-level agents in the grid; sub-agents are shown nested under their parent
+  const parentAgents = agents.filter(agent =>
+    !agent.parent_agent_id &&
     agent.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Helper: get all sub-agents for a given parent
+  const getSubAgents = (parentId: string) =>
+    agents.filter(a => a.parent_agent_id === parentId);
 
   useEffect(() => {
     async function loadData() {
@@ -83,6 +159,32 @@ export default function Agents() {
     }
     loadData();
   }, [currentTenant]);
+
+  // Load AgentTools when dialog opens for editing
+  useEffect(() => {
+    async function loadTools() {
+      if (!isDialogOpen || !currentTenant) return;
+      setLoadingTools(true);
+      try {
+        const tools = await agentsService.getAgentTools(
+          currentTenant.id,
+          editingAgent?.id
+        );
+        setAgentTools(tools);
+      } catch (e) {
+        console.error('Failed to load agent tools', e);
+        setAgentTools([]);
+      } finally {
+        setLoadingTools(false);
+      }
+    }
+    loadTools();
+    // Reset new tool form
+    setShowNewToolForm(false);
+    setNewTool({ name: '', description: '', method: 'POST', url: '', headers: {}, body_mapping: {}, query_params: {}, response_mode: 'json', category: 'query', is_active: true });
+    setNewToolHeadersRaw('{}');
+    setNewToolBodyRaw('{}');
+  }, [isDialogOpen, editingAgent?.id, currentTenant]);
 
   const handleCloneAgent = async (agent: Agent) => {
     if (!currentTenant) return;
@@ -224,13 +326,16 @@ export default function Agents() {
         </div>
 
         <div className="p-6">
-          {/* Agents Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredAgents.map((agent) => (
-              <div
-                key={agent.id}
-                className="kpi-card hover:shadow-lg transition-all relative cursor-default"
-              >
+          {/* Agents Grid — parent cards with nested sub-agents */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {parentAgents.map((agent) => {
+              const subAgents = getSubAgents(agent.id);
+              return (
+                <div key={agent.id} className="flex flex-col gap-0">
+                  {/* ─── Parent Agent Card ─── */}
+                  <div
+                    className="kpi-card hover:shadow-lg transition-all relative cursor-default rounded-b-none border-b-0" style={{ borderBottomLeftRadius: subAgents.length > 0 ? 0 : undefined, borderBottomRightRadius: subAgents.length > 0 ? 0 : undefined }}
+                  >
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-accent/10 flex items-center justify-center">
@@ -275,6 +380,13 @@ export default function Agents() {
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicar
                         </DropdownMenuItem>
+                        {/* Only parent agents (no parent_agent_id) can have sub-agents */}
+                        {!agent.parent_agent_id && (
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenSubAgentDialog(agent); }}>
+                            <Bot className="h-4 w-4 mr-2 text-accent" />
+                            <span className="text-accent font-medium">Adicionar Sub-agente</span>
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
                           <Trash2 className="h-4 w-4 mr-2" />
@@ -434,8 +546,112 @@ export default function Agents() {
                   <Settings className="h-4 w-4 mr-2" />
                   Detalhes
                 </Button>
-              </div>
-            ))}
+              </div>{/* end parent kpi-card */}
+
+              {/* ─── Sub-Agent Cards (nested) ─── */}
+              {subAgents.length > 0 && (
+                <div className="border border-t-0 border-border rounded-b-lg overflow-hidden">
+                  {/* Tree header */}
+                  <div className="px-3 py-1.5 bg-muted/40 border-b border-border/50 flex items-center gap-1.5">
+                    <div className="w-3 h-px bg-muted-foreground/30" />
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                      {subAgents.length} Sub-agente{subAgents.length > 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {subAgents.map((sub, idx) => {
+                    const isGatekeeper = sub.is_gatekeeper;
+                    const isLast = idx === subAgents.length - 1;
+
+                    // ✅ Detecção APENAS por flags explícitas do banco — sem heurísticas de nome/role
+                    const isSecurityAgent = sub.requires_security === true;
+
+                    // Icon & color config per agent type
+                    const iconConfig = isGatekeeper
+                      ? { icon: <ShieldAlert className="h-3.5 w-3.5 text-red-500" />, bg: 'bg-red-500/10', dot: 'bg-red-500/70', badge: null }
+                      : isSecurityAgent
+                        ? { icon: <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />, bg: 'bg-amber-500/10', dot: 'bg-amber-500/70', badge: 'Segurança' }
+                        : { icon: <Bot className="h-3.5 w-3.5 text-accent" />, bg: 'bg-accent/10', dot: 'bg-accent/60', badge: null };
+
+                    return (
+                      <div
+                        key={sub.id}
+                        className={`flex items-stretch group ${!isLast ? 'border-b border-border/40' : ''}`}
+                      >
+                        {/* Vertical connector line */}
+                        <div className="flex flex-col items-center w-8 flex-shrink-0 py-3 pl-3">
+                          <div className="w-px flex-1 bg-border/50" />
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 my-1 ${iconConfig.dot}`} />
+                          {!isLast && <div className="w-px flex-1 bg-border/50" />}
+                        </div>
+
+                        {/* Sub-agent content */}
+                        <div className="flex-1 py-2.5 pr-3 flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {/* Icon badge */}
+                            <div className={`w-7 h-7 rounded flex items-center justify-center flex-shrink-0 ${iconConfig.bg}`}>
+                              {iconConfig.icon}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="text-xs font-semibold truncate leading-tight">{sub.name}</p>
+                                {/* Security badge */}
+                                {iconConfig.badge && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/15 text-amber-600 border border-amber-500/25 flex-shrink-0">
+                                    <ShieldAlert className="h-2 w-2" />
+                                    {iconConfig.badge}
+                                  </span>
+                                )}
+                                {isGatekeeper && (
+                                  <span className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-red-500/15 text-red-600 border border-red-500/25 flex-shrink-0">
+                                    <ShieldAlert className="h-2 w-2" />
+                                    {sub.gatekeeper_scope === 'tenant' ? 'Global' : 'Gate'}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-muted-foreground truncate leading-tight">
+                                {sub.role || (isGatekeeper ? 'Gatekeeper de Segurança' : isSecurityAgent ? 'Agente de Segurança' : 'Sub-agente')}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <div className={`status-dot ${
+                              sub.status === 'active' ? 'status-online' : 'status-offline'
+                            }`} />
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={e => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenDialog(sub); }}>
+                                  <Pencil className="h-4 w-4 mr-2" />
+                                  Editar Sub-agente
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(sub.id, e)}>
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+              );
+            })}
           </div>
         </div>
 
@@ -449,32 +665,48 @@ export default function Agents() {
               </DialogTitle>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto">
-              <Tabs defaultValue="brain" className="w-full">
-                <TabsList className="flex w-full justify-start gap-4 px-6 border-b rounded-none h-12 bg-muted/20 sticky top-0 z-10">
-                  <TabsTrigger value="brain" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    Cérebro & Identidade
+              <Tabs defaultValue="brain" className="w-full flex-1 flex flex-col min-h-0">
+                {/* If editing a sub-agent, show a simplified banner */}
+                {editingAgent?.parent_agent_id && (
+                  <div className="mx-6 mt-4 flex items-center gap-2 bg-muted/40 border border-border/50 rounded-lg px-3 py-2">
+                    <ShieldCheck className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    <span className="text-xs text-muted-foreground">
+                      Editando <strong>sub-agente</strong> — configurações simplificadas.
+                      Sub-agentes herdam canal e integração do agente pai.
+                    </span>
+                  </div>
+                )}
+                <TabsList className="flex w-full justify-start gap-4 px-6 border-b rounded-none h-auto min-h-12 flex-wrap sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-hidden bg-muted/20 sticky top-0 z-10 scrollbar-hide py-2">
+                  <TabsTrigger value="brain" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                    <Sparkles className="h-4 w-4 shrink-0" />
+                    {editingAgent?.parent_agent_id ? 'Identidade & Prompt' : 'Cérebro & Identidade'}
                   </TabsTrigger>
-                  <TabsTrigger value="integration" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                    <Workflow className="h-4 w-4" />
-                    Canais & Integração
-                  </TabsTrigger>
-                  <TabsTrigger value="governance" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                    <ShieldAlert className="h-4 w-4" />
-                    Governança & Risco
-                  </TabsTrigger>
-                  <TabsTrigger value="tools" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
+                  {/* Tabs below hidden for sub-agents */}
+                  {!editingAgent?.parent_agent_id && (
+                    <TabsTrigger value="integration" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                      <Workflow className="h-4 w-4 shrink-0" />
+                      Canais & Integração
+                    </TabsTrigger>
+                  )}
+                  {!editingAgent?.parent_agent_id && (
+                    <TabsTrigger value="governance" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                      <ShieldAlert className="h-4 w-4 shrink-0" />
+                      Governança & Risco
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger value="tools" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                    <Settings className="h-4 w-4 shrink-0" />
                     Ferramentas & APIs
                   </TabsTrigger>
-                  <TabsTrigger value="knowledge" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                    <BookOpen className="h-4 w-4" />
-                    Base de Conhecimento
-                  </TabsTrigger>
-
-                  {formData.type === 'whatsapp' && (
-                    <TabsTrigger value="evolution" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 h-full flex items-center gap-2">
-                      <MessageCircle className="h-4 w-4" />
+                  {!editingAgent?.parent_agent_id && (
+                    <TabsTrigger value="knowledge" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                      <BookOpen className="h-4 w-4 shrink-0" />
+                      Base de Conhecimento
+                    </TabsTrigger>
+                  )}
+                  {!editingAgent?.parent_agent_id && formData.type === 'whatsapp' && (
+                    <TabsTrigger value="evolution" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
+                      <MessageCircle className="h-4 w-4 shrink-0" />
                       WhatsApp
                     </TabsTrigger>
                   )}
@@ -482,8 +714,8 @@ export default function Agents() {
 
                 <TabsContent value="brain" className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-12 gap-6 shrink-0">
-                    <div className="md:col-span-8 space-y-2">
-                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Identidade da Inteligência</Label>
+                    <div className="md:col-span-5 space-y-2">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Nome da Inteligência</Label>
                       <Input
                         className="text-lg font-semibold h-12 bg-muted/30 border-accent/20 focus:border-accent"
                         value={formData.name}
@@ -492,6 +724,15 @@ export default function Agents() {
                       />
                     </div>
                     <div className="md:col-span-4 space-y-2">
+                      <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Função / Cargo</Label>
+                      <Input
+                        className="text-lg font-semibold h-12 bg-muted/30 border-accent/20 focus:border-accent"
+                        value={formData.role}
+                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                        placeholder="Ex: Consultor de Vendas"
+                      />
+                    </div>
+                    <div className="md:col-span-3 space-y-2">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Tipo de Agente</Label>
                       <Select
                         value={formData.type || 'conversational'}
@@ -649,6 +890,43 @@ export default function Agents() {
                       <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o sistema injete a fala do usuário dinamicamente.</p>
                     </div>
                   </div>
+
+                  {/* Security toggle — only shown when editing a sub-agent */}
+                  {editingAgent?.parent_agent_id && (
+                    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4 flex items-start gap-4">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <ShieldAlert className="h-5 w-5 text-amber-500" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">Sub-agente de Segurança</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Quando ativado, este agente recebe o badge de segurança e acionará o fluxo de autenticação antes de responder.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={formData.requires_security ?? false}
+                            onClick={() => setFormData({ ...formData, requires_security: !(formData.requires_security ?? false) })}
+                            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 ${
+                              formData.requires_security
+                                ? 'bg-amber-500 border-amber-500'
+                                : 'bg-muted border-border'
+                            }`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 mt-0.5 ${
+                                formData.requires_security ? 'translate-x-5' : 'translate-x-0.5'
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="integration" className="p-6 space-y-8 animate-in fade-in slide-in-from-right-2">
@@ -1247,64 +1525,229 @@ export default function Agents() {
 
                 <TabsContent value="tools" className="p-6 space-y-6">
                   <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
-                    <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3 flex items-center gap-2">
-                      <Settings className="h-4 w-4" /> Ferramentas e Integrações
-                    </h4>
-                    <p className="text-xs text-muted-foreground pt-2">Configure as funções de negócio e automações que o Agente poderá acionar durante a conversa (via Workflow).</p>
-
-                    <div className="space-y-4 border border-border/50 p-4 rounded-lg bg-muted/5 mt-4">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold">Ferramenta 1: Consultar Faturas e Boletos</Label>
-                        <Switch
-                          checked={!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')}
-                          onCheckedChange={(checked) => {
-                            const currentTools = formData.brainConfig?.tools || [];
-                            if (checked) {
-                              setFormData(prev => ({
-                                ...prev,
-                                brainConfig: {
-                                  ...prev.brainConfig,
-                                  tools: [...currentTools, {
-                                    name: 'consultar_boletos',
-                                    description: 'Retorna a lista de faturas do cliente',
-                                    webhook_url: ''
-                                  }]
-                                }
-                              }));
-                            } else {
-                              setFormData(prev => ({
-                                ...prev,
-                                brainConfig: {
-                                  ...prev.brainConfig,
-                                  tools: currentTools.filter((t: any) => t.name !== 'consultar_boletos')
-                                }
-                              }));
-                            }
-                          }}
-                        />
-                      </div>
-
-                      {!!formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos') && (
-                        <div className="space-y-2 pt-2 animate-in slide-in-from-top-1">
-                          <Label className="text-xs text-muted-foreground">URL do Workflow da Ferramenta</Label>
-                          <Input
-                            placeholder="https://seu-servidor.com/webhook/consultar-boleto"
-                            className="h-9 font-mono text-xs bg-muted/30"
-                            value={(formData.brainConfig?.tools?.find((t: any) => t.name === 'consultar_boletos')?.webhook_url) || ''}
-                            onChange={(e) => {
-                              const updatedTools = (formData.brainConfig?.tools || []).map((t: any) =>
-                                t.name === 'consultar_boletos' ? { ...t, webhook_url: e.target.value } : t
-                              );
-                              setFormData(prev => ({
-                                ...prev,
-                                brainConfig: { ...prev.brainConfig, tools: updatedTools }
-                              }));
-                            }}
-                          />
-                          <p className="text-[10px] text-muted-foreground italic">Insira a URL do Workflow encarregado de executar esta ferramenta.</p>
-                        </div>
-                      )}
+                    <div className="flex items-center justify-between border-b border-border pb-3">
+                      <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider flex items-center gap-2">
+                        <Settings className="h-4 w-4" /> Ferramentas (Agent Tools)
+                      </h4>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs border-accent/30 text-accent hover:bg-accent/10"
+                        onClick={() => setShowNewToolForm(v => !v)}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {showNewToolForm ? 'Cancelar' : 'Nova Ferramenta'}
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Ferramentas são endpoints HTTP que o agente pode chamar durante a conversa. O n8n executará cada chamada via HTTP Request universal.
+                      Use a <strong>categoria</strong> para indicar se é uma consulta comum (<code>query</code>), uma ação (<code>action</code>) ou uma chave de acesso de segurança (<code>access_key</code>).
+                    </p>
+
+                    {/* Add new tool form */}
+                    {showNewToolForm && (
+                      <div className="border border-accent/30 rounded-lg p-4 space-y-3 bg-accent/5 animate-in slide-in-from-top-2">
+                        <h5 className="text-xs font-bold text-accent uppercase tracking-wider">Nova Ferramenta</h5>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Nome (identificador único)</Label>
+                            <Input
+                              placeholder="ex: consultar_saldo"
+                              className="h-8 font-mono text-xs bg-muted/30"
+                              value={newTool.name || ''}
+                              onChange={e => setNewTool(p => ({ ...p, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Categoria</Label>
+                            <Select
+                              value={newTool.category || 'query'}
+                              onValueChange={v => setNewTool(p => ({ ...p, category: v as any }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="query">🔍 query — Consulta de dados</SelectItem>
+                                <SelectItem value="action">⚡ action — Execução de ação</SelectItem>
+                                <SelectItem value="access_key">🔐 access_key — Validação de acesso</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[11px]">Descrição (instrução para a IA)</Label>
+                          <Input
+                            placeholder="Retorna as faturas em aberto do cliente identificado"
+                            className="h-8 text-xs bg-muted/30"
+                            value={newTool.description || ''}
+                            onChange={e => setNewTool(p => ({ ...p, description: e.target.value }))}
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Método HTTP</Label>
+                            <Select
+                              value={newTool.method || 'POST'}
+                              onValueChange={v => setNewTool(p => ({ ...p, method: v as any }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="GET">GET</SelectItem>
+                                <SelectItem value="POST">POST</SelectItem>
+                                <SelectItem value="PUT">PUT</SelectItem>
+                                <SelectItem value="PATCH">PATCH</SelectItem>
+                                <SelectItem value="DELETE">DELETE</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1 col-span-2">
+                            <Label className="text-[11px]">URL do Endpoint / Webhook</Label>
+                            <Input
+                              placeholder="https://servidor.com/api/ferramenta"
+                              className="h-8 font-mono text-xs bg-muted/30"
+                              value={newTool.url || ''}
+                              onChange={e => setNewTool(p => ({ ...p, url: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Headers (JSON)</Label>
+                            <Textarea
+                              rows={3}
+                              placeholder='{"Authorization": "Bearer ${token}"}'
+                              className="font-mono text-[10px] bg-muted/30 resize-none"
+                              value={newToolHeadersRaw}
+                              onChange={e => setNewToolHeadersRaw(e.target.value)}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Body Mapping (JSON)</Label>
+                            <Textarea
+                              rows={3}
+                              placeholder='{"cpf": "{{contact.cpf}}", "session": "{{session.id}}"}'
+                              className="font-mono text-[10px] bg-muted/30 resize-none"
+                              value={newToolBodyRaw}
+                              onChange={e => setNewToolBodyRaw(e.target.value)}
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 items-center">
+                          <div className="space-y-1">
+                            <Label className="text-[11px]">Modo de Resposta</Label>
+                            <Select
+                              value={newTool.response_mode || 'json'}
+                              onValueChange={v => setNewTool(p => ({ ...p, response_mode: v as any }))}
+                            >
+                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="json">JSON</SelectItem>
+                                <SelectItem value="text">Texto</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex justify-end pt-4">
+                            <Button
+                              size="sm"
+                              className="bg-accent hover:bg-accent/90"
+                              onClick={async () => {
+                                if (!newTool.name?.trim() || !newTool.url?.trim()) {
+                                  toast.error('Nome e URL são obrigatórios.');
+                                  return;
+                                }
+                                let parsedHeaders: Record<string, string> = {};
+                                let parsedBody: Record<string, any> = {};
+                                try { parsedHeaders = JSON.parse(newToolHeadersRaw || '{}'); } catch { toast.error('Headers inválido. Use JSON válido.'); return; }
+                                try { parsedBody = JSON.parse(newToolBodyRaw || '{}'); } catch { toast.error('Body Mapping inválido. Use JSON válido.'); return; }
+                                try {
+                                  const toolToCreate: Partial<AgentTool> = {
+                                    ...newTool,
+                                    tenant_id: currentTenant!.id,
+                                    agent_id: editingAgent?.id,
+                                    headers: parsedHeaders,
+                                    body_mapping: parsedBody,
+                                    parameters_schema: {},
+                                  };
+                                  const created = await agentsService.createAgentTool(toolToCreate);
+                                  setAgentTools(prev => [...prev, created]);
+                                  setShowNewToolForm(false);
+                                  setNewTool({ name: '', description: '', method: 'POST', url: '', headers: {}, body_mapping: {}, query_params: {}, response_mode: 'json', category: 'query', is_active: true });
+                                  setNewToolHeadersRaw('{}');
+                                  setNewToolBodyRaw('{}');
+                                  toast.success('Ferramenta criada com sucesso!');
+                                } catch (err) {
+                                  console.error(err);
+                                  toast.error('Erro ao criar ferramenta.');
+                                }
+                              }}
+                            >
+                              <Plus className="h-3.5 w-3.5 mr-1" /> Salvar Ferramenta
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Existing tools list */}
+                    {loadingTools ? (
+                      <p className="text-xs text-muted-foreground italic text-center py-4">Carregando ferramentas...</p>
+                    ) : agentTools.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Settings className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">Nenhuma ferramenta configurada.</p>
+                        <p className="text-xs mt-1">Clique em "Nova Ferramenta" para adicionar um endpoint que este agente pode chamar.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {agentTools.map((tool) => (
+                          <div key={tool.id} className="border border-border/50 rounded-lg p-3 bg-muted/5 flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <code className="text-xs font-bold text-accent">{tool.name}</code>
+                                <Badge
+                                  variant="outline"
+                                  className={`h-4 text-[9px] px-1 ${
+                                    tool.category === 'access_key'
+                                      ? 'border-red-400/40 text-red-400 bg-red-500/5'
+                                      : tool.category === 'action'
+                                      ? 'border-amber-400/40 text-amber-400 bg-amber-500/5'
+                                      : 'border-blue-400/40 text-blue-400 bg-blue-500/5'
+                                  }`}
+                                >
+                                  {tool.category === 'access_key' ? '🔐 access_key' : tool.category === 'action' ? '⚡ action' : '🔍 query'}
+                                </Badge>
+                                <Badge variant="outline" className="h-4 text-[9px] px-1 font-mono">{tool.method}</Badge>
+                                {!tool.is_active && <Badge variant="outline" className="h-4 text-[9px] px-1 text-muted-foreground">Inativo</Badge>}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground truncate">{tool.description}</p>
+                              <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">{tool.url}</p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                              onClick={async () => {
+                                if (!window.confirm(`Excluir a ferramenta "${tool.name}"?`)) return;
+                                try {
+                                  await agentsService.deleteAgentTool(tool.id);
+                                  setAgentTools(prev => prev.filter(t => t.id !== tool.id));
+                                  toast.success('Ferramenta removida.');
+                                } catch (err) {
+                                  toast.error('Erro ao remover ferramenta.');
+                                }
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
 
@@ -1367,6 +1810,108 @@ export default function Agents() {
                   {editingAgent ? 'Salvar Alterações' : 'Criar Agente'}
                 </Button>
               </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ===== Sub-agent Creation Dialog ===== */}
+        <Dialog open={isSubAgentDialogOpen} onOpenChange={setIsSubAgentDialogOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Bot className="h-5 w-5 text-accent" />
+                Novo Sub-agente
+                {parentAgentForSub && (
+                  <span className="text-xs font-normal text-muted-foreground ml-1">
+                    → vinculado a <strong>{parentAgentForSub.name}</strong>
+                  </span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Nome do Sub-agente</Label>
+                <Input
+                  placeholder="ex: Segurança CPF + NF"
+                  className="h-9"
+                  value={subAgentFormData.name || ''}
+                  onChange={e => setSubAgentFormData(p => ({ ...p, name: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Papel / Role</Label>
+                <Input
+                  placeholder="ex: Agente de Segurança"
+                  className="h-9"
+                  value={subAgentFormData.role || ''}
+                  onChange={e => setSubAgentFormData(p => ({ ...p, role: e.target.value }))}
+                />
+              </div>
+
+              {/* Gatekeeper flag */}
+              <div className="border border-border/50 rounded-lg p-3 space-y-3 bg-muted/5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-xs font-semibold">🔐 É um Agente de Segurança (Gatekeeper)?</Label>
+                    <p className="text-[10px] text-muted-foreground">Se ativo, este sub-agente será responsável por validar o acesso do usuário antes de liberar o agente pai.</p>
+                  </div>
+                  <Switch
+                    checked={!!subAgentFormData.is_gatekeeper}
+                    onCheckedChange={v => setSubAgentFormData(p => ({ ...p, is_gatekeeper: v }))}
+                  />
+                </div>
+
+                {subAgentFormData.is_gatekeeper && (
+                  <div className="space-y-1 animate-in slide-in-from-top-1">
+                    <Label className="text-[11px]">Escopo de Atuação</Label>
+                    <Select
+                      value={subAgentFormData.gatekeeper_scope || 'specific'}
+                      onValueChange={v => setSubAgentFormData(p => ({ ...p, gatekeeper_scope: v as any }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="specific">
+                          <div>
+                            <div className="font-medium">Específico (deste agente pai)</div>
+                            <div className="text-[10px] text-muted-foreground">Só protege o agente "{parentAgentForSub?.name}"</div>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="tenant">
+                          <div>
+                            <div className="font-medium">Global (todos do tenant)</div>
+                            <div className="text-[10px] text-muted-foreground">Pode ser reutilizado por qualquer agente do tenant</div>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Prompt do Sub-agente</Label>
+                <Textarea
+                  rows={4}
+                  placeholder="Descreva a missão deste sub-agente. Ex: Você é um agente de segurança. Sua missão é validar o acesso do usuário através do CPF e da Nota Fiscal..."
+                  className="text-xs bg-muted/30 resize-none"
+                  value={subAgentFormData.brainConfig?.systemPrompt || ''}
+                  onChange={e => setSubAgentFormData(p => ({
+                    ...p,
+                    brainConfig: { ...p.brainConfig, systemPrompt: e.target.value }
+                  }))}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="outline" onClick={() => setIsSubAgentDialogOpen(false)}>Cancelar</Button>
+              <Button className="bg-accent hover:bg-accent/90" onClick={handleSaveSubAgent}>
+                <Bot className="h-4 w-4 mr-1" /> Criar Sub-agente
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

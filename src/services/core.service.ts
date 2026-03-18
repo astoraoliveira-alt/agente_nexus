@@ -406,7 +406,7 @@ export const coreService = {
     },
 
     async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
-        const select = this._capabilities.agents ? '*, agents(name, type)' : '*';
+        const select = this._capabilities.agents ? '*, agents!agent_id(name, type)' : '*';
 
         let { data, error } = await supabase
             .from('conversations')

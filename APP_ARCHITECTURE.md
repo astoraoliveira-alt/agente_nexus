@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 16/Mar/2026
-> **Versão:** 14.0 (N8N Orchestrator V5, Security Flow Redesign, Session Expiry Fix)
+> **Última Atualização:** 18/Mar/2026
+> **Versão:** 15.0 (N8N Orchestrator V7 - Dynamic Gatekeeper & Universal Access Keys)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -286,6 +286,10 @@ companies (tenants)
 | `applied_policies` | TEXT[] | IDs/nomes de políticas vinculadas |
 | `risk_score` | NUMERIC | Score acumulado de risco (ISO 42001) |
 | `last_actor_name` | TEXT | Último usuário que alterou o agente (auditoria UI) |
+| `is_gatekeeper` | BOOLEAN | Identifica se o agente é um validador de acesso (Segurança) |
+| `gatekeeper_scope` | VARCHAR | `'specific'` (apenas para o pai) ou `'tenant'` (compartilhado) |
+| `requires_security` | BOOLEAN | (Para Agentes Pais) Se exige validação de Gatekeeper para intents protegidas |
+| `gatekeeper_config` | JSONB | Configurações do validador (ex: campo de validação, limites) |
 
 #### `conversations`
 | Coluna | Tipo | Descrição |
@@ -302,6 +306,7 @@ companies (tenants)
 | `current_stage_id` | UUID | FK → flow_stages (etapa atual) |
 | `last_message_at` | TIMESTAMPTZ | Usado para gestão de inatividade |
 | `is_simulation` | BOOLEAN | Flag para Playground/Demo |
+| `active_agent_id` | UUID | **CRÍTICO:** ID do agente que detém o controle atual (Vendas ou Segurança) |
 
 #### `messages`
 | Coluna | Tipo | Descrição |
@@ -405,8 +410,9 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `n8n_orchestrator_v5` | **V5 (master atual)** | Versão consolidada que substitui a V4. Além de tudo que V4 fazia, adiciona: suporte a Meta API Token, hierarquia de sub-agentes, recuperação de `session_status` e `session_identifier` da tabela `conversation_security_sessions` (com verificação de `expires_at > NOW()` e expiração automática de sessões vencidas via UPDATE proativo). |
-| `n8n_orchestrator_v4` | V4 (legacy) | Versão anterior, mantida como fallback. Em processo de depreciação. |
+| `n8n_orchestrator_v7` | **V7 (Draft / In Dev)** | Evolução para **Dynamic Gatekeeper**. Gerencia o desvio de controle para sub-agentes de segurança baseado em `requires_security` e `is_gatekeeper`. |
+| `n8n_orchestrator_v6` | V6 (Production) | Suporte a Meta API Token e descoberta básica de ferramentas dinamicas. |
+| `n8n_orchestrator_v5` | V5 (Legacy) | Versão consolidada anterior. |
 | `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. Atualiza `last_message_at`. |
 | `record_usage` | Atual | Registra evento de consumo. Detecta canal pelo tipo do agente. |
 | `sync_vapi_call` | V27 | Idempotente. Sincroniza chamada de voz VAPI: grava payload em `integration_logs`, sincroniza mensagens com chave `(conversation_id, external_id)`, calcula custo por duração. |
@@ -607,6 +613,23 @@ O Nexus agora utiliza uma matriz de risco dinâmica que avalia incidentes em tem
 | **Low** | 0.0 | Registro informativo apenas. |
 
 A RPC `evaluate_conversation_security` soma os pesos dos incidentes ativos na conversa. Se o score ultrapassar o limite configurado (padrão: 1.0), as ferramentas protegidas são desativadas preventivamente.
+
+### 10.6 Dynamic Gatekeeper Pattern (Universal Access Keys)
+
+O Nexus Hub utiliza um sistema de **Segurança como Serviço** (SaaS Security) onde o processo de autenticação é desacoplado do agente de vendas principal.
+
+#### 10.6.1 Funcionamento do Fluxo
+1.  **Detecção de Intenção**: O Orquestrador identifica uma intenção `protected`.
+2.  **Verificação de Gatekeeper**: Se o agente pai tem `requires_security = true` e a sessão está `unauthenticated`, o sistema busca o Gatekeeper do tenant.
+3.  **Handoff de Controle**: O `active_agent_id` da conversa é alterado para o ID do Gatekeeper.
+4.  **Validação Dinâmica**: O Gatekeeper interage com o usuário para obter o "Access Key" (CPF, Pedido, CNPJ, etc).
+5.  **Ativação de Sessão**: Quando uma ferramenta de categoria `access_key` retorna sucesso, o n8n ativa a `conversation_security_session`.
+6.  **Retorno**: O controle volta ao Agente Pai, que agora possui as ferramentas financeiras desbloqueadas.
+
+#### 10.6.2 Categorização de Ferramentas (`agent_tools`)
+- **`query`**: Ferramentas informativas padrão.
+- **`action`**: Execução de ações transacionais simples.
+- **`access_key`**: Ferramentas de validação que, se bem-sucedidas, ativam a sessão de segurança do usuário.
 
 ---
 

@@ -64,6 +64,7 @@ async getDashboardSummary(tenantId: string): Promise<{ agents: Agent[], tenant: 
                     brainConfig: dbAgent.brain_config,
                     lifecycleStage: dbAgent.lifecycle_stage,
                     riskLevel: dbAgent.risk_level,
+                    role: dbAgent.role,
                     type: dbAgent.type,
                     evolution_instance: dbAgent.evolution_instance,
                     evolution_token: dbAgent.evolution_token,
@@ -73,7 +74,12 @@ async getDashboardSummary(tenantId: string): Promise<{ agents: Agent[], tenant: 
                     integrationConfig: dbAgent.integration_config || {},
                     integration: {
                         n8n_webhook_url: dbAgent.integration_config?.n8n_webhook_url || `https://n8n.webhook/${dbAgent.id}`
-                    }
+                    },
+                    // Hierarchy fields — CRITICAL for parent/sub-agent filtering in the UI
+                    parent_agent_id: dbAgent.parent_agent_id || null,
+                    is_gatekeeper: dbAgent.is_gatekeeper || false,
+                    gatekeeper_scope: dbAgent.gatekeeper_scope || null,
+                    requires_security: dbAgent.requires_security || false,
                 };
             }),
             tenant: {

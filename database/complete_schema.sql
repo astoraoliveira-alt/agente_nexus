@@ -197,9 +197,11 @@ CREATE TABLE IF NOT EXISTS agents (
     context_window INT DEFAULT 10,
     session_timeout_seconds INT DEFAULT 3600,
 
-    -- Evolution API Integrarions
+    -- Integration (Evolution & Meta)
     evolution_instance VARCHAR(255),
     evolution_token TEXT,
+    whatsapp_api_type VARCHAR(50) DEFAULT 'evolution' CHECK (whatsapp_api_type IN ('evolution', 'meta_official')),
+    meta_api_token TEXT,
 
     -- Agent Type
     type VARCHAR(50) DEFAULT 'conversational' CHECK (type IN ('embedded', 'whatsapp', 'conversational')),
@@ -212,6 +214,9 @@ CREATE TABLE IF NOT EXISTS agents (
     department_id TEXT,
     cost_center TEXT,
 
+    role VARCHAR(255), -- Agente role display
+    parent_agent_id UUID REFERENCES agents(id) ON DELETE CASCADE, -- 1-level hierarchy
+
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -221,6 +226,59 @@ CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Manage Agents" ON agents;
 CREATE POLICY "Tenant Manage Agents" ON agents FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+
+-- =============================================
+-- AGENT HIERARCHY LOGIC
+-- =============================================
+
+-- Sync status from Parent to Child
+CREATE OR REPLACE FUNCTION sync_child_agent_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- If status is updated, propagate to children
+    IF (OLD.status IS DISTINCT FROM NEW.status) THEN
+        UPDATE agents 
+        SET status = NEW.status
+        WHERE parent_agent_id = NEW.id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER trg_sync_child_status
+AFTER UPDATE OF status ON agents
+FOR EACH ROW
+WHEN (NEW.parent_agent_id IS NULL) -- Only propagate from top-level agents to sub-agents
+EXECUTE FUNCTION sync_child_agent_status();
+
+-- Enforce 1 level depth
+CREATE OR REPLACE FUNCTION enforce_agent_hierarchy_depth()
+RETURNS TRIGGER AS $$
+DECLARE
+    parent_has_parent BOOLEAN;
+BEGIN
+    IF NEW.parent_agent_id IS NOT NULL THEN
+        -- Standardize self-parent check
+        IF NEW.id = NEW.parent_agent_id THEN
+            RAISE EXCEPTION 'An agent cannot be its own parent.';
+        END IF;
+
+        SELECT (parent_agent_id IS NOT NULL) INTO parent_has_parent
+        FROM agents 
+        WHERE id = NEW.parent_agent_id;
+        
+        IF parent_has_parent THEN
+            RAISE EXCEPTION 'Davos Nexus supports only 1 level of agent hierarchy (Parent -> Child). Multi-level nesting is forbidden.';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_enforce_agent_hierarchy_depth
+BEFORE INSERT OR UPDATE OF parent_agent_id ON agents
+FOR EACH ROW
+EXECUTE FUNCTION enforce_agent_hierarchy_depth();
 
 -- AGENT KNOWLEDGE BASE (RAG)
 CREATE TABLE IF NOT EXISTS agent_knowledge (

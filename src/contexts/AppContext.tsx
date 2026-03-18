@@ -173,7 +173,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Filter data when tenant changes & Poll every 5s
   // Filter data when tenant changes & Poll every 5s
   useEffect(() => {
-    let intervalId: NodeJS.Timeout;
+
 
     async function loadConversationsList() {
       if (currentTenant) {
@@ -210,7 +210,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Initial Load & Polling (Relaxed to 20s to prevent thrashing)
     loadConversationsList();
-    intervalId = setInterval(loadConversationsList, 20000);
+    const intervalId = setInterval(loadConversationsList, 20000);
 
     return () => clearInterval(intervalId);
   }, [currentTenant]);
