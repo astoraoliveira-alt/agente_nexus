@@ -49,7 +49,7 @@ import { mockUsers, mockAgents } from '@/lib/mock-data';
 import { Company, AuditLog, PlanCatalog } from '@/lib/types';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api'; // Import API
-import { getTenantAggregatedStats, calculateISOStatus } from '@/lib/consumption-logic';
+import { calculateISOStatus } from '@/lib/utils';
 import { useEffect } from 'react';
 
 // Decima Input Helper
@@ -181,15 +181,11 @@ export default function Companies() {
   };
 
   const getStats = (company: Company & { _count?: { agents: number; users: number; tokens: number } }) => {
-    // Legacy support or fallback
-    if (company._count) {
-      return {
-        usersCount: company._count.users,
-        agentsCount: company._count.agents,
-        tokensCount: company._count.tokens // Now using real aggregated tokens
-      };
-    }
-    return getTenantAggregatedStats(company.id, mockConsumptionMetrics, mockAgents, mockUsers);
+    return {
+      usersCount: company._count?.users || 0,
+      agentsCount: company._count?.agents || 0,
+      tokensCount: company._count?.tokens || 0
+    };
   };
 
   const handleSaveCompany = async () => {

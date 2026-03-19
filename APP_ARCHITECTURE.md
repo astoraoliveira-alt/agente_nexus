@@ -50,7 +50,8 @@ A arquitetura do Nexus Hub é um modelo híbrido **Service-Oriented Frontend + D
 | | Caching / Scale | **Redis** | 🇺🇸 VPS (Utah, US) | Atua em conjunto com o n8n para **paralelizar** a execução e escalar chamadas em massa. |
 | **Canais** | WhatsApp | **Evolution API (Node)** | 🇺🇸 VPS (Utah, US) | Gateway de mensagem WhatsApp. |
 | | Voz | **VAPI** | 🇺🇸 USA (Global) | Processamento de voz. Integração bidirecional via webhook `sync_vapi_call`. |
-| **Inference** | LLM Brain | **OpenAI API (GPT-4o, text-embedding-3-small)** | 🇺🇸 USA | Raciocínio, geração de embeddings (client-side), sugestão de políticas. |
+| **Inference** | LLM Brain | **OpenAI API (GPT-4o)** | 🇺🇸 USA | Raciocínio, geração de embeddings e sugestão de políticas. |
+| | **Gateway** | **Supabase Edge Functions** | 🇺🇸 Supabase Edge | **[Fase 1]** Todas as chamadas diretas da OpenAI foram removidas do frontend. Embeddings e Auditoria ocorrem via Edge Functions seguras. |
 | | Alternativo | **Anthropic (Claude 3.5)** | 🇺🇸 USA | Configurável por agente no campo `brain_config.modelId`. |
 
 ### 2.2 Frontend: Dependências de Produção
@@ -684,14 +685,14 @@ O N8N retorna scores em 3 dimensões, salvas em `criteria_results`:
         ↓
 2. consumption_metrics acumula eventos
         ↓
-3. get_detailed_consumption (RPC) agrega por agente/canal
+3. get_detailed_consumption (RPC) agrega por agente/canal e **aplica taxas do plano** via SQL.
         ↓
-4. Frontend recalcula custo = (valor × preço_do_plano) em tempo real
+4. Frontend apenas exibe o `cost` retornado pelo banco (Arquitetura "Burra" para Billing).
         ↓
 5. Predictor de fatura = (custo_atual / dias_do_mês) × 30
 ```
 
-> **Nota:** O frontend sempre recalcula o custo usando os preços do plano (não o `cost` bruto do banco) para garantir sincronismo com a tabela `plans`. Isso é feito em `api.getDashboardSummary()` para agentes em `production`/`monitoring`.
+> **Nota:** O faturamento foi centralizado no banco de dados na **Fase 1 (Mar/2026)**. O frontend não possui mais multiplicadores de preço (hardcoded), eliminando discrepâncias entre o que o cliente vê e o que é cobrado no DRE (Financials).
 
 ### 12.4 Cálculo de ROI
 
@@ -1126,3 +1127,14 @@ ORDER BY created_at DESC LIMIT 1;
 ---
 
 *Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
+---
+
+## 21. Evolução e Histórico de Arquitetura
+
+### 21.1 Fase 1: Centralização Financeira & Segurança (18-19/Mar/2026)
+- **Problemática:** O frontend calculava custos de tokens e mensagens localmente, expondo margens e chaves de API.
+- **Solução:** 
+  - **Pricing Engine no SQL:** A RPC `get_detailed_consumption` passou a realizar o JOIN com as tabelas de preços (`companies.plan_prices`) e retornar o `cost` já calculado.
+  - **Dumb Frontend:** Componentes como `Consumption.tsx` e `Index.tsx` foram higienizados de lógica financeira.
+  - **Secrets Protection:** Migração de chamadas OpenAI (Embeddings e Policy Suggestions) para Edge Functions. `VITE_OPENAI_API_KEY` depreciada no cliente.
+  - **ROI Centralizado:** Fator de economia humana (2.0 min/msg) movido para o core service backend.

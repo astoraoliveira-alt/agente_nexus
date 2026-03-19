@@ -54,38 +54,14 @@ export const coreService = {
         if (error) throw error;
     },
 
-    async generateEmbedding(text: string): Promise<number[]> {
-        const apiKey = import.meta.env.VITE_OPENAI_API_KEY;
-        if (!apiKey) {
-            console.warn('VITE_OPENAI_API_KEY not found. Skipping embedding generation.');
-            return [];
-        }
+    async processDocument(agentId: string, tenantId: string, name: string, textContent: string, fileType?: string, fileSize?: number): Promise<void> {
+        const { error } = await supabase.functions.invoke('process-document', {
+            body: { agentId, tenantId, name, textContent, fileType, fileSize }
+        });
 
-        try {
-            const endpoint = import.meta.env.DEV ? '/openai-api/v1/embeddings' : 'https://api.openai.com/v1/embeddings';
-            const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`
-                },
-                body: JSON.stringify({
-                    input: text,
-                    model: 'text-embedding-3-small'
-                })
-            });
-
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(`OpenAI API Error: ${errText}`);
-            }
-
-            const data = await response.json();
-            return data.data[0].embedding;
-        } catch (error) {
-            console.error('Failed to generate embedding:', error);
-            // Return empty array on failure, so the user knows
-            return [];
+        if (error) {
+            console.error('Failed to process document:', error);
+            throw new Error(`Erro ao processar documento: ${error.message || 'Falha na Edge Function'}`);
         }
     },
 
@@ -495,29 +471,106 @@ export const coreService = {
         return this.updateConversationStatus(conversationId, 'closed');
     },
 
-    async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any[]> {
-        const { data, error } = await supabase
-            .rpc('get_detailed_consumption', {
-                p_tenant_id: tenantId,
-                p_days: days
-            });
+    async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any> {
+        // 1. Fetch Company to get Plan Prices
+        const { data: company, error: companyError } = await supabase
+            .from('companies')
+            .select('plan_prices, roi_config')
+            .eq('id', tenantId)
+            .single();
 
-        if (error) {
-            console.error('Error fetching consumption:', error);
-            return [];
+        if (companyError) {
+            console.error('Error fetching company for pricing:', companyError);
         }
 
-        return data.map((row: any) => ({
-            id: row.id,
-            agentId: row.agent_id,
-            agentName: row.agent_name || 'Agente Removido',
-            channel: row.channel,
-            metricType: row.metric_type,
-            value: Number(row.value), // Ensure number
-            cost: Number(row.cost),   // Ensure number
-            timestamp: new Date(row.recorded_at), // Corrected field
-            tenantId: tenantId
-        }));
+        const prices = company?.plan_prices || {};
+        const roiConfig = company?.roi_config || { operator_hourly_rate: 30.0 };
+
+        // 2. Fetch Detailed Consumption from RPC
+        const { data, error } = await supabase.rpc('get_detailed_consumption', {
+            p_tenant_id: tenantId,
+            p_days: days
+        });
+
+        if (error) {
+            console.error('Failed to get detailed consumption:', error);
+            // Fallback to table if RPC fails (some environments might not have it)
+            const { data: fbData, error: fbError } = await supabase
+                .from('consumption_metrics')
+                .select('*, agents(name)')
+                .eq('tenant_id', tenantId)
+                .gte('recorded_at', new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString());
+            
+            if (fbError) throw new Error(`Erro ao buscar consumo: ${fbError.message}`);
+            
+            return {
+                success: true,
+                data: (fbData || []).map(m => ({
+                    id: m.id,
+                    agentId: m.agent_id,
+                    agentName: m.agents?.name || 'Agente',
+                    channel: m.channel,
+                    metricType: m.metric_type,
+                    value: Number(m.value),
+                    cost: Number(m.cost),
+                    timestamp: m.recorded_at,
+                    tenantId
+                })),
+                summary: { totalCost: 0 } // Basic summary on fallback
+            };
+        }
+
+        // 3. Process and Enrich Data
+        let totalCost = 0;
+        let totalMessages = 0;
+        let totalTokens = 0;
+        let totalSTT = 0;
+        let totalTTS = 0;
+
+        const enrichedData = (data as any[] || []).map((row: any) => {
+            const cost = Number(row.cost || 0);
+            const value = Number(row.value || 0);
+
+            totalCost += cost;
+            if (row.metric_type === 'messages') totalMessages += value;
+            if (row.metric_type === 'tokens') totalTokens += value;
+            if (row.metric_type === 'stt_minutes') totalSTT += value;
+            if (row.metric_type === 'tts_minutes') totalTTS += value;
+
+            return {
+                id: row.id,
+                agentId: row.agent_id,
+                agentName: row.agent_name || 'Agente Removido',
+                channel: row.channel,
+                metricType: row.metric_type,
+                value: value,
+                cost: cost,
+                timestamp: row.recorded_at,
+                tenantId: tenantId
+            };
+        });
+
+        // 4. Calculate ROI based on messages saved
+        const AVG_MIN_PER_MSG = 2.0;
+        const hoursSaved = (totalMessages * AVG_MIN_PER_MSG) / 60;
+        const moneySaved = hoursSaved * (roiConfig.operator_hourly_rate || 30.0);
+
+        return {
+            success: true,
+            data: enrichedData,
+            summary: {
+                totalCost,
+                totalMessages,
+                totalTokens,
+                totalSTT,
+                totalTTS,
+                roi: {
+                    hoursSaved,
+                    moneySaved,
+                    display: `${Math.floor(hoursSaved)}h ${Math.round((hoursSaved % 1) * 60)}m`
+                }
+            }
+        };
     },
 
     async assignConversation(conversationId: string, operatorId: string | null, operatorName?: string): Promise<void> {

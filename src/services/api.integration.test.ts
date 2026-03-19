@@ -200,12 +200,15 @@ describe('Local API REST Latency & Integrity Tests (Supabase DB)', () => {
 
     it('should fetch consumption metrics wrapper', async () => {
         const start = performance.now();
-        const metrics = await api.getConsumptionMetrics(tenantId, 30);
+        const response = await api.getConsumptionMetrics(tenantId, 30);
         const end = performance.now();
 
         recordLatency('getConsumptionMetrics', start, end);
         console.log(`⏱️ [LATENCY] getConsumptionMetrics (30d): ${(end - start).toFixed(2)}ms`);
-        expect(Array.isArray(metrics)).toBe(true);
+        expect(response.success).toBe(true);
+        expect(Array.isArray(response.data)).toBe(true);
+        expect(response.summary).toBeDefined();
+        expect(typeof response.summary.totalCost).toBe('number');
     });
 
     it('should load quality evaluations', async () => {

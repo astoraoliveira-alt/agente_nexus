@@ -738,7 +738,6 @@ export const mockDSARRequests: DSARRequest[] = [
 // ============ Extended User Data with Roles ============
 // ============ Consumption & Metrics Data (Etapa 1-7) ============
 import { ConsumptionMetrics, PeakUsageMatrix, ConsumptionChannel, MetricType } from './types';
-import { COST_RATES } from './consumption-logic';
 
 const generateDetailedMockMetrics = (): ConsumptionMetrics[] => {
   const metrics: ConsumptionMetrics[] = [];

@@ -52,3 +52,26 @@ export function phoneticMatch(text: string, term: string): boolean {
   if (!text || !term) return false;
   return normalizePhonetic(text).includes(normalizePhonetic(term));
 }
+
+/**
+ * ISO 42001 Compliance Status logic.
+ * Simple rule-based logic for UI badge display.
+ */
+export function calculateISOStatus(company: any) {
+  if (company.privacySettings?.anonymizationEnabled && company.privacySettings?.retentionDays <= 90) {
+    return 'conform';
+  }
+  if (company.plan === 'enterprise' && !company.privacySettings?.anonymizationEnabled) {
+    return 'critical';
+  }
+  return 'pending';
+}
+
+/**
+ * Determines if a metric should be billed based on the agent's lifecycle stage.
+ */
+export const isMetricBillable = (stage?: string) => {
+  if (!stage) return true;
+  const s = stage.toLowerCase();
+  return !['poc', 'sandbox', 'internal'].includes(s);
+};

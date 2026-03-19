@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt, HelpCircle, Info, Timer, Zap } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
+import { cn, isMetricBillable } from '@/lib/utils';
 import { mockPeakUsageMatrix } from '@/lib/mock-extended-data';
-import { calculateProjection, isMetricBillable } from '@/lib/consumption-logic';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
@@ -53,13 +53,18 @@ export default function Consumption() {
         const tenantData = await api.getTenant(currentTenant.id);
         if (tenantData) setFreshTenant(tenantData);
 
-        const [metricsData, agentsData] = await Promise.all([
+        const [consumptionResponse, agentsData] = await Promise.all([
           api.getConsumptionMetrics(currentTenant.id, 60),
           api.getAgents(currentTenant.id)
         ]);
 
-        if (metricsData && metricsData.length > 0) {
-          setRealMetrics(metricsData);
+        if (consumptionResponse && consumptionResponse.success) {
+          // Normalize dates from string to Date objects
+          const normalizedMetrics = consumptionResponse.data.map((m: any) => ({
+            ...m,
+            timestamp: new Date(m.timestamp)
+          }));
+          setRealMetrics(normalizedMetrics);
         }
         if (agentsData) {
           setRealAgents(agentsData);
@@ -81,43 +86,6 @@ export default function Consumption() {
     return data;
   }, [period, agentFilter, channelFilter, realMetrics]);
 
-  const calculateMetricCost = (m: any) => {
-    const agent = realAgents.find(a => a.id === m.agentId);
-    const stage = agent ? agent.lifecycleStage : 'production';
-    if (!isMetricBillable(stage)) return 0;
-
-    const prices = (tenantToUse as any)?.planPrices || {};
-
-    // Safely extract prices with 0 as absolute default
-    const llmPrice = prices.llmTokenPrice ?? prices.llm_token_price ?? 0;
-    const msgPrice = prices.messagePrice ?? prices.message_price ?? 0;
-    let sttPrice = prices.sttMinutePrice ?? prices.stt_minute_price ?? 0;
-    let ttsPrice = prices.ttsMinutePrice ?? prices.tts_minute_price ?? 0;
-
-    // Fallback for missing configurations (if 0 is not intended but data is missing)
-    if (Object.keys(prices).length === 0) {
-      // If we have literally no price data, use safe defaults
-      if (sttPrice === 0) sttPrice = 0.50;
-      if (ttsPrice === 0) ttsPrice = 0.50;
-    }
-
-    // Davos specific correction: if prices are still 1.00 (legacy/cache), force 0.50 to avoid doubling
-    if (sttPrice === 1.00 && (tenantToUse as any)?.name === 'Davos') sttPrice = 0.50;
-    if (ttsPrice === 1.00 && (tenantToUse as any)?.name === 'Davos') ttsPrice = 0.50;
-
-    if (m.metricType === 'tokens') {
-      const calculated = (m.value / 1000) * llmPrice;
-      if (calculated > 0 && llmPrice === 0) {
-        console.warn('Price skip detected: calculated > 0 but llmPrice is 0', { llmPrice, value: m.value });
-      }
-      return calculated;
-    }
-    if (m.metricType === 'messages') return m.value * msgPrice;
-    if (m.metricType === 'stt_minutes') return m.value * sttPrice;
-    if (m.metricType === 'tts_minutes') return m.value * ttsPrice;
-    return 0;
-  };
-
   const summary = useMemo(() => {
     const totals = {
       tokens: 0,
@@ -132,7 +100,7 @@ export default function Consumption() {
     };
 
     filteredMetrics.forEach(m => {
-      const cost = calculateMetricCost(m);
+      const cost = m.cost || 0;
       if (m.metricType === 'tokens') {
         totals.tokens += m.value;
         totals.costTokens += cost;
@@ -148,9 +116,6 @@ export default function Consumption() {
       }
     });
 
-    // Strategy: Sum costs for all variable metrics. 
-    // Since we halved the voice rates (0.50 STT + 0.50 TTS = 1.00 total), 
-    // summing correctly reflects the intended 1.00 per physical minute.
     totals.totalCost = totals.messageCost + totals.costSTT + totals.costTTS + totals.costTokens;
 
     return totals;
@@ -184,13 +149,12 @@ export default function Consumption() {
       const dateStr = m.timestamp.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
       if (!days[dateStr]) days[dateStr] = { date: dateStr, messages: 0, cost: 0 };
       if (m.metricType === 'messages') days[dateStr].messages += m.value;
-      days[dateStr].cost += calculateMetricCost(m);
+      days[dateStr].cost += m.cost || 0;
     });
     return Object.values(days).reverse();
-  }, [filteredMetrics, realAgents, tenantToUse]);
+  }, [filteredMetrics]);
 
-  const tenantLimit = (tenantToUse as any)?.limits?.llmTokens || 1000000;
-  const projectedPercentage = calculateProjection(summary.tokens, tenantLimit, period === '7d' ? 7 : 30);
+  // Projections removed from frontend - logic moved to backend
 
   const heatmapData = useMemo(() => {
     const daysMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -204,7 +168,7 @@ export default function Consumption() {
   const byAgentData = useMemo(() => {
     const agents: Record<string, any> = {};
     filteredMetrics.forEach(m => {
-      const cost = calculateMetricCost(m);
+      const cost = m.cost || 0;
       const agentId = m.agentId || 'system-unassigned';
       if (!agents[agentId]) {
         const realName = (m as any).agentName;
@@ -227,7 +191,7 @@ export default function Consumption() {
       agents[agentId].cost += cost;
     });
     return Object.values(agents);
-  }, [filteredMetrics, realAgents, tenantToUse]);
+  }, [filteredMetrics, realAgents]);
 
   const byChannelData = useMemo(() => {
     const channels: Record<string, any> = {
@@ -238,7 +202,7 @@ export default function Consumption() {
 
     filteredMetrics.forEach(m => {
       const channelKey = m.channel || 'unknown';
-      const cost = calculateMetricCost(m);
+      const cost = m.cost || 0;
       if (!channels[channelKey]) {
         channels[channelKey] = { channel: channelKey, name: channelKey, messages: 0, cost: 0, messageCost: 0 };
       }
@@ -252,7 +216,7 @@ export default function Consumption() {
       entry.cost += cost;
     });
     return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
-  }, [filteredMetrics, realAgents, tenantToUse]);
+  }, [filteredMetrics]);
 
   return (
     <MainLayout>

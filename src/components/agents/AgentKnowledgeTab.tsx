@@ -7,7 +7,6 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { extractTextFromFile } from '@/lib/file-parsers';
-import { chunkText } from '@/lib/text-chunker';
 
 interface AgentKnowledgeTabProps {
     agentId: string;
@@ -79,39 +78,16 @@ export function AgentKnowledgeTab({ agentId, tenantId }: AgentKnowledgeTabProps)
                 throw new Error('Não foi possível extrair nenhum texto legível do arquivo.');
             }
 
-            setUploadProgress('Fatiando texto explicativo...');
-            const chunks = chunkText(textContent);
-
-            if (chunks.length === 0) {
-                throw new Error('O arquivo não contém texto válido após o fatiamento.');
-            }
-
-            // Client-Side Embedding Generation using OpenAI API for each chunk
-            for (let i = 0; i < chunks.length; i++) {
-                setUploadProgress(`Processando parte ${i + 1} de ${chunks.length}...`);
-
-                const chunk = chunks[i];
-                const embedding = await api.generateEmbedding(chunk);
-
-                // Add suffix for chunking visibility
-                const chunkSuffix = chunks.length > 1 ? ` (Parte ${i + 1}/${chunks.length})` : '';
-                const baseNameLength = file.name.lastIndexOf('.');
-                const baseName = baseNameLength > -1 ? file.name.substring(0, baseNameLength) : file.name;
-                const extension = baseNameLength > -1 ? file.name.substring(baseNameLength) : '';
-                const finalName = `${baseName}${chunkSuffix}${extension}`;
-
-                await api.addKnowledgeItem({
-                    agentId,
-                    tenantId,
-                    name: finalName,
-                    content: chunk,
-                    fileType: file.name.split('.').pop() || 'doc',
-                    fileSize: Math.floor(file.size / chunks.length), // approximate chunk size
-                    fileUrl: '#', // Simulated URL for now since storage is mock
-                    embedding: embedding
-                });
-            }
-
+            setUploadProgress('Enviando para servidor de processamento e AI...');
+            
+            await api.processDocument(
+                agentId,
+                tenantId,
+                file.name,
+                textContent,
+                file.name.split('.').pop() || 'doc',
+                file.size
+            );
 
             loadKnowledge();
 

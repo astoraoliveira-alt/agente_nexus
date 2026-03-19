@@ -82,12 +82,15 @@ export default function Index() {
       { label: 'Ruim', variant: 'critical' as const };
 
   // Consumption Logic
+  const metrics = (consumption as any)?.data || [];
+  const summary = (consumption as any)?.summary || { totalTokens: 0, totalMessages: 0, totalCost: 0 };
+
   const limits = tenantDetails?.limits || { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 };
-  const totalTokens = consumption?.filter(m => m.metricType === 'tokens').reduce((acc, m) => acc + m.value, 0) || 0;
+  const totalTokens = summary.totalTokens || 0;
   const consumptionLimit = (limits.llmTokens as number) || 1; // Avoid division by zero
   const consumptionPercentage = (totalTokens / consumptionLimit) * 100;
 
-  const totalMessages = consumption?.filter(m => m.metricType === 'messages').reduce((acc, m) => acc + m.value, 0) || 0;
+  const totalMessages = summary.totalMessages || 0;
   const messageLimit = (limits.messages as number) || 1;
   const messageUsagePct = (totalMessages / messageLimit) * 100;
 
@@ -149,7 +152,7 @@ export default function Index() {
 
   const dailyUsageData = last30Days.map(date => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    const dayMessages = consumption?.filter(m =>
+    const dayMessages = metrics.filter(m =>
       m.metricType === 'messages' && format(new Date(m.timestamp), 'yyyy-MM-dd') === dateStr
     ).reduce((acc, m) => acc + m.value, 0) || 0;
 
@@ -161,7 +164,7 @@ export default function Index() {
 
   // Consumption by Agent - Messages Focus
   const consumptionByAgent = agents?.map(agent => {
-    const agentMessages = consumption?.filter(m => m.agentId === agent.id && m.metricType === 'messages')
+    const agentMessages = metrics.filter(m => m.agentId === agent.id && m.metricType === 'messages')
       .reduce((acc, m) => acc + m.value, 0) || 0;
     return {
       agentName: agent.name,
@@ -571,7 +574,7 @@ export default function Index() {
             <div className="kpi-card">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold">Faturamento (Planos)</h3>
-                <Badge variant="secondary" className="capitalize">{tenantDetails?.planName || tenantDetails?.plan || 'Flex'}</Badge>
+                <Badge variant="secondary" className="capitalize">{tenantDetails?.planName || 'Flex'}</Badge>
               </div>
               <div className="space-y-4">
                 <div>
@@ -603,14 +606,14 @@ export default function Index() {
                   <div className="flex justify-between text-[11px] mb-1">
                     <span className="text-muted-foreground font-medium">Uso de Voz (Vapi)</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">{(consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0).toFixed(0)} / {limits.sttMinutes || 0} min</span>
+                      <span className="text-[10px] text-muted-foreground">{(metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0).toFixed(0)} / {limits.sttMinutes || 0} min</span>
                       <span className="font-bold text-muted-foreground">
-                        {Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
+                        {Math.min(((metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
                       </span>
                     </div>
                   </div>
                   <Progress
-                    value={Math.min(((consumption?.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100)}
+                    value={Math.min(((metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100)}
                     className="h-2"
                   />
                 </div>
