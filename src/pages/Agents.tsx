@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info, X } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -380,11 +380,13 @@ export default function Agents() {
                           <Copy className="h-4 w-4 mr-2" />
                           Duplicar
                         </DropdownMenuItem>
-                        {/* Only parent agents (no parent_agent_id) can have sub-agents */}
                         {!agent.parent_agent_id && (
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenSubAgentDialog(agent); }}>
-                            <Bot className="h-4 w-4 mr-2 text-accent" />
-                            <span className="text-accent font-medium">Adicionar Sub-agente</span>
+                          <DropdownMenuItem 
+                            className="text-accent focus:bg-accent focus:text-white focus:!text-white"
+                            onClick={(e) => { e.stopPropagation(); handleOpenSubAgentDialog(agent); }}
+                          >
+                            <Bot className="h-4 w-4 mr-2" />
+                            <span className="font-medium">Adicionar Sub-agente</span>
                           </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
@@ -735,6 +737,7 @@ export default function Agents() {
                     <div className="md:col-span-3 space-y-2">
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Tipo de Agente</Label>
                       <Select
+                        disabled={!!editingAgent?.parent_agent_id}
                         value={formData.type || 'conversational'}
                         onValueChange={(v: any) => setFormData({ ...formData, type: v })}
                       >
@@ -900,18 +903,18 @@ export default function Agents() {
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-semibold text-foreground">Sub-agente de Segurança</p>
+                            <p className="text-sm font-semibold text-foreground">Sub-agente Autenticador (Gatekeeper)</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              Quando ativado, este agente recebe o badge de segurança e acionará o fluxo de autenticação antes de responder.
+                              Este agente será orquestrado como a camada de segurança (validação de identidade) antes de responder ao cliente.
                             </p>
                           </div>
                           <button
                             type="button"
                             role="switch"
-                            aria-checked={formData.requires_security ?? false}
-                            onClick={() => setFormData({ ...formData, requires_security: !(formData.requires_security ?? false) })}
+                            aria-checked={formData.is_gatekeeper ?? false}
+                            onClick={() => setFormData({ ...formData, is_gatekeeper: !(formData.is_gatekeeper ?? false) })}
                             className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:ring-offset-2 ${
-                              formData.requires_security
+                              formData.is_gatekeeper
                                 ? 'bg-amber-500 border-amber-500'
                                 : 'bg-muted border-border'
                             }`}
@@ -919,7 +922,7 @@ export default function Agents() {
                             <span
                               aria-hidden="true"
                               className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 mt-0.5 ${
-                                formData.requires_security ? 'translate-x-5' : 'translate-x-0.5'
+                                formData.is_gatekeeper ? 'translate-x-5' : 'translate-x-0.5'
                               }`}
                             />
                           </button>
@@ -1217,202 +1220,27 @@ export default function Agents() {
 
                       <div className="space-y-4 p-5 border border-border/50 rounded-lg bg-card shadow-sm">
                         <h4 className="text-sm font-semibold uppercase text-muted-foreground tracking-wider border-b border-border pb-3 flex items-center gap-2">
-                          <ShieldCheck className="h-4 w-4" /> Gateway de Identidade (Validação)
+                          <ShieldCheck className="h-4 w-4" /> Gateway de Segurança (Gatekeeper)
                         </h4>
-                        <div className="space-y-4 pt-2 flex flex-col">
+                        <div className="space-y-2 pt-2 flex flex-col">
                           <div className="flex items-center space-x-2">
                             <Switch
                               id="identity-gate-switch"
-                              checked={!!formData.brainConfig?.capabilities?.identity_gate?.enabled}
+                              checked={!!formData.requires_security}
                               onCheckedChange={(checked) => {
                                 setFormData(prev => ({
                                   ...prev,
-                                  brainConfig: {
-                                    ...prev.brainConfig,
-                                    capabilities: {
-                                      ...prev.brainConfig?.capabilities,
-                                      identity_gate: {
-                                        ...prev.brainConfig?.capabilities?.identity_gate,
-                                        enabled: checked
-                                      }
-                                    }
-                                  }
+                                  requires_security: checked
                                 }))
                               }}
                             />
                             <Label htmlFor="identity-gate-switch" className="text-sm font-semibold cursor-pointer">
-                              Exigir Validação de CPF/CNPJ (Sessão Transacional)
+                              Exigir Autenticação / Validação (Sessão Transacional)
                             </Label>
                           </div>
-                          {formData.brainConfig?.capabilities?.identity_gate?.enabled && (
-                            <div className="space-y-4 animate-in slide-in-from-top-1">
-                              <div className="space-y-2">
-                                <Label className="text-xs text-muted-foreground">Intenções Protegidas (Ex: boletos, faturas)</Label>
-                                <Input
-                                  placeholder="Boletos, Faturas, Contratos, Pagamento"
-                                  className="h-9 font-mono text-xs bg-muted/30"
-                                  value={(formData.brainConfig?.capabilities?.identity_gate?.protected_intents || []).join(',')}
-                                  onChange={(e) => {
-                                    const intents = e.target.value.split(',');
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      brainConfig: {
-                                        ...prev.brainConfig,
-                                        capabilities: {
-                                          ...prev.brainConfig?.capabilities,
-                                          identity_gate: {
-                                            ...prev.brainConfig?.capabilities?.identity_gate,
-                                            protected_intents: intents
-                                          }
-                                        }
-                                      }
-                                    }))
-                                  }}
-                                  onBlur={() => {
-                                    setFormData(prev => {
-                                      const currentIntents = prev.brainConfig?.capabilities?.identity_gate?.protected_intents || [];
-                                      const cleanedIntents = currentIntents.map(i => i.trim()).filter(Boolean);
-                                      return {
-                                        ...prev,
-                                        brainConfig: {
-                                          ...prev.brainConfig,
-                                          capabilities: {
-                                            ...prev.brainConfig?.capabilities,
-                                            identity_gate: {
-                                              ...prev.brainConfig?.capabilities?.identity_gate,
-                                              protected_intents: cleanedIntents
-                                            }
-                                          }
-                                        }
-                                      }
-                                    })
-                                  }}
-                                />
-                                <p className="text-[9px] text-muted-foreground italic">
-                                  O Gatekeeper forçará o usuário a fornecer documento antes de processar pedidos nesses assuntos.
-                                </p>
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label className="text-xs text-muted-foreground">Método de Validação</Label>
-                                <Select
-                                  value={formData.brainConfig?.capabilities?.identity_gate?.validation_method || 'formula'}
-                                  onValueChange={(value: 'formula' | 'api') => {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      brainConfig: {
-                                        ...prev.brainConfig,
-                                        capabilities: {
-                                          ...prev.brainConfig?.capabilities,
-                                          identity_gate: {
-                                            ...prev.brainConfig?.capabilities?.identity_gate,
-                                            validation_method: value
-                                          }
-                                        }
-                                      }
-                                    }))
-                                  }}
-                                >
-                                  <SelectTrigger className="h-9 text-xs">
-                                    <SelectValue placeholder="Selecione o método" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="formula">Fórmula (Tamanho e Dígitos)</SelectItem>
-                                    <SelectItem value="api">API Externa (Webhook Dinâmico)</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              {formData.brainConfig?.capabilities?.identity_gate?.validation_method === 'api' && (
-                                <div className="space-y-2 animate-in slide-in-from-top-1">
-                                  <Label className="text-xs text-muted-foreground">URL da API de Validação Externa</Label>
-                                  <Input
-                                    placeholder="https://sua-api.com.br/validar-doc?doc="
-                                    className="h-9 font-mono text-xs bg-muted/30"
-                                    value={formData.brainConfig?.capabilities?.identity_gate?.api_url || ''}
-                                    onChange={(e) => {
-                                      setFormData(prev => ({
-                                        ...prev,
-                                        brainConfig: {
-                                          ...prev.brainConfig,
-                                          capabilities: {
-                                            ...prev.brainConfig?.capabilities,
-                                            identity_gate: {
-                                              ...prev.brainConfig?.capabilities?.identity_gate,
-                                              api_url: e.target.value
-                                            }
-                                          }
-                                        }
-                                      }))
-                                    }}
-                                  />
-                                  <p className="text-[9px] text-muted-foreground italic">
-                                    O sistema fará uma chamada GET para esta URL enviando o documento. Ex: ?doc=123
-                                  </p>
-                                </div>
-                              )}
-
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label className="text-xs text-muted-foreground">System Prompt (Gatekeeper)</Label>
-                                  <TooltipProvider>
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                                      </TooltipTrigger>
-                                      <TooltipContent className="max-w-xs">
-                                        <p className="text-xs">O prompt que governa o AI Agent quando a sessão está bloqueada ou expirada.</p>
-                                      </TooltipContent>
-                                    </Tooltip>
-                                  </TooltipProvider>
-                                </div>
-                                <Textarea
-                                  className="min-h-[80px] text-xs font-mono bg-muted/30"
-                                  placeholder="Você atua como um sistema rígido de validação..."
-                                  value={formData.brainConfig?.capabilities?.identity_gate?.gatekeeper_system_prompt || ''}
-                                  onChange={(e) => {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      brainConfig: {
-                                        ...prev.brainConfig,
-                                        capabilities: {
-                                          ...prev.brainConfig?.capabilities,
-                                          identity_gate: {
-                                            ...prev.brainConfig?.capabilities?.identity_gate,
-                                            gatekeeper_system_prompt: e.target.value
-                                          }
-                                        }
-                                      }
-                                    }))
-                                  }}
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label className="text-xs text-muted-foreground">Mensagem de Sucesso (Opcional)</Label>
-                                <Input
-                                  placeholder="Autenticação concluída! O Gatekeeper está aberto."
-                                  className="h-9 text-xs bg-muted/30"
-                                  value={formData.brainConfig?.capabilities?.identity_gate?.validation_success_message || ''}
-                                  onChange={(e) => {
-                                    setFormData(prev => ({
-                                      ...prev,
-                                      brainConfig: {
-                                        ...prev.brainConfig,
-                                        capabilities: {
-                                          ...prev.brainConfig?.capabilities,
-                                          identity_gate: {
-                                            ...prev.brainConfig?.capabilities?.identity_gate,
-                                            validation_success_message: e.target.value
-                                          }
-                                        }
-                                      }
-                                    }))
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          )}
+                          <p className="text-[11px] text-muted-foreground pt-1">
+                            Com isso ativo, o workflow vai orquestrar a sessão com um Sub-Agente Gatekeeper antes de liberar respostas deste agente principal. O Sub-Agente (configurado separadamente com a flag "Gatekeeper") possuirá as regras e ferramentas de validação (ex: Consulta de CPF/CNPJ).
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -1532,10 +1360,19 @@ export default function Agents() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-8 text-xs border-accent/30 text-accent hover:bg-accent/10"
-                        onClick={() => setShowNewToolForm(v => !v)}
+                        className="h-8 text-xs border-accent/30 text-accent hover:bg-accent hover:text-white transition-colors"
+                        onClick={() => {
+                          if (showNewToolForm) {
+                            setShowNewToolForm(false);
+                            setNewTool({ name: '', description: '', method: 'POST', url: '', headers: {}, body_mapping: {}, query_params: {}, response_mode: 'json', category: 'query', is_active: true });
+                            setNewToolHeadersRaw('{}');
+                            setNewToolBodyRaw('{}');
+                          } else {
+                            setShowNewToolForm(true);
+                          }
+                        }}
                       >
-                        <Plus className="h-3.5 w-3.5 mr-1" />
+                        {showNewToolForm ? <X className="h-3.5 w-3.5 mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
                         {showNewToolForm ? 'Cancelar' : 'Nova Ferramenta'}
                       </Button>
                     </div>
@@ -1545,26 +1382,30 @@ export default function Agents() {
                     </p>
 
                     {/* Add new tool form */}
+                    {/* Add new tool form */}
                     {showNewToolForm && (
-                      <div className="border border-accent/30 rounded-lg p-4 space-y-3 bg-accent/5 animate-in slide-in-from-top-2">
-                        <h5 className="text-xs font-bold text-accent uppercase tracking-wider">Nova Ferramenta</h5>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Nome (identificador único)</Label>
+                      <div className="border border-border/60 rounded-xl p-6 space-y-5 bg-muted/20 animate-in slide-in-from-top-2 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4 border-b border-border/50 pb-3">
+                          <Plus className="h-4 w-4 text-accent" />
+                          <h5 className="text-sm font-bold text-accent uppercase tracking-wider">Nova Ferramenta</h5>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                          <div className="md:col-span-7 space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Nome (identificador único)</Label>
                             <Input
                               placeholder="ex: consultar_saldo"
-                              className="h-8 font-mono text-xs bg-muted/30"
+                              className="h-11 font-mono text-sm bg-background border-border/50 focus:border-accent"
                               value={newTool.name || ''}
                               onChange={e => setNewTool(p => ({ ...p, name: e.target.value.toLowerCase().replace(/\s+/g, '_') }))}
                             />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Categoria</Label>
+                          <div className="md:col-span-5 space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Categoria</Label>
                             <Select
                               value={newTool.category || 'query'}
                               onValueChange={v => setNewTool(p => ({ ...p, category: v as any }))}
                             >
-                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                              <SelectTrigger className="h-11 text-sm bg-background border-border/50 focus:border-accent">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1575,23 +1416,23 @@ export default function Agents() {
                             </Select>
                           </div>
                         </div>
-                        <div className="space-y-1">
-                          <Label className="text-[11px]">Descrição (instrução para a IA)</Label>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Descrição (instrução para a IA)</Label>
                           <Input
                             placeholder="Retorna as faturas em aberto do cliente identificado"
-                            className="h-8 text-xs bg-muted/30"
+                            className="h-11 text-sm bg-background border-border/50 focus:border-accent"
                             value={newTool.description || ''}
                             onChange={e => setNewTool(p => ({ ...p, description: e.target.value }))}
                           />
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Método HTTP</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                          <div className="md:col-span-3 space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Método HTTP</Label>
                             <Select
                               value={newTool.method || 'POST'}
                               onValueChange={v => setNewTool(p => ({ ...p, method: v as any }))}
                             >
-                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                              <SelectTrigger className="h-11 text-sm bg-background border-border/50 focus:border-accent">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1603,46 +1444,46 @@ export default function Agents() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-1 col-span-2">
-                            <Label className="text-[11px]">URL do Endpoint / Webhook</Label>
+                          <div className="md:col-span-9 space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">URL do Endpoint / Webhook</Label>
                             <Input
                               placeholder="https://servidor.com/api/ferramenta"
-                              className="h-8 font-mono text-xs bg-muted/30"
+                              className="h-11 font-mono text-sm bg-background border-border/50 focus:border-accent"
                               value={newTool.url || ''}
                               onChange={e => setNewTool(p => ({ ...p, url: e.target.value }))}
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Headers (JSON)</Label>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                          <div className="space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Headers (JSON)</Label>
                             <Textarea
-                              rows={3}
+                              rows={4}
                               placeholder='{"Authorization": "Bearer ${token}"}'
-                              className="font-mono text-[10px] bg-muted/30 resize-none"
+                              className="font-mono text-sm p-3 bg-background border-border/50 focus:border-accent resize-y min-h-[100px]"
                               value={newToolHeadersRaw}
                               onChange={e => setNewToolHeadersRaw(e.target.value)}
                             />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Body Mapping (JSON)</Label>
+                          <div className="space-y-2">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Body Mapping (JSON)</Label>
                             <Textarea
-                              rows={3}
+                              rows={4}
                               placeholder='{"cpf": "{{contact.cpf}}", "session": "{{session.id}}"}'
-                              className="font-mono text-[10px] bg-muted/30 resize-none"
+                              className="font-mono text-sm p-3 bg-background border-border/50 focus:border-accent resize-y min-h-[100px]"
                               value={newToolBodyRaw}
                               onChange={e => setNewToolBodyRaw(e.target.value)}
                             />
                           </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 items-center">
-                          <div className="space-y-1">
-                            <Label className="text-[11px]">Modo de Resposta</Label>
+                        <div className="flex flex-col sm:flex-row gap-5 items-end justify-between pt-2">
+                          <div className="space-y-2 w-full sm:w-64">
+                            <Label className="text-xs font-bold secondary-text text-muted-foreground uppercase tracking-wider">Modo de Resposta</Label>
                             <Select
                               value={newTool.response_mode || 'json'}
                               onValueChange={v => setNewTool(p => ({ ...p, response_mode: v as any }))}
                             >
-                              <SelectTrigger className="h-8 text-xs bg-muted/30">
+                              <SelectTrigger className="h-11 text-sm bg-background border-border/50 focus:border-accent">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1651,11 +1492,9 @@ export default function Agents() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="flex justify-end pt-4">
-                            <Button
-                              size="sm"
-                              className="bg-accent hover:bg-accent/90"
-                              onClick={async () => {
+                          <Button
+                            className="h-11 px-8 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold tracking-wide shadow-sm"
+                            onClick={async () => {
                                 if (!newTool.name?.trim() || !newTool.url?.trim()) {
                                   toast.error('Nome e URL são obrigatórios.');
                                   return;
@@ -1665,85 +1504,111 @@ export default function Agents() {
                                 try { parsedHeaders = JSON.parse(newToolHeadersRaw || '{}'); } catch { toast.error('Headers inválido. Use JSON válido.'); return; }
                                 try { parsedBody = JSON.parse(newToolBodyRaw || '{}'); } catch { toast.error('Body Mapping inválido. Use JSON válido.'); return; }
                                 try {
-                                  const toolToCreate: Partial<AgentTool> = {
-                                    ...newTool,
-                                    tenant_id: currentTenant!.id,
-                                    agent_id: editingAgent?.id,
-                                    headers: parsedHeaders,
-                                    body_mapping: parsedBody,
-                                    parameters_schema: {},
-                                  };
-                                  const created = await agentsService.createAgentTool(toolToCreate);
-                                  setAgentTools(prev => [...prev, created]);
+                                  if (newTool.id) {
+                                    const toolToUpdate = { ...newTool, headers: parsedHeaders, body_mapping: parsedBody };
+                                    const updated = await agentsService.updateAgentTool(toolToUpdate.id, toolToUpdate);
+                                    setAgentTools(prev => prev.map(t => t.id === updated.id ? updated : t));
+                                    toast.success('Ferramenta atualizada com sucesso!');
+                                  } else {
+                                    const toolToCreate: Partial<AgentTool> = {
+                                      ...newTool,
+                                      tenant_id: currentTenant!.id,
+                                      agent_id: editingAgent?.id,
+                                      headers: parsedHeaders,
+                                      body_mapping: parsedBody,
+                                      parameters_schema: {},
+                                    };
+                                    const created = await agentsService.createAgentTool(toolToCreate);
+                                    setAgentTools(prev => [...prev, created]);
+                                    toast.success('Ferramenta criada com sucesso!');
+                                  }
                                   setShowNewToolForm(false);
                                   setNewTool({ name: '', description: '', method: 'POST', url: '', headers: {}, body_mapping: {}, query_params: {}, response_mode: 'json', category: 'query', is_active: true });
                                   setNewToolHeadersRaw('{}');
                                   setNewToolBodyRaw('{}');
-                                  toast.success('Ferramenta criada com sucesso!');
                                 } catch (err) {
                                   console.error(err);
-                                  toast.error('Erro ao criar ferramenta.');
+                                  toast.error('Erro ao salvar ferramenta.');
                                 }
                               }}
                             >
-                              <Plus className="h-3.5 w-3.5 mr-1" /> Salvar Ferramenta
+                              <Plus className="h-3.5 w-3.5 mr-1" /> {newTool.id ? 'Salvar Configuração' : 'Criar Ferramenta'}
                             </Button>
-                          </div>
                         </div>
                       </div>
                     )}
 
                     {/* Existing tools list */}
                     {loadingTools ? (
-                      <p className="text-xs text-muted-foreground italic text-center py-4">Carregando ferramentas...</p>
+                      <p className="text-sm text-muted-foreground italic text-center py-8">Carregando ferramentas...</p>
                     ) : agentTools.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Settings className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">Nenhuma ferramenta configurada.</p>
+                      <div className="text-center py-12 text-muted-foreground bg-muted/20 border border-border/50 rounded-xl">
+                        <Settings className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                        <p className="text-sm font-semibold">Nenhuma ferramenta configurada.</p>
                         <p className="text-xs mt-1">Clique em "Nova Ferramenta" para adicionar um endpoint que este agente pode chamar.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {agentTools.map((tool) => (
-                          <div key={tool.id} className="border border-border/50 rounded-lg p-3 bg-muted/5 flex items-start justify-between gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <code className="text-xs font-bold text-accent">{tool.name}</code>
+                          <div key={tool.id} className="border border-border/60 rounded-xl p-4 bg-background flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm hover:border-accent/30 transition-colors">
+                            <div className="flex-1 min-w-0 space-y-2">
+                              <div className="flex items-center gap-2 flex-wrap mb-1">
+                                <code className="text-sm font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-md">{tool.name}</code>
                                 <Badge
                                   variant="outline"
-                                  className={`h-4 text-[9px] px-1 ${
+                                  className={`px-2 py-0 text-[10px] font-semibold tracking-wide uppercase ${
                                     tool.category === 'access_key'
-                                      ? 'border-red-400/40 text-red-400 bg-red-500/5'
+                                      ? 'border-red-400/40 text-red-500 bg-red-500/10'
                                       : tool.category === 'action'
-                                      ? 'border-amber-400/40 text-amber-400 bg-amber-500/5'
-                                      : 'border-blue-400/40 text-blue-400 bg-blue-500/5'
+                                      ? 'border-amber-400/40 text-amber-500 bg-amber-500/10'
+                                      : 'border-blue-400/40 text-blue-500 bg-blue-500/10'
                                   }`}
                                 >
                                   {tool.category === 'access_key' ? '🔐 access_key' : tool.category === 'action' ? '⚡ action' : '🔍 query'}
                                 </Badge>
-                                <Badge variant="outline" className="h-4 text-[9px] px-1 font-mono">{tool.method}</Badge>
-                                {!tool.is_active && <Badge variant="outline" className="h-4 text-[9px] px-1 text-muted-foreground">Inativo</Badge>}
+                                <Badge variant="outline" className="px-2 py-0 text-[10px] font-mono font-bold bg-muted/50">{tool.method}</Badge>
+                                {!tool.is_active && <Badge variant="outline" className="px-2 py-0 text-[10px] text-muted-foreground">Inativo</Badge>}
                               </div>
-                              <p className="text-[11px] text-muted-foreground truncate">{tool.description}</p>
-                              <p className="text-[10px] font-mono text-muted-foreground/70 truncate mt-0.5">{tool.url}</p>
+                              {tool.description && <p className="text-xs text-muted-foreground">{tool.description}</p>}
+                              <p className="text-[11px] font-mono text-muted-foreground/80 break-all bg-muted/30 px-2 py-1 rounded inline-block mt-1">{tool.url}</p>
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                              onClick={async () => {
-                                if (!window.confirm(`Excluir a ferramenta "${tool.name}"?`)) return;
-                                try {
-                                  await agentsService.deleteAgentTool(tool.id);
-                                  setAgentTools(prev => prev.filter(t => t.id !== tool.id));
-                                  toast.success('Ferramenta removida.');
-                                } catch (err) {
-                                  toast.error('Erro ao remover ferramenta.');
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <div className="flex gap-1 self-end sm:self-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 shrink-0 text-muted-foreground hover:bg-accent/10 hover:text-accent"
+                                onClick={() => {
+                                  setNewTool(tool);
+                                  setNewToolHeadersRaw(JSON.stringify(tool.headers || {}, null, 2));
+                                  setNewToolBodyRaw(JSON.stringify(tool.body_mapping || {}, null, 2));
+                                  setShowNewToolForm(true);
+                                  
+                                  // Scroll to form smoothly
+                                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                                }}
+                                title="Editar ferramenta"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9 shrink-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                onClick={async () => {
+                                  if (!window.confirm(`Excluir a ferramenta "${tool.name}"?`)) return;
+                                  try {
+                                    await agentsService.deleteAgentTool(tool.id);
+                                    setAgentTools(prev => prev.filter(t => t.id !== tool.id));
+                                    toast.success('Ferramenta removida.');
+                                  } catch (err) {
+                                    toast.error('Erro ao remover ferramenta.');
+                                  }
+                                }}
+                                title="Excluir ferramenta"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>

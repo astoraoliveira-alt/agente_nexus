@@ -1,0 +1,5357 @@
+{
+  "name": "Agente Venda - Whatts",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "063b0bd9-01fe-4e18-86fe-eb4a0c1b95c4",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3392,
+        -32
+      ],
+      "id": "fba984d1-d40f-4603-8323-9e502b10c304",
+      "name": "Webhook",
+      "webhookId": "063b0bd9-01fe-4e18-86fe-eb4a0c1b95c4"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "temperature": "={{ $('Edit Fields').first().json.agent.temperature }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        4224,
+        -544
+      ],
+      "id": "dc31d2d5-8e39-4a87-9a0e-d1d484673bc9",
+      "name": "OpenAI Chat Model",
+      "alwaysOutputData": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "/* \n  🛡️ N8N OUTPUT GUARDRAILS - V8 (Dynamic Tools Edition)\n  - Suporta retornos de ferramentas dinâmicas\n  - Bloqueia vazamentos de tool-calls e prompts\n  - Formata dados técnicos (links, boletos) de forma amigável\n*/\n\nconst rawResponse = $('Edit Fields Normaliza Conversation FINAL').first().json.ai_response || \"\";\nlet msg = String(rawResponse).trim();\n\n/**\n * Tenta extrair a mensagem amigável de dentro de objetos complexos\n * retornados pelas ferramentas ou pelo LLM.\n */\nfunction parseAiResponse(obj) {\n    if (typeof obj === 'string') {\n        // Se for string, tenta ver se é um JSON disfarçado\n        if (obj.startsWith('{') || obj.startsWith('[')) {\n            try {\n                const inner = JSON.parse(obj);\n                return parseAiResponse(inner);\n            } catch (e) { return obj; }\n        }\n        return obj;\n    }\n    \n    if (!obj || typeof obj !== 'object') return \"\";\n\n    // Prioridade de campos para resposta ao usuário\n    let mainText = obj.content || obj.message || obj.text || obj.response?.message || obj.out || \"\";\n    let extras = [];\n\n    // Busca recursiva por dados úteis (Links, Boletos, Status)\n    const seekData = (target) => {\n        if (!target || typeof target !== 'object') return;\n        \n        if (target.link) extras.push(`\\n\\n🔗 *Link:* ${target.link}`);\n        if (target.url) extras.push(`\\n\\n🌐 *Acesse:* ${target.url}`);\n        if (target.codigo_barras || target.linha_digitavel) {\n            const code = target.codigo_barras || target.linha_digitavel;\n            extras.push(`\\n\\n📑 *Linha Digitável:*\\n\\`${code}\\``);\n        }\n        if (target.vencimento || target.data_vencimento) {\n            const date = target.vencimento || target.data_vencimento;\n            extras.push(`\\n📅 *Vencimento:* ${date}`);\n        }\n        if (target.status_pagamento) extras.push(`\\n✅ *Status:* ${target.status_pagamento}`);\n        \n        // Continua a busca nos filhos\n        Object.values(target).forEach(v => seekData(v));\n    };\n    \n    seekData(obj);\n\n    const uniqueExtras = [...new Set(extras)];\n    const finalResult = (mainText + uniqueExtras.join(\"\")).trim();\n    \n    // Se não encontrou texto mas tem campos, retorna o JSON (como fallback seguro)\n    return finalResult || (Object.keys(obj).length > 0 ? JSON.stringify(obj) : \"\");\n}\n\n// 1. Processamento Inicial\nmsg = parseAiResponse(rawResponse);\n\n// 2. Regras de Bloqueio (Guardrails)\nlet blocked = false;\nconst sqlPatterns = /(select|insert|update|delete|drop|truncate|alter|create|union|exec|information_schema)\\s/i;\n\n// Validações\nif (msg.length < 2) {\n    blocked = true;\n    msg = \"Puxa, não consegui processar essa informação agora. Poderia repetir?\";\n\n} else if (/prompt de sistema|minhas instruções|ignore as instruções|instruções base|diretrizes de governança/i.test(msg)) {\n    blocked = true;\n    msg = \"Desculpe, sou um assistente virtual e não estou autorizado a compartilhar detalhes técnicos da minha configuração.\";\n\n} else if (sqlPatterns.test(msg) && !msg.includes(\"http\")) { \n    // O \"!msg.includes(\"http\")\" evita bloquear links legítimos que contenham palavras como 'update' ou 'create'\n    blocked = true;\n    msg = \"Identificamos um formato de resposta inadequado. Como posso te ajudar de outra forma?\";\n\n} else if (/^Calling .+Tool with input:/i.test(msg) || /\"tool_name\":/i.test(msg) || /\"parameters\":/i.test(msg)) {\n    // ✅ NOVO: Bloqueia vazamentos de chamadas de ferramentas dinâmicas (JSON bruto da tool)\n    blocked = true;\n    msg = \"Estou processando sua solicitação... Um momento, por favor.\";\n}\n\n// 3. Limpeza Final (Remove artefatos de Markdown de pensamento do LLM como <thought> ou ```json)\nmsg = msg.replace(/<thought>[\\s\\S]*?<\\/thought>/gi, '').trim();\nmsg = msg.replace(/```json/gi, '').replace(/```/gi, '').trim();\n\nreturn [{\n  json: {\n    is_blocked: blocked,\n    message: msg,\n    original_ai_payload: rawResponse\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5440,
+        -192
+      ],
+      "id": "66500b46-7b55-4d68-8455-874c70fef010",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ec46288d-e351-43ad-9d35-a18b5bc1bf54",
+              "name": "slug",
+              "value": "edenred-credito",
+              "type": "string"
+            },
+            {
+              "id": "79c521e4-8119-4518-8b42-03637fdb3058",
+              "name": "message",
+              "value": "={{ $('Webhook').item.json.body.data.message.conversation || null}}",
+              "type": "string"
+            },
+            {
+              "id": "df3303ea-abdf-4806-8e90-6d407452fd80",
+              "name": "session_id",
+              "value": "={{ $('Webhook').item.json.body.data.key.id }}",
+              "type": "string"
+            },
+            {
+              "id": "f88be5fa-1f20-4db7-89ee-f7e38bd6f59d",
+              "name": "nome_cliente",
+              "value": "={{ $('Webhook').item.json.body.data.pushName }}",
+              "type": "string"
+            },
+            {
+              "id": "6e29e3f5-eec8-44e9-9d04-a0693e6cf6ca",
+              "name": "telefone_cliente",
+              "value": "={{ $('Webhook').item.json.body.data.key.remoteJid.split('@')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "ba028d31-cbac-47b3-a2ed-03224d7233b2",
+              "name": "data_hoje",
+              "value": "={{ $now }}",
+              "type": "string"
+            },
+            {
+              "id": "5a3b162b-dd94-4fcd-8fa0-9a64bd5d87c0",
+              "name": "tenant_id",
+              "value": "={{ $json.agent.tenantId }}",
+              "type": "string"
+            },
+            {
+              "id": "1becd76f-209f-46cd-a047-afeed11e77e7",
+              "name": "agent_id",
+              "value": "={{ $json.agent.id }}",
+              "type": "string"
+            },
+            {
+              "id": "993221e6-17b5-44b2-bd01-690f2331f1e9",
+              "name": "message_type",
+              "value": "={{ $('Webhook').item.json.body.data.messageType }}",
+              "type": "string"
+            },
+            {
+              "id": "4f3d8dff-86d8-4127-8495-3e963b3d2cde",
+              "name": "instance",
+              "value": "={{ $('Webhook').item.json.body.instance }}",
+              "type": "string"
+            },
+            {
+              "id": "7bcbc333-6063-4f16-b011-07863313d072",
+              "name": "remoteID",
+              "value": "={{ $('Webhook').item.json.body.data.key.remoteJid }}",
+              "type": "string"
+            },
+            {
+              "id": "c3b52cdf-2826-403a-a0ac-87535c363fa1",
+              "name": "plataform",
+              "value": "={{ $('Webhook').item.json.body.data.source }}",
+              "type": "string"
+            },
+            {
+              "id": "eacdf4e2-bfb0-407a-8624-f2f456abba0c",
+              "name": "instance_id",
+              "value": "={{ $('Webhook').item.json.body.data.instanceId }}",
+              "type": "string"
+            },
+            {
+              "id": "6fc9cfaf-f925-459f-9096-e7bceb3f48e6",
+              "name": "serverURL",
+              "value": "={{ $('Webhook').item.json.body.server_url }}",
+              "type": "string"
+            },
+            {
+              "id": "6070294f-4e0e-4026-a9f0-09178dc7455e",
+              "name": "email_cliente",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "3f9d0c37-c965-4123-aaa2-8ac7717eca07",
+              "name": "agent.name",
+              "value": "={{ $json.agent.name }}",
+              "type": "string"
+            },
+            {
+              "id": "e038124f-5ee5-4af1-b4a8-bb71dc301192",
+              "name": "agent.temperature",
+              "value": "={{ $json.agent.temperature }}",
+              "type": "number"
+            },
+            {
+              "id": "90b66469-3576-44b3-8c66-134d31b28e4a",
+              "name": "agent.modelId",
+              "value": "={{ $json.agent.modelId }}",
+              "type": "string"
+            },
+            {
+              "id": "da0bacdd-96f1-4554-af51-c3207adfc15f",
+              "name": "agent.systemPrompt",
+              "value": "={{ $json.agent.systemPrompt }}",
+              "type": "string"
+            },
+            {
+              "id": "fdbf1a1f-8599-4585-9ca8-2e355c60d5e0",
+              "name": "agent.userPromptTemplate",
+              "value": "={{ $json.agent.userPromptTemplate }}",
+              "type": "string"
+            },
+            {
+              "id": "8b55cc15-f00b-41c8-9bf0-95dbbbbc4844",
+              "name": "status",
+              "value": "={{ $json.status }}",
+              "type": "string"
+            },
+            {
+              "id": "9ea2e5c0-6801-42f2-952f-ce6792bea482",
+              "name": "governance.agente_ativo",
+              "value": "={{ $json.governance.agente_ativo }}",
+              "type": "boolean"
+            },
+            {
+              "id": "0a7fdf1c-ffe6-4e0e-ab71-4460f3576cd7",
+              "name": "governance.empresa_ativa",
+              "value": "={{ $json.governance.empresa_ativa }}",
+              "type": "boolean"
+            },
+            {
+              "id": "c9ff7ea8-5139-4eca-a72d-d2b6aaed5394",
+              "name": "governance.limite_atingido",
+              "value": "={{ $json.governance.limite_atingido }}",
+              "type": "boolean"
+            },
+            {
+              "id": "4c727942-7e7f-4e29-a872-1e4f671faf80",
+              "name": "governance.max_concurrency",
+              "value": "={{ $json.governance.max_concurrency }}",
+              "type": "number"
+            },
+            {
+              "id": "27c008c1-a458-4864-b5f0-537d2e0e99ec",
+              "name": "governance.agente_encontrado",
+              "value": "={{ $json.governance.agente_encontrado }}",
+              "type": "boolean"
+            },
+            {
+              "id": "3668bc6b-8195-485e-affb-942765e48084",
+              "name": "governance.qnt_transacoes_correntes",
+              "value": "={{ $json.governance.qnt_transacoes_correntes }}",
+              "type": "number"
+            },
+            {
+              "id": "c8fb3e30-de51-4b9b-b2c3-dd9eb63d22af",
+              "name": "conversation.id",
+              "value": "={{ $json.conversation.id }}",
+              "type": "string"
+            },
+            {
+              "id": "9c401b4f-2e9d-4684-8589-fff99dd5370d",
+              "name": "conversation.reopened",
+              "value": "={{ $json.conversation.reopened }}",
+              "type": "boolean"
+            },
+            {
+              "id": "68af1d41-045c-4602-ac20-1b9cd0393123",
+              "name": "governance.autonomy_level",
+              "value": "={{ $json.governance.autonomy_level }}",
+              "type": "number"
+            },
+            {
+              "id": "54d77bb2-d7d1-4bb5-87a2-79f53adceaf1",
+              "name": "governance.lifecycle_stage",
+              "value": "={{ $json.governance.lifecycle_stage }}",
+              "type": "string"
+            },
+            {
+              "id": "f107cdc1-405d-4ada-bada-1ac038efc756",
+              "name": "=agent.greeting_message",
+              "value": "={{ $json.agent.greetingMessage || \"Olá! Como posso ajudar?\" }}",
+              "type": "string"
+            },
+            {
+              "id": "6c03259c-1cad-4fae-9ebd-f013a7492bc8",
+              "name": "governance.user_banned",
+              "value": "={{ $json.governance.user_banned }}",
+              "type": "boolean"
+            },
+            {
+              "id": "29542bdc-5498-442e-89cd-7be4b032956c",
+              "name": "whatsapp_provider",
+              "value": "={{ $json.agent.whatsapp_api_type }}",
+              "type": "string"
+            },
+            {
+              "id": "3693142d-34ec-4876-9a47-15ab6b744576",
+              "name": "meta_api_token",
+              "value": "={{ $json.agent.meta_api_token }}",
+              "type": "string"
+            },
+            {
+              "id": "8274aff5-27e0-4ccd-9460-bacbb7d12c09",
+              "name": "security_status",
+              "value": "={{ $json.security.session_status }}",
+              "type": "string"
+            },
+            {
+              "id": "410eda21-8eda-460b-a972-062cb4b68f6d",
+              "name": "validated_doc",
+              "value": "={{ $json.security.session_identifier }}",
+              "type": "string"
+            },
+            {
+              "id": "f99a4fc5-07bd-4478-81e2-6e02841f11dc",
+              "name": "sub_agents",
+              "value": "={{ $json.agent.sub_agents }}",
+              "type": "array"
+            },
+            {
+              "id": "18ab5f62-2eef-45c2-ad28-0b0f9534b6a3",
+              "name": "agent.tools",
+              "value": "={{ $json.agent.tools }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2528,
+        -16
+      ],
+      "id": "166c4aee-e6b3-47b1-9194-f3e8028ca677",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "keep": "lastItems"
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        5024,
+        -192
+      ],
+      "id": "75eff653-7502-4b75-b9fe-508a4af28e79",
+      "name": "Limit",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"conversation_id\": \"{{ $json.id }}\"\n}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        816,
+        -144
+      ],
+      "id": "d768e4b3-b38c-46cf-91e6-1cb9b2fe81f4",
+      "name": "Edit Fields Normaliza Conversation ID"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}",
+        "tableName": "chat_histories_memory",
+        "contextWindowLength": "={{ $('Buscar Agente - RPC').first().json.agent.contextWindow }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        4368,
+        384
+      ],
+      "id": "d68a4ae7-aa3c-4481-9764-8b7726ad4e5c",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Nome informado pelo cliente: {{ $('Edit Fields').first().json.nome_cliente }}\nTelefone informado pelo cliente: {{ $json.telefone_cliente || \"Não informado\" }}\nData atual: {{ $json.data_hoje || \"Data atual\" }}\nMensagem do cliente: {{ $(\"Normaliza Campos Imagem\").isExecuted ? $node[\"Normaliza Campos Imagem\"].json.message : ($(\"Edit Fields Audio\").isExecuted ? $node[\"Edit Fields Audio\"].json.message : $node[\"Edit Fields\"].json.message) }}\n\n"
+            },
+            {
+              "role": "system",
+              "content": "={{ $('Edit Fields').first().json.agent.systemPrompt }}\n\n# DIRETRIZES DE GOVERNANÇA (ISO 42001)\n\n### ✅ O QUE VOCÊ PODE FAZER:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.canDo.join('\\n- ') }}\n\n### ❌ O QUE VOCÊ NÃO PODE FAZER:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.cannotDo.join('\\n- ') }}\n\n### ⚠️ CONDIÇÕES DE TRANSFERÊNCIA/SEGURANÇA:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.transferConditions.join('\\n- ') }}\n\n{{ $json.strategies_context }}\nUse essas estratégias como guia comportamental, mas adapte-as ao contexto atual."
+            }
+          ]
+        },
+        "simplify": false,
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 16,
+          "temperature": "={{ $('Edit Fields').first().json.agent.temperature }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        6512,
+        -80
+      ],
+      "id": "542c0442-7cf1-43bb-83eb-18ac1d6e2fc5",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. Tokens do LLM principal (via Message a model com max_tokens:1)\nconst usage = $json.usage || {};\nconst llm_prompt    = usage.input_tokens  ?? 0;\nconst llm_completion = usage.output_tokens ?? 0;\nconst llm_total     = usage.total_tokens  ?? (llm_prompt + llm_completion);\n\n// 2. Custo do Embedding (RAG - text-embedding-3-small)\nlet embedding_tokens = 0;\ntry {\n  const embeddingUsage = $('HTTP Request - Embedings (msg usr)').first().json?.usage;\n  embedding_tokens = embeddingUsage?.prompt_tokens ?? 0;\n} catch(e) { embedding_tokens = 0; }\n\n// 3. Passa o modelo configurado no agente\nconst modelId = $('Edit Fields').first().json?.agent?.modelId || 'gpt-4o-mini';\n\nreturn [{\n  json: {\n    prompt_tokens:     llm_prompt + embedding_tokens, // Total input cost\n    completion_tokens: llm_completion,                // 1 token (medição)\n    total_tokens:      llm_total + embedding_tokens,\n    llm_prompt_tokens: llm_prompt,\n    embedding_tokens:  embedding_tokens,\n    model:             modelId\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6704,
+        -80
+      ],
+      "id": "f8533d4c-f014-4154-87ce-3501ef5735eb",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const PRICES = {\n  'gpt-4o-mini': { input: 0.15, output: 0.60 },\n  'gpt-4o':      { input: 5.00, output: 15.0  }\n};\nconst EMBEDDING_PRICE_PER_M_USD = 0.02; // text-embedding-3-small\nconst BRL_RATE = 6.0;\n\nconst model = $json.model || 'gpt-4o-mini';\nconst price = PRICES[model] || PRICES['gpt-4o-mini'];\n\n// Custo LLM (input = system prompt + RAG context + user msg; output = 1 token)\nconst llmCostUSD = \n  (($json.llm_prompt_tokens || 0) / 1_000_000) * price.input +\n  (($json.completion_tokens  || 0) / 1_000_000) * price.output;\n\n// Custo Embedding (muito pequeno mas real)\nconst embCostUSD = (($json.embedding_tokens || 0) / 1_000_000) * EMBEDDING_PRICE_PER_M_USD;\n\nconst totalUSD = llmCostUSD + embCostUSD;\n\nreturn [{\n  json: {\n    ...$json,\n    cost_usd:           Number(totalUSD.toFixed(6)),\n    cost_brl:           Number((totalUSD * BRL_RATE).toFixed(6)),\n    cost_usd_llm:       Number(llmCostUSD.toFixed(6)),\n    cost_usd_embedding: Number(embCostUSD.toFixed(6))\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6880,
+        -80
+      ],
+      "id": "c794d218-be1b-46e9-80a4-2a8381d93507",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').item.json.message_type }}",
+                    "rightValue": "conversation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "40c5e5a7-7fc2-487f-b885-79d382947888"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "9022160c-c8a2-4ec1-b506-1eed7b3152dd",
+                    "leftValue": "={{ $('Edit Fields').item.json.message_type }}",
+                    "rightValue": "documentMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "15b6c95c-03c8-400a-85e9-f6fef81aaed5",
+                    "leftValue": "={{ $('Edit Fields').item.json.message_type }}",
+                    "rightValue": "audioMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "abc56889-d6b7-41a0-86fa-c2a5b2aff863",
+                    "leftValue": "={{ $('Edit Fields').item.json.message_type }}",
+                    "rightValue": "videoMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e72ea929-13ed-49c5-b1f8-ee07a839e8fa",
+                    "leftValue": "={{ $('Edit Fields').item.json.message_type }}",
+                    "rightValue": "=imageMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -1472,
+        -80
+      ],
+      "id": "faad030e-a314-4229-acdd-f7b7f360a8ac",
+      "name": "Tipo de Mensagem",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "[  \n{\n\"message\": \n\"{\\\"content\\\":Não conseguimos processar mensagem de vídeo nesse canal!\\\"}\"\n}\n]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        -1152,
+        768
+      ],
+      "id": "957218f8-fd93-4c84-a394-413802b96998",
+      "name": "Respond to Webhook - video"
+    },
+    {
+      "parameters": {
+        "resource": "chat-api",
+        "operation": "get-media-base64",
+        "instanceName": "={{ $('Edit Fields').item.json.instance }}",
+        "messageId": "={{ $('Edit Fields').item.json.session_id }}"
+      },
+      "type": "n8n-nodes-evolution-api.evolutionApi",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        560
+      ],
+      "id": "020e871d-1af7-4864-a834-26369507db14",
+      "name": "Obter m dia em base64",
+      "credentials": {
+        "evolutionApi": {
+          "id": "68pjEsIpdOiMTDE5",
+          "name": "Evolution account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "data.base64",
+        "options": {
+          "mimeType": "audio/mpeg"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -848,
+        560
+      ],
+      "id": "e7e76bf5-42dc-48e7-8a51-9e551f03b082",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "temperature",
+              "value": "0"
+            },
+            {
+              "name": "response_format",
+              "value": "verbose_json"
+            },
+            {
+              "name": "language",
+              "value": "pt"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -672,
+        560
+      ],
+      "id": "ba5af6c3-82d2-4002-89f0-fa73bd4215e2",
+      "name": "HTTP Request",
+      "credentials": {
+        "groqApi": {
+          "id": "Eo7x1DJUpspDq6r7",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "af3a9f48-c86e-49fe-9301-048f82adc7f5",
+              "name": "message",
+              "value": "={{ $json.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -480,
+        560
+      ],
+      "id": "244d4759-fc06-426c-bc4b-bdfb034dddab",
+      "name": "Edit Fields Audio"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3f79c5e8-208c-4010-bdb4-668c9fb01f13",
+              "leftValue": "={{ $json.message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -320,
+        560
+      ],
+      "id": "33c7c8b2-d60a-441a-82c1-1d932ed5ddb8",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"conversation_id\": \"{{ $json.conversation_id }}\"\n}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        816,
+        32
+      ],
+      "id": "96e4880b-2178-46e1-a475-51cff919b67e",
+      "name": "Edit Fields Normaliza Conversation ID1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "75ac215e-0cd4-4df0-b478-374bd8b2656f",
+              "name": "conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}",
+              "type": "string"
+            },
+            {
+              "id": "f02b67e1-daf0-46de-a663-b53f5bf7f556",
+              "name": "ai_response",
+              "value": "={{ \n  $if($('AI Agent - Com as Tools').isExecuted, \n    $('AI Agent - Com as Tools').item.json.output, \n    $if($('AI Agent (Autenticação/segurança)').isExecuted, \n      $('AI Agent (Autenticação/segurança)').item.json.output, \n      $('AI Agent (Conversacional/RAG)').item.json.output\n    )\n  ) \n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4816,
+        -192
+      ],
+      "id": "cd06e115-5433-4d17-9ce5-fd62389020b5",
+      "name": "Edit Fields Normaliza Conversation FINAL"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e34b2c08-50b4-4c0a-94b2-d2a7c136f8fc",
+              "name": "body.action",
+              "value": "={{ $json.body.action || null}}",
+              "type": "string"
+            },
+            {
+              "id": "2315ed14-af9a-4bd1-8297-ef320942e50f",
+              "name": "instance_name",
+              "value": "={{ $json.body.instance }}",
+              "type": "string"
+            },
+            {
+              "id": "2b65db7b-084c-434c-9d6e-f9964a54ba18",
+              "name": "url",
+              "value": "https://wyfmyipbvoggusclwdhj.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "7a2ce8e6-f16a-4bb1-a92b-ee7a924ff607",
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNzcwNDksImV4cCI6MjA4Njk1MzA0OX0.ALSvuPPm7QZd7rlmOMRkmBlzGE9-yjCgureTqDc2Yns",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3184,
+        -32
+      ],
+      "id": "44dd1440-6bab-4e1b-8f9c-02a498876cce",
+      "name": "Origem Requisicao"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8e9df0d6-4464-4563-a162-b7fb9072dee9",
+              "leftValue": "={{ $json.body.action }}",
+              "rightValue": "[null]",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2976,
+        -32
+      ],
+      "id": "f419c527-3656-49c4-96fb-ffc18c6a1643",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6493a57b-f12d-46da-aa86-c2c0a06b1aa6",
+              "name": "body.conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "72fbcdfd-0645-41e5-9c90-9d8c95d6aeb0",
+              "name": "body.content",
+              "value": "={{ $('Webhook').item.json.body.content }}",
+              "type": "string"
+            },
+            {
+              "id": "c4496c85-31da-4923-af07-f1e14cb06a05",
+              "name": "body.sender_name",
+              "value": "={{ $('Webhook').item.json.body.sender_name }}",
+              "type": "string"
+            },
+            {
+              "id": "4ae31ffb-d5ad-4f1e-8e39-aef119462dc8",
+              "name": "body.recipient_phone",
+              "value": "={{ $('Webhook').item.json.body.recipient_phone }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2704,
+        -240
+      ],
+      "id": "ab950652-c110-4140-8984-a7e029504b40",
+      "name": "Conversa Humano"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -1968,
+        -32
+      ],
+      "id": "404d9023-2e99-464e-894b-26f396835639",
+      "name": "Limit1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_usage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n       \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n       \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\", \n       \"p_metric_type\": \"tokens\",\n       \"p_value\": {{ $json.total_tokens|| 0}},\n       \"p_cost\": {{ $json.cost_brl || 0}},\n       \"p_metadata\": {\n         \"conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n         \"model\": \"{{ $('Edit Fields').first().json.agent.modelId }}\",\n         \"prompt_tokens\": {{ $json.prompt_tokens }},\n         \"completion_tokens\": {{ $json.completion_tokens }},\n         \"cost_usd\": {{ $json.cost_usd }}\n       }\n     }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        7056,
+        -80
+      ],
+      "id": "e2d4bf6f-f8c4-4c8e-bf16-1a4d9a71c157",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}/rest/v1/rpc/n8n_orchestrator_v7",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.apikey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_instance_name\": \"{{ $json.instance_name }}\",\n  \"p_user_identifier\": \"{{ $('Webhook').item.json.body.data.key.remoteJid }}\",\n  \"p_user_name\": \"{{ $('Webhook').item.json.body.data.pushName }}\",\n  \"p_metadata\": {\n    \"source\": \"{{ $('Webhook').item.json.body.server_url }}\"\n  }\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -2736,
+        -16
+      ],
+      "id": "7cdd5795-8884-4dfb-812a-705b701a3303",
+      "name": "Buscar Agente - RPC"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').item.json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').item.json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').item.json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": {{ JSON.stringify( $('Edit Fields').first().json.message || \"\" ) }},\n  \"p_sender_type\": \"user\",\n  \"p_sender_name\": \"{{ $('Edit Fields').first().json.nome_cliente }}\"\n}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        592,
+        -144
+      ],
+      "id": "81edc734-eae5-4d2f-b84d-d5450a19e9f2",
+      "name": "HTTP Request Criar Mensagem"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_tenant_id",
+              "value": "={{ $('Edit Fields').first().json.tenant_id }}"
+            },
+            {
+              "name": "p_content",
+              "value": "={{ $json.ai_response }}"
+            },
+            {
+              "name": "p_sender_type",
+              "value": "ai"
+            },
+            {
+              "name": "p_sender_name",
+              "value": "IA"
+            },
+            {
+              "name": "p_message_type",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        5232,
+        -192
+      ],
+      "id": "8fc3ad32-eee0-48d3-95e4-cc7a6a7d4a70",
+      "name": "HTTP Request Criar Mensagem IA"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_tenant_id",
+              "value": "={{ $('Edit Fields').first().json.tenant_id }}"
+            },
+            {
+              "name": "p_content",
+              "value": "={{ $('Edit Fields Audio').first().json.message }}"
+            },
+            {
+              "name": "p_sender_type",
+              "value": "user"
+            },
+            {
+              "name": "p_sender_name",
+              "value": "={{ $('Edit Fields').first().json.nome_cliente }}"
+            },
+            {
+              "name": "p_message_type",
+              "value": "audio"
+            },
+            {
+              "name": "p_file_url",
+              "value": "={{ $('Obter m dia em base64').first().json.data.base64 }}"
+            },
+            {
+              "name": "p_transcription",
+              "value": "={{ $('Edit Fields Audio').first().json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        592,
+        32
+      ],
+      "id": "dae657d5-b0e5-4686-891f-6d00b24008fa",
+      "name": "HTTP Request Criar Mensagem IA (audio)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"text-embedding-3-small\",\n  \"input\": \"{{ $('Edit Fields').item.json.message || $('Edit Fields Audio').item.json.message }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1856,
+        -208
+      ],
+      "id": "551a2252-fd4c-4671-ab25-e3d67a212035",
+      "name": "HTTP Request - Embedings (msg usr)",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* \n  🛡️ ORGANIZADOR DE CONTEXTO (GENERALE V17)\n  - n8n Burro: Apenas organiza os dados brutos.\n  - Segurança: Bloqueia ferramentas se o usuário trocar o CPF no meio.\n*/\n\n// 1. Coleta de dados genéricos (presentes em qualquer Agente do fluxo)\nconst editFields = $('Edit Fields').first().json;\nconst intentNode = $('formatacao Intencao').first().json;\nconst rpcAgente = $('Buscar Agente - RPC').first().json;\n\nconst intent = intentNode.intent || 'general';\nconst userMsg = editFields.message || '';\n\n// Identifica se a mensagem atual é um CPF/CNPJ\nconst cleanInput = userMsg.replace(/[^\\d]/g, '');\nconst isDocInput = /^\\d{11}$|^\\d{14}$/.test(cleanInput);\n\n// 2. Estado de Autenticação\nconst isAuth = (editFields.security_status === 'active');\nconst currentDoc = editFields.validated_doc || editFields.session_identifier;\n\n// 3. Regra de Segurança (Troca de documento)\nlet should_use_tools = (intent === 'general' || isAuth);\n\n// Se o usuário digitou um novo DOC e ele é diferente do atual logado, bloqueamos\nif (isDocInput && cleanInput !== currentDoc) {\n  should_use_tools = false;\n}\n\n// 4. Montagem do Contexto para o LLM (Entrega de Dados)\n// Aqui passamos os dados que as TOOLS vão precisar como parâmetros (p_cpf, p_agent_id, etc)\nlet contextText = `\\n\\n[SISTEMA - STATUS]: `;\n\nif (isAuth) {\n    contextText += `AUTENTICADO.\n    - p_cpf: ${currentDoc}\n    - p_agent_id: ${editFields.agent_id}\n    - p_conversation_id: ${rpcAgente.conversation?.id}`;\n} else if (isDocInput && !should_use_tools) {\n    contextText += `PROCESSANDO DOCUMENTO INFORMADO: ${cleanInput}...`;\n} else {\n    contextText += `NÃO IDENTIFICADO. SOLICITE IDENTIFICAÇÃO SE NECESSÁRIO.`;\n}\n\nreturn [{ \n    json: { \n        strategies_context: contextText,\n        detected_intent: intent,\n        should_use_tools: should_use_tools,\n        current_user_input_doc: isDocInput ? cleanInput : null,\n        // Campos auxiliares para o n8n\n        authenticated_id: currentDoc,\n        auth_status: isAuth ? 'active' : 'none'\n    } \n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        -32
+      ],
+      "id": "f315a55b-8def-47b3-a1df-2cb6cd9a2669",
+      "name": "Formatar Contexto (Code Node)",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT strategic_summary, user_intent, similarity\nFROM match_success_memory_as_system(\n    $1::uuid,              -- agent_id\n    $2::uuid,              -- tenant_id\n    $3::vector,            -- embedding\n    0.3::float8,           -- AQUI: float8 = double precision\n    3::integer,            -- AQUI: integer explícito\n    NULL::text             -- AQUI: text explícito\n);",
+        "options": {
+          "queryReplacement": "=[{{ $('Edit Fields').item.json.agent_id }},{{ $('Edit Fields').item.json.tenant_id }},{{ $json.data[0].embedding }}]"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2032,
+        -208
+      ],
+      "id": "08f988fa-5067-4819-b884-6eeb12459500",
+      "name": "Buscar Memórias Semelhantes (Postgres RPC)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM match_agent_knowledge (\n  '{{ $('Edit Fields').first().json.tenant_id }}',\n  '{{ $('Edit Fields').first().json.agent_id }}',\n  '[ {{ $('HTTP Request - Embedings (msg usr)').first().json.data?.[0]?.embedding?.join(\",\") || \"0.0,0.0,0.0\" }} ]',\n  0.4,\n  3\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2192,
+        -208
+      ],
+      "id": "1841fcc2-594d-468c-8f68-beb0f3fffbc8",
+      "name": "Buscar Base de Conhecimento",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "18b80175-7257-4966-aeea-837b2cff90f0",
+              "leftValue": "={{ $json.allowToolExecution }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3632,
+        -80
+      ],
+      "id": "038f7224-a10c-4fa3-9cb6-4829a81f7a31",
+      "name": "gatekeeper-if-node"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Sempre chame esta ferramenta passando o CNPJ ou CPF (apenas os números) no parâmetro p_doc",
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/mock_validate_identity",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_doc",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', `Documento enviado pra validacao`, 'string') }}"
+            },
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_agent_id",
+              "value": "={{ $('Edit Fields').first().json.agent_id }}"
+            },
+            {
+              "name": "tool_name",
+              "value": "Validar_Documento_Security_Gate"
+            },
+            {
+              "name": "p_tenant_id",
+              "value": "={{ $('Edit Fields').first().json.tenant_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        3440,
+        -320
+      ],
+      "id": "8bda4523-a9d7-4528-812f-cd06d15d57e8",
+      "name": "Validar_Documento_Security_Gate"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Busca o Resumo Financeiro do cliente. Traz histórico de faturas, juros e restrição no Serasa. \nOBRIGATÓRIO USAR PARA: Consulta de faturas, boletos, Serasa, PEFIN, dívidas, protestos, detalhamento de crédito e juros. Busca o Resumo Financeiro completo do cliente. Traz o status da restrição SERASA e a listagem de faturas. Se a intenção for Serasa, USE ESTA FERRAMENTA!\n⚠️ REGRA ESTRITA DE USO: Ao receber os dados desta ferramenta, se o cliente tiver apenas perguntado se \"tem atraso\" ou se \"está no Serasa\", VOCÊ É OBRIGADO a esconder os valores e faturas. Diga APENAS o status (Sim/Não) e pergunte se ele deseja o detalhamento. NUNCA liste as faturas sem ele dizer \"Sim\" para essa pergunta.",
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/financial_get_customer_summary_safe",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_agent_id",
+              "value": "={{ $('Edit Fields').first().json.agent_id }}"
+            },
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_cpf",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters2_Value', `O CPF ou CNPJ passado pelo usuário na conversa`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        3984,
+        752
+      ],
+      "id": "6f349aee-9482-4835-9586-b89de3ace8d7",
+      "name": "Consultar_Vida_Financeira",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "toolDescription": "Baixa uma fatura atrasada manualmente quando o cliente informa que 'já pagou a de valor X'. Tenta encontrar uma cobrança pelo valor do comprovante e altera a parcela para PAGA, retornando sucesso ao usuário.",
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/mock_inform_payment",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_cpf",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('cpf', `O CPF passado pelo usuário na conversa`, 'string') }}"
+            },
+            {
+              "name": "p_amount",
+              "value": "={{ $fromAI('p_amount', 'Obrigatório informar apenas NÚMEROS (ex: 150.50). É o valor exato.', 'number') }}"
+            },
+            {
+              "name": "p_due_date",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters2_Value', `Obrigatório. A data de vencimento original da parcela que o cliente diz ter pago, no formato DD/MM/YYYY. Se o cliente não souber a data de vencimento da parcela, NÃO use essa ferramenta, peça a data a ele primeiro.`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        4320,
+        -448
+      ],
+      "id": "5006eadb-3ecd-4779-8ac6-e5cf11aad24f",
+      "name": "Avisar_Comprovante_Pago"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Renegocia a dívida ativa do cliente. Apaga o nome dele do Serasa/SPC e dilui a dívida velha na quantidade solicitada. Exija que ele confirme em quantas parcelas deseja dividir antes de chamar!",
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/mock_renegotiate_debts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_cpf",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('cpf', `O CPF passado pelo usuário na conversa`, 'string') }}"
+            },
+            {
+              "name": "p_installments_count",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters1_Value', `A quantidade inteira de parcelas escolhida para diluir (ex: 5)`, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.3,
+      "position": [
+        4496,
+        -320
+      ],
+      "id": "7b64a6e2-e8f3-4210-b77f-568b945bf199",
+      "name": "Firmar_Acordo_Parcelament"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "saudacao",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "fe7e62cf-fdee-44fa-a955-a33e5c96664a"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0a4b9571-1af1-432f-ac55-ec86b9125c11",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "general",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1649ddb1-b6d1-4e29-b9b5-69f9a35738c4",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "logout",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bf7e27e4-77ec-4dd8-917b-aaba2dcc57d4",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "attack_blocked",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "c547a9c3-d902-47cb-b094-59cef4949a05",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "protected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e65df44c-df84-47a3-8175-01a76007e921",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "out_of_scope",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "39c671d7-b929-4d62-8a7b-c36a2abcb714",
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "cpf_validation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        1536,
+        -64
+      ],
+      "id": "8d7ff3a9-e912-4b5c-9165-0f186aab9071",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_tenant_id",
+              "value": "={{ $('Edit Fields').first().json.tenant_id }}"
+            },
+            {
+              "name": "p_content",
+              "value": "={{ $('Edit Fields').first().json.agent.greeting_message }}"
+            },
+            {
+              "name": "p_sender_type",
+              "value": "ai"
+            },
+            {
+              "name": "p_sender_name",
+              "value": "IA"
+            },
+            {
+              "name": "p_message_type",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2032,
+        -432
+      ],
+      "id": "eb58aadb-87df-4951-987c-a66612ce3475",
+      "name": "HTTP Request Criar Mensagem Workflow"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Contexto da conversa:\n\nNome informado pelo cliente: {{ $('Edit Fields').first().json.nome_cliente }}\nTelefone informado pelo cliente: {{ $('Edit Fields').first().json.telefone_cliente }}\nData atual: {{ $('Edit Fields').first().json.data_hoje }}\nMensagem do cliente: {{ $(\"Normaliza Campos Imagem\").isExecuted ? $node[\"Normaliza Campos Imagem\"].json.message : ($(\"Edit Fields Audio\").isExecuted ? $node[\"Edit Fields Audio\"].json.message : $node[\"Edit Fields\"].json.message) }}\n\n\n{{ $('Edit Fields').first().json.agent.userPromptTemplate }}",
+        "options": {
+          "systemMessage": "={{ $('Edit Fields').first().json.agent.systemPrompt }}\n# DIRETRIZES DE GOVERNANÇA (ISO 42001)\n### ✅ O QUE VOCÊ PODE FAZER:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.canDo.join('\\n- ') }}\n### ❌ O QUE VOCÊ NÃO PODE FAZER:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.cannotDo.join('\\n- ') }}\n### ⚠️ CONDIÇÕES DE TRANSFERÊNCIA/SEGURANÇA:\n{{ $('Buscar Agente - RPC').first().json.governance.rules.transferConditions.join('\\n- ') }}\n{{ $('Code - Contexto Pós-Auth').isExecuted ? $('Code - Contexto Pós-Auth').first().json.strategies_context : ($('Formatar Contexto (Code Node)').isExecuted ? $('Formatar Contexto (Code Node)').first().json.strategies_context : '') }}\nUse as estratégias acima como guia comportamental, mas adapte-as ao contexto atual.\nSempre consulte o vector store antes de responder qualquer pergunta.\n[Output Format — STRICT]\nFormato EXATO esperado:\n{\n  \"content\": \"string\"\n}",
+          "maxIterations": 5
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4048,
+        -256
+      ],
+      "id": "c23e1f7e-473d-4152-8865-cad57535b673",
+      "name": "AI Agent (Conversacional/RAG)"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        4064,
+        -80
+      ],
+      "id": "cd95d456-1b5d-479e-ab5d-220c36b68cab",
+      "name": "OpenAI Chat Model2",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.should_use_tools || $('Formatar Contexto (Code Node)').first().json.should_use_tools }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "0153148f-5ee7-41f8-96fa-66d7602a8a81"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bea9c52a-1062-4882-a966-89e0547c7497",
+                    "leftValue": "={{ $json.should_use_tools || $('Formatar Contexto (Code Node)').first().json.should_use_tools }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        3840,
+        -272
+      ],
+      "id": "35dac33a-70f7-4d91-89d0-28fb3d7e8fd4",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.message }}",
+        "guardrails": {
+          "keywords": "foda, fodendo, merda, caralho, porra, bosta, idiota, burro, babaca, fdp",
+          "jailbreak": {
+            "value": {
+              "threshold": 0.6
+            }
+          },
+          "nsfw": {
+            "value": {
+              "threshold": 0.6
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.guardrails",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        176
+      ],
+      "id": "98c7d6ff-b223-4fcd-965f-38b0fc7ccde4",
+      "name": "Guardrails"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -32,
+        352
+      ],
+      "id": "f35159d3-e7e1-4c0c-b48e-721312039be2",
+      "name": "OpenAI Chat Model3",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_security_violation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').item.json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').item.json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_violation_type\": \"{{ $json.checks.filter(c => c.triggered).map(c => c.name).join(', ') }}\",\n  \"p_severity\": \"{{ $json.checks.some(c => c.triggered && c.name === 'jailbreak') ? 'critical' : ($json.checks.some(c => c.triggered && (c.name === 'keywords' || c.name === 'nsfw')) ? 'high' : 'medium') }}\",\n  \"p_raw_message\": {{ JSON.stringify( \"Filtro Automático | Input: \" + ($json.guardrailsInput || \"\") + \" | Detalhes: \" + JSON.stringify($json.checks.filter(c => c.triggered)) ) }}\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        576,
+        560
+      ],
+      "id": "0caa6fb0-a3ac-441d-9afb-3887734ba78b",
+      "name": "HTTP Request (Gravar Incidente)"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Edit Fields').first().json.message_type }}",
+                    "rightValue": "conversation",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "c49b3d5f-ba19-4904-8874-1e549e3dd23b"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5e12b35b-11dd-457a-aaa8-4d91857b5471",
+                    "leftValue": "={{ $('Edit Fields').first().json.message_type }}",
+                    "rightValue": "audioMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "5fb63d21-162b-4870-a295-c1946f9df948",
+                    "leftValue": "={{ $('Edit Fields').first().json.message_type }}",
+                    "rightValue": "imageMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "0c1ec28b-1d1e-4fe9-b84a-bcf48bdec29b",
+                    "leftValue": "={{ $('Edit Fields').first().json.message_type }}",
+                    "rightValue": "documentMessage",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        320,
+        80
+      ],
+      "id": "2c08bede-e4f7-4eee-8f81-846db674819d",
+      "name": "Switch2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": {{ JSON.stringify(\"⚠️ [ MENSAGEM DO USUÁRIO OCULTADA. MOTIVO: \" + ({\"keywords\":\"Linguagem Imprópria / Palavrões\", \"nsfw\":\"Conteúdo Ofensivo / Tóxico\", \"jailbreak\":\"Tentativa de Manipulação da IA\"}[$('Guardrails').first().json.checks.find(c => c.triggered)?.name] || \"Violação de Segurança\") + \" | Um Incidente Formal de Segurança foi gerado para análise da auditoria. ]\") }},\n  \"p_sender_type\": \"user\",\n  \"p_sender_name\": \"{{ $('Edit Fields').first().json.nome_cliente }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1056,
+        560
+      ],
+      "id": "9d15aaf6-dbcd-4a4f-a7ef-a15ee8277823",
+      "name": "HTTP Request Criar Mensagem Censurada USER"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": {{ JSON.stringify(\"Sua mensagem não pôde ser processada por conter termos que violam nossas diretrizes de respeito ou segurança.\\n\\n⚠️ Por medidas de conformidade, um *incidente interno de segurança foi registrado* e vinculado ao seu atendimento para futura análise da equipe técnica.\\n\\nPor favor, reformule sua frase de forma polida para podermos dar continuidade ao seu suporte!\") }},\n  \"p_sender_type\": \"ai\",\n  \"p_sender_name\": \"Segurança Davos\",\n  \"p_message_type\": \"text\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1328,
+        560
+      ],
+      "id": "a02f6553-fb72-4f73-abea-9e2a63373118",
+      "name": "HTTP Request Criar Mensagem Censurada IA"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.is_blocked }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "true",
+                      "singleValue": true
+                    },
+                    "id": "475631d9-824f-4acd-9418-ae47cae7e58e"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "2e0a2570-a5eb-45c0-a11c-97cdc1fa556f",
+                    "leftValue": "={{ $json.is_blocked }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "false",
+                      "singleValue": true
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        5632,
+        -192
+      ],
+      "id": "195aeacc-cf58-43a9-8d59-46a81c491e23",
+      "name": "Switch LLM"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_security_violation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_violation_type\": \"Output Guardrail (Camada 2): {{ $json.guardrail_reason }}\",\n  \"p_severity\": \"low\", \n  \"p_raw_message\": {{ JSON.stringify(\"Tentativa de vazamento do LLM: \" + ($json.original_ai_payload || \"\")) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        5984,
+        -448
+      ],
+      "id": "61b637a2-83e2-4419-bb21-40f49017ef57",
+      "name": "HTTP Request (Gravar Incidente) LLM"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": \"{{ $json.message || '⚠️ Bloqueio de segurança identificado.' }}\",\n  \"p_sender_type\": \"ai\",\n  \"p_sender_name\": \"Segurança Davos\",\n  \"p_message_type\": \"text\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        6192,
+        -448
+      ],
+      "id": "1ab8090d-0bd0-4317-8da4-a7522f482a43",
+      "name": "HTTP Request Criar Mensagem IA - Problema LLM"
+    },
+    {
+      "parameters": {
+        "content": "Validação se a conversa está sendo feita por um Humano ou se deveria. serpela IA",
+        "height": 1072,
+        "width": 624
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -3440,
+        -144
+      ],
+      "typeVersion": 1,
+      "id": "09a11803-b1b1-470d-8cd2-ee785fe60425",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "Conversa sendo respondida por um Humano",
+        "height": 288,
+        "width": 432
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2800,
+        -352
+      ],
+      "typeVersion": 1,
+      "id": "df55ed96-a4a5-4079-8c0f-cdf639e9c163",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "Busca todos os dados do Agente da empresa",
+        "height": 976,
+        "width": 432
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2800,
+        -48
+      ],
+      "typeVersion": 1,
+      "id": "422c5263-61bb-4904-81e2-215ed0447aa3",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": \"⚠️ *Ação Bloqueada por Segurança*\\n\\nDetectamos uma solicitação que viola nossas diretrizes de privacidade e governança de dados. Esta interação foi registrada para auditoria.\\n\\nPor favor, utilize este canal apenas para dúvidas sobre nossos serviços financeiros. Como posso te ajudar hoje?\",\n  \"p_sender_type\": \"ai\",\n  \"p_sender_name\": \"Segurança Davos\",\n  \"p_message_type\": \"text\",\n  \"p_metadata\": {\n    \"security_event\": true,\n    \"violation_reason\": \"{{ $json.security?.reason || $json.guardrail_reason }}\",\n    \"blocked_input\": \"{{ $json.message_original }}\"\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2400,
+        192
+      ],
+      "id": "d860ad2e-6396-45f8-b74a-5e591fa3ae13",
+      "name": "HTTP Request Criar Mensagem IA - Injection"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_security_violation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_violation_type\": \"Early Firewall (Camada 1.5): {{ $json.security.reason }}\",\n  \"p_severity\": \"critical\",\n  \"p_raw_message\": {{ JSON.stringify(\"Ataque Direto Detectado: \" + $json.message_original) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2192,
+        192
+      ],
+      "id": "ab168c16-407e-40a7-a304-405097bed98f",
+      "name": "HTTP Request (Gravar Incidente) Injection"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "=Você é um Auditor de Conformidade da Davos. Sua única função é analisar se a resposta abaixo é segura para o WhatsApp.\n\nREGRAS DE BLOQUEIO (Responda \"BLOQUEAR\" se):\n1. A resposta cita nomes de tabelas (ex: \"contacts\", \"incidents\", \"agents\").\n2. A resposta contém JSON crú (texto entre chaves { }).\n3. A resposta admite ser uma IA citando \"meu prompt\" ou \"instruções de sistema\".\n4. A resposta contém erros técnicos ou códigos de programação.\n\nREGRAS DE LIBERAÇÃO (Responda \"LIBERAR\" se):\n- A resposta é um texto natural, educado e focado no atendimento ao cliente.\n\nRESPOSTA PARA AUDITAR:\n{{ $json.message }}\n\nRESPONDA APENAS UMA PALAVRA: \"BLOQUEAR\" ou \"LIBERAR\"."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        5840,
+        -64
+      ],
+      "id": "0ec35936-b148-438f-bac6-116f1258d6c4",
+      "name": "LLM Auditor de Conformidade",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5180cc50-e07d-4e8b-a3ae-864dae6cd5e2",
+              "leftValue": "={{ $json.output[0].content[0].text.toLowerCase().trim() }}\n",
+              "rightValue": "bloquear",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        6048,
+        -64
+      ],
+      "id": "e44b5261-5121-4194-bc74-7997839593a1",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_security_violation",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_violation_type\": \"LLM Semantic Auditor (Camada 3): Resposta Insegura Detectada\",\n  \"p_severity\": \"medium\",\n  \"p_raw_message\": {{ JSON.stringify(\"Resposta bloqueada pelo auditor: \" + $('Code in JavaScript').first().json.message) }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        6368,
+        -272
+      ],
+      "id": "a5862a11-169e-40c9-9af4-7b39926dda3c",
+      "name": "HTTP Request (Gravar Incidente) Auditor Humano"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": \"⚠️ *Bloqueio de Segurança (Auditoria Semântica)*: A resposta gerada pela IA foi interceptada por conter possíveis dados sensíveis ou diretrizes de sistema. O cliente recebeu a mensagem de instabilidade padrão.\",\n  \"p_sender_type\": \"ai\",\n  \"p_sender_name\": \"Segurança Davos\",\n  \"p_message_type\": \"text\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        6592,
+        -272
+      ],
+      "id": "86d00a4a-7041-49bf-82fe-ea4295cfd2d8",
+      "name": "HTTP Request Criar Mensagem IA - Auditor"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": {{ JSON.stringify($json.text || $json.output[0].content[0].text || \"⚠️ Mensagem de fora do escopo.\") }},\n  \"p_sender_type\": \"ai\",\n  \"p_sender_name\": \"Segurança Davos\",\n  \"p_message_type\": \"text\",\n  \"p_metadata\": {\n    \"system_event\": true,\n    \"intent\": \"{{ $('formatacao Intencao').first().json.intent || 'out_of_scope' }}\",\n    \"is_violation\": {{ $('formatacao Intencao').first().json.intent === 'attack_blocked' ? true : false }},\n    \"is_out_of_scope\": {{ $('formatacao Intencao').first().json.intent === 'out_of_scope' ? true : false }},\n    \"original_user_input\": {{ JSON.stringify($('formatacao Intencao').first().json.message_original || '') }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2336,
+        400
+      ],
+      "id": "89cbd579-3832-49c7-b2d4-a07cb33a4efa",
+      "name": "HTTP Request Criar Mensagem IA - Fora do Escopo"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/mock_validate_identity",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_doc\": \"{{ $('Validador de Saudacao').first().json.detected_document }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2064,
+        656
+      ],
+      "id": "5abb1b16-572d-424c-b3de-7ea1712a7df5",
+      "name": "HTTP Request - Validar Documento"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "c3dc096b-52d3-430c-9a08-84aa398f6b2e",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2272,
+        656
+      ],
+      "id": "e4495ceb-4bda-4f9c-a3c8-ff1205fac247",
+      "name": "If Validou Documento?"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* \n  🔐 CONTEXTO PÓS-AUTENTICAÇÃO (V17 - n8n Burro)\n*/\n\n// 1. Pega os dados mais frescos (da validação que acabou de passar)\nconst validation = $('Validar_Documento_Security_Gate').first().json;\nconst agentData = $('Edit Fields').first().json;\nconst rpcAgente = $('Buscar Agente - RPC').first().json;\nconst history = rpcAgente.conversation?.history || [];\n\n// 2. n8n Burro: Localiza o último pedido do usuário para não perder o fio da meada\nconst userMessages = history\n    .filter(m => (m.role === 'user' || m.sender_type === 'user'))\n    .map(m => m.content || m.message || '')\n    .filter(msg => {\n        const clean = msg.replace(/[^\\d]/g, '');\n        return !(/^\\d{11}$|^\\d{14}$/.test(clean)); // Ignora a mensagem que era só o CPF\n    });\n\nconst lastRequest = userMessages.length > 0 ? userMessages[userMessages.length - 1] : \"o que eu pedi antes\";\n\n// 3. Montagem do Contexto (Entrega de \"Tijolos\" para a ferramenta)\nlet contextText = `\\n\\n[SISTEMA - SEGURANÇA]: IDENTIDADE CONFIRMADA AGORA.\n   - p_cpf: ${validation.active_cpf} \n   - p_agent_id: ${agentData.agent_id}\n   - p_conversation_id: ${rpcAgente.conversation?.id}\n\n   ⚠️ INSTRUÇÃO PRIORITÁRIA: O cliente foi autenticado com sucesso. \n   Não peça o CPF. Atenda ao pedido: \"${lastRequest}\" usando a ferramenta 'Consultar_Vida_Financeira' IMEDIATAMENTE.`;\n\nreturn [{\n    json: {\n        strategies_context: contextText,\n        detected_intent: 'protected',\n        should_use_tools: true, // Libera a IA para agir\n        authenticated_id: validation.active_cpf\n    }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        560
+      ],
+      "id": "00df312c-848f-4906-81a6-12d5592bc457",
+      "name": "Code - Contexto Pós-Auth"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "p_conversation_id",
+              "value": "={{ $('Buscar Agente - RPC').first().json.conversation.id }}"
+            },
+            {
+              "name": "p_tenant_id",
+              "value": "={{ $('Edit Fields').first().json.tenant_id }}"
+            },
+            {
+              "name": "p_content",
+              "value": "Documento não encontrado. Por favor, tente novamente."
+            },
+            {
+              "name": "p_sender_type",
+              "value": "ai"
+            },
+            {
+              "name": "p_sender_name",
+              "value": "IA"
+            },
+            {
+              "name": "p_message_type",
+              "value": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2768,
+        736
+      ],
+      "id": "7012f2fa-ff16-4e11-ae93-cbf3169fce25",
+      "name": "HTTP Request Criar Mensagem Documento"
+    },
+    {
+      "parameters": {
+        "resource": "chat-api",
+        "operation": "get-media-base64",
+        "instanceName": "={{ $('Edit Fields').item.json.instance }}",
+        "messageId": "={{ $('Edit Fields').item.json.session_id }}"
+      },
+      "type": "n8n-nodes-evolution-api.evolutionApi",
+      "typeVersion": 1,
+      "position": [
+        -1024,
+        272
+      ],
+      "id": "b3478e1c-306f-4d79-b006-cd88948221ea",
+      "name": "Obter midia base64",
+      "credentials": {
+        "evolutionApi": {
+          "id": "68pjEsIpdOiMTDE5",
+          "name": "Evolution account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "operation": "analyze",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "text": "Extraia fielmente todo o texto presente nesta imagem. Se for um comprovante financeiro, extraia valores e nomes. Se não houver texto, retorne apenas '[Foto]'.",
+        "inputType": "base64",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        -672,
+        272
+      ],
+      "id": "7322c527-9f06-4ce1-91c0-6e30e86fcdb1",
+      "name": "Analyze image",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "data.base64",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -848,
+        272
+      ],
+      "id": "592fd282-49e8-4c63-bde5-8ac27f941730",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"conversation_id\": \"{{ $json.conversation_id }}\"\n}\n\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        816,
+        208
+      ],
+      "id": "f13b407a-b5b0-46a4-8dfc-d13a88d20363",
+      "name": "Edit Fields Normaliza Conversation ID2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/record_message",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_tenant_id\": \"{{ $('Edit Fields').first().json.tenant_id }}\",\n  \"p_content\": \"🖼️ Foto enviada pelo cliente\",\n  \"p_sender_type\": \"user\",\n  \"p_sender_name\": \"{{ $('Edit Fields').first().json.nome_cliente }}\",\n  \"p_message_type\": \"image\",\n  \"p_file_url\": \"{{ $('Obter midia base64').first().json.data.base64 }}\",\n  \"p_transcription\": \"{{ $json.message }}\"\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        592,
+        208
+      ],
+      "id": "5a3bace1-2b23-45b5-9b36-dd5a4b9519dd",
+      "name": "HTTP Request Criar Mensagem IA (imagem)"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* 🛡️ EXTRATOR DE IMAGEM - VERSÃO ESTÁVEL */\nconst allItems = items;\nconst output = [];\n\n// 1. Busca o Base64 uma única vez fora do loop para não travar\nlet base64Data = null;\ntry {\n  base64Data = $(\"Obter mídia base64\").first().json.data.base64;\n} catch (e) {\n  try {\n    base64Data = $(\"Obter midia base64\").first().json.data.base64;\n  } catch (ee) {}\n}\n\n// 2. Processa os itens de forma simples\nfor (let item of allItems) {\n  let jsonData = item.json;\n  if (Array.isArray(jsonData)) jsonData = jsonData[0];\n\n  let extractedText = \"Sem texto extraído\";\n  try {\n    extractedText = (jsonData.content && jsonData.content[0] && jsonData.content[0].text) || \n                    jsonData.text || \n                    jsonData.output || \n                    extractedText;\n  } catch (err) {}\n\n  output.push({\n    json: {\n      message: extractedText,\n      image_base64: base64Data,\n      message_type: 'imageMessage'\n    }\n  });\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        272
+      ],
+      "id": "a52e98dc-769c-44e1-be7a-b435cb20fc90",
+      "name": "Normaliza Campos Imagem"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* \n  🛡️ INTENT FORMATTER & SAFETY NET (V31 - OPTIMIZED)\n  Garante que saudações não sejam classificadas erroneamente como general.\n*/\n\nlet iaText = \"\";\n// 1. Captura o texto da IA (suporta diferentes formatos de saída do n8n)\nif ($json.output && $json.output.length > 0 && $json.output[0].content && $json.output[0].content.length > 0) {\n    iaText = $json.output[0].content[0].text;\n} else if ($json.text) {\n    iaText = $json.text;\n} else if ($json.message && $json.message.content) {\n    iaText = $json.message.content;\n}\n\n// 2. Transforma o Texto num Objeto JSON\nlet intentDecidida = \"general\";\ntry {\n    iaText = iaText.replace(/```json/g, \"\").replace(/```/g, \"\").trim();\n    const iaResponse = JSON.parse(iaText);\n    intentDecidida = iaResponse.content || iaResponse.intent || \"general\";\n} catch (error) {\n    intentDecidida = \"general\"; \n}\n\n// 3. Resgate da Mensagem Original\nlet parsedMessage = \"\";\ntry {\n    if ($('Normaliza Campos Imagem').isExecuted) {\n        parsedMessage = $('Normaliza Campos Imagem').first().json.message;\n    } else if ($('Edit Fields').isExecuted) {\n        parsedMessage = $('Edit Fields').first().json.message;\n    } else {\n        parsedMessage = \"Mensagem não capturada.\";\n    }\n} catch(e) {\n    parsedMessage = \"\";\n}\n\n// 🔥 NOVO: REDE DE SEGURANÇA PARA SAUDAÇÕES (HARDCODED)\nconst GREETINGS_REGEX = /^(oi|ola|bom dia|boa tarde|boa noite|opa|hey|eae|ei|hello|hi|saudacoes|tudo bem)\\b/i;\nconst normalizedMsg = parsedMessage.toLowerCase().normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/[^\\w\\s]/gi, \"\").trim();\n\nif (parsedMessage.length <= 15 && GREETINGS_REGEX.test(normalizedMsg)) {\n    intentDecidida = \"saudacao\"; // Força o roteamento correto para \"olá\"\n}\n\nreturn {\n  json: {\n    intent: intentDecidida, \n    message_original: parsedMessage,\n    identity_gate_enabled: true\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        16
+      ],
+      "id": "8c19ae5f-291a-4f39-9143-58ee35167f69",
+      "name": "formatacao Intencao"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "=CATEGORIAS E REGRAS ABSOLUTAS:\n\n1. \"out_of_scope\" [PRIORIDADE MÁXIMA]\n   -> Disparado SE qualquer uma das condições abaixo for verdadeira:\n      a) O usuário citar explicitamente QUALQUER EMPRESA QUE NÃO SEJA A MARCA QUE VOCÊ ATENDE (ex: Grendene, Nike, Claro, Banco do Brasil).\n      b) O usuário fizer perguntas completamente fora do domínio de um assistente financeiro/comercial (ex: clima, esportes, religião, política, receitas, entretenimento, notícias, curiosidades gerais).\n      Exemplos de out_of_scope: \"qual a temperatura de SP?\", \"quem ganhou o jogo ontem?\", \"me conte uma piada\", \"o que é fotossíntese?\".\n\n2. \"protected\" [PRIORIDADE ALTA]\n   -> Disparado APENAS SE o usuário NÃO CITAR marcas de terceiros, E atender a UMA das condições abaixo:\n      a) Falar de assuntos financeiros (boleto, faturas, renegociação, segunda via, score, dívidas, pagamentos, Serasa, Pefin, nota fiscal, danfe).\n      b) Enviar um número de documento identificador (CPF, CNPJ).\n\n3. \"saudacao\" [PRIORIDADE MÉDIA]\n   -> Disparado para cumprimentos iniciais (\"bom dia\", \"oi\", \"olá\", \"opa\") ou perguntas sobre sua identidade (\"quem é você?\", \"o que você faz?\"). Use isso para o primeiro contato do usuário.\n\n4. \"general\" [PRIORIDADE BASE]\n   -> Disparado SOMENTE para dúvidas diretamente relacionadas aos SERVIÇOS do assistente, que não sejam financeiras. Ex: horário de atendimento, localização de loja, prazo de entrega, formas de contato, política de troca.\n   -> NÃO use para perguntas alheias ao negócio (essas são out_of_scope).\n\nEXEMPLOS DE CLASSIFICAÇÃO:\n- User: \"Quero meu boleto em atraso\" -> {\"content\": \"protected\"}\n- User: \"Bom dia, tudo bem?\" -> {\"content\": \"saudacao\"}\n- User: \"Gostaria de pagar as faturas da Grendene\" -> {\"content\": \"out_of_scope\"}\n- User: \"Quem é você?\" -> {\"content\": \"saudacao\"}\n- User: \"qual a temperatura de sp?\" -> {\"content\": \"out_of_scope\"}\n- User: \"me conte uma piada\" -> {\"content\": \"out_of_scope\"}\n- User: \"Como posso falar com um atendente?\" -> {\"content\": \"general\"}\n- User: \"onde fica a loja de vocês?\" -> {\"content\": \"general\"}\n- User: \"qual o prazo de entrega?\" -> {\"content\": \"general\"}\n"
+            },
+            {
+              "content": "={{ JSON.stringify( $('Edit Fields').first().json.message || \"\" ) }}\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        1088,
+        16
+      ],
+      "id": "1d865122-4f26-4185-a655-ae236fb8078e",
+      "name": "Classificacao de Intencao",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "={{ $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "=Você é o assistente virtual da seguinte configuração de atendimento:\n- IDENTIFICAÇÃO INTERNA DO SISTEMA: {{ $('Buscar Agente - RPC').first().json.agent.name }}\n- SEU ESCOPO PRINCIPAL DE ATENDIMENTO: {{ $('Buscar Agente - RPC').first().json.agent.systemPrompt }}\n\nO usuário fez uma pergunta, comentário genérico ou provocação que foge COMPLETAMENTE do seu escopo financeiro, ou mencionou uma concorrente (futebol, religião, outras lojas, xingamentos, etc).\n\nSUAS REGRAS DE RETORNO:\n1. NUNCA cite a \"Identificação Interna do Sistema\" (\"Agente...\", \"Whatts...\", \"Produção\", etc).\n2. Para dizer de onde você é, extraia o nome real da marca que está escrito no seu \"Escopo Principal de Atendimento\". (Ex: se lá diz \"Você é o especialista da Alpargatas\", diga apenas \"Eu sou o assistente digital da Alpargatas\").\n3. Se não encontrar um nome de marca no escopo, diga apenas \"Eu sou o seu assistente financeiro\" (ou o papel geral).\n4. Desvie polidamente do comentário do usuário com leveza ou neutralidade.\n5. Volte a focar nos SEUS serviços permitidos (boletos, faturas, renegociar, etc)."
+            },
+            {
+              "content": "={{ $('formatacao Intencao').first().json.message_original }}\n"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        2112,
+        400
+      ],
+      "id": "b668a731-94b9-4b51-be49-f9c63f4a911c",
+      "name": "LLM Fora do Escopo",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "={{ $('Edit Fields').first().json.agent.greeting_message }}",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1808,
+        -432
+      ],
+      "id": "753b0a01-d3ff-49b5-ac29-0af89ceab39b",
+      "name": "Call 'UTIL - Send WhatsApp Message'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "={{ $('Code in JavaScript').first().json.message }}",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6320,
+        -80
+      ],
+      "id": "c2f06077-e07c-438f-96c5-f9c0c8df523b",
+      "name": "Call 'UTIL - Send WhatsApp Message'1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "=Desculpe, encontrei uma instabilidade interna. Tente novamente, por favor.",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6880,
+        -288
+      ],
+      "id": "24584693-33c9-4b93-99dd-9120d8f62fcb",
+      "name": "Call 'UTIL - Send WhatsApp Message'2"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "=Desculpe, encontrei uma instabilidade interna. Tente novamente, por favor.",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6416,
+        -464
+      ],
+      "id": "430dff96-17b1-4ed6-9e3d-b17cc31fcddd",
+      "name": "Call 'UTIL - Send WhatsApp Message'3"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "=⚠️ Ação Bloqueada por Segurança Detectamos uma solicitação que viola nossas diretrizes de governança. Esta interação foi registrada para auditoria. Por favor, utilize este canal apenas para assuntos dentro do escopo do atendimento. Como posso te ajudar?",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2624,
+        192
+      ],
+      "id": "b353bd72-dfce-48fe-8776-a734214d9d9a",
+      "name": "Call 'UTIL - Send WhatsApp Message'4"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "={{ $('LLM Fora do Escopo').first().json.output[0].content[0].text }}",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2624,
+        400
+      ],
+      "id": "055284b4-cb1b-47eb-8d13-2ee410133a2a",
+      "name": "Call 'UTIL - Send WhatsApp Message'5"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "=Documento não encontrado. Por favor, tente novamente.",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2512,
+        736
+      ],
+      "id": "bce84d03-73c2-42a7-a5d7-f4781c6d48e7",
+      "name": "Call 'UTIL - Send WhatsApp Message'6"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "=Sua mensagem não pôde ser processada por conter termos que violam nossas diretrizes de respeito ou segurança.|⚠️ Por medidas de conformidade, um incidente interno de segurança foi registrado e vinculado ao seu atendimento para futura análise da equipe técnica.Por favor, reformule sua frase de forma polida para podermos dar continuidade ao seu suporte!",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        816,
+        560
+      ],
+      "id": "8db45120-fd73-4913-bcfc-98d252b631ed",
+      "name": "Call 'UTIL - Send WhatsApp Message'7"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "={{ $json.final_message }}",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1712,
+        112
+      ],
+      "id": "7eb39fbe-718a-49b3-b144-98ff4438d564",
+      "name": "Call 'UTIL - Send WhatsApp Message'11"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Edit Fields').first().json.remoteID }}",
+            "instance": "={{ $('Edit Fields').first().json.instance }}",
+            "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
+            "message": "={{ $json.body.content }}",
+            "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
+            "agent_id": "={{ $('Edit Fields').first().json.agent_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2512,
+        -240
+      ],
+      "id": "70192702-6037-4068-a6eb-cff73b6f658e",
+      "name": "Call 'UTIL - Send WhatsApp Message'12"
+    },
+    {
+      "parameters": {
+        "content": "Várias validações do Agente e se o usuário está banido da plataforma",
+        "height": 1280,
+        "width": 832
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2352,
+        -352
+      ],
+      "typeVersion": 1,
+      "id": "26ccc1a5-5311-4f4c-8db7-2da67a71f76f",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f7e1b50b-81fa-4412-ab6a-16ec278e93e0",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2224,
+        -16
+      ],
+      "id": "4bc283bb-8a92-4753-9562-4420cdb4adf3",
+      "name": "O status do RPC é 'success'"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* \n   NOME DO NÓ: \"Preparar Mensagem de Bloqueio\"\n   SAÍDA: Use o campo 'final_message' no seu nó de resposta final.\n*/\n\nconst gov = $json.governance;\nlet msg = \"Desculpe, não consegui processar sua mensagem agora. Por favor, tente novamente mais tarde.\";\n\n// 1. Prioridade Máxima: Banimento (Rigor)\nif (gov.user_banned) {\n    msg = \"⚠️ *Acesso Restrito*\\n\\nIdentificamos comportamentos que violam nossas diretrizes de uso. Por este motivo, seu atendimento foi suspenso temporariamente.\";\n} \n\n// 2. Prioridade de Negócio: Empresa/Agente Inativo\nelse if (!gov.empresa_ativa) {\n    msg = \"⚙️ *Manutenção de Sistema*\\n\\nO sistema da empresa está passando por uma atualização rápida. Por favor, tente novamente em alguns instantes.\";\n} \nelse if (!gov.agente_ativo) {\n    msg = \"🤖 *Agente Indisponível*\\n\\nEste serviço de atendimento está pausado no momento. Em breve retornaremos!\";\n}\n\n// 3. Prioridade Infra: Lotado\nelse if (gov.limite_atingido) {\n    msg = \"⏳ *Alta Demanda*\\n\\nUau! Temos muitas pessoas falando comigo agora. *Aguarde uns 2 minutinhos* e me mande um 'Oi' novamente para seguirmos?\";\n}\n\n// 4. Caso o Agente não exista (Erro de Configuração)\nelse if (!gov.agente_encontrado) {\n    msg = \"🚫 *Falha de Configuração*\\n\\nNão foi possível localizar as instruções para este atendimento. (Ref: AgentNotFound)\";\n}\n\nreturn {\n    final_message: msg,\n    blocking_reason: gov.user_banned ? 'BAN' : (gov.limite_atingido ? 'LIMIT' : 'MAINTENANCE')\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1968,
+        112
+      ],
+      "id": "9db4be0e-bd00-4aa0-a357-dbf7c37f526f",
+      "name": "Problemas possíveis de validação"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "18b80175-7257-4966-aeea-837b2cff90f0",
+              "leftValue": "={{ $('Formatar Contexto (Code Node)').first().json.should_use_tools }}",
+              "rightValue": "active",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3216,
+        -96
+      ],
+      "id": "0484a380-79e8-4fd8-86bf-d963e4774186",
+      "name": "IF Security"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Origem Requisicao').first().json.url }}/rest/v1/rpc/evaluate_conversation_security",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Origem Requisicao').first().json.apikey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_agent_id\": \"{{ $('Edit Fields').first().json.agent_id }}\",\n  \"p_conversation_id\": \"{{ $('Buscar Agente - RPC').first().json.conversation.id }}\",\n  \"p_intent\": \"{{ $('formatacao Intencao').first().json.intent }}\",\n  \"p_doc\": \"{{ $('Formatar Contexto (Code Node)').first().json.current_user_input_doc }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        3440,
+        -80
+      ],
+      "id": "851f1e8a-a1f9-4ee5-9064-5a100df9b13e",
+      "name": "RPC Security Gatekeeper"
+    },
+    {
+      "parameters": {
+        "description": "Proxy obrigatório para sistemas da Alpargatas. Use para qualquer ação financeira ou consulta. Você DEVE extrair o 'tool_name' exato da lista fornecida no seu Prompt de Sistema e passar os dados necessários no campo 'parameters' como um objeto JSON.",
+        "jsCode": "/* \n  ⚙️ EXECUTOR DINÂMICO DE TOOLS (V20 - N8N NATIVE)\n  - n8n Burro: Usando $http nativo do n8n (sem axios/fetch).\n  - Suporta Múltiplas Ferramentas: Identifica qual tool a IA escolheu.\n*/\n\n// 1. Captura o que a IA enviou\nconst input = $json.parameters || $json;\n\n// Se a IA não mandou tool_name, assumimos a financeira como padrão (migração híbrida)\nconst toolName = input.tool_name || 'Consultar_Vida_Financeira'; \n\nconst agentData = $('Edit Fields').first().json;\nconst rpcData = $('Buscar Agente - RPC').first().json;\n\n// 2. Busca a configuração da ferramenta no banco (Cockpit)\nconst toolDef = agentData.agent.tools.find(t => t.name === toolName);\n\nif (!toolDef) {\n  return JSON.stringify({ error: `Ferramenta '${toolName}' não encontrada no Cockpit deste agente.` });\n}\n\n// 3. Monta o pacote de dados para o banco/API\nconst params = {\n  ...input,\n  p_cpf: input.p_cpf || input.parameters0_Value || agentData.validated_doc,\n  p_agent_id: agentData.agent_id,\n  p_conversation_id: rpcData.conversation?.id\n};\n\n// 4. Faz a chamada usando o $http nativo do n8n\ntry {\n  const response = await $http.request({\n    method: 'POST',\n    url: toolDef.url,\n    headers: {\n      'Content-Type': 'application/json',\n      ...(toolDef.headers || {})\n    },\n    body: params,\n  });\n\n  // Retorna o resultado como STRING (exigência do n8n Custom Tool)\n  return JSON.stringify(response);\n\n} catch (error) {\n  return JSON.stringify({ \n    error: `Erro na execução da ferramenta: ${toolName}`,\n    message: error.message,\n    detail: error.response?.body || 'Falha de conexão com a API'\n  });\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        5024,
+        -656
+      ],
+      "id": "88f3c0e7-d2df-48d4-a6d4-ba4b797b06cb",
+      "name": "executar_ferramenta",
+      "disabled": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        3984,
+        96
+      ],
+      "id": "2f84918e-f1a9-4158-a659-3b94d8bfb625",
+      "name": "Limit2"
+    },
+    {
+      "parameters": {
+        "description": "Esta ferramenta é um Proxy Universal obrigatório para acessar serviços da Alpargatas. Use-a para qualquer consulta financeira ou de dados. Você DEVE informar no campo 'tool_name' o nome exato da função desejada (exemplo: 'Consultar_Vida_Financeira') e no campo 'p_cpf' o documento do cliente.",
+        "workflowId": {
+          "__rl": true,
+          "value": "cuUVEM2YsNisQFbqXaEz1",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/cuUVEM2YsNisQFbqXaEz1",
+          "cachedResultName": "Universal_API_Proxy"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tool_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('tool_name', ``, 'string') }}",
+            "p_cpf": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('p_cpf', ``, 'string') }}",
+            "supabase_url": "={{ $('Origem Requisicao').first().json.url }}",
+            "supabase_key": "={{ $('Origem Requisicao').first().json.apikey }}",
+            "p_agent_id": "={{ $('Buscar Agente - RPC').first().json.agent.id }}",
+            "p_tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "tool_name",
+              "displayName": "tool_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_cpf",
+              "displayName": "p_cpf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "supabase_url",
+              "displayName": "supabase_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "supabase_key",
+              "displayName": "supabase_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_agent_id",
+              "displayName": "p_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_tenant_id",
+              "displayName": "p_tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        4832,
+        -400
+      ],
+      "id": "f7be07e6-2a9b-4a6d-84ec-e52ac5f0a501",
+      "name": "Call n8n Workflow Tool - Ferramentas"
+    },
+    {
+      "parameters": {
+        "description": "Gerador de Boletos e Faturas. Use esta ferramenta EXCLUSIVAMENTE para buscar, consultar débitos e gerar o link do boleto do cliente. Quando for invocar a ferramenta, extraia o número do CPF/CNPJ que foi fornecido pelo [SISTEMA DE SEGURANÇA GATEKEEPER] nas suas instruções de sistema (System Prompt)",
+        "workflowId": {
+          "__rl": true,
+          "value": "hX535K55dAgbSslC",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/hX535K55dAgbSslC",
+          "cachedResultName": "Mock - Gerador de Boleto AP"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "documento": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('documento', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "documento"
+          ],
+          "schema": [
+            {
+              "id": "documento",
+              "displayName": "documento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        5088,
+        -400
+      ],
+      "id": "8a585e91-7ff1-4c92-a7fd-a2be215c9e90",
+      "name": "Call n8n Workflow Tool - Boleto"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Contexto da conversa:\n\nNome informado pelo cliente: {{ $('Edit Fields').first().json.nome_cliente }}\nTelefone informado pelo cliente: {{ $('Edit Fields').first().json.telefone_cliente }}\nData atual: {{ $('Edit Fields').first().json.data_hoje }}\nMensagem do cliente: {{ $(\"Normaliza Campos Imagem\").isExecuted ? $node[\"Normaliza Campos Imagem\"].json.message : ($(\"Edit Fields Audio\").isExecuted ? $node[\"Edit Fields Audio\"].json.message : $node[\"Edit Fields\"].json.message) }}\n\n\n{{ $('Edit Fields').first().json.agent.userPromptTemplate }}",
+        "options": {
+          "systemMessage": "=# CONTEXTO DE SEGURANÇA (Obrigatório Ler Primeiro)\n{{ $('Code - Contexto Pós-Auth').isExecuted ? $('Code - Contexto Pós-Auth').first().json.strategies_context : ($('Formatar Contexto (Code Node)').isExecuted ? $('Formatar Contexto (Code Node)').first().json.strategies_context : '') }}\n\n# INSTRUÇÕES DO AGENTE\n{{ $('Edit Fields').first().json.agent.systemPrompt }}\n\n# FERRAMENTAS DISPONÍVEIS\n{{ $('Edit Fields').first().json.agent.tools.map(t => `- ${t.name}: ${t.description}`).join('\\n') }}\n\n{{ $('Edit Fields').first().json.agent.systemPrompt }}\n",
+          "maxIterations": 5
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4320,
+        -736
+      ],
+      "id": "c0473006-a704-4c0a-86f5-81b0127bc775",
+      "name": "AI Agent - Com as Tools"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Contexto do Atendimento:\n- Cliente: {{ $('Edit Fields').first().json.nome_cliente }}\n- Situação de Segurança: {{ $json.session_status === 'active' ? 'AUTHENTICATED' : 'UNAUTHENTICATED' }}\n\n{{\n  // Pegamos o script de User Prompt Template do Banco e Trocamos a macro {message} pela msg do Whatsapp extraída corretamente.\n  ($('Buscar Agente - RPC').first().json.agent.sub_agents.find(sa => sa.is_gatekeeper === true)?.userPromptTemplate || \"- Mensagem Atual: {message}\")\n  .replace(\"{message}\", $(\"Normaliza Campos Imagem\").isExecuted ? $node[\"Normaliza Campos Imagem\"].json.message : ($(\"Edit Fields Audio\").isExecuted ? $node[\"Edit Fields Audio\"].json.message : $node[\"Edit Fields\"].json.message))\n}}",
+        "options": {
+          "systemMessage": "={{ $('Buscar Agente - RPC').first().json.agent.sub_agents.find(sa => sa.is_gatekeeper === true)?.systemPrompt || \"Sua tarefa é identificar e validar a identidade do cliente.\" }}\n\n# INSTRUÇÃO DE SEGURANÇA:\nA intenção do usuário foi classificada como: {{ $('Formatar Contexto (Code Node)').first().json.detected_intent }}.\n\nStatus da Sessão: {{ $('RPC Security Gatekeeper').first().json.session_status === 'active' ? 'AUTHENTICATED' : 'UNAUTHENTICATED' }}.\n\n⚠️ REGRAS CRÍTICAS:\n1. Se a intenção for 'protected' e o usuário estiver 'UNAUTHENTICATED', você NÃO deve fornecer informações sensíveis ou financeiras. \n2. Se a intenção for 'general', responda normalmente usando as informações da base de conhecimento e estratégias fornecidas no contexto.\n\n[Output Format — STRICT]\nFormato EXATO esperado:\n{\n  \"content\": \"string\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        4336,
+        0
+      ],
+      "id": "debb1db6-a828-4244-b618-e71624cf6ec2",
+      "name": "AI Agent (Autenticação/segurança)"
+    },
+    {
+      "parameters": {
+        "content": "Tipos de formatos de Arquivos\n",
+        "height": 1280,
+        "width": 1408,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1504,
+        -352
+      ],
+      "typeVersion": 1,
+      "id": "22a714fa-04a6-4339-bc12-dd6e75a9649c",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "Primeira Barreira de Segurança - Validando Palavras Ofensivas",
+        "height": 1280,
+        "width": 304,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -80,
+        -352
+      ],
+      "typeVersion": 1,
+      "id": "74091d3c-445e-4446-9756-b95152010b38",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "={{ $('Buscar Agente - RPC').first().json.agent.sub_agents.find(sa => sa.is_gatekeeper === true)?.modelId || $('Edit Fields').first().json.agent.modelId }}",
+          "mode": "id"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": "={{ $('Buscar Agente - RPC').first().json.agent.sub_agents.find(sa => sa.is_gatekeeper === true)?.temperature || $('Edit Fields').first().json.agent.temperature }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        4240,
+        240
+      ],
+      "id": "5e9fe9de-3d6c-4191-8baa-1dd53e944da6",
+      "name": "OpenAI Chat Model - Segurança",
+      "credentials": {
+        "openAiApi": {
+          "id": "rkP7V7l3n8uMHd2B",
+          "name": "OpenAi account - astor.a.oliveira@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Esta ferramenta é um Proxy Universal obrigatório para acessar ferramentas de Segurança e Autenticação do usuário. Use-a para qualquer consulta de autenticação. Você DEVE informar no campo 'tool_name' o nome exato da função desejada (exemplo: 'Consultar_Usuario_Valido') e no campo 'p_cpf' o documento do cliente que pode ser um CPF, CNPJ, Nota Fiscal.",
+        "workflowId": {
+          "__rl": true,
+          "value": "cuUVEM2YsNisQFbqXaEz1",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/cuUVEM2YsNisQFbqXaEz1",
+          "cachedResultName": "Universal_API_Proxy"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "tool_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('tool_name', ``, 'string') }}",
+            "p_cpf": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('p_cpf', ``, 'string') }}",
+            "supabase_url": "={{ $('Origem Requisicao').first().json.url }}",
+            "supabase_key": "={{ $('Origem Requisicao').first().json.apikey }}",
+            "p_agent_id": "={{ $('Buscar Agente - RPC').first().json.agent.id }}",
+            "p_tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "tool_name",
+              "displayName": "tool_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_cpf",
+              "displayName": "p_cpf",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "supabase_url",
+              "displayName": "supabase_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "supabase_key",
+              "displayName": "supabase_key",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_agent_id",
+              "displayName": "p_agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "p_tenant_id",
+              "displayName": "p_tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        4608,
+        256
+      ],
+      "id": "08e99a2e-de9e-4169-b212-b840ad99da2d",
+      "name": "Call n8n Workflow Tool - Ferramenta Segurança"
+    },
+    {
+      "parameters": {
+        "content": "Retorno para o usuário que enviou mensagem ofensiva e criação de incidente na ferramenta",
+        "height": 256,
+        "width": 1440,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        240,
+        480
+      ],
+      "typeVersion": 1,
+      "id": "d79b7a48-7658-416a-bc1f-3ee93d3b18dd",
+      "name": "Sticky Note6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Origem Requisicao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Switch LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "O status do RPC é 'success'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields Normaliza Conversation ID": {
+      "main": [
+        [
+          {
+            "node": "Classificacao de Intencao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_memory",
+            "index": 0
+          },
+          {
+            "node": "AI Agent (Autenticação/segurança)",
+            "type": "ai_memory",
+            "index": 0
+          },
+          {
+            "node": "AI Agent (Conversacional/RAG)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo de Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obter midia base64",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obter m dia em base64",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook - video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obter midia base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obter m dia em base64": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Edit Fields Audio": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields Normaliza Conversation ID1": {
+      "main": [
+        [
+          {
+            "node": "Classificacao de Intencao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields Normaliza Conversation FINAL": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Origem Requisicao": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Conversa Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar Agente - RPC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversa Humano": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'12",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit1": {
+      "main": [
+        [
+          {
+            "node": "Tipo de Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Agente - RPC": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA (audio)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation ID1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Embedings (msg usr)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Memórias Semelhantes (Postgres RPC)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Memórias Semelhantes (Postgres RPC)": {
+      "main": [
+        [
+          {
+            "node": "Buscar Base de Conhecimento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Contexto (Code Node)": {
+      "main": [
+        [
+          {
+            "node": "IF Security",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Base de Conhecimento": {
+      "main": [
+        [
+          {
+            "node": "Formatar Contexto (Code Node)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gatekeeper-if-node": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Limit2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar_Documento_Security_Gate": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Consultar_Vida_Financeira": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Avisar_Comprovante_Pago": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firmar_Acordo_Parcelament": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request - Embedings (msg usr)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formatar Contexto (Code Node)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request (Gravar Incidente) Injection",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Formatar Contexto (Code Node)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Fora do Escopo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request - Validar Documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Conversacional/RAG)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI Agent (Conversacional/RAG)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Conversacional/RAG)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation FINAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardrails": {
+      "main": [
+        [
+          {
+            "node": "Switch2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request (Gravar Incidente)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Guardrails",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Gravar Incidente)": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA (audio)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA (imagem)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA (imagem)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem Censurada USER": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem Censurada IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch LLM": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Gravar Incidente) LLM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LLM Auditor de Conformidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Gravar Incidente) LLM": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA - Problema LLM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA - Problema LLM": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA - Injection": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Gravar Incidente) Injection": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA - Injection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Auditor de Conformidade": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (Gravar Incidente) Auditor Humano",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Gravar Incidente) Auditor Humano": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA - Auditor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA - Auditor": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA - Fora do Escopo": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Validar Documento": {
+      "main": [
+        [
+          {
+            "node": "If Validou Documento?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Validou Documento?": {
+      "main": [
+        [
+          {
+            "node": "Code - Contexto Pós-Auth",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem Documento": {
+      "main": [
+        []
+      ]
+    },
+    "Code - Contexto Pós-Auth": {
+      "main": [
+        [
+          {
+            "node": "IF Security",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obter midia base64": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze image": {
+      "main": [
+        [
+          {
+            "node": "Normaliza Campos Imagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Analyze image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem IA (imagem)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation ID2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields Normaliza Conversation ID2": {
+      "main": [
+        [
+          {
+            "node": "Classificacao de Intencao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliza Campos Imagem": {
+      "main": [
+        [
+          {
+            "node": "Guardrails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "formatacao Intencao": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificacao de Intencao": {
+      "main": [
+        [
+          {
+            "node": "formatacao Intencao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM Fora do Escopo": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem IA - Fora do Escopo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request Criar Mensagem Workflow": {
+      "main": [
+        []
+      ]
+    },
+    "Call 'UTIL - Send WhatsApp Message'": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'UTIL - Send WhatsApp Message'1": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'UTIL - Send WhatsApp Message'6": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem Documento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'UTIL - Send WhatsApp Message'7": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request Criar Mensagem Censurada USER",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "O status do RPC é 'success'": {
+      "main": [
+        [
+          {
+            "node": "Limit1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Problemas possíveis de validação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Problemas possíveis de validação": {
+      "main": [
+        [
+          {
+            "node": "Call 'UTIL - Send WhatsApp Message'11",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Security": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RPC Security Gatekeeper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RPC Security Gatekeeper": {
+      "main": [
+        [
+          {
+            "node": "gatekeeper-if-node",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "executar_ferramenta": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Limit2": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Autenticação/segurança)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call n8n Workflow Tool - Ferramentas": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call n8n Workflow Tool - Boleto": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Com as Tools",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Com as Tools": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation FINAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Autenticação/segurança)": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields Normaliza Conversation FINAL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model - Segurança": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Autenticação/segurança)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call n8n Workflow Tool - Ferramenta Segurança": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent (Autenticação/segurança)",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "585b49dc-53e8-4e42-8362-be3fa076366f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7f3565af616f5c3d71ac26fc62e019b544cb381f93ebca61b95c3a0cc3e0e6f8"
+  },
+  "id": "dNYvHXlfMfCcqA7x",
+  "tags": []
+}

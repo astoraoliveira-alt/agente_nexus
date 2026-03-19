@@ -33,7 +33,10 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {}),
             ...(agent.parent_agent_id ? { parent_agent_id: agent.parent_agent_id } : {}),
             whatsapp_api_type: agent.whatsapp_api_type || 'evolution',
-            meta_api_token: agent.meta_api_token
+            meta_api_token: agent.meta_api_token,
+            is_gatekeeper: agent.is_gatekeeper || false,
+            gatekeeper_scope: agent.gatekeeper_scope || null,
+            requires_security: agent.requires_security || false
         };
 
         const { data, error } = await supabase
@@ -96,6 +99,8 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.meta_api_token !== undefined) dbPayload.meta_api_token = updates.meta_api_token;
         // Explicit boolean — must use !== undefined to capture false values
         if (updates.requires_security !== undefined) dbPayload.requires_security = updates.requires_security;
+        if (updates.is_gatekeeper !== undefined) dbPayload.is_gatekeeper = updates.is_gatekeeper;
+        if (updates.gatekeeper_scope !== undefined) dbPayload.gatekeeper_scope = updates.gatekeeper_scope;
 
         const { data, error } = await supabase
             .from('agents')
