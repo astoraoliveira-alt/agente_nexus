@@ -999,6 +999,32 @@ UI: Chat muda de cor + ativa input do operador
 Operador responde → api.sendMessage() → N8N envia via Evolution/VAPI
 ```
 
+### 18.5 Universal API Proxy (API Gateway / Sub-Agente N8N)
+
+O sistema proxy universal foi criado para isolar o LLM da complexidade de protocolos HTTP, permitindo que a IA consuma ferramentas (Tools) dinamicamente via banco de dados ser erro de formatação.
+
+**Arquitetura Resiliente do Proxy:**
+A implementação atual trata os principais ofensores de estabilidade na orquestração:
+
+1. **Validação de Existência (Fail-Fast):** 
+   - Um nó `IF` valida se `$json.tool_config` existe. Se a IA alucinar o nome da tool, o proxy não "crasha", mas retorna graciosamente `{"valid": false, "message": "Tool não encontrada"}`.
+
+2. **Roteamento Dinâmico de Métodos HTTP (Prevenção de GET com Body):**
+   - O envio de um Body vazio `{}` numa requisição `GET` causa bloqueio (Error 400) em muitos firewalls (ex: Cloudflare).
+   - Para evitar isso, um nó `IF` avalia o `$json.method`:
+     - **Rota GET:** Vai para um nó "HTTP Request (SÓ GET)" onde `Send Body` é estritamente **OFF**. Os parâmetros trafegam apenas pela URL com encode.
+     - **Rota POST/PUT/PATCH/DELETE:** Vai para um nó "HTTP Request" com `Send Body` **ON**, enviando o payload.
+
+3. **Dynamic URL Encoding:**
+   - A URL na tabela `agent_tools` aceita tags (ex: `https://api.com/v1?cidade=<p_cidade>`).
+   - O proxy substitui dinamicamente usando Regex + `encodeURI` para garantir que espaços ("Rio de Janeiro") sejam convertidos seguramente ("Rio%20de%20Janeiro").
+
+4. **Continue On Fail (Absorção de HTTP Errors):**
+   - O nó HTTP Request tem `Continue On Fail: true` e `Timeout = 15s`.
+   - Acima disso, um nó `Merge` reúne as rotas e repassa para um nó `IF` avaliando `$json.error`.
+   - Se houver falha (4xx/5xx), o Erro é capturado e formatado: `{"valid": false, "message": "Erro na API: ..."}`.
+   - A IA recebe o erro HTTP original e pode tentar consertar os parâmetros dinamicamente (ex: se o Supabase de negócio retornar "CPF_INVALIDO").
+
 ---
 
 ## 19. Variáveis de Ambiente (`.env.local`)
