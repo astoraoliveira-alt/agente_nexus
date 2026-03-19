@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { User, Tenant, Conversation } from '@/lib/types'; // Using real types
 import { api } from '@/services/api';
 import { AuthService } from '@/services/auth';
@@ -170,82 +170,125 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Filter data when tenant changes & Poll every 5s
-  // Filter data when tenant changes & Poll every 5s
-  useEffect(() => {
+  // --- REFACTOR [FASE 1]: Realtime Over Polling ---
+  const selectedConvIdRef = useRef<string | null>(null);
+  
+  // High-performance Fetch Logic (Centralized)
+  const fetchMessages = useCallback(async (convIdOverride?: string) => {
+    const activeId = convIdOverride || selectedConversation?.id;
+    if (!activeId) return;
+    try {
+      // console.log(`📡 Fetching messages for ${activeId}...`);
+      const messages = await api.getConversationMessages(activeId);
+      
+      // Update states
+      setSelectedConversation(prev => 
+        (prev?.id === activeId) ? { ...prev, messages } : prev
+      );
+      
+      setConversations(prev =>
+        prev.map(c => c.id === activeId ? { ...c, messages: messages } : c)
+      );
+    } catch (error) {
+      console.error("Failed to fetch messages:", error);
+    }
+  }, [selectedConversation?.id]);
 
-
-    async function loadConversationsList() {
-      if (currentTenant) {
-        try {
-          const tenantConversations = await api.getConversationsOverview(currentTenant.id);
-
-          setConversations(prev => {
-            // Merge strategy: Keep existing messages if ID matches, only update metadata
-
-            // 1. Check if we actually need to update (Simple length + ID check for performance)
-            // In a real app, use a deep comparison or JSON.stringify if needed, but this is a good heuristic.
-            const hasChanges = tenantConversations.length !== prev.length ||
-              tenantConversations.some(c => {
-                const p = prev.find(old => old.id === c.id);
-                return !p || p.lastMessageTime !== c.lastMessageTime || p.status !== c.status;
-              });
-
-            if (!hasChanges) return prev;
-
-            return tenantConversations.map(newConv => {
-              const existing = prev.find(p => p.id === newConv.id);
-              return {
-                ...newConv,
-                messages: existing ? existing.messages : [] // Persist loaded messages or empty
-              };
-            });
+  const loadConversationsList = useCallback(async () => {
+    if (!currentTenant) return;
+    try {
+      const tenantConversations = await api.getConversationsOverview(currentTenant.id);
+      setConversations(prev => {
+        const hasChanges = tenantConversations.length !== prev.length ||
+          tenantConversations.some(c => {
+            const p = prev.find(old => old.id === c.id);
+            return !p || p.lastMessageTime !== c.lastMessageTime || p.status !== c.status;
           });
 
-        } catch (error) {
-          console.error("Failed to load conversations:", error);
-        }
-      }
+        if (!hasChanges) return prev;
+
+        return tenantConversations.map(newConv => {
+          const existing = prev.find(p => p.id === newConv.id);
+          return {
+            ...newConv,
+            messages: existing ? existing.messages : []
+          };
+        });
+      });
+    } catch (error) {
+      console.error("Failed to load conversations:", error);
     }
-
-    // Initial Load & Polling (Relaxed to 20s to prevent thrashing)
-    loadConversationsList();
-    const intervalId = setInterval(loadConversationsList, 20000);
-
-    return () => clearInterval(intervalId);
   }, [currentTenant]);
 
-  // Separate Effect: Fetch Messages ONLY when Selected Conversation Changes
+  // Keep ref updated for Realtime handlers to avoid stale closures
   useEffect(() => {
-    async function fetchMessages() {
-      if (selectedConversation?.id) {
-        // Optimistic check: If we already have recent messages, maybe skip? 
-        // For now, always fetch to ensure sync.
-        try {
-          console.log(`📡 Fetching messages for ${selectedConversation.id}...`);
-          const messages = await api.getConversationMessages(selectedConversation.id);
-
-          // Update selected conversation state with real messages
-          setSelectedConversation(prev => prev ? { ...prev, messages } : null);
-
-          // Update main list state as well to cache it
-          setConversations(prev =>
-            prev.map(c => c.id === selectedConversation.id ? { ...c, messages: messages } : c)
-          );
-
-        } catch (error) {
-          console.error("Failed to fetch messages:", error);
-        }
-      }
-    }
-
-    fetchMessages();
-
-    // Relaxed to 5s for active chat
-    const msgInterval = setInterval(fetchMessages, 5000);
-    return () => clearInterval(msgInterval);
-
+    selectedConvIdRef.current = selectedConversation?.id || null;
   }, [selectedConversation?.id]);
+
+  // Combined Realtime Subscription Effect
+  useEffect(() => {
+    if (!currentTenant?.id) return;
+
+    console.log("🔥 [Phase 2] Subscribing to REALTIME changes for tenant:", currentTenant.id);
+
+    // Initial Load
+    loadConversationsList();
+
+    // 1. Subscribe to Conversations (Update list automatically)
+    const convChannel = supabase
+      .channel(`tenant-convs-${currentTenant.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*', // Listen to All: insert, update, delete
+          schema: 'public',
+          table: 'conversations',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        async (payload: any) => {
+          console.log('📡 Realtime Conversation Change:', payload.eventType);
+          loadConversationsList(); 
+        }
+      )
+      .subscribe();
+
+    // 2. Subscribe to Messages (Update current chat instantly)
+    const msgChannel = supabase
+      .channel(`tenant-msgs-${currentTenant.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        async (payload: any) => {
+           const newMessage = payload.new as any;
+           console.log('💬 Realtime Message Received:', newMessage.id);
+           
+           // If it's the current conversation, refetch messages to ensure order/rich data
+           if (selectedConvIdRef.current === newMessage.conversation_id) {
+              fetchMessages(newMessage.conversation_id);
+           }
+        }
+      )
+      .subscribe();
+
+    // Health-check Polling (Relaxed to 60s as a safety net)
+    const intervalId = setInterval(loadConversationsList, 60000);
+
+    return () => {
+      console.log("📴 Unsubscribing from Realtime...");
+      supabase.removeChannel(convChannel);
+      supabase.removeChannel(msgChannel);
+      clearInterval(intervalId);
+    };
+  }, [currentTenant?.id, loadConversationsList, fetchMessages]);
+
+  useEffect(() => {
+    fetchMessages();
+  }, [selectedConversation?.id, fetchMessages]);
 
 
   useEffect(() => {

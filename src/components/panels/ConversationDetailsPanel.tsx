@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { Button } from '@/components/ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from '@/components/ui/use-toast';
 
 interface ConversationDetailsPanelProps {
@@ -30,9 +30,16 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
   const { data: conversationCost, isLoading: isLoadingCost } = useQuery({
     queryKey: ['conversation-cost', data.id],
     queryFn: () => api.getConversationCost(data.id),
-    enabled: !!data.id,
-    refetchInterval: 5000 // Poll every 5s to update cost in real-time
+    enabled: !!data.id
   });
+
+  // Event-driven cost update: Whenever a new message arrives via Realtime Context, 
+  // we invalidate this specific query to refresh the BRL value.
+  useEffect(() => {
+    if (data.id) {
+      queryClient.invalidateQueries({ queryKey: ['conversation-cost', data.id] });
+    }
+  }, [data.messages.length, data.id, queryClient]);
 
   const evaluation = evaluations?.[0]; // Latest one
   const history = evaluations?.slice(1) || []; // Previous ones
