@@ -274,7 +274,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .on(
         'postgres_changes' as any,
         {
-          event: 'INSERT',
+          event: '*', // INSERT + UPDATE + DELETE — captura status de entrega e edições
           schema: 'public',
           table: 'messages',
           filter: `tenant_id=eq.${currentTenant.id}`

@@ -16,12 +16,8 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false, // Bypass SSL cert errors during development
         rewrite: (path) => path.replace(/^\/evolution-api/, '')
-      },
-      '/openai-api': {
-        target: 'https://api.openai.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/openai-api/, '')
       }
+      // openai-api proxy removido — embeddings gerados server-side
     }
   },
   plugins: [react()],
