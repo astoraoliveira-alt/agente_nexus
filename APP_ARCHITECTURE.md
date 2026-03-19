@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 18/Mar/2026
-> **Versão:** 15.0 (N8N Orchestrator V7 - Dynamic Gatekeeper & Universal Access Keys)
+> **Última Atualização:** 19/Mar/2026
+> **Versão:** 16.0 (DashMaster V1.3 — Dynamic Costing, Hierarchy & Realtime)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -401,6 +401,7 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | RPC | Parâmetros | Retorno | Uso |
 | :--- | :--- | :--- | :--- |
 | `get_dashboard_summary` | `p_tenant_id` | `{agents[], tenant{company, plan}}` | Dashboard principal + lista de agentes com uso. |
+| `get_dashmaster_v1` | `p_tenant_id` | `JSONB {summary, usage, financials, plan, incidents, contacts, charts, agents}` | **Master Query V1.3:** Consolida em 1 chamada: KPIs, ROI dinâmico, consumo 30d, preços de venda (Empresa > Plano), hierarquia de sub-agentes (somados no pai), avg msgs/user, gráfico de mensagens diárias e ranking de agentes. |
 | `get_companies_overview` | — | `{id, name, agents_count, ...}[]` | Visão de todas as empresas (Super Admin). Inclui contadores e preços. |
 | `get_agent_usage_stats` | `p_tenant_id` | `{agent_id, total_tokens, total_cost, ...}[]` | Consumo por agente. CTE com FULL OUTER JOIN para evitar perda de dados. |
 | `get_tenant_usage_summary` | `p_tenant_id, p_month, p_year` | `{total_tokens, stt_minutes, ...}` | Resumo de uso do mês para dashboard. |
@@ -1054,23 +1055,7 @@ VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 
 ### 20.1 Melhorias Identificadas
 
-| Item | Prioridade | Descrição |
-| :--- | :--- | :--- |
-| Realtime (Supabase Channels) | Alta | Substituir polling de 20s por WebSocket. Eliminar re-renders desnecessários. |
-| Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. |
-| `_capabilities` pattern | Média | Flag de capabilidade em runtime para fallback degradado de queries. Substituir por schema detection na boot. |
-| Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` não persistem estágios no banco ainda (TODO). |
-| Transferência de Conversa | Média | Precisa atualizar `assigned_operator_id` no banco ao transferir, não só no frontend/notas. |
-| Testes E2E Completos | Média | Implementados testes de integração da API (Vitest), mas falta automação UI (Playwright) em fluxos como Playgrounds e Billing. |
-| Webhook de Validação de Identidade (N8N) | Alta | A fundação e UI no Hub do Identity Gate estão prontos, falta o N8N realizar efetivamente o `POST` para validar a chave transacional preenchida na UI. |
-
-### 20.2 Arquitetura Futura
-
-- **Supabase Realtime:** Channels para atualização push de conversas (Resolve o problema do Polling escalar excessivamente quando 500+ operadores estiverem on-line).
-- **Clusterização N8N Multi-Instance (SPOF Mitigation):** Com Redis já implantado, a evolução madura prevê desmembrar o webhook num Load Balancer operando múltiplos wokers n8n, impedindo queda local generalizada (Inbound/Outbound/Identity).
-- **Smart Usage Allocation:** `brain_config.budget_share_pct` + `monthly_limit_brl` para controle de orçamento por agente.
-- **Multi-LLM por Agente:** Provider registry dinâmico além de OpenAI/Anthropic.
-- **Mobile App:** React Native para operadores em campo.
+> **Ver seção 21.2** para a lista atualizada de dívidas técnicas e próximas evoluções.
 
 ---
 
@@ -1131,10 +1116,38 @@ ORDER BY created_at DESC LIMIT 1;
 
 ## 21. Evolução e Histórico de Arquitetura
 
-### 21.1 Fase 1: Centralização Financeira & Segurança (18-19/Mar/2026)
-- **Problemática:** O frontend calculava custos de tokens e mensagens localmente, expondo margens e chaves de API.
-- **Solução:** 
-  - **Pricing Engine no SQL:** A RPC `get_detailed_consumption` passou a realizar o JOIN com as tabelas de preços (`companies.plan_prices`) e retornar o `cost` já calculado.
-  - **Dumb Frontend:** Componentes como `Consumption.tsx` e `Index.tsx` foram higienizados de lógica financeira.
-  - **Secrets Protection:** Migração de chamadas OpenAI (Embeddings e Policy Suggestions) para Edge Functions. `VITE_OPENAI_API_KEY` depreciada no cliente.
-  - **ROI Centralizado:** Fator de economia humana (2.0 min/msg) movido para o core service backend.
+### 21.1 Fase 1: Estabilização, Realtime & ROI (Mar/2026)
+
+- **Item 1: Context & Auth Logic [CONCLUÍDO]**: Estabilização do `AppContext` e fluxo de login com persistência de Tenant. Fim dos re-renders cíclicos e deslogues involuntários. 
+- **Item 2: Supabase Realtime (WhatsApp Sync) [CONCLUÍDO]**: Implementação de WebSockets via Supabase Channels. Mensagens do WhatsApp agora aparecem instantaneamente no chat sem necessidade de Polling ou F5. Resiliência contra payloads parciais do Supabase.
+- **Item 3: DashMaster V1.3 — Dashboard Consolidado [CONCLUÍDO]**: Implementação completa do Dashboard Master com KPIs operacionais.
+    - **RPC `get_dashmaster_v1`**: Master Query que consolida em 1 chamada de rede: KPIs (conversas, automação, trust score), consumo 30d (tokens, msgs, STT/TTS), ROI dinâmico, preços de venda (Empresa > Plano > Default), ranking de agentes, gráfico de mensagens diárias, incidentes e funil CRM.
+    - **Diferenciação Crítica (Custo vs Venda)**:
+        - **CUSTOS INTERNOS (Davos)**: Armazenados em `company_davos_costs` (tokens OpenAI, infra, Vapi). **Estritamente ocultos para o cliente final.** Exibidos apenas no DRE do Super Admin via `/financials`.
+        - **CONSUMO DO CLIENTE (Venda)**: Baseado na tabela `plans` e nos overrides em `companies.plan_details`. É o valor que o cliente paga pelo uso.
+    - **Lógica de ROI Dinâmico**:
+        - Baseada em `companies.roi_config`: `operator_hourly_rate` (ex: R$ 30,00) e `avg_human_minutes_per_interaction` (ex: 2.5 min).
+        - ROI = (Total Msgs × min/msg × taxa_hora/60). Configurável por empresa.
+    - **KPI Cards com Tooltips de Ajuda**: Cada card do dashboard possui ícone `❓` com tooltip explicando a métrica e sua composição. Tooltips dinâmicos para ROI mostram `minsPerMsg` e `operatorHourRate` reais da empresa.
+    - **Quota de Mensagens**: Barra de progresso visual com percentual (uso/limite), cores adaptativas (verde/amarelo/vermelho) e alerta quando >90%.
+    - **Consolidação de Sub-Agentes no Pai**: O `dashboardService.getDashboardSummary()` agora:
+        1. Mapeia dados snake_case → camelCase com estrutura `usage {}` aninhada.
+        2. Soma métricas (tokens, msgs, STT, TTS, custo, conversas) dos sub-agentes nos seus respectivos agentes pais.
+    - **Métrica "Avg Msgs/Usuário"**: Media de mensagens por conversa/usuário, calculada no SQL (`total_msgs / total_conversations`). Exibida no card de Performance Agentes e usada para avaliar profundidade das interações.
+    - **Supabase Realtime (Dashboard)**: Subscrição em tempo real nas tabelas `conversations`, `messages`, `consumption_metrics` e `evaluations` para atualização instantânea dos KPIs sem polling.
+
+### 21.2 Evolução e Dívidas Técnicas Atuais
+
+| Item | Prioridade | Descrição |
+| :--- | :--- | :--- |
+| Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. |
+| `_capabilities` pattern | Média | Flag de capabilidade em runtime. Substituir por schema detection na boot. |
+| Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` não persistem estágios no banco. |
+| Transferência de Conversa | Média | Precisa atualizar `assigned_operator_id` no banco ao transferir. |
+| Testes E2E Completos | Média | Falta automação UI (Playwright) em fluxos como Playground e Billing. |
+| Webhook Identity Gate (N8N) | Alta | UI pronta, falta N8N realizar `POST` para validar chave transacional. |
+| Clusterização N8N | Baixa | Com Redis implantado, prever multi-workers com Load Balancer. |
+| Mobile App | Baixa | React Native para operadores em campo. |
+
+---
+*Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*

@@ -1,626 +1,285 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, CheckCircle2, Workflow } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, LabelList, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
-import { format, subDays, startOfDay, endOfDay, eachDayOfInterval } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 export default function Index() {
-  const { currentTenant, openSlideOver, conversations } = useApp();
+  const { currentTenant, openSlideOver } = useApp();
   const navigate = useNavigate();
 
-  // 1. Fetch Consolidated Dashboard Data (Agents + Tenant)
-  const { data: dashboardData, isLoading: loadingDashboard } = useQuery({
-    queryKey: ['dashboard-summary', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getDashboardSummary(currentTenant.id) : Promise.resolve(null),
-    enabled: !!currentTenant,
-    staleTime: 60000, // 1 minute
+  const { data: dashData, isLoading } = useQuery({
+    queryKey: ['dashboard-stats', currentTenant?.id],
+    queryFn: () => api.getDashMaster(currentTenant!.id),
+    enabled: !!currentTenant?.id,
+    refetchInterval: 60000,
   });
 
-  const agents = dashboardData?.agents || [];
-  const tenantDetails = dashboardData?.tenant || currentTenant;
+  // Default structure to prevent Uncaught TypeError
+  const defaultRoi = { minsPerMsg: 2, operatorHourRate: 30 };
+  const summary = dashData?.summary || { 
+    activeConversations: 0, 
+    automationRate: 100, 
+    avgTrustScore: 0, 
+    totalEvaluations: 0,
+    roiCriteria: defaultRoi 
+  };
+  
+  // Extra layer of safety for cases where dashData exists but without roiCriteria
+  const roiCriteria = summary.roiCriteria || defaultRoi;
 
-  const { data: consumption, isLoading: loadingConsumption } = useQuery({
-    queryKey: ['consumption', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getConsumptionMetrics(currentTenant.id, 30) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    staleTime: 30000,
-  });
+  const usage = dashData?.usage || { totalMessages: 0 };
+  const financials = dashData?.financials || { displaySavedTime: '0m', totalMoneySaved: 0 };
+  const plan = dashData?.plan || { name: 'Flex', limits: { messages: 1000 } };
+  const incidents = dashData?.incidents || { total: 0, open: 0, investigating: 0, resolved: 0 };
+  const contacts = dashData?.contacts || { total: 0, hot: 0, warm: 0, cold: 0 };
+  const agents = dashData?.agents || [];
+  const dailyUsageData = dashData?.charts?.dailyMessages || [];
 
-  const { data: incidents, isLoading: loadingIncidents } = useQuery({
-    queryKey: ['incidents', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getIncidents(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    staleTime: 30000,
-  });
-
-  const { data: evaluations, isLoading: loadingEvaluations } = useQuery({
-    queryKey: ['evaluations', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getEvaluations(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    staleTime: 60000,
-  });
-
-  const { data: users, isLoading: loadingUsers } = useQuery({
-    queryKey: ['users', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getUsers(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    staleTime: 60000,
-  });
-
-  const { data: contacts, isLoading: loadingContacts } = useQuery({
-    queryKey: ['contacts', currentTenant?.id],
-    queryFn: () => currentTenant ? api.getContacts(currentTenant.id) : Promise.resolve([]),
-    enabled: !!currentTenant,
-    staleTime: 60000,
-  });
-
-  /* 2. Calculate Loading State */
-  const isLoading = loadingDashboard || loadingConsumption || loadingIncidents || loadingEvaluations || loadingUsers || loadingContacts;
-
-  // 2. Calculate KPIs
-  const activeConversations = conversations?.filter(c => c.status !== 'closed').length || 0;
-  const totalConversations = conversations?.length || 0;
-  const activeAlerts = incidents?.filter(i => i.status !== 'resolved').length || 0;
-
-  // AI Trust Score
-  const avgTrustScoreNumeric = evaluations && evaluations.length > 0
-    ? evaluations.reduce((acc, e) => acc + e.score, 0) / evaluations.length
-    : 0;
-  const avgTrustScore = avgTrustScoreNumeric.toFixed(1);
-
-  const trustHealth = avgTrustScoreNumeric >= 80 ? { label: 'Bom', variant: 'success' as const } :
-    avgTrustScoreNumeric >= 50 ? { label: 'Regular', variant: 'warning' as const } :
-      { label: 'Ruim', variant: 'critical' as const };
-
-  // Consumption Logic
-  const metrics = (consumption as any)?.data || [];
-  const summary = (consumption as any)?.summary || { totalTokens: 0, totalMessages: 0, totalCost: 0 };
-
-  const limits = tenantDetails?.limits || { llmTokens: 0, messages: 0, sttMinutes: 0, ttsMinutes: 0, agents: 0, users: 0 };
-  const totalTokens = summary.totalTokens || 0;
-  const consumptionLimit = (limits.llmTokens as number) || 1; // Avoid division by zero
-  const consumptionPercentage = (totalTokens / consumptionLimit) * 100;
-
-  const totalMessages = summary.totalMessages || 0;
-  const messageLimit = (limits.messages as number) || 1;
-  const messageUsagePct = (totalMessages / messageLimit) * 100;
-
-  // Success Rate & Resolution Time
-  const closedConvs = conversations?.filter(c => c.status === 'closed') || [];
-  const successfulConvs = closedConvs.filter(c => {
-    // A conversation is successful if it's closed and has no critical incident linked
-    const hasCriticalIncident = incidents?.some(i => i.conversationId === c.id && i.severity === 'critical');
-    return !hasCriticalIncident;
-  });
-  const successRate = closedConvs.length > 0 ? ((successfulConvs.length / closedConvs.length) * 100).toFixed(1) : '100';
-
-  const avgResTimeSeconds = closedConvs.length > 0
-    ? closedConvs.reduce((acc, c) => {
-      const start = new Date(c.createdAt).getTime();
-      const end = new Date(c.lastMessageTime).getTime();
-      if (isNaN(start) || isNaN(end)) return acc;
-      return acc + Math.max(0, end - start);
-    }, 0) / (closedConvs.length * 1000)
-    : 0;
-  const avgResTimeMin = (avgResTimeSeconds / 60).toFixed(1);
-
-  const humanInterventions = conversations?.filter(c => c.assignedOperator || c.status === 'human_active').length || 0;
-
-  // Automation Rate (Deflection)
-  const automationRate = totalConversations > 0
-    ? (((totalConversations - humanInterventions) / totalConversations) * 100).toFixed(1)
-    : '100';
-
-  // ROI Calculation: 2 minutes saved per AI message (market benchmark)
-
-  // ROI Calculation: 2 minutes saved per AI message (market benchmark)
-  const totalTimeSavedMinutes = totalMessages * 2;
-  const roiHours = Math.floor(totalTimeSavedMinutes / 60);
-  const roiMins = Math.round(totalTimeSavedMinutes % 60);
-  const timeSavedDisplay = roiHours > 0 ? `${roiHours}h ${roiMins}m` : `${roiMins}m`;
-
-  // Incident Metrics
-  const incidentsAbertos = incidents?.filter(i => i.status === 'open').length || 0;
-  const incidentsInvestigando = incidents?.filter(i => i.status === 'investigating').length || 0;
-  const incidentsResolvidos = incidents?.filter(i => i.status === 'resolved').length || 0;
-  const totalIncidents = incidents?.length || 0;
-
-  // Contact Metrics
-  const totalContacts = contacts?.length || 0;
-  const lastWeek = subDays(new Date(), 7);
-  const newContactsThisWeek = contacts?.filter(c => new Date(c.createdAt) >= lastWeek).length || 0;
-
-  const leadQuenteCount = contacts?.filter(c => ['Lead Quente', 'sql', 'SQL'].includes(c.lifecycleStatus || '')).length || 0;
-  const interesseMedioCount = contacts?.filter(c => ['Interesse Médio', 'mql', 'MQL'].includes(c.lifecycleStatus || '')).length || 0;
-  const interesseBaixoCount = contacts?.filter(c => (['Interesse Baixo', 'lead', 'Lead'].includes(c.lifecycleStatus || '') || !c.lifecycleStatus)).length || 0;
-
-  // 3. Prepare Chart Data
-  // Daily Usage (Last 30 days) - Messages Focus
-  const last30Days = eachDayOfInterval({
-    start: subDays(new Date(), 29),
-    end: new Date(),
-  });
-
-  const dailyUsageData = last30Days.map(date => {
-    const dateStr = format(date, 'yyyy-MM-dd');
-    const dayMessages = metrics.filter(m =>
-      m.metricType === 'messages' && format(new Date(m.timestamp), 'yyyy-MM-dd') === dateStr
-    ).reduce((acc, m) => acc + m.value, 0) || 0;
-
-    return {
-      date: format(date, 'dd/MM'),
-      messages: dayMessages,
-    };
-  });
-
-  // Consumption by Agent - Messages Focus
-  const consumptionByAgent = agents?.map(agent => {
-    const agentMessages = metrics.filter(m => m.agentId === agent.id && m.metricType === 'messages')
-      .reduce((acc, m) => acc + m.value, 0) || 0;
-    return {
-      agentName: agent.name,
-      messages: agentMessages,
-    };
-  }).sort((a, b) => b.messages - a.messages).slice(0, 5) || [];
+  const messageUsagePct = (usage.totalMessages / (plan.limits.messages || 1)) * 100;
 
   if (isLoading) {
     return (
       <MainLayout>
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-32 w-full" />)}
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Skeleton className="h-80 w-full" />
-            <Skeleton className="h-80 w-full" />
-          </div>
-        </div>
+        <div className="p-8 max-w-[1600px] mx-auto space-y-8 animate-pulse text-background">.</div>
       </MainLayout>
     );
   }
 
   return (
     <MainLayout>
-      <div className="h-full overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 z-10 bg-background border-b border-border">
-          <div className="px-6 py-4">
-            <h1 className="text-2xl font-bold">Dashboard</h1>
-            <p className="text-sm text-muted-foreground">Visão geral do seu sistema de agentes de IA</p>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-6">
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard
-              title="Conversas Ativas"
-              value={activeConversations}
-              subtitle="Volume em tempo real"
-              icon={MessageSquare}
-              variant="accent"
-              trend={{ value: 0, isPositive: true }}
-              onClick={() => navigate('/conversations')}
-            />
-
-            <KPICard
-              title="Taxa de Automação"
-              value={`${automationRate}%`}
-              subtitle={`Deflexão (Ref: ${humanInterventions} transbordos)`}
-              icon={Zap}
-              variant="accent"
-              trend={{ value: 0, isPositive: true }}
-              onClick={() => navigate('/conversations')}
-            />
-
-            <KPICard
-              title="Tempo Economizado (ROI)"
-              value={timeSavedDisplay}
-              subtitle={`Base: 2 min/msg (Ref: ${totalMessages.toLocaleString()} msgs)`}
-              icon={TrendingUp}
-              variant="success"
-              onClick={() => navigate('/consumption')}
-            />
-
-            <KPICard
-              title="Uso de Mensagens"
-              value={messageUsagePct > 100
-                ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
-                : `${messageUsagePct.toFixed(0)}%`
-              }
-              subtitle={`${totalMessages.toLocaleString()} de ${(limits.messages || 0).toLocaleString()} contratadas`}
-              icon={BarChart3}
-              variant={messageUsagePct > 100 ? 'critical' : messageUsagePct > 80 ? 'warning' : 'default'}
-              onClick={() => navigate('/consumption')}
-            />
+      <div className="h-full overflow-y-auto bg-[#F8FAFC]">
+        <div className="p-8 max-w-[1600px] mx-auto space-y-8 pb-12">
+          
+          <div className="flex flex-col gap-1">
+            <h1 className="text-3xl font-black tracking-tight text-[#0F172A]">Dashboard</h1>
+            <p className="text-muted-foreground font-medium">Visão consolidada da operação de IA</p>
           </div>
 
-          {/* Detailed Metrics Row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="kpi-card flex flex-col justify-between cursor-pointer hover:border-destructive/50 transition-all group" onClick={() => navigate('/alerts')}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Bell className="h-4 w-4 text-warning" />
-                    <span className="text-xs font-semibold uppercase tracking-wider">Gestão de Incidentes</span>
-                  </div>
-                  <Badge variant="outline" className="text-destructive border-destructive/20 bg-destructive/5">Total: {totalIncidents}</Badge>
+          <TooltipProvider delayDuration={200}>
+            {/* Row 1: KPIs */}
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+              <KPICard 
+                title="Conversas Ativas" 
+                value={summary.activeConversations} 
+                description="Volume em tempo real" 
+                icon={MessageSquare}
+                helpText="Número de conversas que estão em andamento neste momento (status diferente de 'closed'). Inclui atendimentos por IA e por operadores humanos."
+              />
+              <KPICard 
+                title="Taxa de Automação" 
+                value={`${summary.automationRate}%`} 
+                description="Sem intervenção humana" 
+                icon={Zap}
+                helpText="Percentual de conversas resolvidas 100% pela IA, sem necessidade de transferência para um operador humano. Fórmula: (Total de Conversas − Handoffs Humanos) ÷ Total de Conversas × 100."
+              />
+
+              <KPICard 
+                title="Economia Estimada" 
+                value={financials.displaySavedTime} 
+                description={`R$ ${financials.totalMoneySaved.toLocaleString('pt-BR')}`} 
+                icon={Clock} 
+                variant="success"
+                helpText={`Tempo e dinheiro economizados com automação nos últimos 30 dias.\n\n• Cada interação automatizada economiza ~${roiCriteria.minsPerMsg} min de um operador humano.\n• Custo/hora do operador: R$ ${roiCriteria.operatorHourRate}/h.\n• Fórmula: (Mensagens × ${roiCriteria.minsPerMsg} min) ÷ 60 × R$ ${roiCriteria.operatorHourRate}.`}
+              />
+
+              <KPICard 
+                title="Quota de Mensagens" 
+                value={`${messageUsagePct.toFixed(0)}%`} 
+                description={`${usage.totalMessages.toLocaleString()} / ${(plan.limits?.messages || 0).toLocaleString()}`} 
+                icon={BarChart3} 
+                variant={messageUsagePct > 90 ? 'danger' : 'default'}
+                helpText={`Percentual de mensagens consumidas em relação ao limite do seu plano (${plan.name}).\n\n• Consumo atual: ${usage.totalMessages.toLocaleString()} mensagens.\n• Limite do plano: ${(plan.limits?.messages || 0).toLocaleString()} mensagens.\n• Contabiliza mensagens reais trocadas nos últimos 30 dias.`}
+              />
+            </div>
+          </TooltipProvider>
+
+          {/* Row 2: Operation Blocks */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg bg-orange-500/10 text-orange-500"><Bell className="h-4 w-4" /></div>
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Gestão de Incidentes</h3>
                 </div>
-
-                <div className="flex items-baseline gap-2">
-                  <p className="text-4xl font-bold text-destructive">{incidentsAbertos + incidentsInvestigando}</p>
-                  <span className="text-sm text-muted-foreground">Pendentes</span>
+                <Badge variant="outline" className="text-red-500 border-red-500/20 font-bold">Total: {incidents.total}</Badge>
+              </div>
+              <div className="flex-1 flex flex-col justify-center">
+                <div className="text-center py-4">
+                  <p className="text-5xl font-black text-red-500 tracking-tighter">{incidents.open}</p>
+                  <p className="text-[10px] font-bold uppercase text-muted-foreground mt-1">Pendentes</p>
                 </div>
-
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-2 border-t border-border/50">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted-foreground">Abertos</span>
-                      <span className="font-bold text-destructive">{incidentsAbertos}</span>
-                    </div>
-                    <Progress value={(incidentsAbertos / (totalIncidents || 1)) * 100} className="h-1 bg-destructive/10 [&>div]:bg-destructive" />
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <div className="p-3 bg-muted/30 rounded-lg border border-border/50">
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase mb-1">Análise</p>
+                    <p className="font-bold">{incidents.investigating}</p>
                   </div>
-
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted-foreground">Análise</span>
-                      <span className="font-bold text-warning">{incidentsInvestigando}</span>
-                    </div>
-                    <Progress value={(incidentsInvestigando / (totalIncidents || 1)) * 100} className="h-1 bg-warning/10 [&>div]:bg-warning" />
-                  </div>
-
-                  <div className="col-span-2 space-y-1">
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span className="text-muted-foreground">Resolvidos</span>
-                      <span className="font-bold text-success">{incidentsResolvidos}</span>
-                    </div>
-                    <Progress value={(incidentsResolvidos / (totalIncidents || 1)) * 100} className="h-1 bg-success/10 [&>div]:bg-success" />
+                  <div className="p-3 bg-muted/30 rounded-lg border border-border/50">
+                    <p className="text-[10px] text-muted-foreground font-bold uppercase mb-1">Resolvidos</p>
+                    <p className="font-bold">{incidents.resolved}</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="kpi-card flex flex-col justify-between cursor-pointer hover:border-primary/50 transition-all group" onClick={() => navigate('/quality')}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Zap className={cn("h-4 w-4", trustHealth.variant === 'success' ? 'text-success' : trustHealth.variant === 'warning' ? 'text-warning' : 'text-destructive')} />
-                    <span className="text-xs font-semibold uppercase tracking-wider">Qualidade (Trust Score)</span>
-                  </div>
-                  <Badge variant="outline" className={cn(
-                    trustHealth.variant === 'success' ? 'text-success border-success/20 bg-success/5' :
-                      trustHealth.variant === 'warning' ? 'text-warning border-warning/20 bg-warning/5' :
-                        'text-destructive border-destructive/20 bg-destructive/5'
-                  )}>{trustHealth.label}</Badge>
-                </div>
-
-                <div className="flex items-baseline gap-2">
-                  <p className={cn("text-4xl font-bold", trustHealth.variant === 'success' ? 'text-success' : trustHealth.variant === 'warning' ? 'text-warning' : 'text-destructive')}>{avgTrustScore}</p>
-                  <span className="text-sm text-muted-foreground">Saúde Geral</span>
-                </div>
-
-                <div className="pt-2 border-t border-border/50">
-                  <p className="text-[10px] text-muted-foreground mb-1">Base: {evaluations?.length || 0} auditorias auditadas</p>
-                  <Progress value={avgTrustScoreNumeric} className={cn(
-                    "h-1",
-                    trustHealth.variant === 'success' ? "bg-success/10 [&>div]:bg-success" :
-                      trustHealth.variant === 'warning' ? "bg-warning/10 [&>div]:bg-warning" :
-                        "bg-destructive/10 [&>div]:bg-destructive"
-                  )} />
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm flex flex-col items-center">
+              <div className="flex items-center justify-between w-full mb-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Trust Score</h3>
+                <Badge className={cn(summary.avgTrustScore >= 7.5 ? "bg-emerald-500" : "bg-rose-500")}>SAÚDE</Badge>
+              </div>
+              <div className="relative mb-4">
+                <svg className="w-32 h-32 transform -rotate-90">
+                  <circle cx="64" cy="64" r="56" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-muted/10" />
+                  <circle cx="64" cy="64" r="56" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={351.8} strokeDashoffset={351.8 - (351.8 * summary.avgTrustScore) / 10} className={cn("transition-all duration-1000", summary.avgTrustScore >= 7.5 ? "text-emerald-500" : "text-rose-500")} />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-4xl font-black">{summary.avgTrustScore.toFixed(1)}</span>
+                  <span className="text-[8px] uppercase font-bold text-muted-foreground">Global</span>
                 </div>
               </div>
+              <p className="text-[10px] text-muted-foreground italic">Baseado em {summary.totalEvaluations} auditorias</p>
             </div>
 
-            <div className="kpi-card flex flex-col justify-between cursor-pointer hover:border-accent/50 transition-all group" onClick={() => navigate('/contacts')}>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <TrendingUp className="h-4 w-4 text-accent" />
-                    <span className="text-xs font-semibold uppercase tracking-wider">Base de Contatos</span>
-                  </div>
-                  <Badge variant="outline" className="text-success border-success/20 bg-success/5">+{newContactsThisWeek} sem</Badge>
-                </div>
-
-                <div className="flex items-baseline gap-2">
-                  <p className="text-4xl font-bold text-accent">{totalContacts}</p>
-                  <span className="text-sm text-muted-foreground">Contatos</span>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t border-border/50">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-orange-500" />
-                      <span className="text-muted-foreground">Quentes</span>
-                    </div>
-                    <span className="font-bold">{leadQuenteCount}</span>
-                  </div>
-                  <Progress value={(leadQuenteCount / (totalContacts || 1)) * 100} className="h-1 bg-orange-500/10 [&>div]:bg-orange-500" />
-
-                  <div className="flex items-center justify-between text-[10px]">
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                      <span className="text-muted-foreground">Médio</span>
-                    </div>
-                    <span className="font-bold">{interesseMedioCount}</span>
-                  </div>
-                  <Progress value={(interesseMedioCount / (totalContacts || 1)) * 100} className="h-1 bg-blue-500/10 [&>div]:bg-blue-500" />
-                </div>
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Performance Agentes</h3>
+                <button onClick={() => navigate('/agents')} className="text-[10px] font-bold text-accent uppercase hover:underline">Ver Todos</button>
               </div>
-            </div>
-
-            <div className="kpi-card flex flex-col justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-muted-foreground mb-1">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-xs font-semibold uppercase tracking-wider">Velocidade de Resposta (SLA)</span>
-                </div>
-                <p className="text-4xl font-bold">1.8s</p>
-                <p className="text-xs text-muted-foreground mt-1">Média técnica de processamento Aura</p>
-                <div className="mt-3 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-                  Benchmark Mercado: 1.2s - 2.5s
-                </div>
+              <div className="space-y-4">
+                {agents.slice(0, 3).map((agent: any) => (
+                  <div key={agent.id} className="space-y-2">
+                    <div className="flex justify-between items-end">
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold truncate">{agent.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{agent.totalConversations || 0} conversas</p>
+                      </div>
+                      <div className="text-right flex items-end gap-3">
+                        <div>
+                          <p className="text-[11px] font-bold text-primary">~{agent.avgMsgsPerUser || 0}</p>
+                          <p className="text-[7px] font-black text-muted-foreground uppercase">Msgs/Usuário</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-accent">{(agent.usage?.totalMessages || 0).toLocaleString()}</p>
+                          <p className="text-[7px] font-black text-muted-foreground uppercase">Mensagens</p>
+                        </div>
+                      </div>
+                    </div>
+                    <Progress value={Math.min(((agent.usage?.totalMessages || 0) / (agents[0]?.usage?.totalMessages || 1)) * 100, 100)} className="h-1 shadow-inner" />
+                  </div>
+                ))}
               </div>
             </div>
           </div>
 
-
-          {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Usage Over Time */}
-            <div className="kpi-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Volume de Interações (30d)</h3>
-                <Badge variant="secondary">{format(new Date(), 'MMMM yyyy', { locale: ptBR })}</Badge>
-              </div>
-              <div className="h-64">
+          {/* Row 3: Charts and Funnel */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80 mb-6 font-sans">Fluxo de Mensagens (Consolidado)</h3>
+              <div className="h-[280px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={dailyUsageData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={10}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      stroke="hsl(var(--muted-foreground))"
-                      fontSize={10}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '0',
-                      }}
-                      labelStyle={{ color: 'hsl(var(--foreground))' }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="messages"
-                      name="Mensagens"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={3}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748B' }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748B' }} />
+                    <Tooltip contentStyle={{ borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Line type="monotone" dataKey="messages" stroke="#3B82F6" strokeWidth={3} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            {/* Consumption by Agent */}
-            <div className="kpi-card flex flex-col">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">Eficiência por Agente</h3>
-                  <p className="text-[10px] text-muted-foreground italic">Ranking por volume de conversas</p>
-                </div>
-                <button
-                  className="text-xs text-accent hover:underline font-medium"
-                  onClick={() => navigate('/agents')}
-                >
-                  Gerenciar Agentes
-                </button>
-              </div>
-
-              <div className="flex-1 space-y-4">
-                {agents.sort((a: any, b: any) => (b.totalConversations || 0) - (a.totalConversations || 0)).slice(0, 5).map((agent: any) => {
-                  const convs = agent.totalConversations || 0;
-                  const msgs = agent.usage?.totalMessages || 0;
-                  const avg = convs > 0 ? (msgs / convs).toFixed(1) : '0';
-
-                  return (
-                    <div key={agent.id} className="group relative">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent ring-1 ring-accent/20">
-                            <Bot className="h-4 w-4" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-bold leading-none mb-1">{agent.name}</p>
-                            <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                              <MessageSquare className="h-2 w-2" /> {msgs.toLocaleString()} mensagens totais
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-mono font-bold leading-none">{convs}</p>
-                          <p className="text-[9px] uppercase tracking-tighter text-muted-foreground font-bold">Conversas</p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-accent transition-all duration-500"
-                            style={{ width: `${Math.min((convs / (agents[0]?.totalConversations || 1)) * 100, 100)}%` }}
-                          />
-                        </div>
-                        <div className="w-20 text-right">
-                          <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.5 rounded border border-accent/20">
-                            {avg} msg/conv
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {agents.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 border border-dashed border-border rounded-lg">
-                    <Bot className="h-8 w-8 text-muted-foreground/30 mb-2" />
-                    <p className="text-sm text-muted-foreground italic">Nenhum agente ativo este mês</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Bottom Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Active Agents */}
-            <div className="kpi-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Agentes Ativos</h3>
-                <button
-                  className="text-sm text-accent hover:underline"
-                  onClick={() => navigate('/agents')}
-                >
-                  Gerenciar
-                </button>
-              </div>
-              <div className="space-y-3">
-                {agents?.filter(a => a.status === 'active').slice(0, 4).map((agent) => (
-                  <div
-                    key={agent.id}
-                    className="flex items-center justify-between p-3 bg-muted hover:bg-muted/80 cursor-pointer transition-colors"
-                    onClick={() => openSlideOver('agent-config', agent)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-accent/10 flex items-center justify-center">
-                        <Bot className="h-4 w-4 text-accent" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-medium text-sm truncate">{agent.name}</p>
-                        <p className="text-xs text-muted-foreground">{agent.activeConversations} ativas</p>
-                      </div>
-                    </div>
-                    <div className={`status-dot ${agent.status === 'active' ? 'status-online' : 'status-offline'}`} />
-                  </div>
-                ))}
-                {(!agents || agents.length === 0) && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Nenhum agente ativo</p>
-                )}
-              </div>
-            </div>
-
-            {/* Lead Quality Distribution (New Business Insight) */}
-            <div className="kpi-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Qualidade da Base (Leads)</h3>
-                <Badge variant="outline" className="text-accent">{totalContacts} contatos</Badge>
-              </div>
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-orange-500" />
-                      Lead Quente (SQL)
-                    </span>
-                    <span className="font-bold text-orange-500">{leadQuenteCount}</span>
-                  </div>
-                  <Progress value={(leadQuenteCount / (totalContacts || 1)) * 100} className="h-2 bg-orange-500/10 [&>div]:bg-orange-500" />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-blue-500" />
-                      Interesse Médio (MQL)
-                    </span>
-                    <span className="font-bold text-blue-500">{interesseMedioCount}</span>
-                  </div>
-                  <Progress value={(interesseMedioCount / (totalContacts || 1)) * 100} className="h-2 bg-blue-500/10 [&>div]:bg-blue-500" />
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-muted-foreground" />
-                      Curiosos (Lead)
-                    </span>
-                    <span className="font-bold">{interesseBaixoCount}</span>
-                  </div>
-                  <Progress value={(interesseBaixoCount / (totalContacts || 1)) * 100} className="h-2 bg-muted/20" />
-                </div>
-
-                <div className="pt-2 text-[10px] text-muted-foreground italic border-t border-border/50">
-                  Insights: Concentração em Leads de Interesse Médio ({((interesseMedioCount / (totalContacts || 1)) * 100).toFixed(0)}%)
-                </div>
-              </div>
-            </div>
-
-            {/* Plan Usage */}
-            <div className="kpi-card">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Faturamento (Planos)</h3>
-                <Badge variant="secondary" className="capitalize">{tenantDetails?.planName || 'Flex'}</Badge>
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6 text-slate-800">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80">Funil de Leads</h3>
+                <button onClick={() => navigate('/contacts')} className="text-[10px] font-bold text-accent uppercase hover:underline">CRM</button>
               </div>
               <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-muted-foreground font-medium">Uso de Mensagens</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">{totalMessages.toLocaleString()} / {(limits.messages || 1).toLocaleString()}</span>
-                      <span className={cn(
-                        "font-bold",
-                        messageUsagePct > 100 ? "text-destructive" : "text-muted-foreground"
-                      )}>
-                        {messageUsagePct > 100
-                          ? `Excedido ${(messageUsagePct - 100).toFixed(0)}%`
-                          : `${messageUsagePct.toFixed(0)}%`
-                        }
-                      </span>
+                {[
+                  { label: 'SQL (Quentes)', val: contacts.hot, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
+                  { label: 'MQL (Interesse)', val: contacts.warm, color: 'text-amber-500', bg: 'bg-amber-500/10' },
+                  { label: 'Novos / Frios', val: contacts.cold, color: 'text-blue-500', bg: 'bg-blue-500/10' }
+                ].map((item, i) => (
+                  <div key={i} className="p-4 rounded-xl border border-border/50 flex justify-between items-center group hover:bg-muted/30 transition-colors">
+                    <div className="flex items-center gap-3 font-sans">
+                      <div className={cn("w-10 h-10 rounded-full flex items-center justify-center font-bold text-[10px]", item.bg, item.color)}>
+                        {item.label.split(' ')[0]}
+                      </div>
+                      <span className="text-xs font-bold text-slate-600">{item.label}</span>
                     </div>
+                    <span className="text-2xl font-black text-slate-900">{item.val}</span>
                   </div>
-                  <Progress
-                    value={Math.min(messageUsagePct, 100)}
-                    className={cn(
-                      "h-2",
-                      messageUsagePct > 100 && "[&>div]:bg-destructive"
-                    )}
-                  />
-                </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-                <div>
-                  <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-muted-foreground font-medium">Uso de Voz (Vapi)</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground">{(metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0).toFixed(0)} / {limits.sttMinutes || 0} min</span>
-                      <span className="font-bold text-muted-foreground">
-                        {Math.min(((metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100).toFixed(0)}%
-                      </span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <h3 className="text-sm font-bold mb-4 uppercase tracking-wider text-muted-foreground/80 font-sans">Monitor de Status</h3>
+              <div className="space-y-3">
+                {agents?.slice(0, 4).map((agent: any) => (
+                  <div key={agent.id} className="flex items-center justify-between p-3 bg-muted/20 border border-border/50 rounded-lg hover:bg-muted/40 transition-colors cursor-pointer" onClick={() => openSlideOver('agent-config', agent)}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-accent/10 rounded flex items-center justify-center text-accent"><Bot className="h-4 w-4" /></div>
+                      <div>
+                        <p className="font-bold text-xs">{agent.name}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase opacity-70 tracking-tighter">{agent.type}</p>
+                      </div>
                     </div>
+                    <div className={cn("w-2 h-2 rounded-full", agent.status === 'active' ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground")} />
                   </div>
-                  <Progress
-                    value={Math.min(((metrics.filter(m => m.metricType.includes('ts')).reduce((acc, m) => acc + m.value, 0) || 0) / (limits.sttMinutes || 1)) * 100, 100)}
-                    className="h-2"
-                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <h3 className="text-sm font-bold mb-6 uppercase tracking-wider text-muted-foreground/80 font-sans">Qualidade da Base (%)</h3>
+              <div className="space-y-5">
+                <div>
+                  <div className="flex justify-between text-[10px] font-bold mb-1.5 uppercase">
+                    <span className="text-muted-foreground">Oportunidades Reais</span>
+                    <span className="text-slate-900">{((contacts.hot / (contacts.total || 1)) * 100).toFixed(0)}%</span>
+                  </div>
+                  <Progress value={(contacts.hot / (contacts.total || 1)) * 100} className="h-1.5 bg-emerald-500/10 [&>div]:bg-emerald-500" />
+                </div>
+                <div>
+                  <div className="flex justify-between text-[10px] font-bold mb-1.5 uppercase">
+                    <span className="text-muted-foreground">Interesse Médio</span>
+                    <span className="text-slate-900">{((contacts.warm / (contacts.total || 1)) * 100).toFixed(0)}%</span>
+                  </div>
+                  <Progress value={(contacts.warm / (contacts.total || 1)) * 100} className="h-1.5 bg-amber-500/10 [&>div]:bg-amber-500" />
                 </div>
               </div>
             </div>
 
+            <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80 font-sans">Quota de Faturamento</h3>
+                <Badge variant="secondary" className="text-[10px] uppercase font-bold">{plan.name}</Badge>
+              </div>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-[10px] font-bold uppercase">
+                    <span className="text-muted-foreground">Consumo de Mensagens</span>
+                    <span className={cn(messageUsagePct > 90 ? "text-red-500 font-black" : "text-slate-900")}>{messageUsagePct.toFixed(0)}%</span>
+                  </div>
+                  <Progress value={Math.min(messageUsagePct, 100)} className={cn("h-2.5 shadow-inner", messageUsagePct > 90 ? "[&>div]:bg-red-500" : "")} />
+                  <div className="flex justify-between items-center mt-1">
+                    <p className="text-[10px] text-muted-foreground">Limite do Plano</p>
+                    <p className="text-[10px] text-slate-800 font-bold">{usage.totalMessages.toLocaleString()} / {(plan.limits?.messages || 0).toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+
         </div>
       </div>
     </MainLayout>

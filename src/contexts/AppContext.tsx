@@ -177,14 +177,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const fetchMessages = useCallback(async (convIdOverride?: string) => {
     const activeId = convIdOverride || selectedConversation?.id;
     if (!activeId) return;
+    
     try {
-      // console.log(`📡 Fetching messages for ${activeId}...`);
       const messages = await api.getConversationMessages(activeId);
       
       // Update states
-      setSelectedConversation(prev => 
-        (prev?.id === activeId) ? { ...prev, messages } : prev
-      );
+      setSelectedConversation(prev => {
+        // If we have an override or if it matches the current selection, update it.
+        if (convIdOverride || (prev?.id === activeId)) {
+           // We keep the previous object to preserve metadata like summary/status
+           return { ...(prev || { id: activeId } as any), messages };
+        }
+        return prev;
+      });
       
       setConversations(prev =>
         prev.map(c => c.id === activeId ? { ...c, messages: messages } : c)
@@ -234,6 +239,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Initial Load
     loadConversationsList();
 
+    // Strategy: Debounce list updates to avoid thrashing during rapid messages
+    let refreshTimeout: any;
+    const debouncedRefresh = () => {
+       if (refreshTimeout) clearTimeout(refreshTimeout);
+       refreshTimeout = setTimeout(() => {
+          loadConversationsList();
+       }, 500); // 500ms debounce
+    };
+
     // 1. Subscribe to Conversations (Update list automatically)
     const convChannel = supabase
       .channel(`tenant-convs-${currentTenant.id}`)
@@ -246,13 +260,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           filter: `tenant_id=eq.${currentTenant.id}`
         },
         async (payload: any) => {
-          console.log('📡 Realtime Conversation Change:', payload.eventType);
-          loadConversationsList(); 
+          console.log(`📡 Realtime Conversation Change [${payload.eventType}]`);
+          debouncedRefresh(); 
         }
       )
       .subscribe();
 
     // 2. Subscribe to Messages (Update current chat instantly)
+    // Strategy: Since Supabase payloads might arrive partial (metadata-only) due to RLS,
+    // we use the 'Signal' of an INSERT to trigger a full refetch of the logic.
     const msgChannel = supabase
       .channel(`tenant-msgs-${currentTenant.id}`)
       .on(
@@ -264,25 +280,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
           filter: `tenant_id=eq.${currentTenant.id}`
         },
         async (payload: any) => {
-           const newMessage = payload.new as any;
-           console.log('💬 Realtime Message Received:', newMessage.id);
+           console.log('💬 Signal: New Message detected via Realtime.', payload.eventType);
            
-           // If it's the current conversation, refetch messages to ensure order/rich data
-           if (selectedConvIdRef.current === newMessage.conversation_id) {
-              fetchMessages(newMessage.conversation_id);
+           // If the user is currently looking at a conversation, force a fetch of its latest messages.
+           // This catches the new message regardless of whether the payload had its ID.
+           if (selectedConvIdRef.current) {
+              console.log(`📡 Forcing message fetch for active chat: ${selectedConvIdRef.current}`);
+              fetchMessages(selectedConvIdRef.current);
            }
+           
+           // Always refresh the list to keep sidebar snippet & timers accurate
+           debouncedRefresh();
         }
       )
       .subscribe();
 
-    // Health-check Polling (Relaxed to 60s as a safety net)
-    const intervalId = setInterval(loadConversationsList, 60000);
+    // Health-check Polling (Extreme safety: 5 minutes)
+    const intervalId = setInterval(loadConversationsList, 300000);
 
     return () => {
       console.log("📴 Unsubscribing from Realtime...");
       supabase.removeChannel(convChannel);
       supabase.removeChannel(msgChannel);
       clearInterval(intervalId);
+      if (refreshTimeout) clearTimeout(refreshTimeout);
     };
   }, [currentTenant?.id, loadConversationsList, fetchMessages]);
 
