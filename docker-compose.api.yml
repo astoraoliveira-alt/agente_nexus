@@ -10,7 +10,7 @@ services:
     # No ports needed if it's just a queue consumer, 
     # but Hono server suggests it might have healthchecks.
     ports:
-      - "3003:3000" 
+      - "3003:3001" 
     networks:
       - nexus-network
 
