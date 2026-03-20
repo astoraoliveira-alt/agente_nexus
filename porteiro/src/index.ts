@@ -40,6 +40,8 @@ const pendingMessages = new Map<string, {
 
 const app = new Hono();
 
+app.get('/', (c) => c.text('Porteiro Davos Elite está Ativo! 🦾🛡️🎰'));
+
 // Middleware
 app.use('*', logger());
 app.use('*', cors({
