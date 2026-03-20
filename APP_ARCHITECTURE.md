@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 19/Mar/2026
-> **Versão:** 16.0 (DashMaster V1.3 — Dynamic Costing, Hierarchy & Realtime)
+> **Última Atualização:** 20/Mar/2026
+> **Versão:** 20.0 (The CI/CD, Docker & Chat Sync Era)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -1137,94 +1137,86 @@ ORDER BY created_at DESC LIMIT 1;
     - **Métrica "Avg Msgs/Usuário"**: Media de mensagens por conversa/usuário, calculada no SQL (`total_msgs / total_conversations`). Exibida no card de Performance Agentes e usada para avaliar profundidade das interações.
     - **Supabase Realtime (Dashboard)**: Subscrição em tempo real nas tabelas `conversations`, `messages`, `consumption_metrics` e `evaluations` para atualização instantânea dos KPIs sem polling.
 
-### 21.2 Fase 2: Governança, Orquestração V5 & Knowledge Base [EM ANDAMENTO]
+### 21.2 Fase 2: Governança, Orquestração V5 & Knowledge Base [CONCLUÍDO]
 
-- **Item 1: Orquestrador Transacional V5 & Gatekeeper V7 [EM ANDAMENTO]**: 
-    - Transição do fluxo linear no n8n para uma **RPC mestre** no Postgres que gerencia sessões de segurança, RAG e histórico em uma única transação atômica.
-    - Implementação do `dynamic_gatekeeper_v7`: Permite que o Gatekeeper valide intenções do usuário antes de liberar o acesso a ferramentas (tools) sensíveis.
+- **Item 1: Orquestrador Transacional V5 & Gatekeeper V7 [CONCLUÍDO]**: 
+    - Implementação do `dynamic_gatekeeper_v7` e sessões de segurança transacionais.
 - **Item 2: Knowledge Base Engine & Fixes [CONCLUÍDO]**: 
-    - Correção crítica nas Edge Functions do Supabase que falhavam por falta de OpenAI API Key (401 Unauthorized). 
-    - Implementação de `Authorization: Bearer session.access_token` em todas as chamadas de processamento de documentos.
-- **Item 3: Persistência de Identidade & Sessões Globais [EM ANDAMENTO]**: 
-    - Migração da lógica de sessão de UUID de conversa para Identificador de Usuário (Omnichannel). 
-    - Permite que um usuário logado no Web Widget mantenha o estado de autenticação ao trocar de janela ou recarregar a página, persistindo chaves de segurança via `conversation_security_sessions`.
-- **Item 4: Sistema de Campanhas & Fluxos Conversacionais [CONCLUÍDO]**: 
-    - Estabilização da persistência de contatos e audiências para disparos em massa.
-    - Correção de RLS (Row Level Security) nas tabelas de campanhas para garantir isolamento multi-tenant.
-- **Item 5: Refinamento de UX & Performance [CONCLUÍDO]**: 
-    - Remoção de assets quebrados ou inexistentes (vídeos AI-Brain.mp4) que causavam 404 herdados de templates anteriores. 
-    - Otimização das rotas de Login e Esqueci Senha para carregamento < 500ms.
+    - Processamento de documentos via Edge Functions com Auth seguro.
+- **Item 3: Sistema de Campanhas & Fluxos Conversacionais [CONCLUÍDO]**: 
+    - Estabilização da persistência de contatos e audiências.
+- **Item 4: Refinamento de UX & Performance [CONCLUÍDO]**: 
+    - Otimização de rotas e limpeza de assets.
 
-### 21.3 Próximos Passos e Dívidas Técnicas
+### 21.3 Fase 3: Infraestrutura, Docker & Chat Sync (Mar/2026) [ATUAL]
 
-| Item | Prioridade | Descrição | Status |
-| :--- | :--- | :--- | :--- |
-| Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. | Pendente |
-| Billing de Tokens Reais | Alta | Migrar estimativas de custo para tokens reais retornados pela API da OpenAI. | Planejado |
-| Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` no `core.service.ts` não persistem estágios no banco (flow_stages). | Aberto |
-| Paralelismo no n8n | Média | Executar embeddings e governança em nós paralelos para reduzir latência de 1.4s para < 800ms. | Planejado |
-| Playwright Visual Core | Média | Criar screenshots "North Star" para evitar regressões visuais em dashboards. | Pendente |
-| Mobile App (Operador) | Baixa | Versão simplificada para gestão de incidentes em campo via React Native. | Roadmap |
+- **Item 1: Porteiro V2.2 — Chat History Sync [CONCLUÍDO]**: 
+    - Sincronização automática com a tabela `messages`, permitindo acompanhamento humano Omnichannel.
+- **Item 2: Dockerização Completa [CONCLUÍDO]**: 
+    - Micro-serviço isolado via Docker Compose (`nexus-porteiro`).
+- **Item 3: CI/CD com GitHub Actions [CONCLUÍDO]**: 
+    - Pipeline automatizado: `git push` -> `Docker Build` na VPS.
+- **Item 4: Supabase Realtime Optimized [CONCLUÍDO]**: 
+    - Remoção de polling de 5s. Disparo em tempo real (latência < 100ms) via Supabase Realtime.
 
 ---
-*Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
 
----
-*Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
----
+## 16. O Porteiro (Micro-serviço de Mensageria & Sync)
 
-## 16. O Porteiro (API Gateway & Scheduler Layer)
+O **Porteiro** é o motor de saída (Omnichannel Outbound) do Davos Nexus. Ele desacopla a lógica de envio das janelas de polling, permitindo mensagens instantâneas e seguras.
 
-O **Porteiro** é um serviço desacoplado que substitui o polling lento do n8n por uma arquitetura reativa de alto desempenho para disparo de mensagens e governança de APIs.
-
-### 16.1 O Fluxo de Outbound V2 (Reativo)
+### 16.1 Arquitetura de Sincronização (V2.2)
 
 ```mermaid
 sequenceDiagram
-    participant UI as Davos Nexus (Frontend)
-    participant DB as Supabase (PostgreSQL)
-    participant PT as Porteiro (Worker/Gateway)
-    participant EV as Evolution API / Meta API
+    participant Hub as Davos Nexus UI
+    participant DB as Supabase Realtime
+    participant PT as Porteiro (Docker)
+    participant WA as Evolution / Meta API
 
-    Note over UI,DB: Agendamento de Campanha
-    UI->>DB: INSERT INTO outbound_queue (status='pending')
+    Note over Hub,DB: 1. Inserção na Fila
+    Hub->>DB: INSERT INTO outbound_queue
     
-    loop Monitoramento Reativo (5s)
-        PT->>DB: SELECT pending FROM outbound_queue WHERE scheduled_at <= NOW()
-        activate PT
-        DB-->>PT: 1 Record (ec4aa0...)
-        PT->>EV: POST /message/sendText (n8n-alpargata)
-        EV-->>PT: 200 OK (Key: ...)
-        PT->>DB: UPDATE status='sent', sent_at=NOW()
-        deactive PT
-    end
+    Note over DB,PT: 2. Escuta Reativa (RealtimeINSERT)
+    DB-->>PT: ⚡ Evento Instantâneo
+    
+    activate PT
+    Note over PT,WA: 3. Disparo Externo
+    PT->>WA: Envia Mensagem
+    WA-->>PT: 200 OK
+    
+    Note over PT,DB: 4. Chat History Sync
+    PT->>DB: INSERT INTO messages (Log AI)
+    PT->>DB: UPDATE outbound_queue (sent=true)
+    deactivate PT
 ```
 
 ### 16.2 Responsabilidades Críticas do Porteiro
 
-1.  **Segurança e Abstração**: O Frontend e o n8n não precisam mais conhecer as chaves de API da Evolution ou da Meta. O Porteiro as gerencia em seu próprio `.env` ou via `tenant_id` no banco.
-2.  **Agendamento de Alta Precisão**: Com um intervalo de 5 segundos, o Porteiro garante que mensagens de campanhas proativas sejam disparadas exatamente quando planejado (diferente do polling de 10 minutos do n8n).
-3.  **Híbrido Evolution + Meta**:
-    -   **Evolution (Unbranded)**: Ideal para campanhas de massa e flexibilidade técnica.
-    -   **Meta Official (Enterprise)**: Ideal para compliance estrito e marcas oficiais.
-    -   O Porteiro seleciona o driver baseado no `driver_type` (v3 planned) vinculado ao `agent_id`.
-4.  **Resiliência (Retries)**: Em caso de falha de SSL ou rede, o Porteiro marca como `failed` mas o logic de Retry automático (Planned V2.1) pode re-processar sem intervenção humana.
+1.  **Chat History Sync**: O grande diferencial da V2.2. Garante que tudo que a IA envia seja registrado na conversa do usuário, permitindo que o operador humano intervenha com contexto total.
+2.  **Abstração de APIs**: Unifica Evolution (Open Social) e Meta (Official API) sob um único worker de mensagens.
+3.  **Segurança e Isolamento**: Mantém as chaves de API longe do Frontend, acessadas apenas pelo container seguro na VPS.
 
-### 16.3 Estratégia de Deploy (VPS)
+### 16.3 Estratégia de Deploy Automatizado (CI/CD)
 
-Para publicar o Porteiro na sua VPS:
+1.  **Workflow**: Local → `git push` → GitHub → `SSH Script` → VPS.
+2.  **GitHub Action**: O arquivo `.github/workflows/porteiro-deploy.yml` orquestra a atualização silenciosa sempre que a branch `main` recebe código novo.
+3.  **Zero-Touch Deployment**: Fim das transferências manuais de arquivos; o ambiente produtivo permanece em sync absoluto com o repositório.
 
-1.  **Clonagem/Transferência**: Copiar a pasta `porteiro/` para o diretório `/opt/davos-nexus/porteiro` na VPS.
-2.  **Dependências**: Rodar `npm install` no diretório.
-3.  **Configuração**: Criar o `.env` de produção com:
-    - `SUPABASE_URL`
-    - `SUPABASE_SERVICE_ROLE_KEY`
-    - `EVOLUTION_API_URL`
-    - `EVOLUTION_API_KEY`
-    - `NODE_TLS_REJECT_UNAUTHORIZED=0` (Obrigatório enquanto os certificados da Evolution não forem fixes na VPS).
-4.  **Gerenciamento de Processos**: Utilizar o **PM2**:
-    ```bash
-    pm2 start "npx tsx src/index.ts" --name "davos-porteiro"
-    pm2 save
-    ```
-5.  **Reverse Proxy**: Configurar o Nginx da VPS para apontar `api.davosconsulting.com.br` para o Porteiro (Porta 3001).
+### 16.4 Dockerização (VPS Optimization)
+
+Rodando em um container `node:23-slim` para menor footprint de memória, o Porteiro é gerenciado isoladamente no `docker-compose.api.yml`:
+
+```yaml
+services:
+  porteiro:
+    build: ./porteiro
+    container_name: nexus-porteiro
+    restart: always
+    env_file: ./porteiro/.env
+    ports: ["3003:3000"]
+    networks: [nexus-network]
+```
+
+---
+*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus.*

@@ -18,6 +18,19 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Use Service Role for backend operations (Webhooks, etc.) if available
 const supabaseAdmin = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : supabase;
 
+// --- CONFIGURAÇÕES DE FILA ---
+const DEBOUNCE_TIME_MS = 1500; // Tempo de espera para agrupar mensagens
+const pendingMessages = new Map<string, { 
+    timeout: NodeJS.Timeout, 
+    contents: string[], 
+    agentId: string, 
+    tenantId: string, 
+    instanceName: string,
+    phone: string,
+    pushName: string,
+    externalId: string
+}>();
+
 const app = new Hono();
 
 // Middleware
@@ -263,16 +276,66 @@ app.post('/v1/evolution/webhook', async (c) => {
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
 
-        // 6. Real-Time Signaling (Optional: Trigger an N8N workflow or Broadcast)
-        // If Supabase Realtime is enabled on 'messages' table, the front-end will already pick it up.
+        // 6. --- DEBOUNCE & ENQUEUE (Item 3.2 do Plano Elite) ---
+        
+        // Se já existe um debounce para esta conversa, cancelamos o anterior
+        if (pendingMessages.has(conversationId)) {
+            const pending = pendingMessages.get(conversationId)!;
+            clearTimeout(pending.timeout);
+            pending.contents.push(textContent);
+        } else {
+            pendingMessages.set(conversationId, {
+                contents: [textContent],
+                agentId: agent.id,
+                tenantId: agent.tenant_id,
+                instanceName: instance,
+                phone: phone,
+                pushName: pushName,
+                externalId: externalId,
+                timeout: setTimeout(() => {}) // Placeholder
+            });
+        }
+
+        // Criamos o novo timer para processar a fila
+        const currentPending = pendingMessages.get(conversationId)!;
+        currentPending.timeout = setTimeout(async () => {
+            const dataToProcess = pendingMessages.get(conversationId);
+            if (!dataToProcess) return;
+            pendingMessages.delete(conversationId);
+
+            const finalContent = dataToProcess.contents.join('\n');
+            console.log(`[PORTEIRO] 📦 Enfileirando ${dataToProcess.contents.length} mensagens para a conversa ${conversationId}`);
+
+            try {
+                // Insere na Inbound Queue calculando o sequence_number (Item 2.1 Elite)
+                const { error: queueError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                    p_tenant_id: dataToProcess.tenantId,
+                    p_agent_id: dataToProcess.agentId,
+                    p_conversation_id: conversationId,
+                    p_external_id: dataToProcess.externalId,
+                    p_payload: {
+                        content: finalContent,
+                        phone: dataToProcess.phone,
+                        name: dataToProcess.pushName,
+                        instance: dataToProcess.instanceName,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+
+                if (queueError) {
+                    console.error(`[PORTEIRO] ❌ Erro ao enfileirar na Inbound Queue:`, queueError);
+                }
+            } catch (err) {
+                console.error(`[PORTEIRO] ❌ Falha crítica ao processar fila:`, err);
+            }
+        }, DEBOUNCE_TIME_MS);
 
         return c.json({ 
             status: 'success', 
-            message: 'Webhook processed',
+            message: 'Webhook received and debouncing',
             conversation_id: conversationId,
             external_id: externalId 
         });
-
 
     } catch (err: any) {
         console.error('[PORTEIRO] ❌ Webhook Error:', err);
