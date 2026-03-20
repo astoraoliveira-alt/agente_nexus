@@ -28,7 +28,14 @@ const pendingMessages = new Map<string, {
     instanceName: string,
     phone: string,
     pushName: string,
-    externalId: string
+    externalId: string,
+    messageType: string,
+    remoteID: string,
+    platform: string,
+    instanceId: string,
+    serverURL: string,
+    mediaUrl?: string,
+    mimetype?: string
 }>();
 
 const app = new Hono();
@@ -164,17 +171,43 @@ app.post('/v1/evolution/webhook', async (c) => {
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
         }
 
-        const remoteJid = rawMsg.key?.remoteJid;
-        const phone = remoteJid?.split('@')[0];
+        const remoteID = rawMsg.key?.remoteJid;
+        const phone = remoteID?.split('@')[0];
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
+        const messageType = rawMsg.messageType || 'conversation';
         
-        // Extract content (support simple conversation or extended text)
-        const textContent = rawMsg.message?.conversation || 
-                           rawMsg.message?.extendedTextMessage?.text || 
-                           (rawMsg.message?.imageMessage ? '[Imagem]' : '[Arquivo]');
+        // Extract technical metadata from the root payload
+        const platform = rawMsg.source || 'unknown'; // No seu JSON: data.source
+        const instanceId = rawMsg.instanceId || instance; // No seu JSON: data.instanceId
+        const serverURL = payload.server_url || ''; // No seu JSON: server_url
 
-        if (!phone || !textContent) {
+        // Extract content and media info
+        let textContent = rawMsg.message?.conversation || 
+                          rawMsg.message?.extendedTextMessage?.text || '';
+        
+        let mediaUrl = '';
+        let mimetype = '';
+
+        if (rawMsg.message?.imageMessage) {
+            textContent = rawMsg.message.imageMessage.caption || '[Imagem]';
+            mediaUrl = rawMsg.message.imageMessage.url;
+            mimetype = rawMsg.message.imageMessage.mimetype;
+        } else if (rawMsg.message?.audioMessage) {
+            textContent = '[Áudio]';
+            mediaUrl = rawMsg.message.audioMessage.url;
+            mimetype = rawMsg.message.audioMessage.mimetype;
+        } else if (rawMsg.message?.videoMessage) {
+            textContent = rawMsg.message.videoMessage.caption || '[Vídeo]';
+            mediaUrl = rawMsg.message.videoMessage.url;
+            mimetype = rawMsg.message.videoMessage.mimetype;
+        } else if (rawMsg.message?.documentMessage) {
+            textContent = rawMsg.message.documentMessage.title || '[Documento]';
+            mediaUrl = rawMsg.message.documentMessage.url;
+            mimetype = rawMsg.message.documentMessage.mimetype;
+        }
+
+        if (!phone || (!textContent && !mediaUrl)) {
             return c.json({ status: 'ignored', reason: 'missing_phone_or_content' });
         }
 
@@ -292,6 +325,13 @@ app.post('/v1/evolution/webhook', async (c) => {
                 phone: phone,
                 pushName: pushName,
                 externalId: externalId,
+                messageType,
+                remoteID,
+                platform,
+                instanceId,
+                serverURL,
+                mediaUrl,
+                mimetype,
                 timeout: setTimeout(() => {}) // Placeholder
             });
         }
@@ -318,7 +358,14 @@ app.post('/v1/evolution/webhook', async (c) => {
                         phone: dataToProcess.phone,
                         name: dataToProcess.pushName,
                         instance: dataToProcess.instanceName,
-                        timestamp: new Date().toISOString()
+                        timestamp: new Date().toISOString(),
+                        messageType: dataToProcess.messageType,
+                        remoteID: dataToProcess.remoteID,
+                        platform: dataToProcess.platform,
+                        instanceId: dataToProcess.instanceId,
+                        serverURL: dataToProcess.serverURL,
+                        mediaUrl: dataToProcess.mediaUrl,
+                        mimetype: dataToProcess.mimetype
                     }
                 });
 
