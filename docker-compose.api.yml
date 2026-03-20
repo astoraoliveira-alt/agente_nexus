@@ -1,0 +1,19 @@
+services:
+  porteiro:
+    build: 
+      context: ./porteiro
+      dockerfile: Dockerfile
+    container_name: nexus-porteiro
+    restart: always
+    env_file:
+      - ./porteiro/.env
+    # No ports needed if it's just a queue consumer, 
+    # but Hono server suggests it might have healthchecks.
+    ports:
+      - "3003:3000" 
+    networks:
+      - nexus-network
+
+networks:
+  nexus-network:
+    driver: bridge
