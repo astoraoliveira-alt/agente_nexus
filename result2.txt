@@ -1,0 +1,184 @@
+Metrics raw: [
+  {
+    "id": "9d84e3ec-e25f-4450-b7ed-5c4f598288d8",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "753caae9-0c90-4937-baff-c3964d58023f",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "b377d386-88e6-43d5-93c6-543ccb9bf824",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "user",
+      "message_id": "db982f09-0879-45ed-b520-8ca95e684435",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "20169471-47fa-4038-96f8-d3d464a51658",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "4496d647-bb39-41b3-8965-964ddae640a7",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "de0efb1a-86b4-47b4-9d50-ecc7d4d97cd5",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "user",
+      "message_id": "d0d59e20-ca77-42d2-9862-0d181ed2c50c",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "2955364d-0677-4b35-bdd5-98b28d1811d0",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "67618156-b1b3-45ff-bcc4-cf68205d6ebe",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  }
+] null
+Acolhimento metrics raw: [
+  {
+    "id": "de0efb1a-86b4-47b4-9d50-ecc7d4d97cd5",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "user",
+      "message_id": "d0d59e20-ca77-42d2-9862-0d181ed2c50c",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "9d84e3ec-e25f-4450-b7ed-5c4f598288d8",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "753caae9-0c90-4937-baff-c3964d58023f",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "b377d386-88e6-43d5-93c6-543ccb9bf824",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "user",
+      "message_id": "db982f09-0879-45ed-b520-8ca95e684435",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "2955364d-0677-4b35-bdd5-98b28d1811d0",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "67618156-b1b3-45ff-bcc4-cf68205d6ebe",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  },
+  {
+    "id": "20169471-47fa-4038-96f8-d3d464a51658",
+    "tenant_id": "ad7ca404-ee2e-468e-9eb9-40d69d7c8122",
+    "agent_id": "a7d22ac4-2e56-4287-ab19-5b41390ee3f4",
+    "channel": "text",
+    "metric_type": "messages",
+    "value": 1,
+    "cost": 0,
+    "currency": "BRL",
+    "metadata": {
+      "sender": "ai",
+      "message_id": "4496d647-bb39-41b3-8965-964ddae640a7",
+      "conversation_id": "71437243-064c-4ae7-9620-c0e1349fd4a4"
+    },
+    "recorded_at": "2026-03-06T00:37:43.577277+00:00",
+    "department_id": null,
+    "cost_center": null
+  }
+]

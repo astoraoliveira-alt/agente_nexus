@@ -1,0 +1,38 @@
+name: 🚀 Deploy Davos Nexus Porteiro
+
+on:
+  push:
+    branches: [ main ] # Gatilho: Quando você der um push na branch main
+    paths:
+      - 'porteiro/**'      # Só dispara se houver mudança dentro da pasta porteiro
+      - 'docker-compose.api.yml'
+
+jobs:
+  deploy:
+    name: 📡 SSH e Deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 🚢 Executando Comandos na VPS via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }} # Opcional se sua chave tiver senha
+          script: |
+            # 1. Navegar até a pasta do projeto
+            cd /root/davos-nexus
+            
+            # 2. Puxar as últimas alterações do Git
+            # Certifique-se de que a VPS está autenticada no GitHub via SSH
+            git pull origin main
+            
+            # 3. Re-buildar e subir as alterações no Docker
+            # O build --no-cache garante que o código novo seja copiado com certeza
+            docker compose -f docker-compose.api.yml up -d --build porteiro
+            
+            # 4. Limpar imagens antigas (opcional, para não encher o disco da VPS)
+            docker image prune -f
+            
+            echo "✅ Deploy do Porteiro concluído com sucesso!"

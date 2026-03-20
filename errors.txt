@@ -1,0 +1,5 @@
+integration_log: [
+  {
+    "error_details": "Inserted: 19 | Tokens: 13516"
+  }
+]

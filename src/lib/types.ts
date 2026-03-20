@@ -393,8 +393,11 @@ export interface Agent {
   // New Integration Fields
   type?: 'embedded' | 'whatsapp' | 'conversational';
   parent_agent_id?: string; // New field for sub-agents
-  whatsapp_api_type?: 'evolution' | 'meta_official'; // New field for WhatsApp API type
+  whatsapp_provider?: 'evolution' | 'meta'; // New field for WhatsApp API type
   meta_api_token?: string; // New field for Official Meta API
+  meta_phone_id?: string; // New field for Meta Phone Number ID
+  meta_waba_id?: string; // New field for Meta WhatsApp Business Account ID
+  meta_verify_token?: string; // New field for Meta Webhook Verification
   evolution_instance?: string; // Evolution API instance name for dynamic lookup
   evolution_token?: string;
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base

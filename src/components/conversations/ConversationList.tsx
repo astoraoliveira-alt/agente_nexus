@@ -36,26 +36,33 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     return Array.from(agents).sort();
   }, [conversations]);
 
-  // 2. Filter Logic
+  // 2. Filter & Sort Logic
   const filteredConversations = useMemo(() => {
-    if (!searchTerm) {
-      return agentFilter
-        ? conversations.filter(c => c.agentName === agentFilter)
-        : conversations;
+    let result = conversations;
+
+    if (searchTerm) {
+      result = result.filter(c => {
+        const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
+        if (!matchesAgent) return false;
+
+        if (phoneticMatch(c.userName, searchTerm)) return true;
+        if (phoneticMatch(c.lastMessage, searchTerm)) return true;
+
+        const hasMessageMatch = c.messages.some(m =>
+          phoneticMatch(m.content || '', searchTerm) ||
+          phoneticMatch(m.transcription || '', searchTerm)
+        );
+        return hasMessageMatch;
+      });
+    } else if (agentFilter) {
+      result = result.filter(c => c.agentName === agentFilter);
     }
 
-    return conversations.filter(c => {
-      const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
-      if (!matchesAgent) return false;
-
-      if (phoneticMatch(c.userName, searchTerm)) return true;
-      if (phoneticMatch(c.lastMessage, searchTerm)) return true;
-
-      const hasMessageMatch = c.messages.some(m =>
-        phoneticMatch(m.content || '', searchTerm) ||
-        phoneticMatch(m.transcription || '', searchTerm)
-      );
-      return hasMessageMatch;
+    // Sort by lastMessageTime DESC (latest first)
+    return [...result].sort((a, b) => {
+      const timeA = new Date(a.lastMessageTime).getTime();
+      const timeB = new Date(b.lastMessageTime).getTime();
+      return timeB - timeA;
     });
   }, [conversations, searchTerm, agentFilter]);
 

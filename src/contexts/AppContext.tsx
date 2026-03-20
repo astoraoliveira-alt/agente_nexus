@@ -295,8 +295,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
-    // Health-check Polling (Extreme safety: 5 minutes)
-    const intervalId = setInterval(loadConversationsList, 300000);
+    // Health-check Polling (Extreme safety: 10 minutes)
+    const intervalId = setInterval(loadConversationsList, 600000);
 
     return () => {
       console.log("📴 Unsubscribing from Realtime...");

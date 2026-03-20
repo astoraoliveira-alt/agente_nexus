@@ -184,17 +184,8 @@ export default function SelectTenant() {
       */}
       <div className="hidden lg:block lg:flex-1 relative bg-[#020202] overflow-hidden h-full border-l border-white/5 flex flex-col items-center justify-center">
         
-        {/* Cinematic Background Video */}
+        {/* Cinematic Background */}
         <div className="absolute inset-0 z-0">
-           <video 
-             autoPlay 
-             loop 
-             muted 
-             playsInline 
-             className="w-full h-full object-cover opacity-40 grayscale contrast-125 brightness-75 scale-110"
-           >
-             <source src="https://static.videezy.com/system/resources/previews/000/054/938/original/AI-Brain.mp4" type="video/mp4" />
-           </video>
            <div className="absolute inset-0 bg-gradient-to-r from-[#020202] via-transparent to-[#020202] opacity-80" />
            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#020202_90%)] opacity-60" />
         </div>

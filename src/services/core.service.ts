@@ -55,14 +55,30 @@ export const coreService = {
     },
 
     async processDocument(agentId: string, tenantId: string, name: string, textContent: string, fileType?: string, fileSize?: number): Promise<void> {
-        const { error } = await supabase.functions.invoke('process-document', {
-            body: { agentId, tenantId, name, textContent, fileType, fileSize }
+        console.log('📄 ProcessDocument: Initializing...', { agentId, tenantId, name, fileSize });
+        
+        // Ensure we have a fresh token
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+            console.error('📄 ProcessDocument: No active session found');
+            throw new Error('Você precisa estar logado para processar documentos.');
+        }
+
+        console.log('📄 ProcessDocument: Invoking Edge Function...');
+        const { data, error } = await supabase.functions.invoke('process-document', {
+            body: { agentId, tenantId, name, textContent, fileType, fileSize },
+            headers: {
+                Authorization: `Bearer ${session.access_token}`
+            }
         });
 
         if (error) {
-            console.error('Failed to process document:', error);
-            throw new Error(`Erro ao processar documento: ${error.message || 'Falha na Edge Function'}`);
+            console.error('📄 ProcessDocument: Edge Function Error:', error);
+            throw new Error(`Erro no processamento: ${error.message || 'Falha na comunicação com o servidor'}`);
         }
+        
+        console.log('📄 ProcessDocument: Success!', data);
     },
 
     async updateCompanyPrivacy(tenantId: string, privacySettings: any): Promise<void> {

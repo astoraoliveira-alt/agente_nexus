@@ -1,0 +1,27 @@
+import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+
+const envFile = fs.readFileSync('.env.local', 'utf8');
+const viteUrlMatch = envFile.match(/VITE_SUPABASE_URL=(.*)/);
+
+const serviceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU';
+
+const supabase = createClient(viteUrlMatch[1].trim(), serviceKey);
+
+async function run() {
+    const { data, error } = await supabase
+        .from('contacts')
+        .insert([{
+            tenant_id: 'ad7ca404-ee2e-468e-9eb9-40d69d7c8122',
+            identifier: '5511993434870',
+            name: 'Astor Oliveira Test',
+            phone: '5511993434870',
+            channel: 'voice',
+            lifecycle_status: 'lead'
+        }]);
+
+    console.log('Result:', data);
+    console.log('Error:', error);
+}
+
+run();

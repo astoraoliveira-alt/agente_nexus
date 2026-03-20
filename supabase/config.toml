@@ -1,0 +1,15 @@
+
+[functions.get-dashboard-data]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/get-dashboard-data/index.ts"
+
+[functions.process-billing]
+enabled = true
+verify_jwt = true
+entrypoint = "./functions/process-billing/index.ts"
+
+[functions.process-document]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/process-document/index.ts"

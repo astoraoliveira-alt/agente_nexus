@@ -26,9 +26,9 @@ O sistema opera sob isolamento estrito de dados. **Todos** os queries SQL filtra
 
 ---
 
-## 2. Stack Tecnológico & Arquitetura de Camadas
+## 2. Stack Tecnológico & Arquitetura de Camadas (V2.0 — Porteiro Era)
 
-A arquitetura do Nexus Hub é um modelo híbrido **Service-Oriented Frontend + Database-First Backend** em ambiente Geo-Distribuído.
+A arquitetura do Nexus Hub evoluiu para um modelo de **Gateway-Integrated Micro-Services**, onde o tráfego de saída e automação crítica é mediado por um serviço dedicado (Porteiro).
 
 ### 2.1 Stack Completa
 
@@ -40,7 +40,8 @@ A arquitetura do Nexus Hub é um modelo híbrido **Service-Oriented Frontend + D
 | | Formulários | **React Hook Form + Zod** | — | Validação tipada no cliente antes de qualquer chamada à API. |
 | | Gráficos | **Recharts** | — | Dashboards financeiros, heatmaps de consumo e barras de uso. |
 | | 3D | **@splinetool/react-spline** | — | Elementos visuais 3D na landing. |
-| **Backend** | Banco de Dados | **PostgreSQL 15+** | 🇺🇸 Supabase (US West) | Core do sistema. Armazenamento centralizado. |
+| **Gateway** | **Porteiro** | **Node.js (Fastify) + TypeScript** | 🇧🇷 VPS (Brasil/USA) | **API Gateway & Fila de Saída.** Gerencia disparos agendados, abstrai APIs de WhatsApp (Evolution/Meta) e protege chaves de API. |
+| **Backend** | Banco de Dados | **PostgreSQL 15+** | 🇺🇸 Supabase (US West) | Core do sistema. Armazenamento centralizado com RLS. |
 | | API Layer | **PostgREST** | 🇺🇸 Supabase (US West) | Exposição automática do schema via REST. Segura por RLS. |
 | | RPC Layer | **PL/pgSQL Functions** | 🇺🇸 Supabase (US West) | Lógica de negócio crítica (orquestração, financeiro, auditoria) executada no banco. |
 | | Auth | **Supabase Auth + `public.users`** | 🇺🇸 Supabase (US West) | Sessão JWT gerenciada pelo Supabase. Perfil de negócio em `public.users`. |
@@ -48,7 +49,7 @@ A arquitetura do Nexus Hub é um modelo híbrido **Service-Oriented Frontend + D
 | | Storage | **Supabase Storage** | 🇺🇸 Supabase (US West) | Bucket `incident-attachments` para uploads de evidências de incidentes. |
 | **Orquestração** | Workflow Engine | **n8n (Node.js)** | 🇺🇸 VPS (Utah, US) | Motor de fluxos que orquestra a lógica de IA. Consome as RPCs do Postgres. |
 | | Caching / Scale | **Redis** | 🇺🇸 VPS (Utah, US) | Atua em conjunto com o n8n para **paralelizar** a execução e escalar chamadas em massa. |
-| **Canais** | WhatsApp | **Evolution API (Node)** | 🇺🇸 VPS (Utah, US) | Gateway de mensagem WhatsApp. |
+| **Canais** | WhatsApp | **Evolution API / Meta Official** | 🇺🇸 VPS (Utah) | Gateway de mensagem final para o cliente. |
 | | Voz | **VAPI** | 🇺🇸 USA (Global) | Processamento de voz. Integração bidirecional via webhook `sync_vapi_call`. |
 | **Inference** | LLM Brain | **OpenAI API (GPT-4o)** | 🇺🇸 USA | Raciocínio, geração de embeddings e sugestão de políticas. |
 | | **Gateway** | **Supabase Edge Functions** | 🇺🇸 Supabase Edge | **[Fase 1]** Todas as chamadas diretas da OpenAI foram removidas do frontend. Embeddings e Auditoria ocorrem via Edge Functions seguras. |
@@ -1136,18 +1137,94 @@ ORDER BY created_at DESC LIMIT 1;
     - **Métrica "Avg Msgs/Usuário"**: Media de mensagens por conversa/usuário, calculada no SQL (`total_msgs / total_conversations`). Exibida no card de Performance Agentes e usada para avaliar profundidade das interações.
     - **Supabase Realtime (Dashboard)**: Subscrição em tempo real nas tabelas `conversations`, `messages`, `consumption_metrics` e `evaluations` para atualização instantânea dos KPIs sem polling.
 
-### 21.2 Evolução e Dívidas Técnicas Atuais
+### 21.2 Fase 2: Governança, Orquestração V5 & Knowledge Base [EM ANDAMENTO]
 
-| Item | Prioridade | Descrição |
-| :--- | :--- | :--- |
-| Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. |
-| `_capabilities` pattern | Média | Flag de capabilidade em runtime. Substituir por schema detection na boot. |
-| Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` não persistem estágios no banco. |
-| Transferência de Conversa | Média | Precisa atualizar `assigned_operator_id` no banco ao transferir. |
-| Testes E2E Completos | Média | Falta automação UI (Playwright) em fluxos como Playground e Billing. |
-| Webhook Identity Gate (N8N) | Alta | UI pronta, falta N8N realizar `POST` para validar chave transacional. |
-| Clusterização N8N | Baixa | Com Redis implantado, prever multi-workers com Load Balancer. |
-| Mobile App | Baixa | React Native para operadores em campo. |
+- **Item 1: Orquestrador Transacional V5 & Gatekeeper V7 [EM ANDAMENTO]**: 
+    - Transição do fluxo linear no n8n para uma **RPC mestre** no Postgres que gerencia sessões de segurança, RAG e histórico em uma única transação atômica.
+    - Implementação do `dynamic_gatekeeper_v7`: Permite que o Gatekeeper valide intenções do usuário antes de liberar o acesso a ferramentas (tools) sensíveis.
+- **Item 2: Knowledge Base Engine & Fixes [CONCLUÍDO]**: 
+    - Correção crítica nas Edge Functions do Supabase que falhavam por falta de OpenAI API Key (401 Unauthorized). 
+    - Implementação de `Authorization: Bearer session.access_token` em todas as chamadas de processamento de documentos.
+- **Item 3: Persistência de Identidade & Sessões Globais [EM ANDAMENTO]**: 
+    - Migração da lógica de sessão de UUID de conversa para Identificador de Usuário (Omnichannel). 
+    - Permite que um usuário logado no Web Widget mantenha o estado de autenticação ao trocar de janela ou recarregar a página, persistindo chaves de segurança via `conversation_security_sessions`.
+- **Item 4: Sistema de Campanhas & Fluxos Conversacionais [CONCLUÍDO]**: 
+    - Estabilização da persistência de contatos e audiências para disparos em massa.
+    - Correção de RLS (Row Level Security) nas tabelas de campanhas para garantir isolamento multi-tenant.
+- **Item 5: Refinamento de UX & Performance [CONCLUÍDO]**: 
+    - Remoção de assets quebrados ou inexistentes (vídeos AI-Brain.mp4) que causavam 404 herdados de templates anteriores. 
+    - Otimização das rotas de Login e Esqueci Senha para carregamento < 500ms.
+
+### 21.3 Próximos Passos e Dívidas Técnicas
+
+| Item | Prioridade | Descrição | Status |
+| :--- | :--- | :--- | :--- |
+| Paginação de Conversas | Alta | A lista carrega todas as conversas. Necessário `cursor-based pagination`. | Pendente |
+| Billing de Tokens Reais | Alta | Migrar estimativas de custo para tokens reais retornados pela API da OpenAI. | Planejado |
+| Estágios de Fluxo (Insert) | Média | `createFlow` e `updateFlow` no `core.service.ts` não persistem estágios no banco (flow_stages). | Aberto |
+| Paralelismo no n8n | Média | Executar embeddings e governança em nós paralelos para reduzir latência de 1.4s para < 800ms. | Planejado |
+| Playwright Visual Core | Média | Criar screenshots "North Star" para evitar regressões visuais em dashboards. | Pendente |
+| Mobile App (Operador) | Baixa | Versão simplificada para gestão de incidentes em campo via React Native. | Roadmap |
 
 ---
 *Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
+
+---
+*Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
+---
+
+## 16. O Porteiro (API Gateway & Scheduler Layer)
+
+O **Porteiro** é um serviço desacoplado que substitui o polling lento do n8n por uma arquitetura reativa de alto desempenho para disparo de mensagens e governança de APIs.
+
+### 16.1 O Fluxo de Outbound V2 (Reativo)
+
+```mermaid
+sequenceDiagram
+    participant UI as Davos Nexus (Frontend)
+    participant DB as Supabase (PostgreSQL)
+    participant PT as Porteiro (Worker/Gateway)
+    participant EV as Evolution API / Meta API
+
+    Note over UI,DB: Agendamento de Campanha
+    UI->>DB: INSERT INTO outbound_queue (status='pending')
+    
+    loop Monitoramento Reativo (5s)
+        PT->>DB: SELECT pending FROM outbound_queue WHERE scheduled_at <= NOW()
+        activate PT
+        DB-->>PT: 1 Record (ec4aa0...)
+        PT->>EV: POST /message/sendText (n8n-alpargata)
+        EV-->>PT: 200 OK (Key: ...)
+        PT->>DB: UPDATE status='sent', sent_at=NOW()
+        deactive PT
+    end
+```
+
+### 16.2 Responsabilidades Críticas do Porteiro
+
+1.  **Segurança e Abstração**: O Frontend e o n8n não precisam mais conhecer as chaves de API da Evolution ou da Meta. O Porteiro as gerencia em seu próprio `.env` ou via `tenant_id` no banco.
+2.  **Agendamento de Alta Precisão**: Com um intervalo de 5 segundos, o Porteiro garante que mensagens de campanhas proativas sejam disparadas exatamente quando planejado (diferente do polling de 10 minutos do n8n).
+3.  **Híbrido Evolution + Meta**:
+    -   **Evolution (Unbranded)**: Ideal para campanhas de massa e flexibilidade técnica.
+    -   **Meta Official (Enterprise)**: Ideal para compliance estrito e marcas oficiais.
+    -   O Porteiro seleciona o driver baseado no `driver_type` (v3 planned) vinculado ao `agent_id`.
+4.  **Resiliência (Retries)**: Em caso de falha de SSL ou rede, o Porteiro marca como `failed` mas o logic de Retry automático (Planned V2.1) pode re-processar sem intervenção humana.
+
+### 16.3 Estratégia de Deploy (VPS)
+
+Para publicar o Porteiro na sua VPS:
+
+1.  **Clonagem/Transferência**: Copiar a pasta `porteiro/` para o diretório `/opt/davos-nexus/porteiro` na VPS.
+2.  **Dependências**: Rodar `npm install` no diretório.
+3.  **Configuração**: Criar o `.env` de produção com:
+    - `SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+    - `EVOLUTION_API_URL`
+    - `EVOLUTION_API_KEY`
+    - `NODE_TLS_REJECT_UNAUTHORIZED=0` (Obrigatório enquanto os certificados da Evolution não forem fixes na VPS).
+4.  **Gerenciamento de Processos**: Utilizar o **PM2**:
+    ```bash
+    pm2 start "npx tsx src/index.ts" --name "davos-porteiro"
+    pm2 save
+    ```
+5.  **Reverse Proxy**: Configurar o Nginx da VPS para apontar `api.davosconsulting.com.br` para o Porteiro (Porta 3001).

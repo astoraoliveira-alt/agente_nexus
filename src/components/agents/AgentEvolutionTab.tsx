@@ -9,6 +9,8 @@ import { Loader2, QrCode, Wifi, WifiOff, RefreshCw, LogOut, MessageSquare, Plus 
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
+import { porteiro } from '@/services/porteiro.service';
+
 interface AgentEvolutionTabProps {
     agentId: string;
     tenantSlug: string;
@@ -35,20 +37,11 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
 
     const callEvolutionManager = async (action: string, payload: any = {}) => {
         try {
-            // Option 2: Direct Client-Side Fetch (Bypasses Edge Function SSL limit)
-            // Use Vite proxy in development to bypass ERR_CERT_AUTHORITY_INVALID
-            const baseUrl = import.meta.env.DEV ? '/evolution-api' : import.meta.env.VITE_EVOLUTION_API_URL;
-            const apiKey = import.meta.env.VITE_EVOLUTION_API_KEY;
-
-            if (!import.meta.env.VITE_EVOLUTION_API_URL || !apiKey) {
-                throw new Error('Evolution API não configurada no .env.local (VITE_EVOLUTION_...)');
-            }
-
             let endpoint = '';
-            let method = 'GET';
+            let method: 'GET' | 'POST' | 'DELETE' = 'GET';
             let body: any = null;
 
-            // Map actions to endpoints (logic moved from Edge Function to Client)
+            // Map actions to endpoints (logic moved to Gateway proxy)
             switch (action) {
                 case 'create-instance':
                     endpoint = `/instance/create`;
@@ -64,9 +57,7 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
                             url: payload.webhookUrl,
                             by_events: false,
                             base64: true,
-                            events: [
-                                "MESSAGES_UPSERT"
-                            ]
+                            events: ["MESSAGES_UPSERT"]
                         }
                     };
                     break;
@@ -83,66 +74,29 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
                     method = 'DELETE';
                     break;
                 default:
-                    throw new Error(`Invalid action: ${action}`);
+                    throw new Error(`Ação inválida: ${action}`);
             }
 
-            console.log(`[Client] Fetching ${baseUrl}${endpoint} (${method})`);
+            console.log(`[Gateway Proxy] Requesting ${action} via Porteiro...`);
 
-            const response = await fetch(`${baseUrl}${endpoint}`, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': apiKey
-                },
-                body: body ? JSON.stringify(body) : null
-            });
+            const data = await porteiro.proxyEvolution(endpoint, method, body);
 
-            // Handle network errors or server errors
-            if (!response.ok) {
-                // If 404/400 (disconnected), treat as success with error payload
-                if ([400, 401, 404].includes(response.status)) {
-                    return {
-                        instance: { state: 'close', status: response.status },
-                        error: `Instance disconnected or not found (${response.status})`
-                    };
+            // Handle "soft" errors like instance not found
+            if (data?.error && !data?.instance) {
+                // Return a state that the UI can interpret as disconnected
+                if (action === 'status') {
+                    return { instance: { state: 'close' } };
                 }
-                const text = await response.text();
-                throw new Error(`API Error ${response.status}: ${text}`);
+                throw new Error(data.error);
             }
-
-            const data = await response.json();
-
-            // If it's a "soft" error like instance not found, we return data so UI can show disconnected state
-            if (data?.error && !data?.instance) throw new Error(data.error);
 
             return data;
 
         } catch (error: any) {
-            console.error(`Evolution Error (${action}):`, error);
+            console.error(`Porteiro Error (${action}):`, error);
 
-            // Check for potential SSL/CORS blockers
-            if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-                toast.error('Erro de Conexão (SSL/CORS)', {
-                    description: (
-                        <div className="flex flex-col gap-2">
-                            <span>O navegador bloqueou a conexão insegura.</span>
-                            <a
-                                href={`${import.meta.env.VITE_EVOLUTION_API_URL}/instance/fetchInstances`}
-                                target="_blank"
-                                className="underline font-bold text-blue-500"
-                                rel="noreferrer"
-                            >
-                                Clique aqui e aceite o certificado ("Ir para... inseguro")
-                            </a>
-                        </div>
-                    ),
-                    duration: 10000,
-                });
-                return null;
-            }
-
-            toast.error('Erro na Integração', {
-                description: error.message || 'Falha ao comunicar com Evolution API',
+            toast.error('Porteiro: Erro na Integração', {
+                description: error.message || 'Falha ao comunicar com o Gateway Seguro',
             });
             return null;
         }
@@ -183,17 +137,9 @@ export function AgentEvolutionTab({ agentId, tenantSlug, evolutionInstance, evol
     };
 
     const startPolling = () => {
-        // Start polling for status
-        const poll = setInterval(async () => {
-            const statusData = await checkStatus(instanceName, false);
-            if (statusData && (statusData.instance?.state === 'open' || statusData.instance?.status === 'open')) {
-                clearInterval(poll);
-                setQrCode(null);
-            }
-        }, 3000);
-
-        // Stop polling after 2 minutes
-        setTimeout(() => clearInterval(poll), 120000);
+        // Polling eliminated as per Phase 2 hygiene rules. 
+        // We now rely on 'checkStatus' manual refresh or a future Realtime integration if Evolution API supports it.
+        toast.info('Aguardando conexão...', { description: 'Escaneie o QR Code e clique em Verificar Status.', duration: 5000 });
     };
 
     const fetchQrCode = async () => {

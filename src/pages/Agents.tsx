@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info, X } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info, X, Cloud, Key, Smartphone } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -219,6 +219,7 @@ export default function Agents() {
         lifecycleStage: 'development',
         channels: ['text'],
         status: 'active',
+        whatsapp_provider: 'evolution',
         activeConversations: 0,
         totalConversations: 0,
         sessionTimeoutSeconds: 3600,
@@ -417,6 +418,21 @@ export default function Agents() {
                       agent.type === 'embedded' ? 'Embarcado' :
                         'Conversacional'}
                   </Badge>
+
+                  {/* WhatsApp Provider Specialty Badge */}
+                  {agent.type === 'whatsapp' && (
+                    <Badge variant="outline" className="text-[9px] h-5 gap-1 border-border/50 bg-background/50 text-muted-foreground uppercase font-mono px-1.5 translate-y-[0.5px]">
+                      {agent.whatsapp_provider === 'meta' ? (
+                        <>
+                          <Cloud className="h-2.5 w-2.5 text-blue-500" /> Meta
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone className="h-2.5 w-2.5 text-[#25D366]" /> Evolution
+                        </>
+                      )}
+                    </Badge>
+                  )}
 
                   {/* Channels (Texto/Voz) - Moved here to be next to Type */}
                   {agent.channels.includes('text') && (
@@ -678,7 +694,7 @@ export default function Agents() {
                     </span>
                   </div>
                 )}
-                <TabsList className="flex w-full justify-start gap-4 px-6 border-b rounded-none h-auto min-h-12 flex-wrap sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-hidden bg-muted/20 sticky top-0 z-10 scrollbar-hide py-2">
+                <TabsList className="flex w-full justify-start gap-4 px-6 border-b rounded-none h-auto min-h-12 flex-wrap sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-hidden bg-background/95 backdrop-blur-md sticky top-0 z-40 scrollbar-hide py-2 shadow-sm">
                   <TabsTrigger value="brain" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
                     <Sparkles className="h-4 w-4 shrink-0" />
                     {editingAgent?.parent_agent_id ? 'Identidade & Prompt' : 'Cérebro & Identidade'}
@@ -720,7 +736,7 @@ export default function Agents() {
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Nome da Inteligência</Label>
                       <Input
                         className="text-lg font-semibold h-12 bg-muted/30 border-accent/20 focus:border-accent"
-                        value={formData.name}
+                        value={formData.name || ''}
                         onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                         placeholder="Ex: Consultor Estratégico de Vendas"
                       />
@@ -729,7 +745,7 @@ export default function Agents() {
                       <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Função / Cargo</Label>
                       <Input
                         className="text-lg font-semibold h-12 bg-muted/30 border-accent/20 focus:border-accent"
-                        value={formData.role}
+                        value={formData.role || ''}
                         onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                         placeholder="Ex: Consultor de Vendas"
                       />
@@ -1026,18 +1042,101 @@ export default function Agents() {
                         </div>
 
                         {formData.type === 'whatsapp' && (
-                          <div className="space-y-2 animate-in slide-in-from-top-1">
-                            <Label className="text-xs font-bold text-accent">Nome da Instância Evolution</Label>
-                            <Input
-                              className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
-                              value={formData.evolution_instance || ''}
-                              onChange={(e) => setFormData({ ...formData, evolution_instance: e.target.value })}
-                              placeholder="Ex: d Davos-Nexus-Zap"
-                            />
-                            <p className="text-[9px] text-muted-foreground italic leading-tight">
+                          <>
+                            <div className="space-y-2 animate-in slide-in-from-top-1">
+                              <Label className="text-xs font-bold text-accent">Provedor WhatsApp</Label>
+                              <Select
+                                value={formData.whatsapp_provider || 'evolution'}
+                                onValueChange={(v: any) => setFormData({ ...formData, whatsapp_provider: v })}
+                              >
+                                <SelectTrigger className="h-9 text-xs bg-muted/30 border-accent/20">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="meta">
+                                    <div className="flex items-center gap-2">
+                                      <Cloud className="h-3 w-3" /> Meta Cloud API (Oficial)
+                                    </div>
+                                  </SelectItem>
+                                  <SelectItem value="evolution">
+                                    <div className="flex items-center gap-2">
+                                      <Smartphone className="h-3 w-3" /> Evolution API
+                                    </div>
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            {formData.whatsapp_provider === 'meta' ? (
+                              <div className="grid grid-cols-1 gap-4 pt-2 border-t border-border/30 mt-2 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Phone Number ID</Label>
+                                  <Input 
+                                    className="h-9 font-mono text-xs bg-muted/30" 
+                                    placeholder="Ex: 1056723490123"
+                                    value={formData.meta_phone_id || ''}
+                                    onChange={(e) => setFormData({ ...formData, meta_phone_id: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">WABA ID (WhatsApp Business Account)</Label>
+                                  <Input 
+                                    className="h-9 font-mono text-xs bg-muted/30" 
+                                    placeholder="Ex: 209876543210"
+                                    value={formData.meta_waba_id || ''}
+                                    onChange={(e) => setFormData({ ...formData, meta_waba_id: e.target.value })}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">API Access Token (Permanente)</Label>
+                                  <div className="relative">
+                                    <Input 
+                                      type="password"
+                                      className="h-9 font-mono text-xs bg-muted/30 pr-10" 
+                                      placeholder="EAABw..."
+                                      value={formData.meta_api_token || ''}
+                                      onChange={(e) => setFormData({ ...formData, meta_api_token: e.target.value })}
+                                    />
+                                    <Key className="h-3.5 w-3.5 absolute right-3 top-2.5 text-muted-foreground opacity-50" />
+                                  </div>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Verify Token (Webhook)</Label>
+                                  <Input 
+                                    className="h-9 font-mono text-xs bg-muted/30" 
+                                    placeholder="Ex: davos_nexus_secret"
+                                    value={formData.meta_verify_token || ''}
+                                    onChange={(e) => setFormData({ ...formData, meta_verify_token: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-4 pt-2 border-t border-border/30 mt-2 animate-in slide-in-from-top-2">
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Nome da Instância Evolution</Label>
+                                  <Input
+                                    className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
+                                    value={formData.evolution_instance || ''}
+                                    onChange={(e) => setFormData({ ...formData, evolution_instance: e.target.value })}
+                                    placeholder="Ex: d Davos-Nexus-Zap"
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">API Token (Opcional)</Label>
+                                  <Input
+                                    type="password"
+                                    className="h-9 font-mono text-xs bg-muted/30"
+                                    value={formData.evolution_token || ''}
+                                    onChange={(e) => setFormData({ ...formData, evolution_token: e.target.value })}
+                                    placeholder="Token da instância"
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            <p className="text-[9px] text-muted-foreground italic leading-tight mt-2">
                               Necessário para que o sistema identifique este agente automaticamente no fluxo de WhatsApp.
                             </p>
-                          </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1123,7 +1222,7 @@ export default function Agents() {
                               </TooltipProvider>
                             </div>
                             <Select
-                              value={formData.lifecycleStage}
+                              value={formData.lifecycleStage || 'development'}
                               onValueChange={(v: AILifecycleStage) => setFormData({ ...formData, lifecycleStage: v })}
                             >
                               <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
@@ -1150,7 +1249,7 @@ export default function Agents() {
                               </TooltipProvider>
                             </div>
                             <Select
-                              value={formData.status}
+                              value={formData.status || 'inactive'}
                               onValueChange={(v: any) => setFormData({ ...formData, status: v })}
                             >
                               <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
@@ -1301,7 +1400,7 @@ export default function Agents() {
                               </TooltipProvider>
                             </div>
                             <Select
-                              value={formData.riskLevel}
+                              value={formData.riskLevel || 'low'}
                               onValueChange={(v: any) => {
                                 const newFormData = { ...formData, riskLevel: v } as any;
                                 if (v === 'high' && newFormData.capabilities?.identity_gate) {

@@ -11,7 +11,8 @@ import {
     Download,
     Building2,
     ChevronRight,
-    AlertCircle
+    AlertCircle,
+    RefreshCw
 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
@@ -123,6 +124,23 @@ export default function FinancialSummary() {
                                     ))}
                                 </SelectContent>
                             </Select>
+
+                            <Button 
+                                variant="outline" 
+                                className="gap-2 border-accent/20 hover:border-accent hover:bg-accent/5"
+                                onClick={async () => {
+                                    const loadingToast = toast.loading('Processando faturamento do mês...');
+                                    try {
+                                        await api.processBilling(month, year);
+                                        toast.success('Métricas processadas!', { id: loadingToast, description: 'As DREs foram atualizadas com base no consumo LLM/Voz.' });
+                                    } catch (err) {
+                                        toast.error('Erro ao processar', { id: loadingToast });
+                                    }
+                                }}
+                            >
+                                <RefreshCw className="h-4 w-4" />
+                                <span className="hidden md:inline">Processar Mês</span>
+                            </Button>
 
                             <Button variant="outline" size="icon">
                                 <Download className="h-4 w-4" />

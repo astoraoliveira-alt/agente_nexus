@@ -1,0 +1,24 @@
+import { createClient } from '@supabase/supabase-js';
+import fs from 'fs';
+
+const envFile = fs.readFileSync('.env.local', 'utf8');
+const viteUrlMatch = envFile.match(/VITE_SUPABASE_URL=(.*)/);
+const serviceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU';
+const supabase = createClient(viteUrlMatch[1].trim(), serviceKey);
+
+async function run() {
+  const { data, error } = await supabase.from('consumption_metrics').select('metric_type, value').eq('agent_id', 'a7d22ac4-2e56-4287-ab19-5b41390ee3f4');
+
+  if (error) {
+    console.error("Error:", error);
+    return;
+  }
+
+  const agg = data.reduce((acc, curr) => {
+    acc[curr.metric_type] = (acc[curr.metric_type] || 0) + curr.value;
+    return acc;
+  }, {});
+
+  console.log("Acolhimento Metrics Agg:", agg);
+}
+run();

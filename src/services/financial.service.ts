@@ -25,5 +25,20 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
             costVariableOther: Number(r.cost_variable_other || 0),
             netMargin: Number(r.net_margin || 0)
         }));
+    },
+    async processBilling(month: number, year: number): Promise<void> {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error('Não autenticado');
+
+        const { error } = await supabase.functions.invoke('process-billing', {
+            body: { month, year },
+            headers: { Authorization: `Bearer ${session.access_token}` }
+        });
+
+        if (error) {
+            console.error('Error triggering billing:', error);
+            throw error;
+        }
     }
 };
+
