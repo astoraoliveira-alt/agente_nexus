@@ -403,11 +403,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                             });
 
                             if (n8nRes.ok) {
-                                // 1. Marcamos como processado (Item 1.1 Elite Resilience)
-                                await supabaseAdmin.from('inbound_queue')
-                                    .update({ status: 'done' })
-                                    .eq('trace_id', traceId);
-                                console.log(`[PORTEIRO] ✅ [Trace: ${traceId}] Successfully received by n8n.`);
+                                console.log(`[PORTEIRO] ✅ [Trace: ${traceId}] Successfully received by n8n. Processing queue...`);
                             } else {
                                 throw new Error(`n8n returned status ${n8nRes.status}`);
                             }
