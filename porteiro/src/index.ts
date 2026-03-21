@@ -192,20 +192,25 @@ app.post('/v1/evolution/webhook', async (c) => {
         
         let mediaUrl = '';
         let mimetype = '';
+        let detectedMessageType = 'conversation'; // Default
 
         if (rawMsg.message?.imageMessage) {
+            detectedMessageType = 'imageMessage';
             textContent = rawMsg.message.imageMessage.caption || '[Imagem]';
             mediaUrl = rawMsg.message.imageMessage.url;
             mimetype = rawMsg.message.imageMessage.mimetype;
         } else if (rawMsg.message?.audioMessage) {
+            detectedMessageType = 'audioMessage';
             textContent = '[Áudio]';
             mediaUrl = rawMsg.message.audioMessage.url;
             mimetype = rawMsg.message.audioMessage.mimetype;
         } else if (rawMsg.message?.videoMessage) {
+            detectedMessageType = 'videoMessage';
             textContent = rawMsg.message.videoMessage.caption || '[Vídeo]';
             mediaUrl = rawMsg.message.videoMessage.url;
             mimetype = rawMsg.message.videoMessage.mimetype;
         } else if (rawMsg.message?.documentMessage) {
+            detectedMessageType = 'documentMessage';
             textContent = rawMsg.message.documentMessage.title || '[Documento]';
             mediaUrl = rawMsg.message.documentMessage.url;
             mimetype = rawMsg.message.documentMessage.mimetype;
@@ -329,7 +334,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 phone: phone,
                 pushName: pushName,
                 externalId: externalId,
-                messageType,
+                messageType: detectedMessageType,
                 remoteID,
                 platform,
                 instanceId,
