@@ -348,7 +348,9 @@ app.post('/v1/evolution/webhook', async (c) => {
             pendingMessages.delete(conversationId);
 
             const finalContent = dataToProcess.contents.join('\n');
-            console.log(`[PORTEIRO] 📦 Enfileirando ${dataToProcess.contents.length} mensagens para a conversa ${conversationId}`);
+            const traceId = `TRC-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+            
+            console.log(`[PORTEIRO] 📦 Enfileirando ${dataToProcess.contents.length} mensagens para a conversa ${conversationId} [Trace: ${traceId}]`);
 
             try {
                 // Insere na Inbound Queue calculando o sequence_number (Item 2.1 Elite)
@@ -370,7 +372,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                         serverURL: dataToProcess.serverURL,
                         mediaUrl: dataToProcess.mediaUrl,
                         mimetype: dataToProcess.mimetype
-                    }
+                    },
+                    p_trace_id: traceId
                 });
 
                 if (queueError) {
@@ -379,24 +382,48 @@ app.post('/v1/evolution/webhook', async (c) => {
                     // --- 5. CALL n8n WEBHOOK (REALTIME TRIGGER) ---
                     const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
                     if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
-                        console.log(`[PORTEIRO] 🚀 Triggering n8n Webhook for conversation: ${conversationId}`);
+                        console.log(`[PORTEIRO] 🚀 Triggering n8n Webhook for [Trace: ${traceId}]`);
                         
-                        // Fire and forget n8n call with the final content
-                        fetch(n8nWebhookUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                conversation_id: conversationId,
-                                tenant_id: dataToProcess.tenantId,
-                                agent_id: dataToProcess.agentId,
-                                payload: {
-                                    content: finalContent,
-                                    phone: dataToProcess.phone,
-                                    name: dataToProcess.pushName,
-                                    instance: dataToProcess.instanceName
-                                }
-                            })
-                        }).catch(err => console.error(`[PORTEIRO] ❌ Failed to reach n8n Webhook:`, err.message));
+                        try {
+                            const n8nRes = await fetch(n8nWebhookUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    trace_id: traceId,
+                                    conversation_id: conversationId,
+                                    tenant_id: dataToProcess.tenantId,
+                                    agent_id: dataToProcess.agentId,
+                                    payload: {
+                                        content: finalContent,
+                                        phone: dataToProcess.phone,
+                                        name: dataToProcess.pushName,
+                                        instance: dataToProcess.instanceName
+                                    }
+                                })
+                            });
+
+                            if (n8nRes.ok) {
+                                // 1. Marcamos como processado (Item 1.1 Elite Resilience)
+                                await supabaseAdmin.from('inbound_queue')
+                                    .update({ status: 'done' })
+                                    .eq('trace_id', traceId);
+                                console.log(`[PORTEIRO] ✅ [Trace: ${traceId}] Successfully received by n8n.`);
+                            } else {
+                                throw new Error(`n8n returned status ${n8nRes.status}`);
+                            }
+                        } catch (err: any) {
+                            console.error(`[PORTEIRO] ❌ [Trace: ${traceId}] Failed to reach n8n Webhook:`, err.message);
+                            
+                            // 2. LOG INCIDENT TO CENTRAL SYSTEM_LOGS
+                            await supabaseAdmin.rpc('fn_log_event', {
+                                p_tenant_id: dataToProcess.tenantId,
+                                p_trace_id: traceId,
+                                p_component: 'PORTEIRO_INBOUND',
+                                p_severity: 'WARNING', // Warning because we have a recovery worker
+                                p_message: `n8n Webhook failure: ${err.message}`,
+                                p_metadata: { conversation_id: conversationId, status: 'pending' }
+                            });
+                        }
                     }
                 }
             } catch (err) {
@@ -417,6 +444,95 @@ app.post('/v1/evolution/webhook', async (c) => {
     }
 });
 
+async function startHeartbeatWorker() {
+    console.log('💓 [HEALTH] Starting System Heartbeat Pulse...');
+    
+    const pulse = async () => {
+        try {
+            const uptime = process.uptime();
+            const memoryUsage = process.memoryUsage();
+            
+            // Upsert heartbeat ( Item 2.2 Elite Observability )
+            const { error } = await supabaseAdmin.from('system_heartbeats').upsert({
+                component: 'PORTEIRO_DAVOS_ELITE',
+                status: 'online',
+                last_pulse_at: new Date().toISOString(),
+                metadata: {
+                    uptime: Math.round(uptime) + 's',
+                    memory: {
+                        rss: Math.round(memoryUsage.rss / 1024 / 1024) + 'MB',
+                        heap_total: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB'
+                    },
+                    node_version: process.version,
+                    environment: process.env.NODE_ENV || 'production'
+                }
+            }, { onConflict: 'component' });
+
+            if (error) throw error;
+            console.log('💓 [HEALTH] Heartbeat sent successfully.');
+        } catch (err: any) {
+            console.error('💔 [HEALTH] Heartbeat Failure:', err.message);
+        }
+    };
+
+    // Pulso a cada 60 segundos
+    setInterval(pulse, 60000);
+    pulse(); // Primeiro pulso imediato
+}
+
+async function startInboundRecoveryWorker() {
+    console.log('⏳ [RECOVERY] Starting Inbound Recovery Worker (Auto-Retry Protocol)...');
+    
+    const recover = async () => {
+        try {
+            // Buscamos itens pendentes há mais de 2 minutos (que por algum motivo não deram OK no n8n)
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60000).toISOString();
+            
+            const { data: stuckItems, error } = await supabaseAdmin
+                .from('inbound_queue')
+                .select('*')
+                .eq('status', 'pending')
+                .lt('created_at', twoMinutesAgo)
+                .limit(10);
+
+            if (error || !stuckItems || stuckItems.length === 0) return;
+
+            console.log(`[RECOVERY] 🔄 Attempting to recover ${stuckItems.length} stuck messages...`);
+
+            for (const item of stuckItems) {
+                const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
+                if (!n8nWebhookUrl) continue;
+
+                try {
+                    const res = await fetch(n8nWebhookUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            trace_id: item.trace_id,
+                            conversation_id: item.conversation_id,
+                            tenant_id: item.tenant_id,
+                            agent_id: item.agent_id,
+                            payload: item.payload
+                        })
+                    });
+
+                    if (res.ok) {
+                        await supabaseAdmin.from('inbound_queue').update({ status: 'done' }).eq('id', item.id);
+                        console.log(`[RECOVERY] ✅ Recovered stuck message [Trace: ${item.trace_id}]`);
+                    }
+                } catch (e: any) {
+                    console.error(`[RECOVERY] ❌ Failed recovery attempt for [Trace: ${item.trace_id}]:`, e.message);
+                }
+            }
+        } catch (globalError: any) {
+            console.error('[RECOVERY] Global Error:', globalError.message);
+        }
+    };
+
+    // Roda a cada 2 minutos
+    setInterval(recover, 120000);
+}
+
 async function startQueueWorker() {
     console.log('⏳ [WORKER] Starting Outbound Queue Processor (V2.1 - Realtime Optimized)...');
     
@@ -433,6 +549,7 @@ async function startQueueWorker() {
                     conversation_id,
                     contact_phone, 
                     metadata,
+                    trace_id,
                     agents (
                         name,
                         evolution_instance,
@@ -525,12 +642,32 @@ async function startQueueWorker() {
                             }).eq('id', item.conversation_id);
                         }
 
-                        console.log(`[WORKER] ✅ Successfully processed ${item.id}`);
+                        console.log(`[WORKER] ✅ Successfully processed ${item.id} [Trace: ${item.trace_id}]`);
                     } else {
-                        throw new Error(result?.error?.message || result?.message || 'API Error');
+                        throw new Error(result?.error?.message || result?.message || 'Evolution API Error');
                     }
                 } catch (err: any) {
-                    await supabaseAdmin.from('outbound_queue').update({ status: 'failed', error_message: err.message }).eq('id', item.id);
+                    console.error(`[WORKER] ❌ Error processing ${item.id} [Trace: ${item.trace_id}]:`, err.message);
+                    
+                    // 1. Mark as failed in queue
+                    await supabaseAdmin.from('outbound_queue').update({ 
+                        status: 'failed', 
+                        error_message: err.message 
+                    }).eq('id', item.id);
+
+                    // 2. LOG ERROR TO CENTRAL SYSTEM_LOGS
+                    await supabaseAdmin.rpc('fn_log_event', {
+                        p_tenant_id: item.tenant_id,
+                        p_trace_id: item.trace_id,
+                        p_component: 'PORTEIRO_WORKER',
+                        p_severity: 'ERROR',
+                        p_message: `Outbound delivery failed: ${err.message}`,
+                        p_metadata: { 
+                            queue_id: item.id,
+                            agent_id: item.agent_id,
+                            conversation_id: item.conversation_id
+                        }
+                    });
                 }
             }
         } catch (globalError: any) {
@@ -579,6 +716,8 @@ const port = Number(process.env.PORT) || 3001;
 setTimeout(() => {
     console.log(`[SYS] ⏳ Starting Backend Services...`);
     startQueueWorker(); // Captura mensagens que vêm do Supabase (Outbound)
+    startInboundRecoveryWorker(); // Recupera mensagens presas (Inbound)
+    startHeartbeatWorker(); // Inicia pulso de saúde (Observabilidade)
 }, 2000);
 
 console.log(`[SYS] 📡 Attempting to start HTTP Server on port ${port}...`);

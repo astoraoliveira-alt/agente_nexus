@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 20/Mar/2026
-> **Versão:** 20.0 (The CI/CD, Docker & Chat Sync Era)
+> **Última Atualização:** 21/Mar/2026
+> **Versão:** 25.0 (The Realtime & Resilience Era)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -28,7 +28,15 @@ O sistema opera sob isolamento estrito de dados. **Todos** os queries SQL filtra
 
 ## 2. Stack Tecnológico & Arquitetura de Camadas (V2.0 — Porteiro Era)
 
-A arquitetura do Nexus Hub evoluiu para um modelo de **Gateway-Integrated Micro-Services**, onde o tráfego de saída e automação crítica é mediado por um serviço dedicado (Porteiro).
+A arquitetura do Nexus Hub evoluiu para um modelo de **Realtime Event-Driven Orchestration**, onde o Porteiro atua como o sistema nervoso central, reagindo a eventos da Evolution API e do banco de dados em milissegundos, eliminando latências de polling (agendamentos).
+
+### 2.2 Camada de Orquestração Realtime (Porteiro v2.5)
+
+| Fluxo | Caminho Crítico | Mecanismo de Realtime | Latência Alvo |
+| :--- | :--- | :--- | :--- |
+| **Inbound** | Evolution → Porteiro → n8n | **Push Webhook Direct Trigger** | < 200ms |
+| **Outbound** | AI/n8n → Supabase → Porteiro | **Postgres Realtime (LISTEN/NOTIFY)** | < 150ms |
+| **Resiliência** | Supabase → Inbound Queue | **Recovery Worker (Fallback)** | 1 min (Retry) |
 
 ### 2.1 Stack Completa
 
@@ -1219,4 +1227,31 @@ services:
 ```
 
 ---
-*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus.*
+
+## 17. Resiliência & Observabilidade (Failure Modes)
+
+O sistema Nexus Hub é projetado seguindo o princípio da **Eventual Consistency** (Consistência Eventual). Se uma peça cai, o banco de dados atua como a "âncora" de segurança para que nenhuma mensagem seja perdida.
+
+### 17.1 Modos de Falha e Recuperação
+
+| Cenário | Sintoma | Estratégia de Mitigação | Resolução Automática |
+| :--- | :--- | :--- | :--- |
+| **n8n Down (5 min)** | Porteiro loga "Failed to reach n8n". `inbound_queue` com status `pending`. | **Inbound Safety Net:** O Porteiro salva a mensagem no banco *antes* de tentar chamar o n8n. Se o n8n falhar, a linha na tabela `inbound_queue` permanece como prova. | **Recovery Worker:** Um script cron de 1 min verifica linhas `pending` com mais de 2 minutos e tenta re-enviar. |
+| **Banco de Dados Down** | Porteiro loga Erro Crítico. Mensagem não entra na fila. | **Local Log (VPS):** O Porteiro escreve no `/var/log/porteiro.error` (fora do banco). | **Manual:** Intervenção via log local para re-processar mensagens perdidas na janela de queda. |
+| **Evolution/Meta API Down** | `outbound_queue` com status `failed`. Coluna `error_message` populada. | **Retry Strategy:** O Porteiro tenta enviar 3 vezes com backoff exponencial antes de desistir. | **Outbound Guard:** Alerta imediato no canal do Super Admin via `@alerts`. |
+
+### 17.2 Estratégia de Observabilidade (O "Painel de Controle")
+
+Diferente de um fluxo linear, o modelo event-driven exige um **Healthcheck Global**:
+
+1.  **Monitoramento de Fila (Inbound/Outbound):**
+    - `SELECT count(*) FROM inbound_queue WHERE status = 'pending'`
+    - Mais de 50 mensagens presas por > 5 min disparam um **"Incidente Crítico"** via Webhook de Emergência.
+2.  **Health Dashboard no Frontend:**
+    - Uma aba na `/governance` que mostra o pulso dos Workers: `Supabase (OK)`, `n8n (OK)`, `Evolution (OK)`.
+3.  **Porteiro Observador:**
+    - O Porteiro possui um endpoint `/health/external` que tenta fazer um `ping` de 100ms no n8n e no banco a cada 30 segundos, registrando o estado de saúde (Pulse) em uma tabela `system_health_logs`.
+
+---
+
+*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V25.0 — Realtime Era).*

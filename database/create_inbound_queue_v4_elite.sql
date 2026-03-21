@@ -51,7 +51,8 @@ CREATE OR REPLACE FUNCTION public.fn_enqueue_inbound_message(
     p_agent_id uuid,
     p_conversation_id uuid,
     p_external_id varchar,
-    p_payload jsonb
+    p_payload jsonb,
+    p_trace_id varchar DEFAULT NULL
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -74,7 +75,8 @@ BEGIN
         external_id, 
         sequence_number, 
         payload, 
-        status
+        status,
+        trace_id
     )
     VALUES (
         p_tenant_id, 
@@ -83,7 +85,8 @@ BEGIN
         p_external_id, 
         v_next_seq, 
         p_payload, 
-        'pending'
+        'pending',
+        p_trace_id
     )
     ON CONFLICT (tenant_id, external_id) DO NOTHING;
 END;
