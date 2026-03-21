@@ -186,14 +186,16 @@ app.post('/v1/evolution/webhook', async (c) => {
         const instanceId = rawMsg.instanceId || instance; // No seu JSON: data.instanceId
         const serverURL = payload.server_url || ''; // No seu JSON: server_url
 
-        // Extract content and media info
+        // --- UNIVERSAL MESSAGE INSPECTOR (Evolution & Meta Ready) ---
         let textContent = rawMsg.message?.conversation || 
-                          rawMsg.message?.extendedTextMessage?.text || '';
+                          rawMsg.message?.extendedTextMessage?.text || 
+                          rawMsg.body || ''; // Fallback para Meta
         
         let mediaUrl = '';
         let mimetype = '';
-        let detectedMessageType = 'conversation'; // Default
+        let detectedMessageType = 'conversation'; // Default Davos Standard
 
+        // Prioridade 1: Evolution/Baileys (imageMessage, audioMessage...)
         if (rawMsg.message?.imageMessage) {
             detectedMessageType = 'imageMessage';
             textContent = rawMsg.message.imageMessage.caption || '[Imagem]';
@@ -214,6 +216,15 @@ app.post('/v1/evolution/webhook', async (c) => {
             textContent = rawMsg.message.documentMessage.title || '[Documento]';
             mediaUrl = rawMsg.message.documentMessage.url;
             mimetype = rawMsg.message.documentMessage.mimetype;
+        } 
+        // Prioridade 2: Meta Flow (type: "image", type: "audio"...)
+        else if (rawMsg.type) {
+            const metaType = rawMsg.type;
+            if (metaType === 'image') { detectedMessageType = 'imageMessage'; mediaUrl = rawMsg.image?.url; }
+            else if (metaType === 'audio') { detectedMessageType = 'audioMessage'; mediaUrl = rawMsg.audio?.url; }
+            else if (metaType === 'video') { detectedMessageType = 'videoMessage'; mediaUrl = rawMsg.video?.url; }
+            else if (metaType === 'document') { detectedMessageType = 'documentMessage'; mediaUrl = rawMsg.document?.url; }
+            else if (metaType === 'text') { detectedMessageType = 'conversation'; }
         }
 
         if (!phone || (!textContent && !mediaUrl)) {
