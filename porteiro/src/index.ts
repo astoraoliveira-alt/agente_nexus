@@ -373,7 +373,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                         mediaUrl: dataToProcess.mediaUrl,
                         mimetype: dataToProcess.mimetype
                     },
-                    p_trace_id: traceId
+                    p_trace_id: traceId,
+                    p_message_type: dataToProcess.messageType
                 });
 
                 if (queueError) {
