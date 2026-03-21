@@ -9,11 +9,15 @@ services:
       - ./porteiro/.env
     # No ports needed if it's just a queue consumer, 
     # but Hono server suggests it might have healthchecks.
-    ports:
-      - "3000:3001" 
     networks:
-      - nexus-network
+      - n8n-traefik_app_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nexus-porteiro.rule=Host(`api.davosconsulting.com.br`)"
+      - "traefik.http.routers.nexus-porteiro.entrypoints=websecure"
+      - "traefik.http.routers.nexus-porteiro.tls.certresolver=letsencrypt" # Comum em n8n-traefik setups
+      - "traefik.http.services.nexus-porteiro.loadbalancer.server.port=3001"
 
 networks:
-  nexus-network:
-    driver: bridge
+  n8n-traefik_app_network:
+    external: true
