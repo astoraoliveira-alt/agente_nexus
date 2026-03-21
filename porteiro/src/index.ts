@@ -375,6 +375,29 @@ app.post('/v1/evolution/webhook', async (c) => {
 
                 if (queueError) {
                     console.error(`[PORTEIRO] ❌ Erro ao enfileirar na Inbound Queue:`, queueError);
+                } else {
+                    // --- 5. CALL n8n WEBHOOK (REALTIME TRIGGER) ---
+                    const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
+                    if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
+                        console.log(`[PORTEIRO] 🚀 Triggering n8n Webhook for conversation: ${conversationId}`);
+                        
+                        // Fire and forget n8n call with the final content
+                        fetch(n8nWebhookUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                conversation_id: conversationId,
+                                tenant_id: dataToProcess.tenantId,
+                                agent_id: dataToProcess.agentId,
+                                payload: {
+                                    content: finalContent,
+                                    phone: dataToProcess.phone,
+                                    name: dataToProcess.pushName,
+                                    instance: dataToProcess.instanceName
+                                }
+                            })
+                        }).catch(err => console.error(`[PORTEIRO] ❌ Failed to reach n8n Webhook:`, err.message));
+                    }
                 }
             } catch (err) {
                 console.error(`[PORTEIRO] ❌ Falha crítica ao processar fila:`, err);
