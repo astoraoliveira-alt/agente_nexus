@@ -127,8 +127,11 @@ app.post('/v1/evolution/proxy', async (c) => {
  * Receives messages from Evolution and stores them in Supabase
  */
 app.post('/v1/evolution/webhook', async (c) => {
+    console.log(`[WEBHOOK] 🔔 Signal received from Evolution!`);
     // 📩 Webhook Processing
     try {
+        const payload = await c.req.json();
+        console.log(`[WEBHOOK] 📦 Payload Event: ${payload.event || 'Unknown'} for instance: ${payload.instance || 'Unknown'}`);
         // 1. Secret Verification (Optional security layer)
         const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
         if (webhookSecret) {
@@ -139,7 +142,6 @@ app.post('/v1/evolution/webhook', async (c) => {
             }
         }
 
-        const payload = await c.req.json();
         const { event, instance, data } = payload;
 
         // --- 1. CONNECTION STATUS CACHE (Item 5) ---
@@ -549,12 +551,25 @@ app.get('/health', (c) => {
 });
 
 const port = Number(process.env.PORT) || 3001;
-console.log(`🔒 Davos Nexus Porteiro active on http://localhost:${port}`);
 
 // Initial start delay to let Supabase settle
-setTimeout(() => startQueueWorker(), 2000);
+setTimeout(() => {
+    console.log(`[SYS] ⏳ Starting Backend Services...`);
+    startQueueWorker(); // Captura mensagens que vêm do Supabase (Outbound)
+}, 2000);
 
-serve({
-    fetch: app.fetch,
-    port,
-});
+console.log(`[SYS] 📡 Attempting to start HTTP Server on port ${port}...`);
+
+try {
+    serve({
+        fetch: app.fetch,
+        port,
+        hostname: '0.0.0.0', // CRÍTICO: Permite que o Docker receba as chamadas
+    }, (info) => {
+        console.log(`[SYS] ✅ Porteiro Davos ELITE Online!`);
+        console.log(`[SYS] 🔗 URL Interna: http://${info.address}:${info.port}`);
+        console.log(`[SYS] 🔍 Teste agora: https://api.davosconsulting.com.br/`);
+    });
+} catch (err) {
+    console.error(`[SYS] ❌ FAILED TO START HTTP SERVER:`, err);
+}
