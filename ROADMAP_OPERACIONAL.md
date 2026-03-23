@@ -51,10 +51,11 @@ Desmembrar a cadeia via nó **"Execute Workflow"**, dividindo explicitamente as 
 ## 🟡 FASE 4: Garantia Transacional & Saída Segura (Outbound/Idempotência)
 **Objetivo:** Extirpar o problema de disparos duplos, gargalos eternos de Evolution/Meta, e perda de mensagens da IA. Idempotência e DLQ em toda a jornada.
 
-### 🔄 Ticket 4.1: O `dispatch_id` Ouro (Fila Outbound)
-1. Antes de bater no disparador HTTP do WhatsApp, grave e verifique um `dispatch_id`.
-2. **Checagem de Idempotência:** `IF EXISTS (dispatch_id) => SKIP`. Um Timeout da Meta não causará mensagem duplicada.
-3. Garantir que as Respostas do BOT fiquem cravadas no status Final da Fila (Outbound).
+### ✅ Ticket 4.1: O `dispatch_id` Ouro (Fila Outbound)
+- **Status:** CONCLUÍDO.
+- Implementação da tabela `agent_responses_queue` com restrição de UNICIDADE no `trace_id`.
+- Isso garante que uma resposta de IA nunca seja processada duas vezes pelo N8N, prevenindo disparos duplos ao usuário final.
+- **Segurança**: RLS aplicado para isolamento de tenant e acesso global Super Admin Davos.
 
 ### ✅ Ticket 4.2: Motor de Resiliência Inbound (Fila Morta de Entrada)
 - **Status:** CONCLUÍDO.

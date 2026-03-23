@@ -640,6 +640,40 @@ ALTER TABLE messages ADD CONSTRAINT uq_messages_tenant_external_id UNIQUE (tenan
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 
+-- =============================================
+-- 8. AGENT RESPONSES QUEUE (Idempotency & Reliability)
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS public.agent_responses_queue (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  trace_id TEXT,
+  tenant_id uuid NOT NULL REFERENCES companies(id),
+  conversation_id uuid REFERENCES conversations(id),
+  phone TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT DEFAULT 'pending'::TEXT,
+  n8n_execution_id TEXT,
+  created_at timestamp with time zone DEFAULT now(),
+  sent_at timestamp with time zone,
+  CONSTRAINT agent_responses_queue_pkey PRIMARY KEY (id),
+  CONSTRAINT agent_responses_queue_trace_id_key UNIQUE (trace_id)
+);
+
+-- RLS for Responses Queue
+ALTER TABLE agent_responses_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Tenant Manage Responses" ON agent_responses_queue;
+CREATE POLICY "Tenant Manage Responses" ON agent_responses_queue 
+FOR ALL USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_resp_tenant ON agent_responses_queue(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_agent_resp_trace ON agent_responses_queue(trace_id);
+CREATE INDEX IF NOT EXISTS idx_agent_resp_status ON agent_responses_queue(status) WHERE status = 'pending';
+
+
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Messages" ON messages;
 CREATE POLICY "Tenant Access Messages" ON messages 
