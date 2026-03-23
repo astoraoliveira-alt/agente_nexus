@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION public.fn_ai_perf_economics(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_start      timestamptz := COALESCE(p_start_date, date_trunc('day', now()));
@@ -113,6 +114,7 @@ CREATE OR REPLACE FUNCTION public.fn_ai_perf_security(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_start       timestamptz := COALESCE(p_start_date, date_trunc('day', now()));
@@ -210,6 +212,7 @@ CREATE OR REPLACE FUNCTION public.fn_ai_perf_optimization(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_start       timestamptz := COALESCE(p_start_date, date_trunc('day', now()));
@@ -343,6 +346,7 @@ CREATE OR REPLACE FUNCTION public.fn_ai_perf_knowledge(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_start    timestamptz := COALESCE(p_start_date, date_trunc('day', now()));

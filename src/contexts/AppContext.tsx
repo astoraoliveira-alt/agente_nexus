@@ -329,13 +329,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const switchTenant = async (tenantId: string) => {
-    // In real app, we check if user has access to that tenant.
-    const targetTenant = await api.getTenant(tenantId);
-    if (!targetTenant) return;
+    try {
+      // In real app, we check if user has access to that tenant.
+      const targetTenant = await api.getTenant(tenantId);
+      if (!targetTenant) {
+        throw new Error('Tenant not found or access denied');
+      }
 
-    setCurrentTenant(targetTenant);
-    localStorage.setItem('davos_active_tenant_id', tenantId);
-    console.log(`Switched to tenant: ${targetTenant.name}`);
+      setCurrentTenant(targetTenant);
+      localStorage.setItem('davos_active_tenant_id', tenantId);
+      console.log(`Switched to tenant: ${targetTenant.name}`);
+    } catch (error) {
+      console.error('Failed to switch tenant:', error);
+      throw error; // Re-throw to be caught by the caller (e.g. SelectTenant)
+    }
   };
 
   const openSlideOver = (content: SlideOverContentType, data?: any) => {

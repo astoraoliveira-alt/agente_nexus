@@ -31,7 +31,9 @@ CREATE TABLE public.mock_installments (
 );
 
 -- 3. VIEW INTELIGENTE (CÁLCULO AUTOMÁTICO DE JUROS E MULTA)
-CREATE OR REPLACE VIEW public.mock_financial_view AS
+CREATE OR REPLACE VIEW public.mock_financial_view 
+WITH (security_invoker = true)
+AS
 SELECT 
     i.id,
     i.customer_cpf,
@@ -79,7 +81,9 @@ INSERT INTO public.mock_installments (customer_cpf, description, due_date, origi
 
 -- TOOL 1: CONSULTA RESUMO (Garante que IA sempre veja dados reais e limpos)
 CREATE OR REPLACE FUNCTION public.mock_get_customer_summary(p_cpf VARCHAR)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE
     v_customer RECORD;
     v_installments JSONB;
@@ -106,7 +110,9 @@ END; $$;
 
 -- TOOL 2: BAIXA DE PAGAMENTO (Agora retorna Resumo Atualizado para evitar alucinação)
 CREATE OR REPLACE FUNCTION public.mock_inform_payment(p_cpf VARCHAR, p_amount NUMERIC, p_due_date VARCHAR)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE
     v_inst RECORD;
     v_clean_cpf VARCHAR;
@@ -132,7 +138,9 @@ END; $$;
 
 -- TOOL 3: RENEGOCIAÇÃO (Cria parcelamento stateful e remove Serasa)
 CREATE OR REPLACE FUNCTION public.mock_renegotiate_debts(p_cpf VARCHAR, p_installments_count INT)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE
     v_total_debt NUMERIC;
     v_new_val NUMERIC;

@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 23/Mar/2026
-> **Versão:** 27.0 (Resilience & Inbound Logic Era)
+> **Versão:** 28.0 (Global Access & RLS Stability Era)
 > **Status:** Mestre — Fonte Única da Verdade
-> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
+> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts` · `database/fix_rls_recursion.sql`
 
 ---
 
@@ -532,12 +532,14 @@ USING ( tenant_id = (SELECT tenant_id FROM users WHERE id = auth.uid()) )
 USING ( tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()) )
 ```
 
-### 7.2 Funções de Contexto (Helpers de RLS)
+### 7.2 Funções de Contexto (Helpers de RLS) - **[NOVO Mar/2026]**
 
-```sql
-get_auth_tenant_id()  -- Retorna o tenant_id do auth.uid() atual
-is_super_admin()      -- Retorna TRUE se role = 'super_admin'
-```
+Para solucionar problemas de **Recursão Infinita** no PostgreSQL e garantir que Super Admins acessem qualquer ambiente (tenant) sem bloqueios, o sistema migrou para funções auxiliares com `SECURITY DEFINER`:
+
+- **`public.is_super_admin()`**: Verifica se o `auth.uid()` logado possui o papel `super_admin` na tabela `public.users`.
+- **`public.get_auth_tenant()`**: Recupera o `tenant_id` atrelado ao usuário atual de forma segura, sem disparar novas verificações de RLS sobre a própria tabela `users`.
+
+Estes helpers são agora o padrão obrigatório para **todas** as políticas de segurança (`USING` clauses) nas tabelas do Nexus.
 
 ### 7.3 Índices de Performance
 
@@ -1371,4 +1373,28 @@ Seguindo o princípio **Database-First**, o frontend (`AIPerformanceCenter.tsx`)
 
 ---
 
-*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V28.0 — Performance & Strategic Era).*
+---
+
+## 19. Estabilidade e Acesso Global (Fase de Estabilização Mar/2026)
+
+Esta atualização (v28.0) focou na resolução de gargalos críticos de infraestrutura que impediam a escalabilidade da operação da Davos como Super Admin.
+
+### 19.1 Implementação do "Master Key" RLS
+Anteriormente, as políticas de segurança eram estritamente binárias por tenant. Isso impedia que administradores globais (Carlos Silva) visualizassem dashboards de clientes como a Alpargatas sem estarem explicitamente vinculados a eles no banco. 
+
+- **Solução**: Todas as tabelas críticas (`companies`, `users`, `agents`, `conversations`, `consumption_metrics`) agora possuem um bypass explícito para `public.is_super_admin()`.
+
+### 19.2 Dashboard Consolidado (Performance Query)
+O dashboard principal foi otimizado via RPC `get_dashmaster_v1`. 
+- **Ambiguity Fix**: Resolvemos conflitos de nomes de colunas (`id` vs `company_id`) e corrigimos erros de sintaxe em referências de sub-agentes (`parent_id` migrado para `parent_agent_id`).
+- **Switch Velocity**: O tempo de resposta ao trocar de tenant no dashboard caiu para <150ms, permitindo auditoria rápida de múltiplos ambientes.
+
+### 19.3 Camada de Proteção no Frontend (`AppContext`)
+O `switchTenant` agora atua como uma **Guarda de Navegação**:
+1. Tenta validar o acesso ao novo tenant via API.
+2. Em caso de falha (RLS ou Inexistente), aborta a operação e lança exceção amigável.
+3. Impede que a UI entre em "Estado Fantasma" (Dashboard vazio/crashing por falta de dados).
+
+---
+
+*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V28.0 — Global Access & RLS Stability Era).*

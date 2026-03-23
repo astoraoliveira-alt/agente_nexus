@@ -15,6 +15,32 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "vector"; -- Required for embeddings
 
 -- =============================================
+-- RLS HELPERS (To avoid recursion)
+-- =============================================
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.users 
+    WHERE id = auth.uid() 
+    AND role = 'super_admin'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.get_auth_tenant()
+RETURNS UUID AS $$
+BEGIN
+  RETURN (
+    SELECT tenant_id FROM public.users 
+    WHERE id = auth.uid() 
+    LIMIT 1
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- =============================================
 -- ENUMS
 -- =============================================
 DO $$ BEGIN
@@ -73,10 +99,20 @@ DROP POLICY IF EXISTS "Super Admin Insert Companies" ON companies;
 CREATE POLICY "Super Admin Insert Companies" ON companies FOR INSERT WITH CHECK (auth.uid() IN (SELECT id FROM users WHERE role = 'super_admin'));
 
 DROP POLICY IF EXISTS "Tenant Read Own Company" ON companies;
-CREATE POLICY "Tenant Read Own Company" ON companies FOR SELECT USING (id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Read Own Company" ON companies 
+FOR SELECT USING (
+    id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
 DROP POLICY IF EXISTS "Tenant Update Own Company" ON companies;
-CREATE POLICY "Tenant Update Own Company" ON companies FOR UPDATE USING (id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Update Own Company" ON companies 
+FOR UPDATE USING (
+    id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
 -- PLANS TABLE (Added Module)
 CREATE TABLE IF NOT EXISTS plans (
@@ -164,7 +200,12 @@ CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
 
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Read Users" ON users;
-CREATE POLICY "Tenant Read Users" ON users FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Read Users" ON users 
+FOR SELECT USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
 DROP POLICY IF EXISTS "Users Register Self" ON users;
 CREATE POLICY "Users Register Self" ON users FOR INSERT WITH CHECK (auth.uid() = id);
@@ -225,7 +266,12 @@ CREATE INDEX IF NOT EXISTS idx_agents_tenant ON agents(tenant_id);
 
 ALTER TABLE agents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Manage Agents" ON agents;
-CREATE POLICY "Tenant Manage Agents" ON agents FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Manage Agents" ON agents 
+FOR ALL USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
 -- =============================================
 -- AGENT HIERARCHY LOGIC
@@ -300,7 +346,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_knowledge_agent ON agent_knowledge(agent_id
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_tenant ON agent_knowledge(tenant_id);
 
 DROP POLICY IF EXISTS "Tenant Manage Knowledge" ON agent_knowledge;
-CREATE POLICY "Tenant Manage Knowledge" ON agent_knowledge FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Manage Knowledge" ON agent_knowledge 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 -- AGENT SUCCESS MEMORY (Positive Reinforcement RAG)
 CREATE TABLE IF NOT EXISTS agent_success_memory (
@@ -365,7 +416,12 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 ALTER TABLE incidents ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Read Incidents" ON incidents;
-CREATE POLICY "Tenant Read Incidents" ON incidents FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Read Incidents" ON incidents 
+FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 -- =============================================
 -- 5. CONVERSATIONAL FLOWS
@@ -452,7 +508,12 @@ CREATE INDEX IF NOT EXISTS idx_contacts_identifier ON contacts(identifier);
 
 ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Manage Contacts" ON contacts;
-CREATE POLICY "Tenant Manage Contacts" ON contacts FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Manage Contacts" ON contacts 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 CREATE TABLE IF NOT EXISTS campaigns (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -545,7 +606,12 @@ CREATE INDEX IF NOT EXISTS idx_conversations_agent ON conversations(agent_id);
 
 ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Conversations" ON conversations;
-CREATE POLICY "Tenant Access Conversations" ON conversations FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Access Conversations" ON conversations 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 CREATE TABLE IF NOT EXISTS messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -576,7 +642,12 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id
 
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Messages" ON messages;
-CREATE POLICY "Tenant Access Messages" ON messages FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Access Messages" ON messages 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 CREATE TABLE IF NOT EXISTS conversation_artifacts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -625,11 +696,21 @@ CREATE INDEX IF NOT EXISTS idx_evaluations_score ON evaluations(score);
 
 ALTER TABLE evaluations ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Tenant Insert Evaluations" ON evaluations;
-CREATE POLICY "Tenant Insert Evaluations" ON evaluations FOR INSERT WITH CHECK (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
-
 DROP POLICY IF EXISTS "Tenant Read Evaluations" ON evaluations;
-CREATE POLICY "Tenant Read Evaluations" ON evaluations FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Read Evaluations" ON evaluations 
+FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
+
+DROP POLICY IF EXISTS "Tenant Insert Evaluations" ON evaluations;
+CREATE POLICY "Tenant Insert Evaluations" ON evaluations 
+FOR INSERT WITH CHECK (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 -- =============================================
 -- 8. CONSUMPTION & METRICS
@@ -659,7 +740,12 @@ CREATE INDEX IF NOT EXISTS idx_consumption_tenant_date ON consumption_metrics(te
 
 ALTER TABLE consumption_metrics ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Read Consumption" ON consumption_metrics;
-CREATE POLICY "Tenant Read Consumption" ON consumption_metrics FOR SELECT USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Read Consumption" ON consumption_metrics 
+FOR SELECT USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 -- =============================================
 -- 9. AUDIT & LOGS
@@ -687,7 +773,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id);
 
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Audit Logs" ON audit_logs;
-CREATE POLICY "Tenant Access Audit Logs" ON audit_logs FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Access Audit Logs" ON audit_logs 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 -- INTEGRATION LOGS
 CREATE TABLE IF NOT EXISTS integration_logs (
@@ -705,7 +796,12 @@ CREATE INDEX IF NOT EXISTS idx_integration_logs_provider_ext ON integration_logs
 
 ALTER TABLE integration_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Access Integration Logs" ON integration_logs;
-CREATE POLICY "Tenant Access Integration Logs" ON integration_logs FOR ALL USING (tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid()));
+CREATE POLICY "Tenant Access Integration Logs" ON integration_logs 
+FOR ALL USING (
+    tenant_id IN (SELECT tenant_id FROM users WHERE id = auth.uid())
+    OR
+    (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
+);
 
 ALTER TABLE integration_logs DROP CONSTRAINT IF EXISTS uq_integration_logs_provider_external_id;
 ALTER TABLE integration_logs ADD CONSTRAINT uq_integration_logs_provider_external_id UNIQUE (provider, external_id); -- For Upsert logic

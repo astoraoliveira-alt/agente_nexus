@@ -30,7 +30,9 @@ CREATE TABLE public.mock_installments (
 );
 
 -- 3. VIEW INTELIGENTE
-CREATE OR REPLACE VIEW public.mock_financial_view AS
+CREATE OR REPLACE VIEW public.mock_financial_view 
+WITH (security_invoker = true)
+AS
 SELECT 
     i.id, i.customer_cpf, i.description, i.due_date, i.original_value, i.status, i.paid_at, i.paid_amount, i.billet_url, i.barcode,
     CASE WHEN CURRENT_DATE > i.due_date AND i.status IN ('PENDING', 'OVERDUE') THEN (CURRENT_DATE - i.due_date) ELSE 0 END AS days_overdue,
@@ -70,7 +72,9 @@ INSERT INTO public.mock_installments (customer_cpf, description, due_date, origi
 
 -- 5. RPC TOOLS (Mantendo compatibilidade V5)
 CREATE OR REPLACE FUNCTION public.mock_get_customer_summary(p_cpf VARCHAR)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE
     v_customer RECORD; v_installments JSONB; v_clean_cpf VARCHAR;
 BEGIN
@@ -92,7 +96,9 @@ BEGIN
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.mock_inform_payment(p_cpf VARCHAR, p_amount NUMERIC, p_due_date VARCHAR)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE v_inst RECORD; v_clean_cpf VARCHAR; v_parsed_date DATE;
 BEGIN
     v_clean_cpf := regexp_replace(p_cpf, '\D', '', 'g');
@@ -106,7 +112,9 @@ BEGIN
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.mock_renegotiate_debts(p_cpf VARCHAR, p_installments_count INT)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public
+AS $$
 DECLARE v_total_debt NUMERIC; v_new_val NUMERIC; v_clean_cpf VARCHAR; v_real_cpf VARCHAR;
 BEGIN
     v_clean_cpf := regexp_replace(p_cpf, '\D', '', 'g');

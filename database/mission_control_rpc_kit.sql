@@ -13,6 +13,7 @@ CREATE OR REPLACE FUNCTION public.fn_get_queue_health_stats(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_success_today INT;
@@ -71,6 +72,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
@@ -134,6 +136,7 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
@@ -161,6 +164,7 @@ CREATE OR REPLACE FUNCTION public.fn_retry_failed_message(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
     UPDATE public.inbound_queue SET status = 'pending', retry_count = retry_count + 1, processed_at = NULL, error_message = NULL WHERE id = p_queue_id;

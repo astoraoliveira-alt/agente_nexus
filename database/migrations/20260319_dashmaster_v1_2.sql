@@ -186,7 +186,7 @@ BEGIN
                 SELECT jsonb_agg(ag) FROM (
                     WITH agent_stats AS (
                         SELECT 
-                            COALESCE(parent_id, id) as effective_agent_id,
+                            COALESCE(parent_agent_id, id) as effective_agent_id,
                             -- 30d Messages
                             SUM(CASE WHEN metric_type = 'messages' AND recorded_at >= v_30_days_ago THEN value ELSE 0 END) as msg_count
                         FROM consumption_metrics
@@ -195,7 +195,7 @@ BEGIN
                     ),
                     conv_stats AS (
                         SELECT 
-                            COALESCE(a.parent_id, c.agent_id) as effective_agent_id,
+                            COALESCE(a.parent_agent_id, c.agent_id) as effective_agent_id,
                             COUNT(*) as conv_count
                         FROM conversations c
                         LEFT JOIN agents a ON a.id = c.agent_id
@@ -216,7 +216,7 @@ BEGIN
                     LEFT JOIN agent_stats ast ON ast.effective_agent_id = a.id
                     LEFT JOIN conv_stats cs ON cs.effective_agent_id = a.id
                     WHERE a.tenant_id = p_tenant_id 
-                    AND a.parent_id IS NULL -- Only Top-Level Agents shown
+                    AND a.parent_agent_id IS NULL -- Only Top-Level Agents shown
                     ORDER BY COALESCE(ast.msg_count, 0) DESC, a.name ASC
                 ) ag
             )

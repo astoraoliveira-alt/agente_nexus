@@ -1,81 +1,104 @@
--- FIX RLS INFINITE RECURSION
--- Logic: The previous policy on 'users' table triggered a recursive lookup on itself.
--- Solution: Use a SECURITY DEFINER function to bypass RLS for the tenant lookup.
+-- =============================================
+-- RLS RECURSION FIXES & HELPERS
+-- =============================================
 
--- 1. Create Helper Function (Bypass RLS)
-CREATE OR REPLACE FUNCTION get_auth_tenant_id()
-RETURNS UUID
-LANGUAGE plpgsql
-SECURITY DEFINER -- Critical: Runs as owner, bypassing RLS
-SET search_path = public -- Security best practice
-AS $$
-DECLARE
-    v_tenant_id UUID;
-    v_email TEXT;
+-- Helper to check if current user is super admin without recursing
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS BOOLEAN AS $$
 BEGIN
-    -- Get email from JWT
-    v_email := auth.jwt() ->> 'email';
-
-    SELECT tenant_id INTO v_tenant_id
-    FROM public.users
-    WHERE 
-        id = auth.uid() -- Standard match
-        OR 
-        email = v_email -- Fallback for migrated users (Safe because email is verified by Auth)
-    LIMIT 1;
-    
-    RETURN v_tenant_id;
+  RETURN EXISTS (
+    SELECT 1 FROM public.users 
+    WHERE id = auth.uid() 
+    AND role = 'super_admin'
+  );
 END;
-$$;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-GRANT EXECUTE ON FUNCTION get_auth_tenant_id() TO authenticated, service_role;
+-- Helper to get current user's tenant without recursing
+CREATE OR REPLACE FUNCTION public.get_auth_tenant()
+RETURNS UUID AS $$
+BEGIN
+  RETURN (
+    SELECT tenant_id FROM public.users 
+    WHERE id = auth.uid() 
+    LIMIT 1
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- 2. Fix Users Policy to use the function
-DROP POLICY IF EXISTS "Tenant Read Users" ON users;
+-- =============================================
+-- APPLYING FIXES TO TABLES
+-- =============================================
 
-CREATE POLICY "Tenant Read Users" ON users
-FOR SELECT
-USING (
-    auth.uid() = id -- Allow reading own profile
+-- 1. COMPANIES
+DROP POLICY IF EXISTS "Tenant Read Own Company" ON companies;
+CREATE POLICY "Tenant Read Own Company" ON companies 
+FOR SELECT USING (
+    id = public.get_auth_tenant()
     OR
-    tenant_id = get_auth_tenant_id() -- Allow reading peers in same tenant
+    public.is_super_admin()
 );
 
--- 3. Fix Other Policies (Optimization - Optional but recommended for stability)
--- We replace the subquery (SELECT tenant_id FROM users...) with the function call
-
--- Companies
-DROP POLICY IF EXISTS "Tenant Read Own Company" ON companies;
-CREATE POLICY "Tenant Read Own Company" ON companies FOR SELECT USING (id = get_auth_tenant_id());
-
 DROP POLICY IF EXISTS "Tenant Update Own Company" ON companies;
-CREATE POLICY "Tenant Update Own Company" ON companies FOR UPDATE USING (id = get_auth_tenant_id());
+CREATE POLICY "Tenant Update Own Company" ON companies 
+FOR UPDATE USING (
+    id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
--- Agents
+-- 2. USERS (The one that was recursing)
+DROP POLICY IF EXISTS "Tenant Read Users" ON users;
+CREATE POLICY "Tenant Read Users" ON users 
+FOR SELECT USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+    OR
+    id = auth.uid() -- Always can see self
+);
+
+-- 3. AGENTS
 DROP POLICY IF EXISTS "Tenant Manage Agents" ON agents;
-CREATE POLICY "Tenant Manage Agents" ON agents FOR ALL USING (tenant_id = get_auth_tenant_id());
+CREATE POLICY "Tenant Manage Agents" ON agents 
+FOR ALL USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
--- Contacts
-DROP POLICY IF EXISTS "Tenant Manage Contacts" ON contacts;
-CREATE POLICY "Tenant Manage Contacts" ON contacts FOR ALL USING (tenant_id = get_auth_tenant_id());
-
--- Conversations
+-- 4. CONVERSATIONS
 DROP POLICY IF EXISTS "Tenant Access Conversations" ON conversations;
-CREATE POLICY "Tenant Access Conversations" ON conversations FOR ALL USING (tenant_id = get_auth_tenant_id());
+CREATE POLICY "Tenant Access Conversations" ON conversations 
+FOR ALL USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
--- Messages
+-- 5. MESSAGES
 DROP POLICY IF EXISTS "Tenant Access Messages" ON messages;
-CREATE POLICY "Tenant Access Messages" ON messages FOR ALL USING (tenant_id = get_auth_tenant_id());
+CREATE POLICY "Tenant Access Messages" ON messages 
+FOR ALL USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
--- Incidents
-DROP POLICY IF EXISTS "Tenant Read Incidents" ON incidents;
-CREATE POLICY "Tenant Read Incidents" ON incidents FOR SELECT USING (tenant_id = get_auth_tenant_id());
+-- 6. EVALUATIONS
+DROP POLICY IF EXISTS "Tenant Read Evaluations" ON evaluations;
+CREATE POLICY "Tenant Read Evaluations" ON evaluations 
+FOR SELECT USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
 
--- Integration Logs
-DROP POLICY IF EXISTS "Tenant Access Integration Logs" ON integration_logs;
-CREATE POLICY "Tenant Access Integration Logs" ON integration_logs FOR ALL USING (tenant_id = get_auth_tenant_id());
-
--- Audit Logs
-DROP POLICY IF EXISTS "Tenant Access Audit Logs" ON audit_logs;
-CREATE POLICY "Tenant Access Audit Logs" ON audit_logs FOR ALL USING (tenant_id = get_auth_tenant_id());
-
+-- 7. CONSUMPTION
+DROP POLICY IF EXISTS "Tenant Read Consumption" ON consumption_metrics;
+CREATE POLICY "Tenant Read Consumption" ON consumption_metrics 
+FOR SELECT USING (
+    tenant_id = public.get_auth_tenant()
+    OR
+    public.is_super_admin()
+);
