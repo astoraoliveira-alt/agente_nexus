@@ -28,6 +28,8 @@ import LeadCRM from "@/pages/LeadCRM";
 import Quality from "./pages/Quality";
 import FinancialSummary from "./pages/FinancialSummary";
 import SelectTenant from "./pages/SelectTenant";
+import SystemStatus from "./pages/admin/SystemStatus";
+import AIPerformanceCenter from "./pages/AIPerformanceCenter";
 
 
 const queryClient = new QueryClient();
@@ -67,6 +69,8 @@ const App = () => (
             <Route path="/contacts" element={<ProtectedRoute><Contacts /></ProtectedRoute>} />
             <Route path="/quality" element={<ProtectedRoute><Quality /></ProtectedRoute>} />
             <Route path="/financials" element={<ProtectedRoute><FinancialSummary /></ProtectedRoute>} />
+            <Route path="/admin/status" element={<ProtectedRoute><SystemStatus /></ProtectedRoute>} />
+            <Route path="/ai-performance" element={<ProtectedRoute><AIPerformanceCenter /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -20,7 +20,8 @@ import {
   CreditCard,
   LayoutGrid,
   PieChart,
-  Activity
+  Activity,
+  Gauge
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -33,6 +34,7 @@ import { mockAlerts } from '@/lib/mock-data';
 // Navigation items are now handled dynamically inside the component to support real-time badges
 
 const adminNavItems = [
+  { title: 'Status do Sistema', url: '/admin/status', icon: Activity },
   { title: 'Usuários', url: '/users', icon: Users },
   { title: 'Perfis', url: '/profiles', icon: Shield },
 
@@ -40,9 +42,10 @@ const adminNavItems = [
 ];
 
 const governanceNavItems = [
-  { title: 'CRM (Kanban)', url: '/lead-crm', icon: LayoutGrid },
-  { title: 'Qualidade', url: '/quality', icon: ShieldCheck },
-  { title: 'Governança IA', url: '/governance', icon: ShieldCheck },
+  { title: 'CRM (Kanban)',        url: '/lead-crm',       icon: LayoutGrid },
+  { title: 'Qualidade',           url: '/quality',         icon: ShieldCheck },
+  { title: 'Governança IA',       url: '/governance',      icon: ShieldCheck },
+  { title: 'Performance & IA',    url: '/ai-performance',  icon: Gauge },
   // { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
   // { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
@@ -105,30 +108,32 @@ export function AppSidebar() {
         </Button>
       </div>
 
-      {/* Tenant Info */}
+      {/* Tenant Info & Compliance Score */}
       {!collapsed && currentTenant && (
-        <div className={cn(
-          "px-4 py-4 mx-2 mt-2 rounded-md border transition-all duration-200",
-          (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
-            ? "bg-amber-100/10 border-amber-500/30" // Impersonation Mode
-            : "bg-sidebar-accent border-sidebar-border" // Normal Mode
-        )}>
-          <div className="flex items-center justify-between">
-            <div className="min-w-0">
-              <p className={cn(
-                "text-[10px] uppercase tracking-wider mb-0.5",
-                (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
-                  ? "text-amber-500 font-bold"
-                  : "text-sidebar-foreground/60 font-bold"
-              )}>
-                {(isSuperAdmin && currentUser?.tenantId !== currentTenant.id) ? "Operando como" : "Cliente Conectado"}
-              </p>
-              <p className={cn(
-                "text-sm font-bold truncate",
-                (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
-                  ? "text-amber-400"
-                  : "text-sidebar-foreground"
-              )}>{currentTenant.name}</p>
+        <div className="px-4 py-4 mx-2 mt-2 space-y-3">
+          <div className={cn(
+            "p-3 rounded-md border transition-all duration-200",
+            (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+              ? "bg-amber-100/10 border-amber-500/30" // Impersonation Mode
+              : "bg-sidebar-accent border-sidebar-border" // Normal Mode
+          )}>
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className={cn(
+                  "text-[10px] uppercase tracking-wider mb-0.5",
+                  (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+                    ? "text-amber-500 font-bold"
+                    : "text-sidebar-foreground/60 font-bold"
+                )}>
+                  {(isSuperAdmin && currentUser?.tenantId !== currentTenant.id) ? "Operando como" : "Cliente Conectado"}
+                </p>
+                <p className={cn(
+                  "text-sm font-bold truncate",
+                  (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
+                    ? "text-amber-400"
+                    : "text-sidebar-foreground"
+                )}>{currentTenant.name}</p>
+              </div>
             </div>
           </div>
         </div>

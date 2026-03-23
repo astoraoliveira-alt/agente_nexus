@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent } from "@/components/ui/card";
@@ -155,6 +156,23 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
                 )}
 
                 <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Compliance Score</span>
+                  {data.complianceScore !== undefined ? (
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
+                        "font-bold px-3 py-1",
+                        getScoreColor(data.complianceScore)
+                      )}
+                    >
+                      {data.complianceScore}/100
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic text-right">Não auditado</span>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between">
                   <span className="text-sm">Canal</span>
                   <div className="flex items-center gap-1">
                     {data.channel === 'voice' ? (
@@ -263,7 +281,7 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
                 <AlertTriangle className="h-6 w-6" />
                 <p className="text-sm">Erro ao carregar auditoria.</p>
               </div>
-            ) : !evaluation ? (
+            ) : !evaluation && data.complianceScore === undefined ? (
               <div className="flex flex-col items-center justify-center pt-10 text-muted-foreground gap-4 text-center">
                 <div className="bg-muted p-4 rounded-full">
                   {data.status === 'closed' ? (
@@ -305,19 +323,25 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
             ) : (
               <div className="space-y-6">
                 {/* Overall Score */}
-                <Card className={`border-border ${getScoreColor(evaluation.score)}`}>
+                <Card className={cn(
+                  "border-border", 
+                  getScoreColor(evaluation?.score ?? data.complianceScore ?? 0)
+                )}>
                   <CardContent className="pt-6">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-semibold flex items-center gap-2">
                         <ShieldCheck className="h-5 w-5" />
                         Compliance Score
-                        {getTrendIcon(evaluation.score, evaluations?.[1]?.score)}
+                        {evaluation && getTrendIcon(evaluation.score, evaluations?.[1]?.score)}
                       </h3>
-                      <Badge variant="outline" className={`text-lg px-3 py-1 ${getScoreColor(evaluation.score)}`}>
-                        {evaluation.score}/100
+                      <Badge variant="outline" className={cn(
+                        "text-lg px-3 py-1",
+                        getScoreColor(evaluation?.score ?? data.complianceScore ?? 0)
+                      )}>
+                        {(evaluation?.score ?? data.complianceScore ?? 0)}/100
                       </Badge>
                     </div>
-                    <Progress value={evaluation.score} className="h-2" />
+                    <Progress value={evaluation?.score ?? data.complianceScore ?? 0} className="h-2" />
                   </CardContent>
                 </Card>
 

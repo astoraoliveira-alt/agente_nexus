@@ -1,7 +1,7 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 21/Mar/2026
-> **Versão:** 25.0 (The Realtime & Resilience Era)
+> **Última Atualização:** 23/Mar/2026
+> **Versão:** 27.0 (Resilience & Inbound Logic Era)
 > **Status:** Mestre — Fonte Única da Verdade
 > **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts`
 
@@ -93,6 +93,42 @@ Esta arquitetura garante altíssima coesão e velocidade entre os motores vitais
 - **Contexto Global (`src/contexts/AppContext.tsx`):** React Context utilizando `AppProvider` para gerenciar estado global: usuário autenticado, tenant ativo, lista de conversas e painel lateral (slide-over). Faz polling de conversas a cada 20s e mensagens a cada 5s.
 - **Segurança Nativa por RLS:** Isolamento multi-tenant garantido pelo PostgreSQL. Impossível que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
 
+### 2.5 Configuração de Ambiente N8N (Segurança e Variáveis)
+
+Para manter o princípio de **Cofre de Chaves e Isolamento**, o Nexus não armazena credenciais hardcoded (como URL e API Key do Supabase) dentro dos fluxos exportáveis (JSON) do N8N. Esses valores são injetados dinamicamente no runtime via `$env`.
+
+**No servidor (VPS) rodando o N8N**, a seguinte configuração é **obrigatória** para o correto funcionamento da Fase 1 de Telemetria:
+
+1. **Arquivo `.env`** (na raiz do docker-compose):
+   ```env
+   N8N_ENV_SUPABASE_URL_AGENT=https://[YOUR_SUPABASE_ID].supabase.co
+   N8N_ENV_SUPABASE_KEY_AGENT=[YOUR_SUPABASE_ANON_KEY]
+   ```
+
+2. **Arquivo `docker-compose.yml`** (na seção `environment` de expor pro container `n8n-main` e `n8n-main-worker` caso exista):
+   ```yaml
+   environment:
+     # Desbloqueia a injeção de ambiente barrada em versões modernas do N8N (>2.0)
+     - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+     # Lista branca explícita de quais variáveis a UI pode ler no canvas (Best Practice de Segurança)
+     - N8N_ENV_VARS_UI=N8N_ENV_SUPABASE_URL_AGENT,N8N_ENV_SUPABASE_KEY_AGENT
+     # Repasse final das variáveis do Host (.env) para dentro do Container
+     - N8N_ENV_SUPABASE_URL_AGENT=${N8N_ENV_SUPABASE_URL_AGENT}
+     - N8N_ENV_SUPABASE_KEY_AGENT=${N8N_ENV_SUPABASE_KEY_AGENT}
+   ```
+*(Nota: Alterações exigem a recriação do container via `docker compose down && docker compose up -d`).*
+
+### 2.6 Resiliência e Tratamento de Erros no N8N (DLQ Architecture)
+
+Para evitar que erros silenciosos ("swallowed errors") fizessem o bot "congelar" para o cliente, implementamos o **Motor de Tolerância a Falhas V4**:
+
+1. **Error Workflow Global**: Configurado no escopo global do n8n. Se qualquer nó ou sub-workflow falhar (seja por timeout em LLM, falha de API ou parsing), o fluxo não morre no vazio; ele invoca imediatamente o *Error Workflow*.
+2. **Interceptação de StackTrace**: O fluxo de erro puxa os metadados do fluxo original, o JSON exato onde quebrou, e captura o `trace_id`.
+3. **Persistência na DLQ (Dead Letter Queue)**: 
+   - O n8n faz um UPDATE na `inbound_queue`, alterando o status para `failed` e gravando a propriedade `error_message`.
+   - Um **Trigger nativo do PostgreSQL** (`trg_track_inbound_queue_errors`) intercepta essa atualização autómaticamente e clona o registro integral para a tabela imutável `inbound_queue_errors`.
+   - **Resultado:** Mantemos 100% de rastreabilidade do erro, mesmo se a linha original da Inbound Queue for reprocessada, deletada ou "retentada" (retry) num fluxo de fallback.
+
 ---
 
 ## 3. Rotas da Aplicação (Frontend SPA)
@@ -130,6 +166,8 @@ Roteamento gerenciado por `react-router-dom` v6. Todas as rotas protegidas reque
 | `/companies` | `Companies.tsx` | Super Admin | Gerenciar tenants (empresas). Vista global. |
 | `/plans` | `Plans.tsx` | Super Admin | Catálogo de planos SaaS (CRUD + audit log). |
 | `/financials` | `FinancialSummary.tsx` | Super Admin | DRE financeiro por tenant (receita, custo, margem). |
+| `/ai-performance` | `AIPerformanceCenter.tsx` | Tenant Admin+ | **[NOVO]** Centro de Performance de IA: Dashboard executivo com 5 perspectivas (Econômico, Segurança, Otimização, Conhecimento). |
+
 
 ---
 
@@ -251,6 +289,8 @@ companies (tenants)
     ├── consumption_metrics (billing)
     ├── campaigns
     │   └── outbound_queue
+    ├── inbound_queue (Fila de Recepção de Eventos Rápidos)
+    │   └── inbound_queue_errors (Dead Letter Queue / Fila Morta)
     ├── audit_logs (imutável)
     ├── integration_logs (webhooks brutos, não-repúdio)
     └── chat_histories_memory (LangChain, session_id based)
@@ -317,10 +357,12 @@ companies (tenants)
 | `last_message_at` | TIMESTAMPTZ | Usado para gestão de inatividade |
 | `is_simulation` | BOOLEAN | Flag para Playground/Demo |
 | `active_agent_id` | UUID | **CRÍTICO:** ID do agente que detém o controle atual (Vendas ou Segurança) |
+| `compliance_score` | INT | **NOVO:** Score de auditoria (0-100) cacheado na conversa para performance da UI |
 
 #### `messages`
 | Coluna | Tipo | Descrição |
 | :--- | :--- | :--- |
+| `trace_id` | VARCHAR(255) | **[Contrato V2]** ID único transacional end-to-end |
 | `content` | TEXT | Conteúdo textual |
 | `message_type` | VARCHAR(20) | `'text'` / `'audio'` / `'image'` |
 | `sender_type` | VARCHAR(20) | `'user'` / `'ai'` / `'human'` |
@@ -356,6 +398,7 @@ companies (tenants)
 #### `outbound_queue` (Fila da Campanha)
 | Coluna | Tipo | Descrição |
 | :--- | :--- | :--- |
+| `trace_id` | VARCHAR(255) | **[Contrato V2]** ID transacional de disparo |
 | `campaign_id` | UUID | FK → campaigns |
 | `contact_phone` | VARCHAR(50) | Telefone do destinatário |
 | `status` | VARCHAR(20) | `pending` / `sent` / `failed` |
@@ -363,6 +406,23 @@ companies (tenants)
 | `retry_count` | INTEGER | Tentativas de reenvio |
 | `last_attempt_at` | TIMESTAMPTZ | Timestamp da última tentativa |
 | UNIQUE | `(campaign_id, contact_phone)` | Deduplicação automática |
+
+#### `inbound_queue` (Fila Gateway V4)
+| Coluna | Tipo | Descrição |
+| :--- | :--- | :--- |
+| `id` | UUID PK | ID Único do Registro |
+| `trace_id` | VARCHAR(255) | **[Contrato V2]** ID Universal da Mensagem |
+| `status` | VARCHAR(20) | `pending`, `processing`, `completed`, `failed` |
+| `payload` | JSONB | Webhook bruto do Provider |
+| `error_message` | TEXT | Log de falha pontual |
+
+#### `inbound_queue_errors` (Dead-Letter Queue / DLQ V4)
+| Coluna | Tipo | Descrição |
+| :--- | :--- | :--- |
+| `queue_id` | UUID | FK → inbound_queue (original) |
+| `trace_id` | VARCHAR(255) | Rastreabilidade do Erro |
+| `status` | TEXT | Snapshot do status fatal |
+| `error_message` | TEXT | StackTrace completo para Debug (Nunca é apagado) |
 
 #### `conversation_artifacts` (Mídia de Conversas)
 | Coluna | Tipo | Descrição |
@@ -416,16 +476,23 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `get_tenant_usage_summary` | `p_tenant_id, p_month, p_year` | `{total_tokens, stt_minutes, ...}` | Resumo de uso do mês para dashboard. |
 | `get_detailed_consumption` | `p_tenant_id, p_days` | `{id, agent_name, metric_type, value, cost}[]` | Lista bruta de eventos de consumo para a página `/consumption`. |
 | `get_financial_report` | `p_month, p_year` | `FinancialReportRecord[]` | DRE por tenant (receita, custo, margem). Visão Super Admin. |
+| `fn_ai_perf_economics` | `tenant_id, start, end` | `jsonb` | **Novo (V28):** Dados de custo, ROI e volume por canal/agente para aba Economia. |
+| `fn_ai_perf_security` | `tenant_id, start, end` | `jsonb` | **Novo (V28):** Logs de auditoria, erros de fila e contatos banidos para aba Segurança. |
+| `fn_ai_perf_optimization`| `tenant_id, start, end` | `jsonb` | **Novo (V28):** Latência (P95), taxa de erro por agente e tokens para aba Otimização. |
+| `fn_ai_perf_knowledge` | `tenant_id, start, end` | `jsonb` | **Novo (V28):** Inventário de documentos RAG, tamanhos e cobertura por agente. |
+
 
 ### 6.2 RPCs de Orquestração N8N
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `n8n_orchestrator_v7` | **V7 (Draft / In Dev)** | Evolução para **Dynamic Gatekeeper**. Gerencia o desvio de controle para sub-agentes de segurança baseado em `requires_security` e `is_gatekeeper`. |
+| `n8n_orchestrator_v7` | **V7 (Production)** | **Dynamic Gatekeeper & Inbound Logic.** Gerencia o desvio de controle para sub-agentes de segurança e validação de sessão transacional. |
 | `n8n_orchestrator_v6` | V6 (Production) | Suporte a Meta API Token e descoberta básica de ferramentas dinamicas. |
 | `n8n_orchestrator_v5` | V5 (Legacy) | Versão consolidada anterior. |
 | `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. Atualiza `last_message_at`. |
-| `record_usage` | Atual | Registra evento de consumo. Detecta canal pelo tipo do agente. |
+| `fn_track_llm_usage`| V2 | Desacoplado do Core. Registra consumo com telemetria exata atrelada ao `trace_id`. Substitui o legado `record_usage`. |
+| `fn_enqueue_inbound_message`| Elite V4 | Porta-de-Entrada segura de novos webhooks, gerando o Trace ID e alimentando a Inbound Queue. |
+| `fn_get_trace_lifecycle`| Elite V4 | Buscador End-to-End para observabilidade que avalia se a mensagem passou pela Inbound, DLQ, Gravou histórico ou Falhou no Disparo. |
 | `sync_vapi_call` | V27 | Idempotente. Sincroniza chamada de voz VAPI: grava payload em `integration_logs`, sincroniza mensagens com chave `(conversation_id, external_id)`, calcula custo por duração. |
 | `get_agent_context` | Atual | Retorna chunks de knowledge relevantes via similarity search (pgvector). |
 | `handle_outbound_sent` | Atual | Atomicamente marca envio como sucesso na `outbound_queue`. |
@@ -666,6 +733,15 @@ O N8N retorna scores em 3 dimensões, salvas em `criteria_results`:
 - `>= 40 && < 80` → Neutro.
 - `< 40` → Incidente aberto automaticamente.
 
+### 11.4 Governança Visual & Alertas de Segurança (UI Safety)
+
+O Nexus implementa um sistema de **Safety First** na interface, garantindo que o operador identifique riscos instantaneamente:
+
+1.  **Audit-Risk Red Border (360º)**: Conversas com `compliance_score < 70` recebem um contorno vermelho vibrante (`ring-2 ring-red-600`) e um glow de alerta. **Esta regra sobrepõe o status de ativa (verde)**, priorizando a segurança sobre a operação.
+2.  **Hallucination Badges**: Alertas visuais no topo do chat (`ChatArea.tsx`) quando a IA detecta inconsistências ou baixo score de confiança durante a interação em tempo real.
+3.  **HUD de Auditoria**: Exibição direta do score de conformidade no cabeçalho do chat, permitindo intervenção humana (HITL) imediata em caso de degradação da qualidade.
+4.  **Action Panel (GPT-4o)**: Painel de auditoria profunda integrado aos artefatos da conversa, permitindo que operadores solicitem uma re-avaliação detalhada via LLM Master.
+
 ---
 
 ## 12. Consumo Financeiro & Billing
@@ -691,11 +767,13 @@ O N8N retorna scores em 3 dimensões, salvas em `criteria_results`:
 ### 12.3 Fluxo de Billing
 
 ```
-1. N8N chama record_usage após cada interação
+1. Provider faz Webhook → fn_enqueue_inbound_message insere no banco.
         ↓
-2. consumption_metrics acumula eventos
+2. N8N orquestra e, ao final, chama fn_track_llm_usage (associada ao Trace ID).
         ↓
-3. get_detailed_consumption (RPC) agrega por agente/canal e **aplica taxas do plano** via SQL.
+3. consumption_metrics acumula eventos precisamente amarrados à mensagem.
+        ↓
+4. get_detailed_consumption (RPC) agrega por agente/canal e **aplica taxas do plano** via SQL.
         ↓
 4. Frontend apenas exibe o `cost` retornado pelo banco (Arquitetura "Burra" para Billing).
         ↓
@@ -800,6 +878,18 @@ Padrões de regex para mascarar automaticamente no frontend antes da renderizaç
 | Email | `[\w.-]+@[\w.-]+` | `u***@d***.com` |
 | Telefone | `(\+55)?\d{10,11}` | `(**) ****-5678` |
 | Cartão de Crédito | `\d{4} \d{4} \d{4} \d{4}` | `**** **** **** 1234` |
+
+### V27.0 — 23/Mar/2026 — Resilience & Inbound Logic Optimization
+
+#### 🛡️ Inbound Safety Guard (Guarda de Fila)
+- **Silent Execution**: Implementado nó `IF` de validação de dados (`queue_id`) no n8n. Isso elimina o ruído de execuções vermelhas ("Undefined properties") quando a fila de mensagens está vazia. O fluxo agora termina silenciosamente em caminhos sem dados.
+- **SQL Resilience**: Ajuste na RPC `fn_finish_inbound_message` para garantir o fechamento atômico do ciclo de vida da mensagem, liberando a trava de sequência no banco de dados.
+
+#### ⚖️ Segurança & Transacionalidade
+- **Traceability Audit**: Atualização do contrato de telemetria no n8n. Cada passo (da entrada ao envio da resposta) agora é carimbado com o `trace_id` original na tabela de métricas, permitindo depuração forense de custos.
+- **Responses API Ban**: Fixado o status de desativação da Responses API para evitar conflitos de memória e erros de chamada de ferramenta (tool call mismatch).
+
+---
 
 **Controle:** O toggle `maskingEnabled` em `AppContext` (padrão: `true`) permite que operadores autorizados revelem dados temporariamente. O dado no banco permanece íntegro.
 
@@ -939,102 +1029,67 @@ O sistema usa um único container `SlideOver` com 18 conteúdos dinamicamente in
 
 ---
 
-## 18. Integração N8N (Contrato V5 — Master Orchestrator)
+## 18. Integração N8N (Contrato V7 — Master Orchestrator)
 
-### 18.1 Fluxo Principal de Mensagem Inbound
+### 18.1 Fluxo Principal de Mensagem Inbound (Resiliência V7)
 
 ```
 WhatsApp/Voz → Evolution API → N8N Webhook
-    → n8n_orchestrator_v5() (uma única transação SQL):
+    → fn_fetch_next_inbound_message() (Busca atômica por fila)
+    → IF Tem Registro? (Expression: {{ $json.queue_id }} is not empty)
+        ├─ FALSE: Silent Finish (Evita erros de execução vazia no n8n)
+        └─ TRUE: Continua Fluxo
+    → n8n_orchestrator_v7() (uma única transação SQL):
         ├─ Identifica agente pelo evolution_instance
-        ├─ Valida status empresa (não 'suspended')
-        ├─ Valida status agente (não 'inactive')
+        ├─ Valida status empresa/agente
         ├─ Verifica concorrência (active_conversations < max_concurrency)
         ├─ Abre/Reabre conversa (Finite State Machine)
         ├─ Sincroniza contato (Unicidade por tenant_id + phone)
         ├─ Recupera session_status da conversation_security_sessions
-        │   ├─ Expira automaticamente sessões com expires_at < NOW()
-        │   └─ Retorna 'unauthenticated' se não há sessão ativa e válida
-        ├─ Retorna sub-agentes vinculados ao agente
-        └─ Retorna: {prompt, history, knowledge, contact_info, security:{session_status, session_identifier}, ...}
-    → IF Security (verifica session_status === 'active')
-        ├─ TRUE (autenticado): vai direto para Switch1 (performance — bypassa Gatekeeper)
-        └─ FALSE (não autenticado): chama RPC Security Gatekeeper → avalia intent → allowToolExecution
-    → Switch1 (roteia por should_use_tools do Formatar Contexto):
-        ├─ TRUE: AI Agent com Tools (financeiro, boletos, acordos)
-        └─ FALSE: AI Agent Sem Ferramentas (solicita autenticação CPF/CNPJ)
-    → LLM Inference (OpenAI ou configurado no brain_config)
-    → record_message() (salva resposta + atualiza last_message_at. Suporta p_message_type='image' e p_transcription)
-    → record_usage() (registra tokens/mensagens consumidos)
+        └─ Retorna: {prompt, history, knowledge, contact_info, security, ...}
+    → IF Security (Verifica session_status === 'active' e expiração)
+        ├─ TRUE (autenticado): Bypass Gatekeeper -> Switch1
+        └─ FALSE (não autenticado): Security Gatekeeper → avalia intent
+    → Switch1 (Roteia por should_use_tools):
+        ├─ TRUE: AI Agent com Tools (Financeiro/Ações)
+        └─ FALSE: AI Agent Sem Ferramentas (Solicita Auth)
+    → LLM Inference (Master Brain)
+    → record_message() (Grava resposta)
+    → fn_track_llm_usage() (Telemetria via Trace ID)
+    → RPC - Saída (fn_finish_inbound_message)
 ```
 
-### 18.2 Fluxo de Auditoria Automática (Workflow N8N)
-
-```
-Trigger: Webhook + Loop periódico
-    → get_pending_audits() RPC
-    → Para cada conversa sem auditoria:
-        ├─ get_conversation_transcript()
-        ├─ LLM: analisa e gera score/summary/criteria
-        ├─ save_evaluation()
-        │   └─ Se score < 40: cria incidente automaticamente
-        └─ Wait 5s (throttle)
-```
-
-### 18.3 Fluxo de Mídia (Imagens e OCR — Inbound)
+### 18.2 Fluxo de Mídia (Imagens e OCR — Inbound)
 
 O sistema processa imagens enviadas pelo WhatsApp de forma autônoma:
 1. **Trigger:** Webhook recebe `message_type = 'imageMessage'`.
-2. **Mídia:** Chama Evolution API ("Obter mídia base64") para recuperar o binário via Base64.
-3. **Extração:** Envia o binário para o node "Analyze Image" (OpenAI Vision) com prompt de extração de texto (OCR).
-4. **Normalização (JavaScript):** O node `Normaliza Campos Imagem` utiliza lógica robusta para:
-   - Tratar aninhamento de dados dinâmico da LangChain (`[[{...}]]`).
-   - Consolidar `message` (texto extraído) e `image_base64`.
-   - Evitar loops de dependência no n8n lendo nodes externos apenas uma vez fora de iterações.
-5. **Agente de IA (Multi-Path Resilience):** O prompt do sistema no Agente de IA utiliza expressões condicionais (`isExecuted`) para buscar a mensagem do cliente no braço correto do fluxo (Texto vs Áudio vs Imagem), eliminando o erro de "Node hasn't been executed".
+2. **Mídia:** Chama Evolution API para recuperar o binário via Base64.
+3. **Extração:** Envia o binário para o node "Analyze Image" (OpenAI Vision) com prompt de OCR.
+4. **Normalização (JS):** Trata aninhamentos dinâmicos e evita loops de dependência no n8n.
+5. **Agente de IA:** Usa expressões condicionais (`isExecuted`) para buscar a mensagem no braço correto (Texto vs Áudio vs Imagem).
+
+### 18.3 Universal API Proxy (API Gateway / Sub-Agente N8N)
+
+O sistema proxy universal isola o LLM da complexidade de protocolos HTTP:
+1. **Fail-Fast**: Validação de `$json.tool_config` (Evita crash por tool inexistente).
+2. **Roteamento Dinâmico de Métodos HTTP**:
+   - Um nó `IF` avalia o `$json.method` para evitar envio de Body em requisições `GET` (Prevenção de Erro 400).
+   - **Rota GET**: `Send Body` estritamente **OFF**. Parâmetros via URL.
+   - **Rota POST/PUT/PATCH**: `Send Body` **ON** com payload.
+3. **Dynamic URL Encoding**: Regex + `encodeURI` para parâmetros seguros ("Rio de Janeiro" → "Rio%20de%20Janeiro").
+4. **Continue On Fail**: Captura status 4xx/5xx e repassa ao LLM para auto-correção de parâmetros.
 
 ### 18.4 Handoff Humano (HITL)
 
 ```
 Usuário: "quero falar com um atendente"
     ↓
-N8N detecta intenção → chama Supabase API
+N8N detecta intenção → chama Supabase API (conversations.status = 'human_active')
     ↓
-conversations.status = 'human_active'
-conversations.assigned_operator_id = [operador disponível]
+AppContext polling detecta mudança → Chat muda de cor + ativa input
     ↓
-AppContext polling detecta mudança (20s)
-    ↓
-UI: Chat muda de cor + ativa input do operador
-    ↓
-Operador responde → api.sendMessage() → N8N envia via Evolution/VAPI
+Operador responde → api.sendMessage() → N8N via Evolution/VAPI
 ```
-
-### 18.5 Universal API Proxy (API Gateway / Sub-Agente N8N)
-
-O sistema proxy universal foi criado para isolar o LLM da complexidade de protocolos HTTP, permitindo que a IA consuma ferramentas (Tools) dinamicamente via banco de dados ser erro de formatação.
-
-**Arquitetura Resiliente do Proxy:**
-A implementação atual trata os principais ofensores de estabilidade na orquestração:
-
-1. **Validação de Existência (Fail-Fast):** 
-   - Um nó `IF` valida se `$json.tool_config` existe. Se a IA alucinar o nome da tool, o proxy não "crasha", mas retorna graciosamente `{"valid": false, "message": "Tool não encontrada"}`.
-
-2. **Roteamento Dinâmico de Métodos HTTP (Prevenção de GET com Body):**
-   - O envio de um Body vazio `{}` numa requisição `GET` causa bloqueio (Error 400) em muitos firewalls (ex: Cloudflare).
-   - Para evitar isso, um nó `IF` avalia o `$json.method`:
-     - **Rota GET:** Vai para um nó "HTTP Request (SÓ GET)" onde `Send Body` é estritamente **OFF**. Os parâmetros trafegam apenas pela URL com encode.
-     - **Rota POST/PUT/PATCH/DELETE:** Vai para um nó "HTTP Request" com `Send Body` **ON**, enviando o payload.
-
-3. **Dynamic URL Encoding:**
-   - A URL na tabela `agent_tools` aceita tags (ex: `https://api.com/v1?cidade=<p_cidade>`).
-   - O proxy substitui dinamicamente usando Regex + `encodeURI` para garantir que espaços ("Rio de Janeiro") sejam convertidos seguramente ("Rio%20de%20Janeiro").
-
-4. **Continue On Fail (Absorção de HTTP Errors):**
-   - O nó HTTP Request tem `Continue On Fail: true` e `Timeout = 15s`.
-   - Acima disso, um nó `Merge` reúne as rotas e repassa para um nó `IF` avaliando `$json.error`.
-   - Se houver falha (4xx/5xx), o Erro é capturado e formatado: `{"valid": false, "message": "Erro na API: ..."}`.
-   - A IA recebe o erro HTTP original e pode tentar consertar os parâmetros dinamicamente (ex: se o Supabase de negócio retornar "CPF_INVALIDO").
 
 ---
 
@@ -1118,6 +1173,32 @@ ORDER BY created_at DESC LIMIT 1;
 
 > **NUNCA habilitar `Use Responses API`** nos nós de `OpenAI Chat Model` que utilizam `Postgres Chat Memory`. As duas tecnologias gerenciam estado de conversa de formas incompatíveis, causando o erro: `No tool call found for function call output with call_id [id]`.
 
+### V26.0 — 22/Mar/2026 — Governance UI & Realtime Compliance
+
+#### 🛡️ Governança Visual (Red Ring System)
+- **Priority Overlap**: Implementada lógica onde o "Vermelho de Risco" (Compliance < 70) tem precedência visual sobre o "Verde Operacional" (Status Ativo).
+- **Full Ring Alert**: Evolução da borda lateral para um contorno de 360º (`ring-2`) com efeito de brilho (glow) para conversas críticas.
+- **Hallucination Shields**: Adicionados componentes de alerta de alucinação na `ChatArea` para feedback imediato ao operador.
+
+#### 📊 Database & Performance
+- **Sync de Score**: Adicionada coluna `compliance_score` na tabela `conversations`. 
+- **Estratégia de Cache**: O score agora é persistido diretamente no registro da conversa após cada auditoria, eliminando a necessidade de JOINS pesados com a tabela `evaluations` durante a renderização da lista (performance O(1)).
+
+#### 🛰️ Auditoria & Artefatos
+- **GPT-4o Deep Audit**: Integração do painel de controle de auditoria no `ArtifactsDrawer`, permitindo visualização de logs técnicos e resumo executivo de compliance lado a lado com o chat.
+- **Audit HUD**: Interface de monitoramento de score integrada ao header do chat para intervenção HITL (Human-in-the-Loop) rápida.
+
+### V26.1 — 22/Mar/2026 — Fila de Recuperação V7 & UI Resiliency
+
+#### 🛡️ Inbound Queue Error Tracking (Observabilidade Tática)
+- **Database Schema**: Criação da tabela `inbound_queue_errors` projetada especificamente para capturar, tipar e classificar falhas de processamento nos webhooks (N8N, LLM crashes, Sub-node timeouts).
+- **Mission Control RPC**: Adição da função `fn_get_queue_audit` empacotada no `mission_control_rpc_kit.sql`. Transmite em tempo real os ofensores críticos (`root_cause`) para o painel administrativo. 
+
+#### 🖥️ Resiliência de Interface (System Status)
+- **Graceful JSON Fallback**: Modificação do `SystemStatus.tsx` para tratar erros estruturais em payloads de erro do Postgres/N8N. Payloads frequentemente vinham truncados (ex: `...` na string) causando falhas de `JSON.parse()`.
+- **Regex Extraction**: Foi construído um parser customizado via Regex para extrair `ORIGEM`, `MENSAGEM` e `WORKFLOW` mesmo quando o JSON quebra.
+- **RAW JSON Debugger**: A interface agora disponibiliza um modal para Devs inspecionarem o payload bruto do erro sem precisar acionar o banco de dados.
+
 ---
 
 *Este documento deve ser atualizado sempre que uma mudança significativa for feita no schema, nas rotas, ou na arquitetura de serviços.*
@@ -1166,6 +1247,14 @@ ORDER BY created_at DESC LIMIT 1;
     - Pipeline automatizado: `git push` -> `Docker Build` na VPS.
 - **Item 4: Supabase Realtime Optimized [CONCLUÍDO]**: 
     - Remoção de polling de 5s. Disparo em tempo real (latência < 100ms) via Supabase Realtime.
+
+### 21.4 Fase 4: Inteligência Estratégica & Performance (Mar/2026) [ATUAL]
+
+- **Item 1: AI Performance Center [CONCLUÍDO]**: Implementação do centro de comando para análise profunda de IAs.
+    - **Perspectiva 360º**: 5 abas (Executivo, Economia, Segurança, Otimização, Conhecimento) movendo o sistema de "operacional" para "estratégico".
+    - **RPC-Driven Architecture**: Toda a agregação de dados complexa (Grouping, Percentage, P95 Latency) foi movida para o PostgreSQL via 4 novas funções RPC, reduzindo o payload do frontend e garantindo consistência.
+    - **Observabilidade de Erros**: Integração direta com `inbound_queue_errors` para identificar a causa raiz de falhas de IA em tempo real.
+    - **Gestão de Conhecimento**: Dashboard de inventário de documentos RAG com totalização de bytes e análise de extensões.
 
 ---
 
@@ -1237,6 +1326,7 @@ O sistema Nexus Hub é projetado seguindo o princípio da **Eventual Consistency
 | Cenário | Sintoma | Estratégia de Mitigação | Resolução Automática |
 | :--- | :--- | :--- | :--- |
 | **n8n Down (5 min)** | Porteiro loga "Failed to reach n8n". `inbound_queue` com status `pending`. | **Inbound Safety Net:** O Porteiro salva a mensagem no banco *antes* de tentar chamar o n8n. Se o n8n falhar, a linha na tabela `inbound_queue` permanece como prova. | **Recovery Worker:** Um script cron de 1 min verifica linhas `pending` com mais de 2 minutos e tenta re-enviar. |
+| **N8N Sub-Node Crash / Timeout** | Fluxos falham sem entregar resposta final (timeout ou erro em sub-ferramentas do V7). | **Inbound Queue Errors:** Acesso direto à tabela `inbound_queue_errors` que captura os detalhes do Webhook V7, incluindo json estrutural do incidente (`root_cause`). | **Fila de Recuperação V7:** RPC `fn_get_queue_audit` leva os erros para a UI do Admin (`SystemStatus.tsx`), com Regex tolerante a falhas na leitura dos payloads. |
 | **Banco de Dados Down** | Porteiro loga Erro Crítico. Mensagem não entra na fila. | **Local Log (VPS):** O Porteiro escreve no `/var/log/porteiro.error` (fora do banco). | **Manual:** Intervenção via log local para re-processar mensagens perdidas na janela de queda. |
 | **Evolution/Meta API Down** | `outbound_queue` com status `failed`. Coluna `error_message` populada. | **Retry Strategy:** O Porteiro tenta enviar 3 vezes com backoff exponencial antes de desistir. | **Outbound Guard:** Alerta imediato no canal do Super Admin via `@alerts`. |
 
@@ -1254,4 +1344,31 @@ Diferente de um fluxo linear, o modelo event-driven exige um **Healthcheck Globa
 
 ---
 
-*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V25.0 — Realtime Era).*
+## 18. Centro de Performance de IA (AIPerformanceCenter)
+
+O **AI Performance Center** (`/ai-performance`) é o módulo de inteligência analítica que permite aos administradores e gestores entenderem a eficiência, custo e segurança da sua infraestrutura de agentes.
+
+### 18.1 Pilares de Análise
+
+1.  **Economia & ROI**: 
+    - Analisa o custo real das operações comparando `metric_type` (Tokens vs Mensagens vs Voz).
+    - Fornece o ROI baseado na economia de horas humanas estimadas.
+2.  **Segurança**: 
+    - Monitora o rastro de auditoria (`audit_logs`) em tempo real.
+    - Rastreia a saúde da fila de entrada (`inbound_queue_errors`), permitindo depuração rápida de falhas.
+    - Visibilidade sobre contatos banidos e bloqueios preventivos por segurança/compliance.
+3.  **Otimização IA**: 
+    - **Latência Crítica**: Monitoramento de P95 para latência de resposta, garantindo que o tempo de espera do usuário esteja dentro dos SLAs.
+    - **Eficiência de Erro**: Identifica quais agentes possuem maior taxa de falha (Error Rate %) para refinamento de prompts ou infraestrutura.
+    - **Channel Mix**: Entende o custo e volume distribuído por canal (WhatsApp vs Web vs Voice).
+4.  **Conhecimento (RAG)**: 
+    - Inventário completo da base de documentos injetada nos agentes.
+    - Monitoramento de tamanho dos arquivos (bytes) e tipos suportados, garantindo que o contexto da IA esteja sempre atualizado e otimizado.
+
+### 18.2 Arquitetura de Dados
+
+Seguindo o princípio **Database-First**, o frontend (`AIPerformanceCenter.tsx`) não realiza cálculos. Ele atua como um visualizador de payloads JSONB pré-agregados pelas RPCs dedicadas (`fn_ai_perf_*`). Isso permite que a página carregue métricas de milhares de registros em milissegundos, sem sobrecarregar o renderizador do React.
+
+---
+
+*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V28.0 — Performance & Strategic Era).*

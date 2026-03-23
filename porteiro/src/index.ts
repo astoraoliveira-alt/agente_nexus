@@ -60,8 +60,8 @@ app.use('*', cors({
  * Skips for public endpoints like webhooks
  */
 app.use('/v1/*', async (c, next) => {
-    // Bypass for evolution webhook
-    if (c.req.path === '/v1/evolution/webhook') {
+    // Bypass for evolution webhook and queue management
+    if (c.req.path === '/v1/evolution/webhook' || c.req.path.startsWith('/v1/queue/')) {
         return await next();
     }
 
@@ -455,6 +455,106 @@ app.post('/v1/evolution/webhook', async (c) => {
         console.error('[PORTEIRO] ❌ Webhook Error:', err);
         return c.json({ error: 'Internal processing error', details: err.message }, 500);
     }
+});
+
+// --- QUEUE MANAGEMENT (ELITE SYSTEM_ROLE BYPASS) ---
+
+/**
+ * List stuck or failed messages (Bypasses RLS using Service Role)
+ */
+app.get('/v1/queue/stuck', async (c) => {
+    const tenantId = c.req.query('tenant_id');
+    const stuckTimeMinutes = Number(c.req.query('minutes')) || 5;
+    
+    // Threshold time
+    const threshold = new Date(Date.now() - stuckTimeMinutes * 60000).toISOString();
+    
+    console.log(`[PORTEIRO] 🔍 Fetching stuck/failed messages for tenant: ${tenantId || 'ALL'}`);
+
+    // Query for FAILED messages (immediate)
+    let failedQuery = supabaseAdmin
+        .from('inbound_queue')
+        .select('*, agents(name)')
+        .eq('status', 'failed');
+
+    // Query for STUCK messages (pending/processing with grace period)
+    let stuckQuery = supabaseAdmin
+        .from('inbound_queue')
+        .select('*, agents(name)')
+        .in('status', ['pending', 'processing'])
+        .lt('created_at', threshold);
+
+    if (tenantId) {
+        failedQuery = failedQuery.eq('tenant_id', tenantId);
+        stuckQuery = stuckQuery.eq('tenant_id', tenantId);
+    }
+
+    const [failedRes, stuckRes] = await Promise.all([
+        failedQuery.limit(25),
+        stuckQuery.limit(25)
+    ]);
+
+    if (failedRes.error || stuckRes.error) {
+        const err = failedRes.error || stuckRes.error;
+        console.error('[PORTEIRO] ❌ Queue fetch failed:', err);
+        return c.json({ error: err?.message }, 500);
+    }
+
+    // Combine and sort by creation date
+    const combined = [...(failedRes.data || []), ...(stuckRes.data || [])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+    return c.json(combined);
+
+
+});
+
+/**
+ * Retry / Force-reprocess a message
+ */
+app.post('/v1/queue/retry/:id', async (c) => {
+    const id = c.req.param('id');
+    console.log(`[PORTEIRO] 🔄 Reanimating message ID: ${id}`);
+
+    const { data, error } = await supabaseAdmin
+        .from('inbound_queue')
+        .update({ 
+            status: 'pending',
+            locked_at: null,
+            processed_at: null,
+            error_message: null
+        })
+        .eq('id', id)
+        .neq('status', 'done')
+        .select();
+
+    if (error) {
+        console.error(`[PORTEIRO] ❌ Retry failed for ${id}:`, error);
+        return c.json({ error: error.message }, 500);
+    }
+
+    if (!data?.length) {
+        return c.json({ error: 'Message not found or already done' }, 404);
+    }
+
+    // Opcional: Trigger n8n immediately? (A recuperação já faz isso, mas aqui damos um gás)
+    const item = data[0];
+    const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
+    if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
+        fetch(n8nWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                trace_id: item.trace_id,
+                conversation_id: item.conversation_id,
+                tenant_id: item.tenant_id,
+                agent_id: item.agent_id,
+                payload: item.payload
+            })
+        }).catch(e => console.error('[PORTEIRO] n8n trigger error after retry:', e.message));
+    }
+
+    return c.json({ status: 'success', message: 'Message queued for immediate processing' });
 });
 
 async function startHeartbeatWorker() {

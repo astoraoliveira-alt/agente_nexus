@@ -36,9 +36,16 @@ export function UnauditedConversationsPanel({ data }: UnauditedConversationsPane
                                     <Bot className="h-4 w-4 text-primary" />
                                     <span className="font-medium text-sm">{conv.agent_name || 'Agente'}</span>
                                 </div>
-                                <Badge variant="outline" className="text-xs">
-                                    {conv.status}
-                                </Badge>
+                                <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="text-xs">
+                                        {conv.status}
+                                    </Badge>
+                                    {conv.compliance_score !== undefined && (
+                                        <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20 text-[10px] font-bold">
+                                            Score: {conv.compliance_score}
+                                        </Badge>
+                                    )}
+                                </div>
                             </div>
 
                             <div className="flex items-center gap-2 mb-3">

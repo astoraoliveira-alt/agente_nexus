@@ -105,11 +105,11 @@ export default function Login() {
         LEFT PANEL: The "Torre de Controle" + Authentication Form
         ================================================================
       */}
-      <div className="w-full lg:w-[40%] xl:w-[35%] flex flex-col justify-between p-6 md:p-8 lg:p-10 relative z-20 bg-[#0A0A0A] border-r border-white/5 overflow-y-auto overflow-x-hidden custom-scrollbar min-w-[380px]">
+      <div className="w-full lg:w-[45%] xl:w-[42%] flex flex-col justify-between p-6 md:p-8 lg:p-12 relative z-20 bg-[#0A0A0A] border-r border-white/5 overflow-y-auto overflow-x-hidden custom-scrollbar min-w-[420px]">
 
         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
 
-        <div className="flex-1 flex flex-col justify-between min-h-fit relative z-10 w-full max-w-md mx-auto xl:max-w-lg">
+        <div className="flex-1 flex flex-col justify-between min-h-fit relative z-10 w-full max-w-2xl mx-auto">
 
           <div className="space-y-3 pt-2">
             <div className={`flex items-center gap-4 mb-8 transition-all duration-1000 ease-out ${mounted ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
@@ -126,22 +126,21 @@ export default function Login() {
             </div>
 
             <div className="space-y-2 relative z-20">
-              <h1 className={`text-4xl md:text-5xl xl:text-6xl font-black tracking-tighter leading-[0.9] transition-all duration-1000 delay-100 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 blur-lg'}`}>
-                {isRegistering ? 'SOLICITAR' : 'TORRE DE'} <br />
-                <span className="text-accent underline decoration-accent/20 decoration-8 underline-offset-[-2px]">
-                  {isRegistering ? 'ACESSO' : 'CONTROLE'}
+              <h1 className={`text-4xl md:text-5xl xl:text-7xl font-black tracking-tighter leading-[0.8] transition-all duration-1000 delay-100 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 blur-lg'}`}>
+                ORQUESTRAR <br />
+                <span className="text-accent underline decoration-accent/10 decoration-4 underline-offset-[-2px]">
+                  RESULTADOS
                 </span>
               </h1>
-              <p className={`text-sm md:text-base font-light text-white/60 mt-4 max-w-sm leading-relaxed transition-all duration-1000 delay-200 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>
-                <span className="text-accent font-bold tracking-wider mr-2 uppercase text-[10px]">AURA OS //</span>
+              <p className={`text-xs md:text-sm font-light text-white/40 mt-6 max-w-sm leading-relaxed transition-all duration-1000 delay-200 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>
                 {isRegistering
-                  ? 'Cadastre-se para obter acesso à orquestração de agentes.'
-                  : 'Orquestração de agentes autônomos em escala corporativa.'}
+                  ? 'Inicie o protocolo de integração com a malha neural DavoNexus.'
+                  : 'Central de comando para orquestração de IAs multi-agentes e automação de alta performance.'}
               </p>
             </div>
           </div>
 
-          <div className={`w-full mt-10 mb-8 bg-[#050505] border border-white/10 p-6 shadow-2xl relative transition-all duration-1000 delay-300 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
+          <div className={`w-full max-w-md mt-10 mb-8 bg-[#050505] border border-white/10 p-6 shadow-2xl relative transition-all duration-1000 delay-300 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
             <div className="absolute -top-[1px] -left-[1px] w-2 h-2 border-t border-l border-accent/60" />
             <div className="absolute -top-[1px] -right-[1px] w-2 h-2 border-t border-r border-accent/60" />
             <div className="absolute -bottom-[1px] -left-[1px] w-2 h-2 border-b border-l border-accent/60" />
@@ -254,8 +253,7 @@ export default function Login() {
           </div>
 
           <div className="space-y-1 pb-4">
-            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Aura Intelligence Systems</p>
-            <p className="text-[8px] font-mono text-white/60 uppercase">Auth_Node: SA-1 // Build_2026.02</p>
+            <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.4em]">DavoNexus Systems</p>
           </div>
 
         </div>
@@ -266,114 +264,64 @@ export default function Login() {
         RIGHT PANEL: ULTRA-REALISTIC CINEMATIC 3D ROBOT
         ================================================================
       */}
-      <div className="hidden lg:block lg:flex-1 relative bg-[#020202] overflow-hidden h-full border-l border-white/5 flex flex-col items-center justify-center">
+      <div className="hidden lg:block lg:flex-1 relative bg-black h-full border-l border-white/5 overflow-hidden">
 
-        {/* Cinematic Background (Ensures movement and ultra-realism) */}
+        {/* Cinematic Backdrop */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-[#020202] via-transparent to-[#020202] opacity-80" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#020202_90%)] opacity-60" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,194,255,0.03)_0%,transparent_70%)]" />
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:60px_60px] opacity-20" />
         </div>
 
-        {/* Global HUD Layout */}
-        <div className="absolute top-8 right-8 z-30 text-right font-mono text-[9px] text-white/30 hidden xl:block uppercase tracking-tighter">
-          LATENCY: <span className="text-white/60">14MS</span><br />
-          CLUSTER_ID: <span className="text-white/60">ALPHA-CORE-26</span><br />
-          <span className="text-accent text-xs mt-2 block animate-pulse">AURA_OS: MONITORING</span>
+        {/* Global Metadata - Ultra Minimal */}
+        <div className="absolute top-12 right-12 z-30 text-right font-mono text-[10px] text-white/20 uppercase tracking-[0.3em]">
+          <span className="text-white/40 font-black">NEXUS_CORE //</span> STATUS: ACTIVE
         </div>
 
-        {/* Core Visualization Area */}
-        <div className={`relative z-20 w-full h-[70vh] flex flex-col items-center justify-center transition-all duration-1000 ease-out delay-500 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'}`}>
-
-          <div className="relative w-full max-w-2xl flex items-center justify-center">
-
-            {/* THE ROBOT AGENT (Ultra-Realistic local image fallback + video depth) */}
-            <div className="relative z-10 w-80 h-80 xl:w-[550px] xl:h-[550px] group">
-              {/* Heavy Glitch/Glow Aura */}
-              <div className="absolute inset-[-100px] bg-accent/10 rounded-full blur-[120px] animate-pulse pointer-events-none" />
-
-              <img
-                src="/assets/images/ai-agent-v26.png"
-                alt="AI Agent Official"
-                className="w-full h-full object-contain filter brightness-125 hover:scale-105 transition-transform duration-700 drop-shadow-[0_0_50px_rgba(0,194,255,0.4)]"
-                onError={(e) => {
-                  // Fallback to high quality CSS if image fails again
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-
-              {/* Orbital Rings around the robot */}
-              <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[110%] h-[80%] border border-accent/20 rounded-full border-dashed animate-[spin_25s_linear_infinite] pointer-events-none" />
-              <div className="absolute top-[5%] left-1/2 -translate-x-1/2 w-[130%] h-[90%] border border-white/5 rounded-full animate-[spin_40s_linear_infinite_reverse] pointer-events-none" />
-            </div>
-
-            {/* Terminal Widgets */}
-            <div className="absolute -right-16 top-1/4 bg-[#0A0A0A]/90 border border-white/10 p-4 font-mono text-[9px] text-white/50 w-56 hidden 2xl:block shadow-2xl backdrop-blur-md z-30 animate-[glitch_8s_infinite]">
-              <div className="flex justify-between items-center mb-2 pb-1 border-b border-white/10">
-                <span className="text-white font-bold tracking-widest uppercase">Node_Analysis</span>
-                <Activity className="h-3 w-3 text-accent" />
-              </div>
-              <p className="text-white/40 mb-1">{'>'} kernel_state: NOMINAL</p>
-              <p className="text-accent/60 mb-1">{'>'} neural_link: ESTABLISHED</p>
-              <p className="text-white/40 mb-1">{'>'} risk_level: ZERO</p>
-              <div className="w-full bg-white/5 h-1 mt-2 rounded overflow-hidden">
-                <div className="bg-accent h-full w-[92%] animate-pulse" />
-              </div>
-            </div>
-
-            <div className="absolute -left-16 bottom-1/4 bg-[#0A0A0A]/90 border border-white/10 p-4 font-mono text-[9px] text-white/50 w-48 hidden 2xl:block shadow-2xl backdrop-blur-md z-30">
-              <div className="flex justify-between items-center mb-2 pb-1 border-b border-white/10">
-                <span className="text-white font-bold tracking-widest uppercase">Memory_Sync</span>
-                <Database className="h-3 w-3 text-accent" />
-              </div>
-              <div className="flex items-end gap-1 mt-3">
-                {[40, 80, 50, 95, 60, 75].map((h, i) => (
-                  <div key={i} className="flex-1 bg-white/5 h-8 relative overflow-hidden">
-                    <div
-                      className="bg-accent/60 absolute bottom-0 left-0 right-0"
-                      style={{
-                        height: `${h}%`,
-                        animation: `scale-y 1s infinite alternate ease-in-out`,
-                        animationDelay: `${i * 0.1}s`,
-                        transformOrigin: 'bottom'
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
+        {/* Clear Visualization Area */}
+        <div className={`relative z-20 w-full h-full flex flex-col items-center justify-center transition-all duration-1000 ease-out delay-500 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
+          
+          <div className="relative group max-w-3xl">
+             {/* Main Core Visual - No Text, No HUD pollution */}
+             <div className="relative z-10 w-[600px] h-[600px] xl:w-[850px] xl:h-[850px] transition-all duration-1000">
+                <img
+                  src="/assets/images/nexus-core-min.png"
+                  alt="Nexus Minimal Core"
+                  className="w-full h-full object-contain filter contrast-110 brightness-110 drop-shadow-[0_0_100px_rgba(0,194,255,0.1)]"
+                />
+                
+                {/* Subtle Neural Sync Effect - No Boxes */}
+                <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                   <div className="w-[110%] h-[110%] border-[0.5px] border-white/5 rounded-full animate-[spin_120s_linear_infinite]" />
+                </div>
+             </div>
           </div>
 
-          <div className="mt-4 text-center space-y-4 z-20 pointer-events-none">
-            <div className="flex items-center justify-center gap-3 text-[10px] font-black tracking-[0.8em] text-accent uppercase">
-              <div className="h-[1px] w-12 bg-gradient-to-r from-transparent to-accent/40" />
-              <span className="animate-pulse flex items-center gap-2 tracking-[0.2em] transition-all"><Cpu className="h-3 w-3 text-accent opacity-50" /> AGENTE_CORE: ON-LINE</span>
-              <div className="h-[1px] w-12 bg-gradient-to-l from-transparent to-accent/40" />
-            </div>
+          {/* LOWER LABEL - Minimalist */}
+          <div className="absolute bottom-24 flex items-center gap-12 text-[10px] font-mono tracking-[0.5em] text-white/20 uppercase">
+             <div className="flex items-center gap-2">
+                <div className="w-1 h-1 bg-accent rounded-full animate-pulse" />
+                <span>SYNC_ENGAGED</span>
+             </div>
+             <div>ORCHESTRATION_READY</div>
           </div>
         </div>
 
-        {/* ISO BLOCK - Clean & Professional */}
-        <div className="absolute bottom-10 inset-x-0 w-full text-center space-y-4 z-30">
-          <div className="flex items-center justify-center gap-4 opacity-20">
-            <div className="h-[1px] flex-1 max-w-[100px] bg-gradient-to-r from-transparent to-white" />
-            <Hexagon className="h-4 w-4" />
-            <div className="h-[1px] flex-1 max-w-[100px] bg-gradient-to-l from-transparent to-white" />
-          </div>
-          <h2 className="text-lg font-black tracking-[0.5em] text-white/70 uppercase leading-none">
-            CONFORMIDADE & GOVERNANÇA
-          </h2>
-
-          <div className="flex justify-center items-center gap-10 mt-6 font-mono">
-            {[
-              { code: '42001', label: 'IA RESPONSÁVEL' },
-              { code: '27001', label: 'SEGURANÇA CYBER' },
-              { code: '23894', label: 'GESTÃO DE RISCOS' }
-            ].map(iso => (
-              <div key={iso.code} className="text-center group border-l border-white/5 pl-6 first:border-0 border-white/10">
-                <p className="text-[11px] font-black text-accent tracking-[0.2em] group-hover:text-white transition-all">ISO {iso.code}</p>
-                <p className="text-[8px] text-white/20 uppercase mt-1 tracking-tighter group-hover:text-accent/60">{iso.label}</p>
-              </div>
-            ))}
+        {/* MINIMALIST GOVERNANCE FOOTER */}
+        <div className="absolute bottom-0 inset-x-0 w-full bg-gradient-to-t from-black to-transparent pb-10">
+          <div className="max-w-3xl mx-auto px-12 border-t border-white/5 pt-8">
+             <div className="flex justify-between items-center text-[8px] font-mono tracking-[0.3em] text-white/30 uppercase">
+                <div className="flex gap-10">
+                   {['ISO 42001', 'ISO 27001', 'SOC2 TYPE II'].map((iso) => (
+                     <div key={iso} className="hover:text-white transition-colors cursor-crosshair">
+                       {iso}
+                     </div>
+                   ))}
+                </div>
+                <div className="flex items-center gap-4">
+                   <span>SECURE_NODE: PSI-9</span>
+                   <Hexagon className="w-3 h-3 text-white/10" />
+                </div>
+             </div>
           </div>
         </div>
 
@@ -381,6 +329,14 @@ export default function Login() {
 
       {/* GLOBAL ANIMATIONS */}
       <style>{`
+        @keyframes fade-in {
+          0% { opacity: 0; transform: translateY(10px) rotate(3deg); }
+          100% { opacity: 1; transform: translateY(0) rotate(3deg); }
+        }
+        @keyframes slide-in-progress {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(0); }
+        }
         @keyframes scale-y {
           0% { transform: scaleY(0.2); }
           100% { transform: scaleY(1); }

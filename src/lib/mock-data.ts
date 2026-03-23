@@ -128,6 +128,7 @@ export const mockAgents: Agent[] = [
       voiceId: 'voice_abc123',
       ambientSound: 'clean'
     },
+    contextWindow: 128000,
     tenantSlug: 'banco-alpha'
   },
   {
@@ -165,6 +166,7 @@ export const mockAgents: Agent[] = [
     voiceConfig: {
       provider: 'none'
     },
+    contextWindow: 128000,
     tenantSlug: 'banco-alpha'
   },
   {
@@ -193,6 +195,7 @@ export const mockAgents: Agent[] = [
       n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-3',
       voice_provider: 'retell'
     },
+    contextWindow: 128000,
     tenantSlug: 'banco-alpha'
   },
   {
@@ -213,6 +216,7 @@ export const mockAgents: Agent[] = [
       n8n_webhook_url: 'https://n8n.davos.nexus/webhook/banco-alpha/agent/agent-4',
       voice_provider: 'retell'
     },
+    contextWindow: 128000,
     tenantSlug: 'banco-alpha'
   },
   // Data for Tenant 2 (Seguradora Beta) for isolation testing
@@ -234,6 +238,7 @@ export const mockAgents: Agent[] = [
       n8n_webhook_url: 'https://n8n.davos.nexus/webhook/seguradora-beta/agent/agent-t2-1',
       voice_provider: null
     },
+    contextWindow: 128000,
     tenantSlug: 'seguradora-beta'
   },
 ];
@@ -366,8 +371,10 @@ export const mockConversations: Conversation[] = [
     assignedOperator: 'Pedro Santos',
     lastMessage: 'Pronto! Sua conta foi desbloqueada.',
     lastMessageTime: new Date(Date.now() - 60000),
+    complianceScore: 92,
     unreadCount: 0,
     messages: generateMockMessages('conv-1', 'tenant-1', 'banco-alpha'),
+    createdAt: new Date(Date.now() - 3600000),
   },
   {
     id: 'conv-2',
@@ -380,8 +387,10 @@ export const mockConversations: Conversation[] = [
     status: 'ai_active',
     lastMessage: 'Posso consultar seu saldo agora mesmo.',
     lastMessageTime: new Date(Date.now() - 120000),
+    complianceScore: 88,
     unreadCount: 2,
     messages: [],
+    createdAt: new Date(Date.now() - 3600000),
   },
   {
     id: 'conv-3',
@@ -394,8 +403,10 @@ export const mockConversations: Conversation[] = [
     status: 'ai_active',
     lastMessage: 'Como faço para atualizar meus dados?',
     lastMessageTime: new Date(Date.now() - 300000),
+    complianceScore: 20, // Critical Risk
     unreadCount: 1,
     messages: [],
+    createdAt: new Date(Date.now() - 3600000),
   },
   {
     id: 'conv-4',
@@ -411,6 +422,7 @@ export const mockConversations: Conversation[] = [
     lastMessageTime: new Date(Date.now() - 600000),
     unreadCount: 0,
     messages: [],
+    createdAt: new Date(Date.now() - 3600000),
   },
   {
     id: 'conv-5',
@@ -423,8 +435,21 @@ export const mockConversations: Conversation[] = [
     status: 'ai_active',
     lastMessage: 'Tenho interesse no cartão premium.',
     lastMessageTime: new Date(Date.now() - 900000),
+    complianceScore: 30, // Matching User Image
     unreadCount: 3,
     messages: [],
+    evaluation: {
+      id: 'eval-5',
+      tenantId: 'tenant-1',
+      conversationId: 'conv-5',
+      agentId: 'agent-3',
+      score: 35,
+      summary: 'Agente mostrou sinais de alucinação sobre limite de crédito e taxas.',
+      tags: ['Alucinação', 'Risco Compliance'],
+      criteriaResults: { empathy: 80, efficiency: 20, compliance: 5 },
+      createdAt: new Date(Date.now() - 800000)
+    },
+    createdAt: new Date(Date.now() - 3600000),
   },
   {
     id: 'conv-6',
@@ -439,6 +464,7 @@ export const mockConversations: Conversation[] = [
     lastMessageTime: new Date(Date.now() - 1800000),
     unreadCount: 0,
     messages: [],
+    createdAt: new Date(Date.now() - 3600000),
   },
 ];
 

@@ -669,6 +669,8 @@ export interface Conversation {
   isSimulation?: boolean; // Phase 2: Playground
   active_agent_id?: string; // ID of the currently active agent (Parent or Gatekeeper)
   voiceStatus?: 'listening' | 'processing' | 'speaking' | 'idle'; // Phase 3: Realtime Status
+  complianceScore?: number;
+  evaluation?: Evaluation;
 }
 
 export interface ExtendedConversation extends Conversation {

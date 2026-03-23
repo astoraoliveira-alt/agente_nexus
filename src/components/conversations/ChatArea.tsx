@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -292,13 +292,44 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-background">
+    <div className={cn(
+      "flex-1 flex flex-col bg-background relative",
+      conversation.evaluation && conversation.evaluation.score < 40 && "ring-2 ring-red-600 ring-inset z-50 shadow-[0_0_20px_rgba(220,38,38,0.2)]"
+    )}>
+      {/* Alert Banner for Low Score */}
+      {(conversation.evaluation?.score < 40 || (conversation.complianceScore !== undefined && conversation.complianceScore < 40)) && (
+        <div className="bg-red-600 text-white px-4 py-2 flex items-center justify-between animate-in slide-in-from-top duration-500 sticky top-0 z-50">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 animate-pulse" />
+            <span className="text-xs font-bold uppercase tracking-wider">
+              ALERTA CRÍTICO: Auditoria detectou risco de alucinação (Score: {conversation.evaluation?.score ?? conversation.complianceScore})
+            </span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="h-6 text-[10px] text-white hover:bg-white/20 border-white/30"
+            onClick={() => {
+              if (conversation.evaluation) {
+                openSlideOver('evaluation-details', conversation.evaluation);
+              } else {
+                openSlideOver('conversation-details', conversation);
+              }
+            }}
+          >
+            Ver Auditoria
+          </Button>
+        </div>
+      )}
+
       {/* Chat Header */}
       <div className={cn(
-        "h-14 px-4 flex items-center justify-between border-b transition-colors",
-        conversation.status !== 'closed'
-          ? "bg-emerald-500/5 border-emerald-500/20"
-          : "bg-card border-border"
+        "h-14 px-4 flex items-center justify-between border-b transition-colors shrink-0",
+        conversation.evaluation && conversation.evaluation.score < 40
+          ? "bg-red-50 border-red-200"
+          : conversation.status !== 'closed'
+            ? "bg-emerald-500/5 border-emerald-500/20"
+            : "bg-card border-border"
       )}>
         <div className="flex items-center gap-3">
           <div className={cn(

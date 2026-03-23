@@ -452,6 +452,7 @@ export const coreService = {
                 // Ideally, we should add a 'last_message_preview' column to conversations table for this.
                 lastMessageTime: new Date(c.last_message_at),
                 unreadCount: 0,
+                complianceScore: c.compliance_score, // Added compliance_score mapping
                 messages: [], // Empty by default
                 createdAt: new Date(c.created_at)
             };
@@ -841,5 +842,112 @@ export const coreService = {
             aiModel: item.ai_model,
             createdAt: new Date(item.created_at)
         }));
-    }
+    },
+
+    /**
+     * Unified Mission Control V2 call.
+     * All period logic lives in the DB (fn_get_mission_control_v2).
+     * Returns: { metrics: { success, critical, pending, avg_latency }, errors: [], period_info: { start, end } }
+     */
+    async getMissionControlV2(
+        tenantId?: string,
+        period: 'today' | 'yesterday' | 'week' | 'month' | 'custom' = 'today',
+        search?: string,
+        startDate?: string,
+        endDate?: string
+    ): Promise<{ metrics: any; errors: any[]; period_info: any }> {
+        const { data, error } = await supabase.rpc('fn_get_mission_control_v2', {
+            p_tenant_id:  tenantId   || null,
+            p_period:     period,
+            p_search:     search     || null,
+            p_start_date: startDate  || null,
+            p_end_date:   endDate    || null,
+        });
+        if (error) throw error;
+        return data as { metrics: any; errors: any[]; period_info: any };
+    },
+
+    async getErrorRootCauses(tenantId?: string, startDate?: string, endDate?: string, searchText?: string): Promise<any[]> {
+        const { data, error } = await supabase.rpc('fn_get_error_root_causes', {
+            p_tenant_id:   tenantId   || null,
+            p_start_date:  startDate  || null,
+            p_end_date:    endDate    || null,
+            p_search_text: searchText || null
+        });
+        if (error) throw error;
+        return data || [];
+    },
+
+    async getFailedMessages(tenantId?: string, startDate?: string, endDate?: string, searchText?: string): Promise<any[]> {
+        try {
+            const { data, error } = await supabase.rpc('fn_get_queue_audit', {
+                p_tenant_id:     tenantId   || null,
+                p_stuck_minutes: 5,
+                p_start_date:    startDate  || null,
+                p_end_date:      endDate    || null,
+                p_search_text:   searchText || null
+            });
+            if (error) throw error;
+            return data || [];
+        } catch (err) {
+            console.error('[CORE] Error Fetching Queue Audit:', err);
+            return [];
+        }
+    },
+
+    async retryFailedMessage(queueId: string): Promise<void> {
+        try {
+            const { error } = await supabase.rpc('fn_retry_failed_message', { 
+                p_queue_id: queueId 
+            });
+            if (error) throw error;
+        } catch (err) {
+            console.error('[CORE] Error Retrying Message:', err);
+            throw err;
+        }
+    },
+
+    /** AI Performance Center - Economia & ROI */
+    async getAIPerfEconomics(tenantId?: string, startDate?: string, endDate?: string): Promise<any> {
+        const { data, error } = await supabase.rpc('fn_ai_perf_economics', {
+            p_tenant_id:  tenantId  || null,
+            p_start_date: startDate || null,
+            p_end_date:   endDate   || null,
+        });
+        if (error) throw error;
+        return data;
+    },
+
+    /** AI Performance Center - Segurança & Compliance */
+    async getAIPerfSecurity(tenantId?: string, startDate?: string, endDate?: string): Promise<any> {
+        const { data, error } = await supabase.rpc('fn_ai_perf_security', {
+            p_tenant_id:  tenantId  || null,
+            p_start_date: startDate || null,
+            p_end_date:   endDate   || null,
+        });
+        if (error) throw error;
+        return data;
+    },
+
+    /** AI Performance Center - Otimização IA */
+    async getAIPerfOptimization(tenantId?: string, startDate?: string, endDate?: string): Promise<any> {
+        const { data, error } = await supabase.rpc('fn_ai_perf_optimization', {
+            p_tenant_id:  tenantId  || null,
+            p_start_date: startDate || null,
+            p_end_date:   endDate   || null,
+        });
+        if (error) throw error;
+        return data;
+    },
+
+    /** AI Performance Center - Conhecimento RAG */
+    async getAIPerfKnowledge(tenantId?: string, startDate?: string, endDate?: string): Promise<any> {
+        const { data, error } = await supabase.rpc('fn_ai_perf_knowledge', {
+            p_tenant_id:  tenantId  || null,
+            p_start_date: startDate || null,
+            p_end_date:   endDate   || null,
+        });
+        if (error) throw error;
+        return data;
+    },
 };

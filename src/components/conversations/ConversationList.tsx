@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone } from 'lucide-react';
+import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -148,16 +148,20 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
               key={conv.id}
               className={cn(
                 'group relative p-4 border-b border-border/50 cursor-pointer transition-all',
-                // STATUS STYLING
-                conv.status !== 'closed'
-                  ? 'bg-emerald-500/5 hover:bg-emerald-500/10 border-l-[3px] border-l-emerald-500' // Active: Green Tint + Vivid Border
-                  : 'hover:bg-muted/30 border-l-[3px] border-l-transparent opacity-75',          // Closed: Muted + Transparent Border
+                // AUDIT RISK STYLING (Priority #1: Red Border Around)
+                (conv.complianceScore !== undefined && conv.complianceScore < 70) || (conv.evaluation && conv.evaluation.score < 70)
+                  ? "ring-2 ring-red-600 ring-inset bg-red-500/10 shadow-[0_0_20px_rgba(239,68,68,0.2)] relative z-10 border-transparent m-[1px]"
+                  : conv.status !== 'closed'
+                    ? 'bg-emerald-500/5 hover:bg-emerald-500/10 border-l-[3px] border-l-emerald-500' // Active: Green Tint + Vivid Border
+                    : 'hover:bg-muted/30 border-l-[3px] border-l-transparent opacity-75',          // Closed: Muted + Transparent Border
 
-                // SELECTION STATE (Overrides/Enhances)
+                // SELECTION STATE (Priority #2: Selection Highlight)
                 selectedId === conv.id && (
-                  conv.status !== 'closed'
-                    ? 'bg-emerald-500/15 border-l-emerald-600'
-                    : 'bg-muted border-l-foreground/50'
+                  (conv.complianceScore !== undefined && conv.complianceScore < 70) || (conv.evaluation && conv.evaluation.score < 70)
+                    ? "bg-red-500/20 ring-red-600 border-red-600"
+                    : conv.status !== 'closed'
+                      ? 'bg-emerald-500/15 border-l-emerald-600'
+                      : 'bg-muted border-l-foreground/50'
                 )
               )}
               onClick={() => onSelect(conv)}
@@ -190,8 +194,12 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                         <span className={cn(
                           "font-medium truncate transition-colors",
                           conv.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-muted-foreground",
-                          selectedId === conv.id && "text-foreground"
+                          selectedId === conv.id && "text-foreground",
+                           ((conv.complianceScore !== undefined && conv.complianceScore < 70) || (conv.evaluation && conv.evaluation.score < 70)) && "text-red-700 dark:text-red-400"
                         )}>{conv.userName}</span>
+                        {((conv.complianceScore !== undefined && conv.complianceScore < 70) || (conv.evaluation && conv.evaluation.score < 70)) && (
+                          <AlertTriangle className="h-3.5 w-3.5 text-red-600 animate-pulse fill-red-600/10" />
+                        )}
                         {conv.userStatus === 'banned' && (
                           <Badge variant="destructive" className="h-4 px-1 scale-75 transform origin-left uppercase">Banido</Badge>
                         )}
