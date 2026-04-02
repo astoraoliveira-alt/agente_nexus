@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 23/Mar/2026
-> **Versão:** 28.0 (Global Access & RLS Stability Era)
+> **Última Atualização:** 02/Abr/2026
+> **Versão:** 29.0 (State Engine & Gateway Routing Era)
 > **Status:** Mestre — Fonte Única da Verdade
-> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `src/lib/types.ts` · `database/fix_rls_recursion.sql`
+> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `database/create_queue_supervisor_rpc.sql`
 
 ---
 
@@ -128,6 +128,22 @@ Para evitar que erros silenciosos ("swallowed errors") fizessem o bot "congelar"
    - O n8n faz um UPDATE na `inbound_queue`, alterando o status para `failed` e gravando a propriedade `error_message`.
    - Um **Trigger nativo do PostgreSQL** (`trg_track_inbound_queue_errors`) intercepta essa atualização autómaticamente e clona o registro integral para a tabela imutável `inbound_queue_errors`.
    - **Resultado:** Mantemos 100% de rastreabilidade do erro, mesmo se a linha original da Inbound Queue for reprocessada, deletada ou "retentada" (retry) num fluxo de fallback.
+
+### 2.7 Configuração do Porteiro na Evolution API
+
+Para que o webhook seja roteado com sucesso para a arquitetura N8N (com suporte a múltiplos agentes "comendo" a mesma API isoladamente), a Evolution API **deve** chamar diretamente o script do Porteiro (Gateway) em vez do endereço Webhook nativo do N8N.
+
+- **URL do Webhook na Evolution API**: `https://{SEU_IP_DO_PORTEIRO}:3004/v1/evolution/webhook` (exemplo se usar a porta 3004). O porteiro foi feito para processar milissegundos sem congelar.
+- **Header N8N_BLOCK**: N/A, o porteiro verifica sua própria chave no `.env`.
+- **Instância**: O nome da instância conectada na Evolution API (ex: `n8n-alpargata`) **DEVE** casar perfeitamente com o campo `evolution_instance` do agente na tabela `agents`.
+- **Eventos a Ativar na Evolution**: `MESSAGES_UPSERT` (e futuramente `MESSAGES_UPDATE` para status de leitura).
+
+Ao receber o evento da Evolution, o Porteiro:
+1. Identifica qual Agente é o dono daquela instância.
+2. Identifica o número (e bloqueia spam / bad numbers nativos).
+3. Monta o pacote de dados (`payload` JSON).
+4. Grava imediatamente no PostgreSQL na `inbound_queue`.
+5. O N8N (sendo "cego" pro WhatsApp) apenas puxa dessa fila de forma passiva através do `RPC - Acesso Entrada`.
 
 ---
 
@@ -594,6 +610,18 @@ A integração de voz é assíncrona e idempotente:
 - Cada agente tem `session_timeout_seconds` configurável.
 - A RPC `close_idle_conversations` verifica `last_message_at + timeout < NOW()`.
 - Conversas inativas são encerradas automaticamente e entram na fila de auditoria.
+
+### 8.4 Motor de Estado Conversacional (Memória de Curto Prazo)
+
+Para evitar que a IA perca o contexto de decisões tomadas na **mesma** conversa e entre em "amnésia" ou lógicas infinitas, as conversas contam com um estado transacional salvo em tempo real na coluna `context_state` (JSONB).
+
+**Ciclo de Atualização e Resgate de Estado:**
+1. A LLM de Decisão decide o caminho, e um **Code Node (ex: Formatar Contexto)** no N8N monta e provê um novo Estado (`last_intent`, `flags` booleanas, ações executadas, `stage`).
+2. O N8N processa a requisição e envia com sucesso a mensagem final para o WhatsApp via API padrão.
+3. IMEDIATAMENTE após enviar (Caminho de Sucesso), o N8N executa a RPC `fn_update_conversation_state` passando as bandeiras (ex: `{"flags": {"link_sent_attempt": true}}`).
+4. Quando o usuário responder dizendo (ex: "Legal, gostei"), o evento entra pelo Porteiro na Fila. O `RPC - Acesso Entrada` chama a função `fn_get_agent_context`.
+5. O Supabase recupera toda a inteligência e anexa o último `context_state` preenchido. 
+6. O Code Node Validador da Fila lê essa bandeira e diz "Opa, o `link_sent_attempt` é `true`, então vou bloquear o repasse do link financeiro se a intenção repetir". O comportamento da IA fica sólido e progressivo.
 
 ---
 
