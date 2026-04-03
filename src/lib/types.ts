@@ -393,13 +393,15 @@ export interface Agent {
   // New Integration Fields
   type?: 'embedded' | 'whatsapp' | 'conversational';
   parent_agent_id?: string; // New field for sub-agents
-  whatsapp_provider?: 'evolution' | 'meta'; // New field for WhatsApp API type
+  whatsapp_provider?: 'evolution' | 'meta' | 'zenvia'; // Provider: Evolution (unofficial), Meta Direct, Zenvia BSP (oficial Meta)
   meta_api_token?: string; // New field for Official Meta API
   meta_phone_id?: string; // New field for Meta Phone Number ID
   meta_waba_id?: string; // New field for Meta WhatsApp Business Account ID
   meta_verify_token?: string; // New field for Meta Webhook Verification
   evolution_instance?: string; // Evolution API instance name for dynamic lookup
   evolution_token?: string;
+  zenvia_channel_id?: string;  // Número Zenvia associado ao agente ("from" nos payloads)
+  zenvia_api_token?: string;   // API Token Zenvia (armazenado criptografado)
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
     n8n_webhook_url?: string;

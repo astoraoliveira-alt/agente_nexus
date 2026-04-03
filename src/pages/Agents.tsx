@@ -422,9 +422,13 @@ export default function Agents() {
                   {/* WhatsApp Provider Specialty Badge */}
                   {agent.type === 'whatsapp' && (
                     <Badge variant="outline" className="text-[9px] h-5 gap-1 border-border/50 bg-background/50 text-muted-foreground uppercase font-mono px-1.5 translate-y-[0.5px]">
-                      {agent.whatsapp_provider === 'meta' ? (
+                      {agent.whatsapp_provider === 'zenvia' ? (
                         <>
-                          <Cloud className="h-2.5 w-2.5 text-blue-500" /> Meta
+                          <Cloud className="h-2.5 w-2.5 text-blue-500" /> Zenvia
+                        </>
+                      ) : agent.whatsapp_provider === 'meta' ? (
+                        <>
+                          <Cloud className="h-2.5 w-2.5 text-blue-400" /> Meta
                         </>
                       ) : (
                         <>
@@ -1053,9 +1057,14 @@ export default function Agents() {
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
+                                  <SelectItem value="zenvia">
+                                    <div className="flex items-center gap-2">
+                                      <Cloud className="h-3 w-3 text-blue-500" /> Meta Cloud API — Zenvia (Oficial)
+                                    </div>
+                                  </SelectItem>
                                   <SelectItem value="meta">
                                     <div className="flex items-center gap-2">
-                                      <Cloud className="h-3 w-3" /> Meta Cloud API (Oficial)
+                                      <Cloud className="h-3 w-3" /> Meta Cloud API (Direto)
                                     </div>
                                   </SelectItem>
                                   <SelectItem value="evolution">
@@ -1067,7 +1076,46 @@ export default function Agents() {
                               </Select>
                             </div>
 
-                            {formData.whatsapp_provider === 'meta' ? (
+                            {formData.whatsapp_provider === 'zenvia' ? (
+                              <div className="grid grid-cols-1 gap-4 pt-2 border-t border-border/30 mt-2 animate-in slide-in-from-top-2">
+                                <div className="flex items-start gap-2 p-2.5 rounded-md bg-blue-500/5 border border-blue-500/20">
+                                  <Cloud className="h-3.5 w-3.5 text-blue-500 mt-0.5 flex-shrink-0" />
+                                  <p className="text-[10px] text-blue-600 dark:text-blue-400 leading-snug">
+                                    <strong>Zenvia BSP</strong> — Provedor oficial Meta. O Porteiro receberá mensagens em
+                                    <code className="font-mono bg-blue-500/10 px-0.5 rounded mx-0.5">/v1/zenvia/webhook</code>
+                                    automaticamente.
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Channel ID Zenvia (Número "from")
+                                  </Label>
+                                  <Input
+                                    className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
+                                    placeholder="Ex: 5511888880000"
+                                    value={formData.zenvia_channel_id || ''}
+                                    onChange={(e) => setFormData({ ...formData, zenvia_channel_id: e.target.value })}
+                                  />
+                                  <p className="text-[9px] text-muted-foreground">Número WhatsApp Business registrado na Zenvia (com DDI, sem +)</p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    API Token Zenvia
+                                  </Label>
+                                  <div className="relative">
+                                    <Input
+                                      type="password"
+                                      className="h-9 font-mono text-xs bg-muted/30 pr-10"
+                                      placeholder="hKp94crjv9OF3UGrCpSXUJw1-UYHhRvLKNLt"
+                                      value={formData.zenvia_api_token || ''}
+                                      onChange={(e) => setFormData({ ...formData, zenvia_api_token: e.target.value })}
+                                    />
+                                    <Key className="h-3.5 w-3.5 absolute right-3 top-2.5 text-muted-foreground opacity-50" />
+                                  </div>
+                                  <p className="text-[9px] text-muted-foreground">Gerado em app.zenvia.com/home/api — X-API-TOKEN do header</p>
+                                </div>
+                              </div>
+                            ) : formData.whatsapp_provider === 'meta' ? (
                               <div className="grid grid-cols-1 gap-4 pt-2 border-t border-border/30 mt-2 animate-in slide-in-from-top-2">
                                 <div className="space-y-2">
                                   <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Phone Number ID</Label>

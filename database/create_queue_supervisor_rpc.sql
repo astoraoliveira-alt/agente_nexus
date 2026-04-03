@@ -161,6 +161,8 @@ BEGIN
             'role', COALESCE(v_agent.role, 'Consultor de Vendas'),
             'meta_api_token', v_agent.meta_api_token,
             'whatsapp_api_type', v_agent.whatsapp_api_type,
+            'whatsapp_provider', COALESCE(v_agent.whatsapp_provider, 'evolution'),  -- V50: roteamento multi-provider
+            'zenvia_channel_id', v_agent.zenvia_channel_id,                          -- V50: número Zenvia ("from")
             'contextWindow', v_agent.context_window,
             'brain_config', v_agent.brain_config,
             'greeting_message', COALESCE(v_agent.brain_config->>'greetingMessage', ''),
@@ -302,6 +304,8 @@ BEGIN
             'role', COALESCE(v_agent.role, 'Consultor de Vendas'),
             'meta_api_token', v_agent.meta_api_token,
             'whatsapp_api_type', v_agent.whatsapp_api_type,
+            'whatsapp_provider', COALESCE(v_agent.whatsapp_provider, 'evolution'),  -- V50: roteamento multi-provider
+            'zenvia_channel_id', v_agent.zenvia_channel_id,                          -- V50: número Zenvia ("from")
             'contextWindow', v_agent.context_window,
             'brain_config', v_agent.brain_config,
             'greeting_message', COALESCE(v_agent.brain_config->>'greetingMessage', ''),

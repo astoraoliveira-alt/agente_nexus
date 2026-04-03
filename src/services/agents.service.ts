@@ -31,9 +31,16 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             type: agent.type || 'conversational',
             integration_config: agent.integrationConfig || {},
             ...(agent.evolution_instance ? { evolution_instance: agent.evolution_instance } : {}),
+            ...(agent.evolution_token !== undefined ? { evolution_token: agent.evolution_token } : {}),
             ...(agent.parent_agent_id ? { parent_agent_id: agent.parent_agent_id } : {}),
-            whatsapp_api_type: agent.whatsapp_api_type || 'evolution',
+            whatsapp_provider: agent.whatsapp_provider || 'evolution',
+            whatsapp_api_type: (agent as any).whatsapp_api_type || 'evolution',
             meta_api_token: agent.meta_api_token,
+            meta_phone_id: agent.meta_phone_id,
+            meta_waba_id: agent.meta_waba_id,
+            meta_verify_token: agent.meta_verify_token,
+            zenvia_channel_id: agent.zenvia_channel_id,
+            zenvia_api_token: agent.zenvia_api_token,
             is_gatekeeper: agent.is_gatekeeper || false,
             gatekeeper_scope: agent.gatekeeper_scope || null,
             requires_security: agent.requires_security || false
@@ -66,8 +73,16 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             policies: data.applied_policies || [],
             parent_agent_id: data.parent_agent_id,
             role: data.role,
+            whatsapp_provider: data.whatsapp_provider,
             whatsapp_api_type: data.whatsapp_api_type,
-            meta_api_token: data.meta_api_token
+            meta_api_token: data.meta_api_token,
+            meta_phone_id: data.meta_phone_id,
+            meta_waba_id: data.meta_waba_id,
+            meta_verify_token: data.meta_verify_token,
+            evolution_instance: data.evolution_instance,
+            evolution_token: data.evolution_token,
+            zenvia_channel_id: data.zenvia_channel_id,
+            zenvia_api_token: data.zenvia_api_token,
         } as unknown as Agent;
     },
 
@@ -92,11 +107,18 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.voiceConfig) dbPayload.voice_config = updates.voiceConfig;
         if (updates.type) dbPayload.type = updates.type;
         if (updates.evolution_instance !== undefined) dbPayload.evolution_instance = updates.evolution_instance;
+        if (updates.evolution_token !== undefined) dbPayload.evolution_token = updates.evolution_token;
         if (updates.integrationConfig) dbPayload.integration_config = updates.integrationConfig;
         if (updates.policies) dbPayload.applied_policies = updates.policies;
         if (updates.parent_agent_id !== undefined) dbPayload.parent_agent_id = updates.parent_agent_id;
-        if (updates.whatsapp_api_type) dbPayload.whatsapp_api_type = updates.whatsapp_api_type;
+        if (updates.whatsapp_provider !== undefined) dbPayload.whatsapp_provider = updates.whatsapp_provider;
+        if ((updates as any).whatsapp_api_type) dbPayload.whatsapp_api_type = (updates as any).whatsapp_api_type;
         if (updates.meta_api_token !== undefined) dbPayload.meta_api_token = updates.meta_api_token;
+        if (updates.meta_phone_id !== undefined) dbPayload.meta_phone_id = updates.meta_phone_id;
+        if (updates.meta_waba_id !== undefined) dbPayload.meta_waba_id = updates.meta_waba_id;
+        if (updates.meta_verify_token !== undefined) dbPayload.meta_verify_token = updates.meta_verify_token;
+        if (updates.zenvia_channel_id !== undefined) dbPayload.zenvia_channel_id = updates.zenvia_channel_id;
+        if (updates.zenvia_api_token !== undefined) dbPayload.zenvia_api_token = updates.zenvia_api_token;
         // Explicit boolean — must use !== undefined to capture false values
         if (updates.requires_security !== undefined) dbPayload.requires_security = updates.requires_security;
         if (updates.is_gatekeeper !== undefined) dbPayload.is_gatekeeper = updates.is_gatekeeper;
@@ -134,8 +156,16 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
             is_gatekeeper: data.is_gatekeeper || false,
             gatekeeper_scope: data.gatekeeper_scope || null,
             requires_security: data.requires_security || false,
+            whatsapp_provider: data.whatsapp_provider,
             whatsapp_api_type: data.whatsapp_api_type,
             meta_api_token: data.meta_api_token,
+            meta_phone_id: data.meta_phone_id,
+            meta_waba_id: data.meta_waba_id,
+            meta_verify_token: data.meta_verify_token,
+            evolution_instance: data.evolution_instance,
+            evolution_token: data.evolution_token,
+            zenvia_channel_id: data.zenvia_channel_id,
+            zenvia_api_token: data.zenvia_api_token,
             // Legacy mapping
             integration: {
                 voice_provider: data.voice_config?.provider === 'none' ? null : data.voice_config?.provider,
