@@ -18,8 +18,16 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Use Service Role for backend operations (Webhooks, etc.) if available
 const supabaseAdmin = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : supabase;
 
-// --- CONFIGURAÇÕES DE FILA ---
+// --- CONFIGURAÇÕES DE FILA (V50 - Scale Guardian) ---
 const DEBOUNCE_TIME_MS = 1500; // Tempo de espera para agrupar mensagens
+
+// Ajuste 4: Limite de jobs simultâneos (anti-colapso)
+const MAX_CONCURRENT_JOBS = 10;
+let activeJobs = 0;
+
+// Ajuste 5: Backoff exponencial para retries
+const RETRY_BACKOFF_MS = [10_000, 30_000, 120_000]; // retry 1→10s, 2→30s, 3→2min, 4→DLQ
+
 const pendingMessages = new Map<string, { 
     timeout: NodeJS.Timeout, 
     contents: string[], 
@@ -60,8 +68,13 @@ app.use('*', cors({
  * Skips for public endpoints like webhooks
  */
 app.use('/v1/*', async (c, next) => {
-    // Bypass for evolution webhook and queue management
-    if (c.req.path === '/v1/evolution/webhook' || c.req.path.startsWith('/v1/queue/')) {
+    // Bypass for webhooks (Evolution, Zenvia) and queue management
+    if (
+        c.req.path === '/v1/evolution/webhook' ||
+        c.req.path === '/v1/zenvia/webhook' ||
+        c.req.path === '/v1/zenvia/status' ||
+        c.req.path.startsWith('/v1/queue/')
+    ) {
         return await next();
     }
 
@@ -346,6 +359,13 @@ app.post('/v1/evolution/webhook', async (c) => {
             if (!dataToProcess) return;
             pendingMessages.delete(conversationId);
 
+            // Ajuste 4: Throttle — nunca excede MAX_CONCURRENT_JOBS simultâneos
+            if (activeJobs >= MAX_CONCURRENT_JOBS) {
+                console.warn(`[PORTEIRO] ⚠️ MAX_CONCURRENT_JOBS (${MAX_CONCURRENT_JOBS}) atingido. Re-enfileirando após 2s.`);
+                await new Promise(res => setTimeout(res, 2000));
+            }
+            activeJobs++;
+
             const finalContent = dataToProcess.contents.join('\n');
             const traceId = `TRC-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
             
@@ -424,6 +444,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                 }
             } catch (err) {
                 console.error(`[PORTEIRO] ❌ Falha crítica ao processar fila:`, err);
+            } finally {
+                activeJobs--; // Ajuste 4: libera o slot de concorrência
             }
         }, DEBOUNCE_TIME_MS);
 
@@ -438,6 +460,172 @@ app.post('/v1/evolution/webhook', async (c) => {
         console.error('[PORTEIRO] ❌ Webhook Error:', err);
         return c.json({ error: 'Internal processing error', details: err.message }, 500);
     }
+});
+
+// --- ZENVIA WEBHOOK HANDLER (Meta Cloud API Oficial) ---
+
+/**
+ * Zenvia Inbound Webhook
+ * Recebe mensagens de entrada via provedor oficial Meta (Zenvia BSP)
+ * Normaliza e enfileira o mesmo fluxo da Evolution.
+ */
+app.post('/v1/zenvia/webhook', async (c) => {
+    console.log(`[ZENVIA] 🔔 Webhook recebido da Zenvia`);
+    try {
+        const body = await c.req.json();
+
+        // Ignora eventos de saída (loop) e não-MESSAGE
+        if (body.direction === 'OUT' || body.type !== 'MESSAGE') {
+            return c.json({ ok: true, ignored: true });
+        }
+
+        const phone = body.from?.replace(/\D/g, '');
+        const channelId = body.to; // número Zenvia do agente
+        const pushName = body.visitor?.name || body.visitor?.firstName || phone;
+        const externalId = body.id;
+
+        // Extrai conteúdo
+        const content = body.contents?.[0];
+        let textContent = '';
+        let detectedMessageType = 'conversation';
+        let mediaUrl = '';
+        let mimetype = '';
+
+        if (content?.type === 'text') {
+            textContent = content.text || '';
+        } else if (content?.type === 'file') {
+            textContent = content.fileCaption || '';
+            mimetype = content.fileMimeType || '';
+            mediaUrl = content.fileUrl || '';
+            detectedMessageType = mimetype.startsWith('audio') ? 'audioMessage' : 'imageMessage';
+        }
+
+        if (!phone || (!textContent && !mediaUrl)) {
+            return c.json({ ok: true, ignored: true, reason: 'missing_content' });
+        }
+
+        // Busca o agente pelo zenvia_channel_id
+        const { data: agentRows } = await supabaseAdmin
+            .from('agents')
+            .select('id, tenant_id')
+            .eq('zenvia_channel_id', channelId)
+            .eq('status', 'active')
+            .limit(1);
+
+        if (!agentRows?.length) {
+            console.error(`[ZENVIA] ❌ Agente não encontrado para channel: ${channelId}`);
+            return c.json({ error: 'Agent not found' }, 404);
+        }
+
+        const agent = agentRows[0];
+
+        // Upsert contato
+        await supabaseAdmin.from('contacts').upsert({
+            tenant_id: agent.tenant_id,
+            identifier: phone,
+            phone,
+            name: pushName,
+            channel: 'whatsapp'
+        }, { onConflict: 'tenant_id,identifier' });
+
+        // Localiza ou cria conversa
+        const { data: conv } = await supabaseAdmin
+            .from('conversations')
+            .select('id')
+            .eq('tenant_id', agent.tenant_id)
+            .eq('user_identifier', phone)
+            .eq('agent_id', agent.id)
+            .neq('status', 'closed')
+            .order('last_message_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        let conversationId = conv?.id;
+        if (!conversationId) {
+            const { data: newConv } = await supabaseAdmin
+                .from('conversations')
+                .insert({
+                    tenant_id: agent.tenant_id,
+                    agent_id: agent.id,
+                    user_identifier: phone,
+                    user_name: pushName,
+                    channel: 'whatsapp',
+                    status: 'ai_active'
+                })
+                .select()
+                .single();
+            conversationId = newConv?.id;
+        }
+
+        await supabaseAdmin
+            .from('conversations')
+            .update({ last_message_at: new Date().toISOString() })
+            .eq('id', conversationId);
+
+        // Enfileira — mesmo RPC da Evolution
+        const traceId = `ZNV-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+        const { error: queueError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+            p_tenant_id: agent.tenant_id,
+            p_agent_id: agent.id,
+            p_conversation_id: conversationId,
+            p_external_id: externalId,
+            p_payload: {
+                content: textContent,
+                phone,
+                name: pushName,
+                instance: channelId,
+                timestamp: new Date().toISOString(),
+                messageType: detectedMessageType,
+                platform: 'zenvia',
+                mediaUrl,
+                mimetype
+            },
+            p_trace_id: traceId,
+            p_message_type: detectedMessageType,
+            p_priority: 100 // Mensagem humana = máxima prioridade
+        });
+
+        if (queueError) {
+            console.error(`[ZENVIA] ❌ Erro ao enfileirar:`, queueError);
+            return c.json({ error: 'Queue error' }, 500);
+        }
+
+        // Dispara N8N (mesmo padrão da Evolution)
+        const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
+        if (n8nWebhookUrl) {
+            await fetch(n8nWebhookUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trace_id: traceId, conversation_id: conversationId, tenant_id: agent.tenant_id, agent_id: agent.id })
+            }).catch(err => console.error(`[ZENVIA] ⚠️ N8N trigger failed:`, err.message));
+        }
+
+        console.log(`[ZENVIA] ✅ Mensagem de ${phone} enfileirada [Trace: ${traceId}]`);
+        return c.json({ ok: true, trace_id: traceId });
+
+    } catch (err: any) {
+        console.error('[ZENVIA] ❌ Webhook Error:', err);
+        return c.json({ error: 'Internal error', details: err.message }, 500);
+    }
+});
+
+/**
+ * Zenvia Status Webhook
+ * Recebe confirmação de entrega da Zenvia (SENT/DELIVERED/READ/FAILED)
+ */
+app.post('/v1/zenvia/status', async (c) => {
+    const body = await c.req.json();
+    const code = body.messageStatus?.code;
+    const messageId = body.messageId;
+    console.log(`[ZENVIA] 📦 Status: ${code} para msgId: ${messageId}`);
+    // Atualiza outbound_queue se existir o external_message_id
+    if (code === 'FAILED' && messageId) {
+        await supabaseAdmin
+            .from('outbound_queue')
+            .update({ status: 'failed' })
+            .eq('external_message_id', messageId);
+    }
+    return c.json({ ok: true });
 });
 
 // --- QUEUE MANAGEMENT (ELITE SYSTEM_ROLE BYPASS) ---

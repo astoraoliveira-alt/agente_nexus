@@ -19,6 +19,29 @@ BEGIN
     END LOOP;
 END $$;
 
+-- ======================================================== --
+-- AJUSTE 7: ÍNDICE PARCIAL DE WORKER (V50 - Scale Guardian) --
+-- Acelera o SELECT ... WHERE status = 'pending' do RPC      --
+-- eliminando varredura de rows 'done'/'failed'/'processing'  --
+-- ======================================================== --
+CREATE INDEX IF NOT EXISTS idx_inbound_queue_worker
+ON public.inbound_queue (priority DESC, created_at ASC)
+WHERE status = 'pending';
+
+-- ======================================================== --
+-- AJUSTE 2/DATABASE: SUPORTE MULTI-PROVIDER (Zenvia + Evol) --
+-- Adiciona campos para provedor oficial Meta via Zenvia BSP  --
+-- ======================================================== --
+ALTER TABLE public.agents 
+ADD COLUMN IF NOT EXISTS zenvia_channel_id VARCHAR(255);
+
+ALTER TABLE public.agents 
+ADD COLUMN IF NOT EXISTS zenvia_api_token TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_agents_zenvia_channel
+ON public.agents (zenvia_channel_id)
+WHERE zenvia_channel_id IS NOT NULL;
+
 -- [2] MEGA FUNCTION: fn_fetch_next_inbound_message (V49)
 CREATE OR REPLACE FUNCTION public.fn_fetch_next_inbound_message(
     p_lock_minutes INT DEFAULT 5,
@@ -53,7 +76,7 @@ BEGIN
     WHERE id = (
         SELECT id FROM public.inbound_queue
         WHERE status = 'pending'
-        ORDER BY created_at ASC
+        ORDER BY priority DESC NULLS LAST, created_at ASC -- Ajuste 1/2: resposta humana (prio 100) frente a campanha (prio 10)
         LIMIT 1
         FOR UPDATE SKIP LOCKED
     )
