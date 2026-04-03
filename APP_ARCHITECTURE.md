@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 03/Abr/2026
-> **Versão:** 49.0 (The State Restorer — DLQ & State Engine)
-> **Status:** Mestre — Fonte Única da Verdade
-> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `database/create_queue_supervisor_rpc.sql` (V49)
+> **Versão:** 49.0 (The State Guardian — Zero Duplication & Atomic Success)
+> **Status:** Mestre — Estabilidade Total de Mensageria
+> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `porteiro/src/index.ts` (V49)
 
 ---
 
@@ -1496,6 +1496,35 @@ Qualquer alteração na lógica de entrada de mensagens DEVE obrigatoriamente se
 
 ---
 
-*Este documento reflete a era de Alta Performance e Restauração de Estado V49 Davos Nexus.*
+*Este documento reflete a era de Alta Performance e Estabilidade Atômica V49 Davos Nexus.*
 
+---
 
+## 22. Protocolo de Estabilização V49 (State Guardian — Fim da Duplicidade)
+
+A partir da V49, o sistema Nexus Hub implementa a separação definitiva de responsabilidades entre o Gateway (**Porteiro**) e a Lógica de Negócio (**N8N**).
+
+### 22.1 O Fim da Duplicação de Mensagens
+O Porteiro (Gateway) deixou de gravar mensagens diretamente na tabela `public.messages`. 
+- **Fluxo Anterior**: Porteiro gravava -> N8N gravava (Duplicidade).
+- **Fluxo V49**: Porteiro apenas enfileira (`inbound_queue`) -> N8N processa -> N8N grava a mensagem definitiva via RPC `record_message`.
+- **Resultado**: 100% de integridade. A mensagem só aparece no Chat após ser processada (com transcrição de áudio e OCR se necessário).
+
+### 22.2 Identidade de Remetente (Sender Mapping)
+A V49 padronizou a rotulagem de mensagens para legibilidade no Chat:
+- **`user`**: O cliente final (ex: Astor). No `ChatArea.tsx`, aparece com o nome do contato.
+- **`ai`**: A inteligência artificial (ex: Sofia). Aparece com o rótulo "IA".
+- **`human`**: O operador humano (HITL). Aparece com o rótulo "Operador".
+
+### 22.3 Telemetria de Custos e Rastreabilidade
+O contrato de telemetria da RPC `fn_track_llm_usage` foi blindado no N8N:
+- **`tenant_id`**: Obrigatório para evitar erros de "invalid_tenant".
+- **`trace_id`**: Amarrado ao `queue_id` original da mensagem, permitindo auditoria de custo por interação.
+- **Idempotência**: Uso de `idempotency_key` no payload de custos para evitar cobranças duplicadas em retentativas do N8N.
+
+### 22.4 Compatibilidade de Governança (Decision Logs View)
+Para garantir que o Dashboard de Governança (`/governance`) funcione mesmo com alterações de nome de banco, foi criada a View `public.decision_logs`:
+- Mapeia `public.audit_logs` para os campos esperados pelo Frontend (`decision_type`, `rationale`).
+- Resolve o erro de `undefined (reading 'length')` na UI de Governança ao garantir que a tabela sempre retorne um array (mesmo que vazio).
+
+---
