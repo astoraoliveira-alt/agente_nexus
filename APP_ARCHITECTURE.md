@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 03/Abr/2026
-> **Versão:** 49.0 (The State Guardian — Zero Duplication & Atomic Success)
-> **Status:** Mestre — Estabilidade Total de Mensageria
-> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `porteiro/src/index.ts` (V49)
+> **Versão:** 50.0 (Scale Guardian — Multi-Provider + Priority Queue + Concurrency Control)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos)
+> **Fontes Primárias:** `database/create_queue_supervisor_rpc.sql` · `src/services/agents.service.ts` · `porteiro/src/index.ts` (V50)
 
 ---
 
@@ -358,6 +358,13 @@ companies (tenants)
 | `integration_config` | JSONB | `{n8n_webhook_url, response_mode}` |
 | `evolution_instance` | VARCHAR | Nome da instância na Evolution API |
 | `evolution_token` | VARCHAR | Token da instância |
+| `whatsapp_provider` | VARCHAR(50) | **[V50]** `'evolution'` \| `'zenvia'` — Roteador de provedor. DEFAULT `'evolution'`. |
+| `meta_api_token` | TEXT | Token Cloud API (Meta Official) |
+| `meta_phone_id` | VARCHAR | ID do número no Meta Business |
+| `meta_waba_id` | VARCHAR | ID da conta WABA (WhatsApp Business Account) |
+| `meta_verify_token` | VARCHAR | Token de verificação do webhook Meta |
+| `zenvia_channel_id` | VARCHAR(255) | **[V50]** Channel ID da Zenvia (número "from" nos envios) |
+| `zenvia_api_token` | TEXT | **[V50]** API Token de autenticação na Zenvia |
 | `applied_policies` | TEXT[] | IDs/nomes de políticas vinculadas |
 | `risk_score` | NUMERIC | Score acumulado de risco (ISO 42001) |
 | `last_actor_name` | TEXT | Último usuário que alterou o agente (auditoria UI) |
@@ -507,12 +514,12 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `fn_ai_perf_knowledge` | `tenant_id, start, end` | `jsonb` | **Novo (V28):** Inventário de documentos RAG, tamanhos e cobertura por agente. |
 
 
-### 6.2 RPCs de Orquestração N8N (Fila & Estado V49)
+### 6.2 RPCs de Orquestração N8N (Fila & Estado V50)
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `fn_fetch_next_inbound_message` | **V49 (The Guard)** | **Busca Atômica & Lock.** Trava a mensagem na fila usando o `p_n8n_execution_id` para evitar processamento duplo e restaura o `context_state` para o N8N. |
-| `fn_get_agent_context` | **V49 (Mirror)** | **Provedor de Inteligência.** Versão espelho para consultas diretas, garantindo que `greeting_message` e `context_state` estejam sempre presentes. |
+| `fn_fetch_next_inbound_message` | **V50 (Scale Guardian)** | **Busca Atômica & Lock com Priority Queue.** Trava a mensagem na fila com `FOR UPDATE SKIP LOCKED`, ordena por `priority DESC` para respostas humanas precederem campanhas, e expõe `whatsapp_provider` + `zenvia_channel_id` para roteamento multi-provider. Ver Seção 23 para código completo. |
+| `fn_get_agent_context` | **V50 (Mirror)** | **Provedor de Inteligência.** Versão espelho para consultas diretas. Inclui `whatsapp_provider` e `zenvia_channel_id` no retorno. |
 | `n8n_orchestrator_v7` | V7 (Production) | **Dynamic Gatekeeper & Inbound Logic.** Gerencia o desvio de controle para sub-agentes de segurança. |
 | `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. |
 | `fn_track_llm_usage`| V2 | Registra consumo com telemetria exata atrelada ao `trace_id`. |
@@ -1067,32 +1074,49 @@ O sistema usa um único container `SlideOver` com 18 conteúdos dinamicamente in
 
 ## 18. Integração N8N (Contrato V7 — Master Orchestrator)
 
-### 18.1 Fluxo Principal de Mensagem Inbound (Resiliência V7)
+> ⚠️ **PONTO CRÍTICO DE ARQUITETURA:** O N8N **NÃO** é chamado diretamente pelo WhatsApp/Evolution API. A chamada parte do **Porteiro**. O WhatsApp dispara o webhook ao Porteiro → o Porteiro enfileira a mensagem no banco → o Porteiro chama o webhook do N8N. O N8N é "cego" para o WhatsApp. Ele só conhece a `inbound_queue` do Supabase.
+
+### 18.1 Fluxo Principal de Mensagem Inbound (V50 — Scale Guardian)
 
 ```
-WhatsApp/Voz → Evolution API → N8N Webhook
-    → fn_fetch_next_inbound_message() (Busca atômica por fila)
-    → IF Tem Registro? (Expression: {{ $json.queue_id }} is not empty)
-        ├─ FALSE: Silent Finish (Evita erros de execução vazia no n8n)
-        └─ TRUE: Continua Fluxo
-    → n8n_orchestrator_v7() (uma única transação SQL):
-        ├─ Identifica agente pelo evolution_instance
+┌─────────────────────────────────────────────────────────────────────┐
+│  ENTRADA: WhatsApp → Provider (Evolution API ou Zenvia BSP)         │
+│           ↓ webhook HTTP POST                                        │
+│  PORTEIRO (Node.js · VPS Brasil)                                    │
+│    · Autentica o payload (HMAC / API-Key)                           │
+│    · Normaliza formato (Evolution vs Zenvia → estrutura interna)    │
+│    · Chama fn_enqueue_inbound_message() → grava na inbound_queue    │
+│    · Chama webhook N8N (HTTP POST) com p_n8n_execution_id           │
+│                                         ↑                           │
+│    ← O N8N NÃO sabe nada do WhatsApp. Só sabe do banco. →          │
+└─────────────────────────────────────────────────────────────────────┘
+         ↓
+N8N recebe webhook do Porteiro
+    → fn_fetch_next_inbound_message(p_n8n_execution_id)
+         → Busca atomica com FOR UPDATE SKIP LOCKED
+         → ORDER BY priority DESC NULLS LAST, created_at ASC
+         → Retorna payload completo com contexto do agente
+    → IF queue_id está vazio?
+        ├─ SIM: Silent Finish (fila vazia — sem erro)
+        └─ NÃO: Continua processamento
+    → n8n_orchestrator_v7() (transação SQL única):
+        ├─ Identifica agente pelo whatsapp_provider / evolution_instance
         ├─ Valida status empresa/agente
-        ├─ Verifica concorrência (active_conversations < max_concurrency)
-        ├─ Abre/Reabre conversa (Finite State Machine)
-        ├─ Sincroniza contato (Unicidade por tenant_id + phone)
-        ├─ Recupera session_status da conversation_security_sessions
-        └─ Retorna: {prompt, history, knowledge, contact_info, security, ...}
-    → IF Security (Verifica session_status === 'active' e expiração)
-        ├─ TRUE (autenticado): Bypass Gatekeeper -> Switch1
-        └─ FALSE (não autenticado): Security Gatekeeper → avalia intent
-    → Switch1 (Roteia por should_use_tools):
+        ├─ Abre/Reabre conversa (FSM)
+        ├─ Sincroniza contato
+        └─ Retorna: {prompt, history, knowledge, security, context_state}
+    → IF Security (session_status === 'active' + expires_at > NOW())
+        ├─ TRUE: Bypass Gatekeeper → Switch1
+        └─ FALSE: Security Gatekeeper → avalia intent
+    → Switch1 (should_use_tools):
         ├─ TRUE: AI Agent com Tools (Financeiro/Ações)
-        └─ FALSE: AI Agent Sem Ferramentas (Solicita Auth)
-    → LLM Inference (Master Brain)
-    → record_message() (Grava resposta)
-    → fn_track_llm_usage() (Telemetria via Trace ID)
-    → RPC - Saída (fn_finish_inbound_message)
+        └─ FALSE: AI Agent Sem Ferramentas
+    → LLM Inference (GPT-4o / Claude)
+    → record_message() — N8N grava a resposta (NÃO o Porteiro)
+    → fn_track_llm_usage() (Telemetria via trace_id)
+    → fn_finish_inbound_message() — libera a fila
+         ↓
+RESPOSTA: N8N → Porteiro → Evolution API / Zenvia → WhatsApp
 ```
 
 ### 18.2 Fluxo de Mídia (Imagens e OCR — Inbound)
@@ -1528,3 +1552,354 @@ Para garantir que o Dashboard de Governança (`/governance`) funcione mesmo com 
 - Resolve o erro de `undefined (reading 'length')` na UI de Governança ao garantir que a tabela sempre retorne um array (mesmo que vazio).
 
 ---
+
+## 23. V50 Scale Guardian — Escalabilidade, Priority Queue e Multi-Provider
+
+Esta versão foi desenhada para suportar o cliente **Edenred** com **1.750 estabelecimentos**, volume estimado de **8.750 mensagens/dia** (5 msgs × 1.750) e campanhas de disparo em lote.
+
+### 23.1 Diagnóstico V49 → Ajustes V50
+
+| # | Problema Identificado | Ajuste Aplicado | Impacto |
+|---|---|---|---|
+| 1 | Fila sem prioridade: campanha bloqueava respostas de clientes reais | `ORDER BY priority DESC NULLS LAST, created_at ASC` no RPC | Respostas humanas (prio 100) precedem campanhas (prio 10) |
+| 2 | Porteiro sem controle de concorrência: sobrecarregava Supabase | `MAX_CONCURRENT_JOBS = 10` com counter `activeJobs` + bloco `finally` | Estabilidade sob 1.750 envios simultâneos |
+| 3 | `SELECT WHERE status='pending'` varrendo toda a tabela (full scan) | Índice parcial `idx_inbound_queue_worker WHERE status='pending'` | O Postgres usa apenas as rows relevantes |
+| 4 | Provedor único (Evolution): não suportava API Oficial Meta via Zenvia | Coluna `whatsapp_provider` + rotas Zenvia no Porteiro | Suporte multi-provider agnóstico no mesmo gateway |
+
+### 23.2 Concorrência no Porteiro (Scale Guardian)
+
+```typescript
+// porteiro/src/index.ts
+const MAX_CONCURRENT_JOBS = 10;
+let activeJobs = 0;
+
+async function processMessage() {
+  if (activeJobs >= MAX_CONCURRENT_JOBS) return; // throttle sem fila de espera
+  activeJobs++;
+  try {
+    // chama fn_enqueue → N8N → aguarda callback
+  } finally {
+    activeJobs--; // SEMPRE decrementa, mesmo em caso de erro ou timeout
+  }
+}
+```
+
+O bloco `finally` é crítico: garante que uma falha no N8N **nunca** deixe o contador preso, o que travaria o Porteiro permanentemente e pararia o processamento de novas mensagens.
+
+### 23.3 Sistema de Prioridades da Fila
+
+| `priority` | Tipo de Mensagem | Fonte |
+|---|---|---|
+| `100` | Resposta de cliente ativo (inbound orgânico) | Porteiro · webhook Zenvia / Evolution |
+| `10` | Disparo de campanha (outbound em lote) | Worker de campanhas |
+| `1` | Sistema / health-check interno | Workers auxiliares |
+
+Em pico de campanha (1.750 disparos), nenhuma resposta de cliente real espera mais do que o próximo tick do worker.
+
+### 23.4 Suporte Multi-Provider (Zenvia BSP — Meta Official)
+
+#### Rotas no Porteiro
+
+| Rota | Método | Função |
+|---|---|---|
+| `/v1/evolution/webhook` | POST | Recebe eventos da Evolution API (formato Evolution) |
+| `/v1/zenvia/webhook` | POST | **[V50]** Recebe eventos da Zenvia (formato JSON Zenvia BSP) |
+| `/v1/zenvia/status` | POST | **[V50]** Recebe atualizações de status de entrega Zenvia |
+
+Ambas as rotas são **whitelisted** no middleware de autenticação do Porteiro (bypass necessário pois os provedores não conhecem a chave interna).
+
+#### Fluxo de Roteamento de Envio (N8N Code Node)
+
+O N8N decide qual provider usar baseado em `$json.agent.whatsapp_provider`:
+
+```javascript
+// Code Node no workflow de envio do N8N
+const provider = $json.agent.whatsapp_provider || 'evolution';
+
+if (provider === 'zenvia') {
+  // API Oficial Meta via Zenvia BSP
+  return {
+    url: 'https://api.zenvia.com/v2/channels/whatsapp/messages',
+    headers: { 'X-API-Token': $json.agent.zenvia_api_token },
+    body: {
+      from: $json.agent.zenvia_channel_id,  // número oficial
+      to: $json.payload.phone,
+      contents: [{ type: 'text', text: $json.ai_response }]
+    }
+  };
+} else {
+  // Evolution API (padrão)
+  return {
+    url: `${EVOLUTION_URL}/message/send`,
+    body: {
+      number: $json.payload.phone,
+      text: $json.ai_response,
+      instance: $json.payload.instance
+    }
+  };
+}
+```
+
+#### Configuração de Credenciais (UI de Agentes)
+
+A tela `/agents` → painel de configuração → aba WhatsApp expõe:
+- **Seletor de Provedor:** Evolution API · Meta Cloud API · Zenvia BSP (Meta Official)
+- **Bloco Zenvia (visível quando `whatsapp_provider = 'zenvia'`):**
+  - `zenvia_channel_id` → número oficial registrado na Zenvia (ex: `55119...`)
+  - `zenvia_api_token` → chave de API da conta Zenvia (campo `type=password`)
+
+A URL de webhook a configurar no console Zenvia é: `https://{PORTEIRO_URL}/v1/zenvia/webhook`
+
+### 23.5 A RPC Central — `fn_fetch_next_inbound_message` (V50 Completa com Anotações)
+
+Esta é a função mais crítica do sistema. Executa atomicamente em **uma única transação SQL** e é chamada pelo N8N a cada nova mensagem. Abaixo o código completo com anotações bloco por bloco:
+
+```sql
+CREATE OR REPLACE FUNCTION public.fn_fetch_next_inbound_message(
+    p_lock_minutes INT DEFAULT 5,
+    p_n8n_execution_id TEXT DEFAULT NULL   -- ← ID do N8N injetado pelo Porteiro
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER  -- ← Roda com permissões de owner, bypassa RLS
+AS $$
+DECLARE
+    v_record RECORD;      -- linha da inbound_queue
+    v_agent  RECORD;      -- dados do agente dono da mensagem
+    v_conv   RECORD;      -- conversa ativa (para restaurar context_state)
+    v_lead   RECORD;      -- lead correspondente ao telefone (CRM)
+    -- ... outras variáveis de estado de governança e segurança
+BEGIN
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [A] LOCK ATÔMICO: Pega UMA mensagem e trava para este worker
+    --
+    -- FOR UPDATE SKIP LOCKED = multi-worker seguro:
+    --   - Trava o row selecionado
+    --   - Pula rows já travados por outros workers
+    --   - Garante que N workers processam N mensagens DISTINTAS
+    -- ═══════════════════════════════════════════════════════════
+    UPDATE public.inbound_queue
+    SET
+        status           = 'assigned',         -- sai de 'pending'
+        locked_at        = NOW(),
+        n8n_execution_id = COALESCE(p_n8n_execution_id, n8n_execution_id)
+    WHERE id = (
+        SELECT id FROM public.inbound_queue
+        WHERE status = 'pending'
+        ORDER BY
+            priority DESC NULLS LAST,  -- [V50] respostas humanas (100) > campanhas (10)
+            created_at ASC             -- FIFO dentro da mesma prioridade
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED         -- ← coração do multi-worker
+    )
+    RETURNING * INTO v_record;
+
+    -- Fila vazia → retorna silenciosamente (sem erro para o N8N)
+    IF v_record.id IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'status', 'empty',
+                                  'message', 'No pending messages');
+    END IF;
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [B] NORMALIZAÇÃO DE TELEFONE
+    --
+    -- Extrai apenas dígitos, removendo DDD internacional e sufixo WhatsApp
+    -- Suporta: '5511999...@s.whatsapp.net', '+5511999...', '11999...'
+    -- ═══════════════════════════════════════════════════════════
+    v_phone_clean := regexp_replace(
+        split_part(v_record.payload->>'phone', '@', 1),
+        '\D', '', 'g'
+    );
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [C] BUSCA DO AGENTE + CONVERSA
+    --
+    -- v_agent: configurações, brain_config, provider, credenciais
+    -- v_conv:  context_state (estado persistente — restaurado na V49)
+    -- ═══════════════════════════════════════════════════════════
+    SELECT * INTO v_agent FROM public.agents WHERE id = v_record.agent_id;
+    SELECT * INTO v_conv  FROM public.conversations WHERE id = v_record.conversation_id;
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [D] MATCHING DE LEAD (Algoritmo de Sufixo 8 Dígitos)
+    --
+    -- Por que sufixo? Telefones podem ter +55, 0, etc. no prefixo.
+    -- Os últimos 8 dígitos são suficientemente únicos no Brasil.
+    -- Fallback: match exato no campo identifier (CNPJ, CPF, etc.)
+    -- ═══════════════════════════════════════════════════════════
+    SELECT * INTO v_lead FROM public.agent_leads
+    WHERE tenant_id = v_agent.tenant_id
+      AND (
+          whatsapp ILIKE '%' || RIGHT(v_phone_clean, 8)  -- match parcial
+          OR identifier = v_phone_clean                   -- match exato
+      )
+    LIMIT 1;
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [E] SESSÃO DE SEGURANÇA (Identity Gate)
+    --
+    -- Verifica se este usuário já passou pela autenticação (CNPJ/CPF)
+    -- expires_at > NOW() foi adicionado na V14 para evitar sessões
+    -- vencidas retornarem como 'active' (bug crítico de segurança)
+    -- ═══════════════════════════════════════════════════════════
+    SELECT status, validated_identifier
+    INTO v_session_status, v_session_identifier
+    FROM public.conversation_security_sessions
+    WHERE conversation_id = v_record.conversation_id
+      AND status = 'active'
+      AND expires_at > NOW()          -- ← verificação crítica V14
+    ORDER BY created_at DESC LIMIT 1;
+
+    -- [F] Sub-agentes e ferramentas agregadas do agente pai
+    -- [G] Governança: status empresa, concorrência ativa, contato banido
+    -- [H] Políticas dinâmicas: canDo / cannotDo / transferConditions
+    --     (consultar database/create_queue_supervisor_rpc.sql para detalhes)
+
+    -- ═══════════════════════════════════════════════════════════
+    -- [I] CONSTRUÇÃO DO RETORNO UNIFICADO
+    --
+    -- Estrutura "flattened" compatível com os nós Edit Fields do N8N.
+    -- NUNCA remova ou renomeie campos aqui sem atualizar o N8N primeiro.
+    -- ═══════════════════════════════════════════════════════════
+    v_retorno := jsonb_build_object(
+
+        -- ── Identidade da mensagem ──────────────────────────────
+        'status',           'success',
+        'status_rpc',       'success',
+        'id',               v_record.id,
+        'queue_id',         v_record.id,          -- chave de idempotência N8N
+        'trace_id',         v_record.trace_id,     -- rastreio billing + DLQ
+        'n8n_execution_id', v_record.n8n_execution_id,
+        'tenant_id',        v_record.tenant_id,
+        'agent_id',         v_record.agent_id,
+        'session_id',       v_record.conversation_id,
+        'message',          v_record.payload->>'content',
+        'message_type',     COALESCE(v_record.message_type, 'conversation'),
+        'is_ai',            true,
+        'atendimento_tipo', 'IA',
+
+        -- ── Agente: tudo que o N8N precisa para orquestrar ──────
+        'agent', jsonb_build_object(
+            'id',                v_agent.id,
+            'name',              v_agent.name,
+            'role',              v_agent.role,
+            'meta_api_token',    v_agent.meta_api_token,
+            'whatsapp_api_type', v_agent.whatsapp_api_type,
+            -- [V50] campos de roteamento multi-provider:
+            'whatsapp_provider', COALESCE(v_agent.whatsapp_provider, 'evolution'),
+            'zenvia_channel_id', v_agent.zenvia_channel_id,
+            'contextWindow',     v_agent.context_window,
+            'brain_config',      v_agent.brain_config,
+            -- [V49] extraído do brain_config para acesso direto no N8N:
+            'greeting_message',  COALESCE(v_agent.brain_config->>'greetingMessage', ''),
+            'sub_agents',        COALESCE(v_sub_agents, '[]'::jsonb),
+            'tools',             COALESCE(v_tools, '[]'::jsonb)
+        ),
+
+        -- ── Lead: personalização da resposta ────────────────────
+        'lead_info', jsonb_build_object(
+            'is_lead', (v_lead.id IS NOT NULL),
+            'name',    COALESCE(v_lead.name, v_record.payload->>'name', 'Usuário'),
+            'link',    COALESCE(v_lead.cta_link, ''),   -- link de conversão
+            'cnpj',    COALESCE(v_lead.identifier, '')
+        ),
+
+        -- ── Conversa: estado persistente restaurado [V49] ───────
+        'conversation', jsonb_build_object(
+            'id',            v_record.conversation_id,
+            'status',        COALESCE(v_conv.status, 'ai_active'),
+            'context_state', COALESCE(v_conv.context_state, '{}'::jsonb), -- memória curto prazo
+            'reopened',      COALESCE(v_conv.status = 'closed', FALSE)
+        ),
+
+        -- ── Governança: regras de negócio e limites ─────────────
+        'governance', jsonb_build_object(
+            'agente_encontrado',       TRUE,
+            'agente_ativo',            (v_agent.status = 'active'),
+            'empresa_ativa',           (v_company_status = 'active'),
+            'limite_atingido',         (v_active_conv_count > v_agent.max_concurrency),
+            'user_banned',             (v_contact_status = 'banned'),
+            'qnt_transacoes_correntes',v_active_conv_count,
+            'max_concurrency',         v_agent.max_concurrency,
+            'lifecycle_stage',         v_agent.lifecycle_stage,
+            'autonomy_level',          v_agent.autonomy_level,
+            'rules',                   v_governance_rules   -- canDo/cannotDo/transferConditions
+        ),
+
+        -- ── Segurança: Identity Gate ─────────────────────────────
+        'security', jsonb_build_object(
+            'session_status',     COALESCE(v_session_status, 'unauthenticated'),
+            'session_identifier', v_session_identifier,
+            'requires_auth',      COALESCE(v_agent.requires_security, false)
+        ),
+
+        -- ── Payload: dados brutos normalizados ───────────────────
+        'payload', jsonb_build_object(
+            'name',     COALESCE(v_record.payload->>'name', 'Usuário'),
+            'phone',    v_phone_clean,          -- somente dígitos
+            'content',  COALESCE(v_record.payload->>'content', ''),
+            'instance', COALESCE(v_agent.evolution_instance, 'evolution'),
+            'platform', COALESCE(v_record.payload->>'platform', 'whatsapp'),
+            'remoteID', v_record.payload->>'remoteID'
+        )
+    );
+
+    -- Persiste o contexto na fila para rastreio pelo Supervisor de Erros
+    UPDATE public.inbound_queue SET context = v_retorno WHERE id = v_record.id;
+
+    -- Retorna o payload + cópia em 'context' para compatibilidade com N8N legado
+    RETURN v_retorno || jsonb_build_object('context', v_retorno);
+END;
+$$;
+```
+
+#### Hierarquia de Campos — NUNCA Remover
+
+| Campo | Motivo |
+|---|---|
+| `queue_id` | Chave de idempotência no N8N (nó IF de fila vazia) |
+| `trace_id` | Rastreio billing + DLQ — amarrado ao trace end-to-end |
+| `n8n_execution_id` | Identificação de execução para DLQ e retentativas |
+| `conversation.context_state` | Memória de curto prazo da IA — **restaurada na V49** |
+| `agent.greeting_message` | Saudação sem parsing extra no N8N — **restaurada na V49** |
+| `agent.whatsapp_provider` | Roteamento multi-provider no nó de envio — **adicionado na V50** |
+| `agent.zenvia_channel_id` | Número "from" Zenvia — **adicionado na V50** |
+| `lead_info.link` | Link de conversão Fiserv Capital |
+| `governance.rules` | Políticas CanDo/CannotDo vinculadas ao agente |
+
+### 23.6 Índices de Performance da Fila (V50)
+
+```sql
+-- Índice parcial: elimina varredura de rows não-pending (done/failed/assigned)
+-- O Postgres usa APENAS as ~N rows 'pending' que interessam ao worker
+CREATE INDEX IF NOT EXISTS idx_inbound_queue_worker
+ON public.inbound_queue (priority DESC, created_at ASC)
+WHERE status = 'pending';
+
+-- Índice para lookup de agente por Channel ID Zenvia (recebimento de webhook)
+CREATE INDEX IF NOT EXISTS idx_agents_zenvia_channel
+ON public.agents (zenvia_channel_id)
+WHERE zenvia_channel_id IS NOT NULL;
+```
+
+### 23.7 Volumetria Estimada (Edenred — 1.750 Estabelecimentos)
+
+| Métrica | Valor | Observação |
+|---|---|---|
+| Estabelecimentos ativos | 1.750 | Clientes Edenred |
+| Msgs/dia (orgânicos) | 8.750 | 5 msgs × 1.750 |
+| Msgs/dia (campanha) | até 1.750 | 1 disparo por estabelecimento |
+| **Total máx msgs/dia** | **~10.500** | |
+| Pico msgs/min | ~40 | Em janela de campanha de 1h |
+| `inbound_queue` rows/dia | ~10.500 | 1 row por mensagem |
+| Tempo de lock por mensagem | < 1s | SELECT + UPDATE atômica |
+| Workers simultâneos | até 10 | `MAX_CONCURRENT_JOBS` |
+| Throughput máximo | 10 msg/s | Seguro para Supabase Pro |
+
+**Conclusão de escalabilidade:** A arquitetura V50 suporta confortavelmente o volume Edenred. O gargalo futuro (se volume triplicar) será o rate limit do N8N, não o banco — neste caso, adicionar um segundo container do Porteiro com a mesma fila resolve horizontalmente sem nenhuma mudança no banco ou no N8N.
+
+---
+
+*Este documento reflete a era do Scale Guardian V50 — Multi-Provider, Priority Queue e Produção Edenred.*
+
