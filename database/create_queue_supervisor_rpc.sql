@@ -32,6 +32,11 @@ WHERE status = 'pending';
 -- AJUSTE 2/DATABASE: SUPORTE MULTI-PROVIDER (Zenvia + Evol) --
 -- Adiciona campos para provedor oficial Meta via Zenvia BSP  --
 -- ======================================================== --
+
+-- CRÍTICO: coluna usada pelo RPC fn_fetch_next_inbound_message
+ALTER TABLE public.agents 
+ADD COLUMN IF NOT EXISTS whatsapp_provider VARCHAR(50) DEFAULT 'evolution';
+
 ALTER TABLE public.agents 
 ADD COLUMN IF NOT EXISTS zenvia_channel_id VARCHAR(255);
 
