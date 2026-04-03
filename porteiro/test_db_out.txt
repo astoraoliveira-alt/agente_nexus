@@ -1,0 +1,70 @@
+=== Agentes procurando por: n8n-edenred ===
+[
+  {
+    id: '0e5a2927-1617-48a7-9e54-0834ddbbc924',
+    name: 'Venda de Crédito Whatss',
+    evolution_instance: 'n8n-edenred',
+    tenant_id: 'd290f1ee-6c54-4b01-90e6-d701748f0851'
+  }
+]
+
+=== Historico das 3 ultimas Inbound_queue (qualquer status) ===
+[
+  {
+    id: '10adc7b1-059c-4530-a394-39355fde1d75',
+    status: 'done',
+    created_at: '2026-04-02T21:06:19.276142+00:00',
+    payload: {
+      name: 'Astor',
+      phone: '5511993434870',
+      content: 'oi',
+      instance: 'n8n-alpargata',
+      mediaUrl: '',
+      mimetype: '',
+      platform: 'web',
+      remoteID: '5511993434870@s.whatsapp.net',
+      serverURL: 'https://evolution.davosconsulting.com.br',
+      timestamp: '2026-04-02T21:06:19.231Z',
+      instanceId: '292d8646-7be5-40ef-9112-c6b895c7ab93',
+      messageType: 'conversation'
+    }
+  },
+  {
+    id: '4275cde3-f20f-4f59-9256-466dadf9333c',
+    status: 'error',
+    created_at: '2026-04-01T17:49:55.641451+00:00',
+    payload: {
+      name: 'Escola Prof Maria José Maia de Toledo',
+      phone: '80204538064954',
+      content: '[Imagem]',
+      instance: 'n8n-alpargata',
+      mediaUrl: 'https://mmg.whatsapp.net/o1/v/t24/f2/m235/AQOucfXZXRTQl3JKbUOv6eY6yzghvxs0ekoluo9bwnzm0WoEa72qqa3j3PrSYvNHpp2gzPq_wp6rm3761DNz8goUYzYvesW7cfaLoFQ3lA?ccb=9-4&oh=01_Q5Aa4AGR6SVFOVXe4sq3s4C4j6ItMCI1HL41brAH9usonR9aMA&oe=69F4B5EC&_nc_sid=e6ed6c&mms3=true',
+      mimetype: 'image/jpeg',
+      platform: 'web',
+      remoteID: '80204538064954@lid',
+      serverURL: 'https://evolution.davosconsulting.com.br',
+      timestamp: '2026-04-01T17:49:55.586Z',
+      instanceId: '292d8646-7be5-40ef-9112-c6b895c7ab93',
+      messageType: 'imageMessage'
+    }
+  },
+  {
+    id: 'c780c9ef-8693-4abb-b38c-6e42c48923c6',
+    status: 'error',
+    created_at: '2026-04-01T17:49:48.082087+00:00',
+    payload: {
+      name: 'Escola Prof Maria José Maia de Toledo',
+      phone: '80204538064954',
+      content: 'Eu saí, entrei de novo, importei de novo e continua aparecendo a frequência até o dia 17/03.',
+      instance: 'n8n-alpargata',
+      mediaUrl: '',
+      mimetype: '',
+      platform: 'web',
+      remoteID: '80204538064954@lid',
+      serverURL: 'https://evolution.davosconsulting.com.br',
+      timestamp: '2026-04-01T17:49:48.056Z',
+      instanceId: '292d8646-7be5-40ef-9112-c6b895c7ab93',
+      messageType: 'conversation'
+    }
+  }
+]

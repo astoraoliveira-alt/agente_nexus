@@ -571,7 +571,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                     )}
                   </div>
 
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1 px-1">
                       {/* Sender Name Label */}
                       {message.sender === 'human' && message.senderName && (

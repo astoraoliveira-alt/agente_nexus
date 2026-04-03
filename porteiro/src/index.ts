@@ -303,25 +303,8 @@ app.post('/v1/evolution/webhook', async (c) => {
             conversationId = newConv.id;
         }
 
-        // 4. Record Message
-        // Use external_id to avoid duplicates from webhook retries
-        const { error: msgInsertError } = await supabaseAdmin
-            .from('messages')
-            .upsert({
-                tenant_id: agent.tenant_id,
-                conversation_id: conversationId,
-                content: textContent,
-                sender_type: 'human',
-                sender_name: pushName,
-                external_id: externalId,
-                message_type: 'text',
-                metadata: { raw: rawMsg }
-            }, { onConflict: 'tenant_id,external_id' });
-
-        if (msgInsertError) {
-            console.error(`[PORTEIRO] ❌ Message save failed:`, msgInsertError);
-            return c.json({ error: 'Message save failed' }, 500);
-        }
+        // Note: Direct message recording removed. 
+        // Responsibility moved to N8N to handle complex media (Audio/Image) and avoid duplicates.
 
         // 5. Update last_message_at (Touch conversation)
         await supabaseAdmin

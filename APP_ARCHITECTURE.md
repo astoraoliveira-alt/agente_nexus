@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 02/Abr/2026
-> **Versão:** 29.0 (State Engine & Gateway Routing Era)
+> **Última Atualização:** 03/Abr/2026
+> **Versão:** 49.0 (The State Restorer — DLQ & State Engine)
 > **Status:** Mestre — Fonte Única da Verdade
-> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `database/create_queue_supervisor_rpc.sql`
+> **Fontes Primárias:** `database/complete_schema.sql` · `src/services/api.ts` · `database/create_queue_supervisor_rpc.sql` (V49)
 
 ---
 
@@ -141,9 +141,18 @@ Para que o webhook seja roteado com sucesso para a arquitetura N8N (com suporte 
 Ao receber o evento da Evolution, o Porteiro:
 1. Identifica qual Agente é o dono daquela instância.
 2. Identifica o número (e bloqueia spam / bad numbers nativos).
-3. Monta o pacote de dados (`payload` JSON).
-4. Grava imediatamente no PostgreSQL na `inbound_queue`.
-5. O N8N (sendo "cego" pro WhatsApp) apenas puxa dessa fila de forma passiva através do `RPC - Acesso Entrada`.
+3. Monta o pacote de dados (`payload` JSON) com metadados de mídia (URL, mimetype).
+4. Grava imediatamente no PostgreSQL na `inbound_queue`. 
+   *   **IMPORTANTE:** O Porteiro NÃO grava na tabela `messages` para evitar duplicatas e permitir processamento de mídia pelo N8N.
+5. O N8N (sendo "cego" pro WhatsApp) puxa dessa fila e realiza a gravação oficial no histórico após o processamento inteligente.
+
+### 2.8 Protocolo de Mensageria V49 (State Guardian)
+
+Para garantir 100% de estabilidade na fila "Sofia", o sistema aplica:
+
+*   **Idempotência via External ID:** O N8N deve usar o `external_id` (ID original do WhatsApp) ao gravar na tabela `messages`. O banco está configurado para ignorar duplicatas nesse campo (`ON CONFLICT DO NOTHING`).
+*   **Processamento de Mídia:** Mensagens de áudio/imagem são processadas pelo N8N antes de serem salvas, garantindo que a transcrição e o OCR estejam disponíveis no Chat no momento em que a mensagem aparece.
+*   **Atomicidade:** A função `fn_fetch_next_inbound_message` garante que apenas um executor processe uma mensagem por vez, eliminando o risco de "duas IAs respondendo o mesmo usuário".
 
 ---
 
@@ -498,19 +507,18 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `fn_ai_perf_knowledge` | `tenant_id, start, end` | `jsonb` | **Novo (V28):** Inventário de documentos RAG, tamanhos e cobertura por agente. |
 
 
-### 6.2 RPCs de Orquestração N8N
+### 6.2 RPCs de Orquestração N8N (Fila & Estado V49)
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `n8n_orchestrator_v7` | **V7 (Production)** | **Dynamic Gatekeeper & Inbound Logic.** Gerencia o desvio de controle para sub-agentes de segurança e validação de sessão transacional. |
-| `n8n_orchestrator_v6` | V6 (Production) | Suporte a Meta API Token e descoberta básica de ferramentas dinamicas. |
-| `n8n_orchestrator_v5` | V5 (Legacy) | Versão consolidada anterior. |
-| `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. Atualiza `last_message_at`. |
-| `fn_track_llm_usage`| V2 | Desacoplado do Core. Registra consumo com telemetria exata atrelada ao `trace_id`. Substitui o legado `record_usage`. |
-| `fn_enqueue_inbound_message`| Elite V4 | Porta-de-Entrada segura de novos webhooks, gerando o Trace ID e alimentando a Inbound Queue. |
-| `fn_get_trace_lifecycle`| Elite V4 | Buscador End-to-End para observabilidade que avalia se a mensagem passou pela Inbound, DLQ, Gravou histórico ou Falhou no Disparo. |
-| `sync_vapi_call` | V27 | Idempotente. Sincroniza chamada de voz VAPI: grava payload em `integration_logs`, sincroniza mensagens com chave `(conversation_id, external_id)`, calcula custo por duração. |
-| `get_agent_context` | Atual | Retorna chunks de knowledge relevantes via similarity search (pgvector). |
+| `fn_fetch_next_inbound_message` | **V49 (The Guard)** | **Busca Atômica & Lock.** Trava a mensagem na fila usando o `p_n8n_execution_id` para evitar processamento duplo e restaura o `context_state` para o N8N. |
+| `fn_get_agent_context` | **V49 (Mirror)** | **Provedor de Inteligência.** Versão espelho para consultas diretas, garantindo que `greeting_message` e `context_state` estejam sempre presentes. |
+| `n8n_orchestrator_v7` | V7 (Production) | **Dynamic Gatekeeper & Inbound Logic.** Gerencia o desvio de controle para sub-agentes de segurança. |
+| `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. |
+| `fn_track_llm_usage`| V2 | Registra consumo com telemetria exata atrelada ao `trace_id`. |
+| `fn_update_conversation_state` | V2 | Atualiza flags e intents na coluna `context_state` da tabela `conversations`. |
+| `fn_enqueue_inbound_message`| Elite V4 | Porta-de-Entrada segura de novos webhooks, gerando o Trace ID. |
+| `sync_vapi_call` | V27 | Sincroniza chamada de voz VAPI: grava payload e mensagens. |
 | `handle_outbound_sent` | Atual | Atomicamente marca envio como sucesso na `outbound_queue`. |
 
 ### 6.3 RPCs de Qualidade & Auditoria
@@ -611,17 +619,15 @@ A integração de voz é assíncrona e idempotente:
 - A RPC `close_idle_conversations` verifica `last_message_at + timeout < NOW()`.
 - Conversas inativas são encerradas automaticamente e entram na fila de auditoria.
 
-### 8.4 Motor de Estado Conversacional (Memória de Curto Prazo)
+### 8.4 Motor de Estado Conversacional (Memória de Curto Prazo V49)
 
 Para evitar que a IA perca o contexto de decisões tomadas na **mesma** conversa e entre em "amnésia" ou lógicas infinitas, as conversas contam com um estado transacional salvo em tempo real na coluna `context_state` (JSONB).
 
-**Ciclo de Atualização e Resgate de Estado:**
-1. A LLM de Decisão decide o caminho, e um **Code Node (ex: Formatar Contexto)** no N8N monta e provê um novo Estado (`last_intent`, `flags` booleanas, ações executadas, `stage`).
-2. O N8N processa a requisição e envia com sucesso a mensagem final para o WhatsApp via API padrão.
-3. IMEDIATAMENTE após enviar (Caminho de Sucesso), o N8N executa a RPC `fn_update_conversation_state` passando as bandeiras (ex: `{"flags": {"link_sent_attempt": true}}`).
-4. Quando o usuário responder dizendo (ex: "Legal, gostei"), o evento entra pelo Porteiro na Fila. O `RPC - Acesso Entrada` chama a função `fn_get_agent_context`.
-5. O Supabase recupera toda a inteligência e anexa o último `context_state` preenchido. 
-6. O Code Node Validador da Fila lê essa bandeira e diz "Opa, o `link_sent_attempt` é `true`, então vou bloquear o repasse do link financeiro se a intenção repetir". O comportamento da IA fica sólido e progressivo.
+**Ciclo de Atualização e Resgate de Estado (Protocolo V49):**
+1. **Bloqueio Atômico**: A `fn_fetch_next_inbound_message` recebe o `p_n8n_execution_id` e trava a mensagem na fila. Se o workflow do N8N falhar feio, o status `assigned` com o ID da execução permite o rastreio na DLQ.
+2. **Restauração de Contexto**: Diferente de versões anteriores, a V49 **restaura obrigatoriamente** o campo `context_state` no objeto `conversation` e a `greeting_message` no objeto `agent`. Isso evita erros de `undefined` em nós de decisão do N8N.
+3. **Atualização de Estado**: Após o disparo da resposta (Caminho de Sucesso), o N8N executa a RPC `fn_update_conversation_state` (ex: `{"flags": {"link_sent_attempt": true}}`).
+4. **Resiliência de Mapeamento**: O RPC V49 garante que o retorno seja compatível com a estrutura de "Edit Fields" legada, mantendo o `success: true` no topo do JSON.
 
 ---
 
@@ -1360,9 +1366,29 @@ O sistema Nexus Hub é projetado seguindo o princípio da **Eventual Consistency
 | **Banco de Dados Down** | Porteiro loga Erro Crítico. Mensagem não entra na fila. | **Local Log (VPS):** O Porteiro escreve no `/var/log/porteiro.error` (fora do banco). | **Manual:** Intervenção via log local para re-processar mensagens perdidas na janela de queda. |
 | **Evolution/Meta API Down** | `outbound_queue` com status `failed`. Coluna `error_message` populada. | **Retry Strategy:** O Porteiro tenta enviar 3 vezes com backoff exponencial antes de desistir. | **Outbound Guard:** Alerta imediato no canal do Super Admin via `@alerts`. |
 
+## 1. Inbound Queue Architecture (V49 Stability)
+
+### 1.1 Ingestion & Processing
+All incoming messages from Evolution API / WhatsApp are ingested into `inbound_queue`. The system utilizes a "Transactional Gatekeeper" (V49) to ensure atomicity.
+
+### 1.2 Queue Stability Protocol (V49)
+To prevent dead-letter-queue (DLQ) loops and infinite reprocessing, the system implements:
+*   **`fn_log_dlq_error`**: Marks messages as `failed` in the `inbound_queue` when a safety or processing violation occurs.
+*   **Double Write Strategy**: Messages blocked by Guardrails are recorded in `messages` (for chat history visibility) AND moved to `inbound_queue_errors` with a `failed` status to clear the processing line.
+*   **Execution Isolation**: Use of unique `execution_id` (Trace ID) to track a message from the initial Webhook through LLM logic to the final response.
+
+### 1.3 Outbound Buffering
+*   **`agent_responses_queue`**: Acts as the exit-buffer for Sofia. Messages generated by the AI are queued here before being transmitted to Evolution API, ensuring delivery retries if the WhatsApp gateway is offline.
+
+## 2. Infrastructure Maintenance
+
+### 2.1 Tenant Reset Protocol
+For enterprise tenants requiring a data purge (clean slate for monitoring), the `database/reset_tenant_v1.sql` script MUST be used. 
+
+**Critical Requirement**: To allow massive deletions on tables monitored by Supabase Realtime, the script automatically sets `REPLICA IDENTITY FULL` for tables like `messages`, `incidents`, and `conversations`.
+
 ### 17.2 Estratégia de Observabilidade (O "Painel de Controle")
 
-Diferente de um fluxo linear, o modelo event-driven exige um **Healthcheck Global**:
 
 1.  **Monitoramento de Fila (Inbound/Outbound):**
     - `SELECT count(*) FROM inbound_queue WHERE status = 'pending'`
@@ -1425,4 +1451,51 @@ O `switchTenant` agora atua como uma **Guarda de Navegação**:
 
 ---
 
-*Este documento deve ser atualizado periodicamente para refletir o estado real da rede Davos Nexus (V28.0 — Global Access & RLS Stability Era).*
+---
+
+## 20. Conversational Decision Engine (V49 — The State Restorer)
+
+Esta atualização estabiliza o coração da lógica de decisão do agente Sofia, garantindo compatibilidade total com o N8N e robustez na identificação de leads.
+
+### 20.1 Estrutura de Retorno (The Root of Truth)
+Para garantir que nenhum nó do N8N quebre, o RPC V49 presente em `database/create_queue_supervisor_rpc.sql` é a **Fonte Única da Verdade**. Ele garante um payload "flattened" que preserva o histórico de mapeamentos desde a V35.
+
+### 20.2 Campos Obrigatórios (NUNCA REMOVER)
+
+| Campo | Sub-campo | Descrição | Importância |
+| :--- | :--- | :--- | :--- |
+| `conversation` | `id` | UUID da conversa atual. | Identificação de sessão. |
+| `conversation` | `context_state` | Estado persistente (flags/intents). | **CRÍTICO: Restaurado na V49.** |
+| `agent` | `greeting_message` | Saudação extraída do `brain_config`. | **CRÍTICO: Restaurado na V49.** |
+| `agent` | `brain_config`| Objeto com Prompt, Temp, ModelId. | Cérebro da Sofia. |
+| `n8n_execution_id` | - | ID da execução do N8N injetado. | **CRÍTICO: Rastreio de DLQ.** |
+| `lead_info` | `link` | Link personalizado da Fiserv Capital. | Lógica de Conversão. |
+| `governance` | `rules` | CanDo / CannotDo de políticas. | Segurança jurídica. |
+
+### 20.3 Lógica de Matching de Leads
+A identificação agora utiliza um algoritmo de **Sufixo de 8 dígitos**:
+1. Remove caracteres não numéricos do telefone.
+2. Faz match parcial com os últimos 8 dígitos da coluna `whatsapp` na tabela `agent_leads`.
+3. Faz match exata com a coluna `identifier` (CNPJ).
+
+---
+
+## 21. DAVOS TURBO: Latency & State Restoration (V49)
+
+Abaixo estão as diretrizes para manter a performance da rede Davos Nexus abaixo de 5 segundos e garantir a resiliência do estado conversacional.
+
+### 21.1 Lógica de Fila Amarrada (Locking Strategy)
+A V49 introduziu o bloqueio por `n8n_execution_id`. Isso garante que se o N8N reprocessar uma mensagem (retry), ele saberá exatamente qual registro da fila pertence àquela tentativa, evitando confusão de mensagens ou processamento duplo.
+
+### 21.2 Preservação de Greeting (Sofia Fix)
+O campo `greeting_message` é extraído explicitamente de dentro do JSONB `brain_config` para a raiz do objeto `agent`. Isso permite que o N8N mapeie a saudação sem precisar de lógica de parsing complexa nos nós de "Edit Fields".
+
+### 21.3 Fonte de Verdade para Manutenção
+Qualquer alteração na lógica de entrada de mensagens DEVE obrigatoriamente seguir o código contido em:
+`database/create_queue_supervisor_rpc.sql`
+
+---
+
+*Este documento reflete a era de Alta Performance e Restauração de Estado V49 Davos Nexus.*
+
+

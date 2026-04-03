@@ -435,15 +435,15 @@ export default function Governance() {
                   <FileText className="h-5 w-5 text-accent" />
                   <span className="text-sm text-muted-foreground">Políticas Ativas</span>
                 </div>
-                <p className="text-3xl font-bold">{policies.filter(p => p.isActive).length}</p>
+                <p className="text-3xl font-bold">{(policies || []).filter(p => p.isActive).length}</p>
               </div>
-
+              
               <div className="kpi-card">
                 <div className="flex items-center gap-3 mb-2">
                   <AlertTriangle className="h-5 w-5 text-warning" />
                   <span className="text-sm text-muted-foreground">Incidentes Abertos</span>
                 </div>
-                <p className="text-3xl font-bold">{openIncidents}</p>
+                <p className="text-3xl font-bold">{openIncidents || 0}</p>
               </div>
 
               <div className="kpi-card">
@@ -469,7 +469,7 @@ export default function Governance() {
               <div className="kpi-card">
                 <h3 className="font-semibold mb-4">Incidentes Recentes</h3>
                 <div className="space-y-3">
-                  {incidents.slice(0, 3).map((incident) => (
+                  {(incidents || []).slice(0, 3).map((incident) => (
                     <div
                       key={incident.id}
                       className="flex items-start gap-3 p-3 bg-muted hover:bg-muted/80 cursor-pointer"
@@ -515,7 +515,7 @@ export default function Governance() {
                           <Badge variant="outline" className="text-[10px]">v{policy.version}</Badge>
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
-                          {policy.rules.canDo.length} permissões • {policy.rules.cannotDo.length} restrições
+                          {policy.rules?.canDo?.length || 0} permissões • {policy.rules?.cannotDo?.length || 0} restrições
                         </p>
                       </div>
                       <Eye className="h-4 w-4 text-muted-foreground" />
@@ -539,7 +539,7 @@ export default function Governance() {
             </div>
 
             <div className="grid gap-4">
-              {policies.map((policy) => (
+              {(policies || []).map((policy) => (
                 <div key={policy.id} className="kpi-card">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
@@ -590,15 +590,15 @@ export default function Governance() {
                   <div className="grid grid-cols-3 gap-4 mt-4">
                     <div className="bg-green-50 dark:bg-green-950/30 p-3">
                       <p className="text-sm font-medium text-green-700 dark:text-green-400">Pode fazer</p>
-                      <p className="text-2xl font-bold text-green-600">{policy.rules.canDo.length}</p>
+                      <p className="text-2xl font-bold text-green-600">{policy.rules?.canDo?.length || 0}</p>
                     </div>
                     <div className="bg-red-50 dark:bg-red-950/30 p-3">
                       <p className="text-sm font-medium text-red-700 dark:text-red-400">Não pode</p>
-                      <p className="text-2xl font-bold text-red-600">{policy.rules.cannotDo.length}</p>
+                      <p className="text-2xl font-bold text-red-600">{policy.rules?.cannotDo?.length || 0}</p>
                     </div>
                     <div className="bg-blue-50 dark:bg-blue-950/30 p-3">
                       <p className="text-sm font-medium text-blue-700 dark:text-blue-400">Transferir se</p>
-                      <p className="text-2xl font-bold text-blue-600">{policy.rules.transferConditions.length}</p>
+                      <p className="text-2xl font-bold text-blue-600">{policy.rules?.transferConditions?.length || 0}</p>
                     </div>
                   </div>
                 </div>
@@ -857,7 +857,7 @@ export default function Governance() {
                   </tr>
                 </thead>
                 <tbody>
-                  {incidents.map((incident) => {
+                  {(incidents || []).map((incident) => {
                     const agent = agents.find(a => a.id === incident.agentId);
                     return (
                       <tr
