@@ -44,6 +44,7 @@ const pendingMessages = new Map<string, {
     serverURL: string,
     mediaUrl?: string,
     mimetype?: string,
+    cleanIdentifier: string, // Normalização V50.16
     raw_evolution_payload?: any
 }>();
 
@@ -191,17 +192,17 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         const remoteID = rawMsg.key?.remoteJid;
         
-        // --- 🛡️ SMART PHONE EXTRACTION (V50.15 - Deep LID Identification) ---
-        // Procuramos o telefone em múltiplas camadas para evitar o LID (18938...)
-        let phone = rawMsg.phone || // Algumas versões da Evolution mandam direto na raiz
-                    rawMsg.source || // Outras mandam no source
+        // --- 🛡️ SMART PHONE EXTRACTION (V50.16 - Atomic Digit Cleaning) ---
+        // Normalização agressiva: Apenas números.
+        let rawPhone = rawMsg.phone || 
+                    rawMsg.source || 
                     rawMsg.from?.split('@')[0] || 
                     rawMsg.key?.participant?.split('@')[0] || 
-                    remoteID?.split('@')[0];
+                    remoteID?.split('@')[0] || '';
         
-        // Anti-LID: Se o phone extraído for um LID (geralmente longos e começam com 189...)
-        // e existir um pushName que pareça um número, podemos tentar salvar, 
-        // mas o ideal é o RAW para auditoria.
+        const phone = rawPhone.replace(/\D/g, '');
+        // O ID de usuário no banco AGORA é estritamente apenas números (para bater com a RPC)
+        const cleanUserIdentifier = remoteID ? remoteID.split('@')[0].replace(/\D/g, '') : phone;
         
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
@@ -284,12 +285,12 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         const agent = agents[0];
 
-        // 2. Upsert Contact (Ensure contact exists and name is updated)
+        // 2. Upsert Contact (Garante que o contato tenha o ID limpo e o telefone normalizado)
         const { data: contact, error: contactError } = await supabaseAdmin
             .from('contacts')
             .upsert({
                 tenant_id: agent.tenant_id,
-                identifier: phone,
+                identifier: cleanUserIdentifier,
                 phone: phone,
                 name: pushName,
                 channel: 'whatsapp'
@@ -302,13 +303,13 @@ app.post('/v1/evolution/webhook', async (c) => {
         }
 
         // --- 🛡️ SMART CONVERSATION LINKER & IDENTITY UPGRADE (V50.14) ---
-        // 1. Tenta achar pelo JID exato (LID ou comum)
+        // 1. Tenta achar pelo Identificador Limpo (Regra de Ouro: Apenas números)
         let { data: conversationData, error: findError } = await supabaseAdmin
             .from('conversations')
             .select('id, user_identifier')
             .eq('tenant_id', agent.tenant_id)
             .eq('agent_id', agent.id)
-            .eq('user_identifier', remoteID)
+            .eq('user_identifier', cleanUserIdentifier)
             .maybeSingle();
 
         // 2. Se não achou (ex: Gi Mendes @lid), tenta herança pelo número do telefone
@@ -351,7 +352,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 .insert({
                     tenant_id: agent.tenant_id,
                     agent_id: agent.id,
-                    user_identifier: remoteID,
+                    user_identifier: cleanUserIdentifier,
                     user_name: pushName,
                     channel: 'whatsapp',
                     status: 'ai_active'
@@ -399,6 +400,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 serverURL,
                 mediaUrl,
                 mimetype,
+                cleanIdentifier: cleanUserIdentifier, // V50.16
                 raw_evolution_payload: rawMsg, // V50.15 Audit
                 timeout: setTimeout(() => {}) // Placeholder
             });
@@ -433,12 +435,13 @@ app.post('/v1/evolution/webhook', async (c) => {
                         timestamp: new Date().toISOString(),
                         messageType: dataToProcess.messageType,
                         remoteID: dataToProcess.remoteID,
+                        cleanIdentifier: dataToProcess.cleanIdentifier,
                         platform: dataToProcess.platform,
                         instanceId: dataToProcess.instanceId,
                         serverURL: dataToProcess.serverURL,
                         mediaUrl: dataToProcess.mediaUrl,
                         mimetype: dataToProcess.mimetype,
-                        raw_evolution_payload: dataToProcess.raw_evolution_payload // O FANTÁSTICO PAYLOAD BRUTO (V50.15)
+                        raw_evolution_payload: dataToProcess.raw_evolution_payload
                     },
                     p_trace_id: traceId,
                     p_message_type: dataToProcess.messageType

@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 04/Abr/2026
-> **Versão:** 50.1 (History Guardian — Campaign Memory + Placeholder Fix + Cron Tracking)
+> **Versão:** 50.2 (Atomic Campaign Delivery — Digits Only Identity + RPC Success Pattern)
 > **Status:** Mestre — Produção Edenred (1.750 estabelecimentos)
-> **Fontes Primárias:** `database/create_queue_supervisor_rpc.sql` (V50.1) · `database/rpc/handle_outbound_sent.sql` · `src/services/agents.service.ts` · `porteiro/src/index.ts` (V50)
+> **Fontes Primárias:** `database/rpc/get_next_leads_secure.sql` · `database/rpc/handle_outbound_sent.sql` · `porteiro/src/index.ts` (V50.2)
 
 ---
 
@@ -161,7 +161,8 @@ Para garantir que 100% das mensagens de campanha cheguem ao destino com a person
 
 1.  **Normalização de Telefone (Porteiro Guard):** Todos os números são forçados para o formato `55 + DDD + Número` antes do disparo. O Porteiro rejeita envios sem o prefixo internacional para evitar falhas silenciosas na Evolution API.
 2.  **Placeholder Anti-Parser (N8N Safe):** Devido ao comportamento do n8n de tentar interpretar `{{variavel}}` como JavaScript, as mensagens de campanha usam a técnica `split('{{nome}' + '}').join(valor)` no nó de substituição. Isso garante que o placeholder seja substituído apenas no texto final, sem quebrar o workflow.
-3.  **Sincronização de Conversa:** Ao disparar uma mensagem, o sistema agora garante a existência da entrada na tabela `conversations` com `updated_at` atualizado, permitindo que a IA recupere o histórico instantaneamente na primeira resposta do cliente.
+3.  **Sincronização de Conversa (Atomic Delivery):** Ao disparar uma mensagem via n8n, o sistema utiliza a RPC `handle_outbound_sent` para criar a conversa, registrar a mensagem e dar baixa na fila de uma só vez. Isso garante que a conversa apareça no Dashboard INSTANTANEAMENTE após o envio.
+4.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
 
 ---
 
@@ -535,7 +536,8 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `fn_update_conversation_state` | V2 | Atualiza flags e intents na coluna `context_state` da tabela `conversations`. |
 | `fn_enqueue_inbound_message`| Elite V4 | Porta-de-Entrada segura de novos webhooks, gerando o Trace ID. |
 | `sync_vapi_call` | V27 | Sincroniza chamada de voz VAPI: grava payload e mensagens. |
-| `handle_outbound_sent` | Atual | Atomicamente marca envio como sucesso na `outbound_queue`. |
+| `handle_outbound_sent` | V2 | Atômico: Cria Contato -> Cria/Abre Conversa -> Grava Msg -> Update Fila. (Garante visibilidade no Chat). |
+| `get_next_leads_secure` | V2 | Busca leads para n8n com trava atômica (FOR UPDATE SKIP LOCKED) e proteção anti-flood. |
 
 ### 6.3 RPCs de Qualidade & Auditoria
 

@@ -35,7 +35,7 @@ BEGIN
             WHERE oq.tenant_id = p_tenant_id
               AND oq.campaign_id = p_campaign_id
               AND oq.status = 'pending'
-              -- Garante que o contato NÃO recebeu nada nas últimas 2h por outra campanha
+              -- [2] Anti-Flood: Evita mensagens duplicadas para o mesmo contato em 2h
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
                   WHERE oq_check.tenant_id = p_tenant_id
@@ -46,7 +46,7 @@ BEGIN
               )
             ORDER BY oq.created_at ASC
             LIMIT p_limit
-            FOR UPDATE SKIP LOCKED -- Pula os que já estão travados por outro processo
+            FOR UPDATE SKIP LOCKED 
         )
         RETURNING id, public.outbound_queue.contact_phone, public.outbound_queue.contact_name, campaign_id, agent_id, public.outbound_queue.tenant_id
     )
