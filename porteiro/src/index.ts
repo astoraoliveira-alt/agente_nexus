@@ -189,7 +189,21 @@ app.post('/v1/evolution/webhook', async (c) => {
         }
 
         const remoteID = rawMsg.key?.remoteJid;
-        const phone = remoteID?.split('@')[0];
+        
+        // --- 🛡️ SMART PHONE EXTRACTION (V50.2 - Anti-LID / Group Fix) ---
+        // Prioridade 1: Tenta o participant (comum em grupos ou LIDs)
+        // Prioridade 2: Tenta o campo 'from' (se presente na Evolution)
+        // Prioridade 3: Fallback para o remoteJid (split @)
+        let phone = rawMsg.key?.participant?.split('@')[0] || 
+                    rawMsg.from?.split('@')[0] || 
+                    remoteID?.split('@')[0];
+        
+        // Se for um LID (geralmente começa com 1... ou 2... e tem 15 dígitos) 
+        // e o remoteJid for diferente, o remoteJid tende a ser o telefone em chats privados
+        if (remoteID && remoteID.endsWith('@s.whatsapp.net')) {
+            phone = remoteID.split('@')[0];
+        }
+
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
         const messageType = rawMsg.messageType || 'conversation';
@@ -283,7 +297,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // We look for 'ai_active' or 'human_active' status 
         const { data: conversation, error: convError } = await supabaseAdmin
             .from('conversations')
-            .select('id, status')
+            .select('id, status, user_name')
             .eq('tenant_id', agent.tenant_id)
             .eq('user_identifier', phone)
             .eq('agent_id', agent.id)
@@ -294,26 +308,55 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         let conversationId = conversation?.id;
 
-        if (!conversationId) {
+        if (conversationId && conversation) {
+            // Se o nome atual for genérico e agora temos o nome real, atualizamos
+            if (conversation.user_name === 'WhatsApp User' && pushName !== 'WhatsApp User') {
+                console.log(`[PORTEIRO] 🏷️ Updating conversation name to: ${pushName}`);
+                await supabaseAdmin
+                    .from('conversations')
+                    .update({ user_name: pushName })
+                    .eq('id', conversationId);
+            }
+        } else {
             console.log(`[PORTEIRO] 🆕 Creating new conversation for ${phone}`);
+            
+            // Usamos UPSERT com a constraint de status aberto para evitar duplicatas em race conditions
             const { data: newConv, error: newConvError } = await supabaseAdmin
                 .from('conversations')
-                .insert({
+                .upsert({
                     tenant_id: agent.tenant_id,
                     agent_id: agent.id,
                     user_identifier: phone,
                     user_name: pushName,
                     channel: 'whatsapp',
                     status: 'ai_active'
+                }, { 
+                    onConflict: 'tenant_id,user_identifier,agent_id',
+                    // Apenas se não houver uma conversa aberta (lógica simplificada via upsert)
                 })
                 .select()
                 .single();
             
             if (newConvError) {
-                console.error(`[PORTEIRO] ❌ Failed to create conversation:`, newConvError);
-                return c.json({ error: 'Conversation creation failed' }, 500);
+                // Se falhou por conflito, tentamos buscar a que acabou de ser criada por outro processo
+                const { data: retryConv } = await supabaseAdmin
+                    .from('conversations')
+                    .select('id')
+                    .eq('tenant_id', agent.tenant_id)
+                    .eq('user_identifier', phone)
+                    .eq('agent_id', agent.id)
+                    .neq('status', 'closed')
+                    .single();
+                
+                conversationId = retryConv?.id;
+                
+                if (!conversationId) {
+                    console.error(`[PORTEIRO] ❌ Failed to create/find conversation:`, newConvError);
+                    return c.json({ error: 'Conversation management failed' }, 500);
+                }
+            } else {
+                conversationId = newConv.id;
             }
-            conversationId = newConv.id;
         }
 
         // Note: Direct message recording removed. 
