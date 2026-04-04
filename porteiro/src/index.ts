@@ -158,6 +158,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         }
 
         const { event, instance, data } = payload;
+        console.log(`[PORTEIRO] 🕵️ DEBUG: Event=${event}, Instance=${instance}`);
 
         // --- 1. CONNECTION STATUS CACHE (Item 5) ---
         if (event === 'connection.update') {
@@ -185,8 +186,11 @@ app.post('/v1/evolution/webhook', async (c) => {
         // Handle messages.upsert (can be an array or single object)
         const rawMsg = Array.isArray(data) ? data[0] : data;
         
+        console.log(`[PORTEIRO] 🕵️ MSG_DEBUG: key=${JSON.stringify(rawMsg?.key)}, fromMe=${rawMsg?.key?.fromMe}`);
+
         // Skip messages sent by the agent itself
         if (!rawMsg || rawMsg.key?.fromMe) {
+            console.log(`[PORTEIRO] ⏭️ Skipping: ${!rawMsg ? 'Empty message' : 'Sent by agent (fromMe)'}`);
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
         }
 
@@ -264,6 +268,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         };
 
         if (!phone || (!textContent && !mediaUrl)) {
+            console.log(`[PORTEIRO] ⏭️ Missing Content Filter: phone='${phone}', hasText=${!!textContent}, hasMedia=${!!mediaUrl}`);
             return c.json({ status: 'ignored', reason: 'missing_phone_or_content' });
         }
 
