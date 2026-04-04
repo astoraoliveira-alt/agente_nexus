@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_agents_zenvia_channel
 ON public.agents (zenvia_channel_id)
 WHERE zenvia_channel_id IS NOT NULL;
 
--- [2] MEGA FUNCTION: fn_fetch_next_inbound_message (V49)
+-- [2] MEGA FUNCTION: fn_fetch_next_inbound_message (V50.11 - The Omniscient)
 CREATE OR REPLACE FUNCTION public.fn_fetch_next_inbound_message(
     p_lock_minutes INT DEFAULT 5,
     p_n8n_execution_id TEXT DEFAULT NULL
@@ -70,6 +70,7 @@ DECLARE
     v_active_conv_count INT;
     v_session_status TEXT := 'unauthenticated';
     v_session_identifier TEXT := NULL;
+    v_messages_history JSONB;
     v_retorno JSONB;
 BEGIN
     -- [A] Pega e trava a mensagem
@@ -81,7 +82,7 @@ BEGIN
     WHERE id = (
         SELECT id FROM public.inbound_queue
         WHERE status = 'pending'
-        ORDER BY priority DESC NULLS LAST, created_at ASC -- Ajuste 1/2: resposta humana (prio 100) frente a campanha (prio 10)
+        ORDER BY priority DESC NULLS LAST, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED
     )
@@ -94,7 +95,7 @@ BEGIN
     -- [B] Normalização de Telefone
     v_phone_clean := regexp_replace(split_part(v_record.payload->>'phone', '@', 1), '\D', '', 'g');
 
-    -- [C] Busca Agente e Conversa (RESTAURAÇÃO DO ESTADO V43)
+    -- [C] Busca Agente e Conversa
     SELECT * INTO v_agent FROM public.agents WHERE id = v_record.agent_id;
     SELECT * INTO v_conv FROM public.conversations WHERE id = v_record.conversation_id;
     
@@ -104,13 +105,30 @@ BEGIN
     AND (whatsapp ILIKE '%' || RIGHT(v_phone_clean, 8) OR identifier = v_phone_clean)
     LIMIT 1;
 
-    -- [E] Sessão de Segurança
+    -- [E] Histórico de Conversa (V50.11)
+    -- Pega as últimas 10 mensagens para dar contexto à IA
+    SELECT COALESCE(jsonb_agg(msg), '[]'::jsonb) INTO v_messages_history
+    FROM (
+        SELECT 
+            CASE 
+                WHEN sender_type IN ('assistant', 'campaign', 'agent') THEN v_agent.name 
+                ELSE 'Cliente' 
+            END as role,
+            content as text,
+            created_at as timestamp
+        FROM public.messages
+        WHERE conversation_id = v_record.conversation_id
+        ORDER BY created_at DESC
+        LIMIT 10
+    ) h, LATERAL (SELECT h.* ORDER BY h.timestamp ASC) msg;
+
+    -- [F] Sessão de Segurança
     SELECT status, validated_identifier INTO v_session_status, v_session_identifier
     FROM public.conversation_security_sessions
     WHERE conversation_id = v_record.conversation_id AND status = 'active' AND expires_at > NOW()
     ORDER BY created_at DESC LIMIT 1;
 
-    -- [F] Sub-Agentes e Tools
+    -- [G] Sub-Agentes e Tools
     SELECT jsonb_agg(sub) INTO v_sub_agents FROM (
         SELECT 
             a.id, a.name, a.role, a.status, a.is_gatekeeper,
@@ -129,7 +147,7 @@ BEGIN
         FROM public.agent_tools WHERE tenant_id = v_agent.tenant_id AND (agent_id = v_record.agent_id OR agent_id IS NULL) AND is_active = TRUE
     ) t_row;
 
-    -- [G] Governança
+    -- [H] Governança
     SELECT status INTO v_company_status FROM public.companies WHERE id = v_agent.tenant_id;
     SELECT COUNT(*) INTO v_active_conv_count FROM public.conversations WHERE agent_id = v_record.agent_id AND status = 'ai_active';
     SELECT status INTO v_contact_status FROM public.contacts WHERE tenant_id = v_agent.tenant_id AND identifier = v_phone_clean LIMIT 1;
@@ -144,71 +162,44 @@ BEGIN
         v_governance_rules := '{"canDo": [], "cannotDo": [], "transferConditions": []}'::jsonb;
     END IF;
 
-    -- [I] CONSTRUÇÃO DO RETORNO (V49 - The Guardian of State)
+    -- [I] CONSTRUÇÃO DO RETORNO (V50.11 - The Omniscient)
     v_retorno := jsonb_build_object(
         'status', 'success',
         'status_rpc', 'success',
         'id', v_record.id,
-        'queue_id', v_record.id,
         'trace_id', v_record.trace_id,
-        'n8n_execution_id', v_record.n8n_execution_id,
         'tenant_id', v_record.tenant_id,
         'agent_id', v_record.agent_id,
-        'session_id', v_record.conversation_id,
         'message', v_record.payload->>'content',
-        'message_type', COALESCE(v_record.message_type, 'conversation'),
-        'is_ai', true, 
-        'atendimento_tipo', 'IA',
+        'messages_history', v_messages_history, -- Contexto vital para a IA
         
         'agent', jsonb_build_object(
             'id', v_agent.id,
             'name', v_agent.name,
             'role', COALESCE(v_agent.role, 'Consultor de Vendas'),
-            'meta_api_token', v_agent.meta_api_token,
-            'whatsapp_api_type', v_agent.whatsapp_api_type,
-            'whatsapp_provider', COALESCE(v_agent.whatsapp_provider, 'evolution'),  -- V50: roteamento multi-provider
-            'zenvia_channel_id', v_agent.zenvia_channel_id,                          -- V50: número Zenvia ("from")
-            'contextWindow', v_agent.context_window,
+            'whatsapp_provider', COALESCE(v_agent.whatsapp_provider, 'evolution'),
             'brain_config', v_agent.brain_config,
-            'greeting_message', COALESCE(v_agent.brain_config->>'greetingMessage', ''),
             'sub_agents', COALESCE(v_sub_agents, '[]'::jsonb),
             'tools', COALESCE(v_tools, '[]'::jsonb)
         ),
         'lead_info', jsonb_build_object(
             'is_lead', (v_lead.id IS NOT NULL),
             'name', COALESCE(v_lead.name, v_record.payload->>'name', 'Usuário'),
-            'link', COALESCE(v_lead.cta_link, ''),
             'cnpj', COALESCE(v_lead.identifier, '')
         ),
         'conversation', jsonb_build_object(
             'id', v_record.conversation_id, 
             'status', COALESCE(v_conv.status, 'ai_active'), 
-            'context_state', COALESCE(v_conv.context_state, '{}'::jsonb), -- FIX: Restauração do State para o N8N
-            'reopened', COALESCE(v_conv.status = 'closed', FALSE)
+            'context_state', COALESCE(v_conv.context_state, '{}'::jsonb)
         ),
         'governance', jsonb_build_object(
-            'agente_encontrado', TRUE,
             'agente_ativo', (v_agent.status = 'active'),
             'empresa_ativa', (v_company_status = 'active'),
-            'limite_atingido', (v_active_conv_count > v_agent.max_concurrency),
-            'user_banned', (v_contact_status = 'banned'),
-            'qnt_transacoes_correntes', v_active_conv_count,
-            'max_concurrency', v_agent.max_concurrency,
-            'lifecycle_stage', v_agent.lifecycle_stage,
-            'autonomy_level', v_agent.autonomy_level,
             'rules', v_governance_rules
         ),
-        'security', jsonb_build_object(
-            'session_status', COALESCE(v_session_status, 'unauthenticated'),
-            'session_identifier', v_session_identifier,
-            'requires_auth', COALESCE(v_agent.requires_security, false)
-        ),
         'payload', jsonb_build_object(
-            'name', COALESCE(v_record.payload->>'name', 'Usuário'),
             'phone', v_phone_clean,
-            'content', COALESCE(v_record.payload->>'content', ''),
             'instance', COALESCE(v_agent.evolution_instance, 'evolution'),
-            'platform', COALESCE(v_record.payload->>'platform', 'whatsapp'),
             'remoteID', v_record.payload->>'remoteID'
         )
     );
