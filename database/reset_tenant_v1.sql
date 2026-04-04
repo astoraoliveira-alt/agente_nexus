@@ -51,12 +51,15 @@ BEGIN
     -- 6. Clear Contacts Base
     DELETE FROM public.contacts WHERE tenant_id = v_tenant_id;
     
-    -- 7. Reset Decision Engine States
+    -- 7. Clear Campaign Registry (Master list in screenshot)
+    DELETE FROM public.campaigns WHERE tenant_id = v_tenant_id;
+    
+    -- 8. Reset Decision Engine States
     BEGIN
         DELETE FROM public.conversation_state_engine WHERE tenant_id = v_tenant_id;
     EXCEPTION WHEN OTHERS THEN
         NULL;
     END;
 
-    RAISE NOTICE 'Reset TOTAL (v1) complete for tenant: %', v_tenant_id;
+    RAISE NOTICE 'Reset TOTAL (v1.1) complete for tenant: %', v_tenant_id;
 END $$;
