@@ -137,7 +137,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// 🔒 Validação mínima\nif (!$json.phone) {\n  throw new Error(\"❌ phone não informado\");\n}\n\nif (!$json.message) {\n  throw new Error(\"❌ message não informado\");\n}\n\n// 🔄 Normalização\nconst phone = String($json.phone).replace('@c.us', '');\nconst provider = ($json.provider || 'evolution').toLowerCase();\n\n// 🔐 Campos opcionais (Meta)\nconst meta_token = $json.meta_api_token || null;\nconst meta_phone_id = $json.meta_phone_number_id || null;\n\n// 🚀 Retorno padronizado\nreturn [\n  {\n    json: {\n      ...$json,\n      phone,\n      provider,\n      meta_token,\n      meta_phone_id\n    }\n  }\n];"
+        "jsCode": "// 🔒 Validação mínima\nif (!$json.phone) {\n  throw new Error(\"❌ phone não informado\");\n}\n\nif (!$json.message) {\n  throw new Error(\"❌ message não informado\");\n}\n\n// 🔄 Normalização Inteligente (JID Aware)\nlet phone = String($json.phone).trim();\n\n// Se já for um JID completo (contém @), mantemos como está (removendo @c.us legado se existir)\nif (phone.includes('@')) {\n    phone = phone.replace('@c.us', '@s.whatsapp.net');\n} else {\n    // Se for apenas o número, anexamos o sufixo padrão de consumidor\n    phone = phone + '@s.whatsapp.net';\n}\n\nconst provider = ($json.provider || 'evolution').toLowerCase();\n\n// 🔐 Campos opcionais (Meta)\nconst meta_token = $json.meta_api_token || null;\nconst meta_phone_id = $json.meta_phone_number_id || null;\n\n// 🚀 Retorno padronizado\nreturn [\n  {\n    json: {\n      ...$json,\n      phone,\n      provider,\n      meta_token,\n      meta_phone_id\n    }\n  }\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
