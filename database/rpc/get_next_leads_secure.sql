@@ -51,13 +51,13 @@ BEGIN
     )
     SELECT 
         sl.id,
-        sl.contact_phone,
-        sl.contact_name,
+        sl.contact_phone::text,
+        sl.contact_name::text,
         sl.campaign_id,
         sl.agent_id,
         sl.tenant_id,
-        camp.initial_message,
-        ag.evolution_instance
+        camp.initial_message::text,
+        ag.evolution_instance::text
     FROM selected_leads sl
     JOIN public.campaigns camp ON camp.id = sl.campaign_id
     JOIN public.agents ag ON ag.id = sl.agent_id;
