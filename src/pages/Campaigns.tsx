@@ -273,11 +273,20 @@ export default function Campaigns() {
             return;
         }
 
+        const normalizePhone = (raw: string) => {
+            let clean = raw.replace(/\D/g, '');
+            // Se for número brasileiro (DDD + 8 ou 9 dígitos) sem o 55
+            if ((clean.length === 10 || clean.length === 11) && !clean.startsWith('55')) {
+                clean = '55' + clean;
+            }
+            return clean;
+        };
+
         try {
-            // 1. Deduplicação local (no arquivo sendo importado)
+            // 1. Deduplicação local com normalização
             const uniquePhones = new Set();
             const localFiltered = importData.filter(item => {
-                const phone = item.phone.replace(/\D/g, '');
+                const phone = normalizePhone(item.phone);
                 if (uniquePhones.has(phone)) return false;
                 uniquePhones.add(phone);
                 return true;
@@ -285,14 +294,24 @@ export default function Campaigns() {
 
             const skippedInFile = importData.length - localFiltered.length;
 
-            const contactsToInsert = localFiltered.map(item => ({
-                tenantId: currentTenant.id,
-                agentId: campaign.agentId,
-                campaignId: campaign.id,
-                contactName: item.name,
-                contactPhone: item.phone,
-                status: 'pending' as const
-            }));
+            const contactsToInsert = localFiltered.map(item => {
+                const phone = normalizePhone(item.phone);
+                // Personaliza a mensagem se houver {{nome}}
+                const baseMessage = campaign.initialMessage || "";
+                const personalizedMessage = baseMessage.replace(/{{nome}}/gi, item.name || "Cliente");
+
+                return {
+                    tenantId: currentTenant.id,
+                    agentId: campaign.agentId,
+                    campaignId: campaign.id,
+                    contactName: item.name,
+                    contactPhone: phone,
+                    status: 'pending' as const,
+                    metadata: {
+                        content: personalizedMessage
+                    }
+                };
+            });
 
             // Batch size for better performance (Supabase limit check)
             const chunkSize = 500;

@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 03/Abr/2026
-> **Versão:** 50.0 (Scale Guardian — Multi-Provider + Priority Queue + Concurrency Control)
+> **Última Atualização:** 04/Abr/2026
+> **Versão:** 50.1 (History Guardian — Campaign Memory + Placeholder Fix + Cron Tracking)
 > **Status:** Mestre — Produção Edenred (1.750 estabelecimentos)
-> **Fontes Primárias:** `database/create_queue_supervisor_rpc.sql` · `src/services/agents.service.ts` · `porteiro/src/index.ts` (V50)
+> **Fontes Primárias:** `database/create_queue_supervisor_rpc.sql` (V50.1) · `database/rpc/handle_outbound_sent.sql` · `src/services/agents.service.ts` · `porteiro/src/index.ts` (V50)
 
 ---
 
@@ -151,8 +151,17 @@ Ao receber o evento da Evolution, o Porteiro:
 Para garantir 100% de estabilidade na fila "Sofia", o sistema aplica:
 
 *   **Idempotência via External ID:** O N8N deve usar o `external_id` (ID original do WhatsApp) ao gravar na tabela `messages`. O banco está configurado para ignorar duplicatas nesse campo (`ON CONFLICT DO NOTHING`).
+*   **Memória de Campanha (V50.1):** O RPC de entrada agora injeta `messages_history` no payload. Isso permite que a IA reconheça mensagens de outbound (campanhas) enviadas pelo sistema e evite saudações ("Olá, eu sou a Lia") quando o cliente responde a um disparo inicial.
 *   **Processamento de Mídia:** Mensagens de áudio/imagem são processadas pelo N8N antes de serem salvas, garantindo que a transcrição e o OCR estejam disponíveis no Chat no momento em que a mensagem aparece.
 *   **Atomicidade:** A função `fn_fetch_next_inbound_message` garante que apenas um executor processe uma mensagem por vez, eliminando o risco de "duas IAs respondendo o mesmo usuário".
+
+### 2.9 Resiliência em Disparos de Outbound (Campanhas)
+
+Para garantir que 100% das mensagens de campanha cheguem ao destino com a personalização correta, o sistema adota as seguintes guards:
+
+1.  **Normalização de Telefone (Porteiro Guard):** Todos os números são forçados para o formato `55 + DDD + Número` antes do disparo. O Porteiro rejeita envios sem o prefixo internacional para evitar falhas silenciosas na Evolution API.
+2.  **Placeholder Anti-Parser (N8N Safe):** Devido ao comportamento do n8n de tentar interpretar `{{variavel}}` como JavaScript, as mensagens de campanha usam a técnica `split('{{nome}' + '}').join(valor)` no nó de substituição. Isso garante que o placeholder seja substituído apenas no texto final, sem quebrar o workflow.
+3.  **Sincronização de Conversa:** Ao disparar uma mensagem, o sistema agora garante a existência da entrada na tabela `conversations` com `updated_at` atualizado, permitindo que a IA recupere o histórico instantaneamente na primeira resposta do cliente.
 
 ---
 
@@ -518,8 +527,8 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 
 | RPC | Versão Atual | Papel |
 | :--- | :--- | :--- |
-| `fn_fetch_next_inbound_message` | **V50 (Scale Guardian)** | **Busca Atômica & Lock com Priority Queue.** Trava a mensagem na fila com `FOR UPDATE SKIP LOCKED`, ordena por `priority DESC` para respostas humanas precederem campanhas, e expõe `whatsapp_provider` + `zenvia_channel_id` para roteamento multi-provider. Ver Seção 23 para código completo. |
-| `fn_get_agent_context` | **V50 (Mirror)** | **Provedor de Inteligência.** Versão espelho para consultas diretas. Inclui `whatsapp_provider` e `zenvia_channel_id` no retorno. |
+| `fn_fetch_next_inbound_message` | **V50.1 (History Guardian)** | **Busca Atômica, Lock & Memória.** Trava a mensagem na fila com `FOR UPDATE SKIP LOCKED`. Agora inclui o campo `messages_history` (10 últimas mensagens cronológicas) para que o Orquestrador preserve o contexto de campanhas e evite saudações redundantes. |
+| `fn_get_agent_context` | **V50.1 (Mirror)** | **Provedor de Inteligência.** Versão espelho para consultas diretas. Inclui histórico e roteamento multi-provider. |
 | `n8n_orchestrator_v7` | V7 (Production) | **Dynamic Gatekeeper & Inbound Logic.** Gerencia o desvio de controle para sub-agentes de segurança. |
 | `record_message` | Atual | Gravação segura de mensagens. Bypassa RLS (service_role). Suporta multimídia. |
 | `fn_track_llm_usage`| V2 | Registra consumo com telemetria exata atrelada ao `trace_id`. |
