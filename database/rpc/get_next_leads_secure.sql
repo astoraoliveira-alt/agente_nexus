@@ -6,19 +6,19 @@
 DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
 
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
-    _p_tenant_id uuid,
-    _p_campaign_id uuid,
-    _p_limit int
+    p_tenant_id uuid,
+    p_campaign_id uuid,
+    p_limit int
 )
 RETURNS TABLE (
-    _r_outbound_id uuid,
-    _r_phone text,
-    _r_name text,
-    _r_camp_id uuid,
-    _r_agt_id uuid,
-    _r_tenant_id uuid,
-    _r_initial_message text,
-    _r_evolution_instance text
+    outbound_id uuid,
+    phone text,
+    name text,
+    camp_id uuid,
+    agt_id uuid,
+    tenant_id_out uuid,
+    initial_message text,
+    evolution_instance text
 )
 LANGUAGE plpgsql
 AS $$
@@ -32,19 +32,19 @@ BEGIN
         WHERE id IN (
             SELECT oq.id 
             FROM public.outbound_queue oq
-            WHERE oq.tenant_id = _p_tenant_id
-              AND oq.campaign_id = _p_campaign_id
+            WHERE oq.tenant_id = p_tenant_id
+              AND oq.campaign_id = p_campaign_id
               AND oq.status = 'pending'
               -- Garante que o contato NÃO recebeu nada nas últimas 2h por outra campanha
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
-                  WHERE oq_check.tenant_id = _p_tenant_id
+                  WHERE oq_check.tenant_id = p_tenant_id
                     AND oq_check.contact_phone = oq.contact_phone
                     AND (oq_check.status = 'sent' OR oq_check.status = 'processing')
                     AND (oq_check.id <> oq.id)
                     AND (oq_check.sent_at > (NOW() - INTERVAL '2 hours') OR (oq_check.status = 'processing' AND oq_check.created_at > NOW() - INTERVAL '5 minutes'))
               )
-            LIMIT _p_limit
+            LIMIT p_limit
             FOR UPDATE SKIP LOCKED -- Pula os que já estão travados por outro processo
         )
         RETURNING id, contact_phone, contact_name, campaign_id, agent_id, tenant_id
