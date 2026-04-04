@@ -293,71 +293,33 @@ app.post('/v1/evolution/webhook', async (c) => {
             console.error(`[PORTEIRO] ❌ Contact sync failed:`, contactError);
         }
 
-        // 3. Find or Create Active Conversation
-        // We look for 'ai_active' or 'human_active' status 
-        const { data: conversation, error: convError } = await supabaseAdmin
+        // --- 🛡️ SMART CONVERSATION LINKER (V50.9 - Anti-Duplicate) ---
+        // Usamos UPSERT com a constraint de unicidade (tenant_id, agent_id, user_identifier)
+        // Isso garante que NUNCA teremos duas linhas para o mesmo contato no mesmo agente.
+        const { data: conversationData, error: upsertError } = await supabaseAdmin
             .from('conversations')
-            .select('id, status, user_name')
-            .eq('tenant_id', agent.tenant_id)
-            .eq('user_identifier', phone)
-            .eq('agent_id', agent.id)
-            .neq('status', 'closed')
-            .order('last_message_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
+            .upsert({
+                tenant_id: agent.tenant_id,
+                agent_id: agent.id,
+                user_identifier: phone,
+                user_name: pushName,
+                channel: 'whatsapp',
+                status: 'ai_active', // Reanima caso estivesse fechada
+                last_message_at: new Date().toISOString()
+            }, { 
+                onConflict: 'tenant_id,agent_id,user_identifier',
+                ignoreDuplicates: false // Queremos atualizar o last_message_at e status
+            })
+            .select('id')
+            .single();
 
-        let conversationId = conversation?.id;
-
-        if (conversationId && conversation) {
-            // Se o nome atual for genérico e agora temos o nome real, atualizamos
-            if (conversation.user_name === 'WhatsApp User' && pushName !== 'WhatsApp User') {
-                console.log(`[PORTEIRO] 🏷️ Updating conversation name to: ${pushName}`);
-                await supabaseAdmin
-                    .from('conversations')
-                    .update({ user_name: pushName })
-                    .eq('id', conversationId);
-            }
-        } else {
-            console.log(`[PORTEIRO] 🆕 Creating new conversation for ${phone}`);
-            
-            // Usamos UPSERT com a constraint de status aberto para evitar duplicatas em race conditions
-            const { data: newConv, error: newConvError } = await supabaseAdmin
-                .from('conversations')
-                .upsert({
-                    tenant_id: agent.tenant_id,
-                    agent_id: agent.id,
-                    user_identifier: phone,
-                    user_name: pushName,
-                    channel: 'whatsapp',
-                    status: 'ai_active'
-                }, { 
-                    onConflict: 'tenant_id,user_identifier,agent_id',
-                    // Apenas se não houver uma conversa aberta (lógica simplificada via upsert)
-                })
-                .select()
-                .single();
-            
-            if (newConvError) {
-                // Se falhou por conflito, tentamos buscar a que acabou de ser criada por outro processo
-                const { data: retryConv } = await supabaseAdmin
-                    .from('conversations')
-                    .select('id')
-                    .eq('tenant_id', agent.tenant_id)
-                    .eq('user_identifier', phone)
-                    .eq('agent_id', agent.id)
-                    .neq('status', 'closed')
-                    .single();
-                
-                conversationId = retryConv?.id;
-                
-                if (!conversationId) {
-                    console.error(`[PORTEIRO] ❌ Failed to create/find conversation:`, newConvError);
-                    return c.json({ error: 'Conversation management failed' }, 500);
-                }
-            } else {
-                conversationId = newConv.id;
-            }
+        if (upsertError) {
+            console.error(`[PORTEIRO] ❌ Critical Failure in atomic upsert:`, upsertError);
+            return c.json({ error: 'Conversation integrity failure', details: upsertError.message }, 500);
         }
+
+        const conversationId = conversationData.id;
+        console.log(`[PORTEIRO] 🛡️ Using Conversation ID: ${conversationId} for ${phone}`);
 
         // Note: Direct message recording removed. 
         // Responsibility moved to N8N to handle complex media (Audio/Image) and avoid duplicates.
