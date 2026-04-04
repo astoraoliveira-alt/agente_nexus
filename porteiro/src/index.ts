@@ -178,9 +178,10 @@ app.post('/v1/evolution/webhook', async (c) => {
             return c.json({ status: 'success', event: 'connection.update' });
         }
 
-        // --- 2. MESSAGE RECEIPT (Item 3 - Webhooks) ---
+        // --- 2. UPSERT FILTER (V50.18 - Monitoring) ---
         if (event !== 'messages.upsert') {
-            return c.json({ status: 'ignored', event });
+            console.log(`[PORTEIRO] 🕵️ Ignoring Non-Upsert event type: ${event}`);
+            return c.json({ status: 'ignored', reason: `not_upsert_event_${event}` });
         }
 
         // Handle messages.upsert (can be an array or single object)
@@ -289,7 +290,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             .limit(1);
 
         if (agentError || !agents?.length) {
-            console.error(`[PORTEIRO] ❌ Agent not found for instance: ${instance}`, agentError);
+            console.error(`[PORTEIRO] ❌ Agent NOT FOUND for instance: ${instance}. Verify the 'evolution_instance' column in the database.`);
             return c.json({ error: 'Instance not mapped to any agent' }, 404);
         }
 
@@ -420,7 +421,10 @@ app.post('/v1/evolution/webhook', async (c) => {
         const currentPending = pendingMessages.get(conversationId)!;
         currentPending.timeout = setTimeout(async () => {
             const dataToProcess = pendingMessages.get(conversationId);
-            if (!dataToProcess) return;
+            if (!dataToProcess) {
+                console.log(`[PORTEIRO] ⚠️ Debounce mismatch: could not find pending for ${conversationId}`);
+                return;
+            }
             pendingMessages.delete(conversationId);
 
             activeJobs++;
