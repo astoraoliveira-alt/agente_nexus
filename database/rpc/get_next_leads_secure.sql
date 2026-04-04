@@ -11,12 +11,12 @@ CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
     p_limit int
 )
 RETURNS TABLE (
-    outbound_id uuid,
-    phone text,
-    name text,
-    camp_id uuid,
-    agt_id uuid,
-    tenant_id_out uuid,
+    id uuid,
+    contact_phone text,
+    contact_name text,
+    campaign_id uuid,
+    agent_id uuid,
+    tenant_id uuid,
     initial_message text,
     evolution_instance text
 )
@@ -44,10 +44,11 @@ BEGIN
                     AND (oq_check.id <> oq.id)
                     AND (oq_check.sent_at > (NOW() - INTERVAL '2 hours') OR (oq_check.status = 'processing' AND oq_check.created_at > NOW() - INTERVAL '5 minutes'))
               )
+            ORDER BY oq.created_at ASC
             LIMIT p_limit
             FOR UPDATE SKIP LOCKED -- Pula os que já estão travados por outro processo
         )
-        RETURNING id, contact_phone, contact_name, campaign_id, agent_id, tenant_id
+        RETURNING id, public.outbound_queue.contact_phone, public.outbound_queue.contact_name, campaign_id, agent_id, public.outbound_queue.tenant_id
     )
     SELECT 
         sl.id,

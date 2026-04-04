@@ -878,6 +878,8 @@ async function startQueueWorker() {
                     id, 
                     tenant_id, 
                     agent_id, 
+                    campaign_id,
+                    contact_name,
                     conversation_id,
                     contact_phone, 
                     metadata,
@@ -949,32 +951,35 @@ async function startQueueWorker() {
                     }
 
                     if (responseOk) {
-                        // 1. Mark as sent in queue
-                        await supabaseAdmin.from('outbound_queue').update({ 
-                            status: 'sent', 
-                            sent_at: new Date().toISOString(),
-                            metadata: { ...item.metadata, response: result }
-                        }).eq('id', item.id);
+                        console.log(`[WORKER] ✅ Sent! Syncing identity for ${item.id}...`);
 
-                        // 2. Sync with main Chat History (messages table)
-                        if (item.conversation_id) {
-                            console.log(`[WORKER] 📝 Logging message to conversation ${item.conversation_id}...`);
-                            await supabaseAdmin.from('messages').insert({
-                                conversation_id: item.conversation_id,
-                                tenant_id: item.tenant_id,
-                                content: message,
-                                sender_type: 'ai',
-                                sender_name: agent?.name || 'Agente Virtual',
-                                message_type: 'text'
-                            });
-                            
-                            // 3. Update conversation last_message_at
-                            await supabaseAdmin.from('conversations').update({
-                                last_message_at: new Date().toISOString()
-                            }).eq('id', item.conversation_id);
+                        // Use the unified RPC to handle everything:
+                        // 1. Create/Update Contact
+                        // 2. Create/Get Conversation
+                        // 3. Log the Message
+                        // 4. Mark Queue as 'sent'
+                        const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('handle_outbound_sent', {
+                            p_tenant_id: item.tenant_id,
+                            p_agent_id: item.agent_id,
+                            p_contact_phone: item.contact_phone,
+                            p_message_content: message,
+                            p_queue_id: item.id,
+                            p_campaign_id: item.campaign_id,
+                            p_contact_name: item.contact_name,
+                            p_message_type: 'text'
+                        });
+
+                        if (rpcError) {
+                            console.error(`[WORKER] ⚠️ Message sent but RPC failed for ${item.id}:`, rpcError.message);
+                            // Fallback update just in case the RPC fails but message was sent
+                            await supabaseAdmin.from('outbound_queue').update({ 
+                                status: 'sent', 
+                                sent_at: new Date().toISOString(),
+                                error_message: `RPC Error: ${rpcError.message}`
+                            }).eq('id', item.id);
+                        } else {
+                            console.log(`[WORKER] ✨ Unified identity sync complete for ${item.id}. Conv: ${rpcData?.ids?.conversation_id}`);
                         }
-
-                        console.log(`[WORKER] ✅ Successfully processed ${item.id} [Trace: ${item.trace_id}]`);
                     } else {
                         throw new Error(result?.error?.message || result?.message || 'Evolution API Error');
                     }
@@ -1009,7 +1014,9 @@ async function startQueueWorker() {
 
     // --- REALTIME SUBSCRIPTION ---
     // Listen for new inserts in outbound_queue for instant processing
-    console.log('📡 [WORKER] Subscribing to Outbound Realtime...');
+    
+    console.log('❌ [WORKER] Realtime Subscription DISABLED to prevent race conditions with N8N.');
+    /*
     supabaseAdmin
         .channel('outbound_queue_changes')
         .on('postgres_changes', { 
@@ -1017,17 +1024,20 @@ async function startQueueWorker() {
             schema: 'public', 
             table: 'outbound_queue' 
         }, (payload) => {
-            console.log('⚡ [WORKER] New message detected via Realtime! Processing...');
+            console.log('⚡ [WORKER] TRIGGER DETECTED: New message in outbound_queue!');
             processQueue();
         })
         .subscribe();
+    */
 
-    // --- SAFETY POLLING (Slow) ---
-    // Run every 60 seconds as a fallback
-    setInterval(processQueue, 60000); 
-    
-    // Initial run
-    processQueue();
+    // Fallback Polling is also disabled
+    console.log('❌ [WORKER] Safety Polling (60s) DISABLED. Waiting for RPC calls.');
+    /*
+    setInterval(() => {
+        console.log('🔄 [WORKER] Periodic fallback check...');
+        processQueue();
+    }, 60000);
+    */
 }
 
 /**
