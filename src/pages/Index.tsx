@@ -1,6 +1,7 @@
 import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
+import { EdenredConversionBanner } from '@/components/dashboard/EdenredConversionBanner';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -8,8 +9,11 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { dashboardService } from '@/services/dashboard.service';
 import { cn } from '@/lib/utils';
 import { TooltipProvider } from "@/components/ui/tooltip";
+
+const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 
 export default function Index() {
   const { currentTenant, openSlideOver } = useApp();
@@ -19,6 +23,15 @@ export default function Index() {
     queryKey: ['dashboard-stats', currentTenant?.id],
     queryFn: () => api.getDashMaster(currentTenant!.id),
     enabled: !!currentTenant?.id,
+    refetchInterval: 60000,
+  });
+
+  // Edenred-specific conversion query
+  const isEdenred = currentTenant?.id === EDENRED_TENANT_ID;
+  const { data: edenredFunnel, isLoading: isLoadingEdenred } = useQuery({
+    queryKey: ['edenred-conversion', currentTenant?.id],
+    queryFn: () => dashboardService.getEdenredConversionFunnel(currentTenant!.id),
+    enabled: isEdenred,
     refetchInterval: 60000,
   });
 
@@ -100,6 +113,18 @@ export default function Index() {
               />
             </div>
           </TooltipProvider>
+
+          {/* Edenred Specific Conversion Funnel Banner */}
+          {isEdenred && edenredFunnel && (
+            <div className="w-full">
+              <EdenredConversionBanner 
+                totalContacts={edenredFunnel.total_contacts}
+                linkSentContacts={edenredFunnel.link_sent_contacts}
+                conversionRate={edenredFunnel.conversion_rate}
+                isLoading={isLoadingEdenred}
+              />
+            </div>
+          )}
 
           {/* Row 2: Operation Blocks */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

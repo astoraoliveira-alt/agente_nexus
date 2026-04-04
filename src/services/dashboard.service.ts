@@ -113,5 +113,26 @@ export const dashboardService = {
         }
 
         return data;
+    },
+
+    /**
+     * Edenred-only: returns total contacts interacted + contacts
+     * that received the proposal link (deduped per contact/conversation).
+     */
+    async getEdenredConversionFunnel(tenantId: string): Promise<{
+        total_contacts: number;
+        link_sent_contacts: number;
+        conversion_rate: number;
+    }> {
+        const { data, error } = await supabase.rpc('get_edenred_conversion_funnel', {
+            p_tenant_id: tenantId
+        });
+
+        if (error) {
+            console.error('Failed to get Edenred conversion funnel:', error);
+            return { total_contacts: 0, link_sent_contacts: 0, conversion_rate: 0 };
+        }
+
+        return data as { total_contacts: number; link_sent_contacts: number; conversion_rate: number };
     }
 };
