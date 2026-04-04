@@ -43,7 +43,8 @@ const pendingMessages = new Map<string, {
     instanceId: string,
     serverURL: string,
     mediaUrl?: string,
-    mimetype?: string
+    mimetype?: string,
+    raw_evolution_payload?: any
 }>();
 
 const app = new Hono();
@@ -190,39 +191,37 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         const remoteID = rawMsg.key?.remoteJid;
         
-        // --- 🛡️ SMART PHONE EXTRACTION (V50.2 - Anti-LID / Group Fix) ---
-        // Prioridade 1: Tenta o participant (comum em grupos ou LIDs)
-        // Prioridade 2: Tenta o campo 'from' (se presente na Evolution)
-        // Prioridade 3: Fallback para o remoteJid (split @)
-        let phone = rawMsg.key?.participant?.split('@')[0] || 
+        // --- 🛡️ SMART PHONE EXTRACTION (V50.15 - Deep LID Identification) ---
+        // Procuramos o telefone em múltiplas camadas para evitar o LID (18938...)
+        let phone = rawMsg.phone || // Algumas versões da Evolution mandam direto na raiz
+                    rawMsg.source || // Outras mandam no source
                     rawMsg.from?.split('@')[0] || 
+                    rawMsg.key?.participant?.split('@')[0] || 
                     remoteID?.split('@')[0];
         
-        // Se for um LID (geralmente começa com 1... ou 2... e tem 15 dígitos) 
-        // e o remoteJid for diferente, o remoteJid tende a ser o telefone em chats privados
-        if (remoteID && remoteID.endsWith('@s.whatsapp.net')) {
-            phone = remoteID.split('@')[0];
-        }
-
+        // Anti-LID: Se o phone extraído for um LID (geralmente longos e começam com 189...)
+        // e existir um pushName que pareça um número, podemos tentar salvar, 
+        // mas o ideal é o RAW para auditoria.
+        
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
         const messageType = rawMsg.messageType || 'conversation';
         
-        // Extract technical metadata from the root payload
-        const platform = rawMsg.source || 'unknown'; // No seu JSON: data.source
-        const instanceId = rawMsg.instanceId || instance; // No seu JSON: data.instanceId
-        const serverURL = payload.server_url || ''; // No seu JSON: server_url
+        // Technical metadata
+        const platform = rawMsg.source || 'unknown';
+        const instanceId = rawMsg.instanceId || instance;
+        const serverURL = payload.server_url || '';
 
-        // --- UNIVERSAL MESSAGE INSPECTOR (Evolution & Meta Ready) ---
+        // --- UNIVERSAL MESSAGE INSPECTOR ---
         let textContent = rawMsg.message?.conversation || 
                           rawMsg.message?.extendedTextMessage?.text || 
-                          rawMsg.body || ''; // Fallback para Meta
+                          rawMsg.body || '';
         
         let mediaUrl = '';
         let mimetype = '';
-        let detectedMessageType = 'conversation'; // Default Davos Standard
+        let detectedMessageType = 'conversation';
 
-        // Prioridade 1: Evolution/Baileys (imageMessage, audioMessage...)
+        // Extract media (Image/Audio/Video)
         if (rawMsg.message?.imageMessage) {
             detectedMessageType = 'imageMessage';
             textContent = rawMsg.message.imageMessage.caption || '[Imagem]';
@@ -244,15 +243,24 @@ app.post('/v1/evolution/webhook', async (c) => {
             mediaUrl = rawMsg.message.documentMessage.url;
             mimetype = rawMsg.message.documentMessage.mimetype;
         } 
-        // Prioridade 2: Meta Flow (type: "image", type: "audio"...)
-        else if (rawMsg.type) {
-            const metaType = rawMsg.type;
-            if (metaType === 'image') { detectedMessageType = 'imageMessage'; mediaUrl = rawMsg.image?.url; }
-            else if (metaType === 'audio') { detectedMessageType = 'audioMessage'; mediaUrl = rawMsg.audio?.url; }
-            else if (metaType === 'video') { detectedMessageType = 'videoMessage'; mediaUrl = rawMsg.video?.url; }
-            else if (metaType === 'document') { detectedMessageType = 'documentMessage'; mediaUrl = rawMsg.document?.url; }
-            else if (metaType === 'text') { detectedMessageType = 'conversation'; }
-        }
+
+        // --- 🛡️ CONSTRUCT AUDITABLE PAYLOAD (V50.15) ---
+        // Agora incluímos o raw_evolution_payload para possibilitar auditoria profunda
+        const finalPayload = {
+            name: pushName,
+            phone: phone,
+            content: textContent,
+            instance: instance,
+            mediaUrl: mediaUrl,
+            mimetype: mimetype,
+            platform: platform,
+            remoteID: remoteID,
+            serverURL: serverURL,
+            timestamp: new Date().toISOString(),
+            instanceId: instanceId,
+            messageType: detectedMessageType,
+            raw_evolution_payload: rawMsg // O "Santo Graal" para depurar LID
+        };
 
         if (!phone || (!textContent && !mediaUrl)) {
             return c.json({ status: 'ignored', reason: 'missing_phone_or_content' });
@@ -370,6 +378,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // 6. --- DEBOUNCE & ENQUEUE (Item 3.2 do Plano Elite) ---
         
         // Se já existe um debounce para esta conversa, cancelamos o anterior
+        // Debounce Logic: Update existing or create new entry
         if (pendingMessages.has(conversationId)) {
             const pending = pendingMessages.get(conversationId)!;
             clearTimeout(pending.timeout);
@@ -390,6 +399,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 serverURL,
                 mediaUrl,
                 mimetype,
+                raw_evolution_payload: rawMsg, // V50.15 Audit
                 timeout: setTimeout(() => {}) // Placeholder
             });
         }
@@ -401,11 +411,6 @@ app.post('/v1/evolution/webhook', async (c) => {
             if (!dataToProcess) return;
             pendingMessages.delete(conversationId);
 
-            // Ajuste 4: Throttle — nunca excede MAX_CONCURRENT_JOBS simultâneos
-            if (activeJobs >= MAX_CONCURRENT_JOBS) {
-                console.warn(`[PORTEIRO] ⚠️ MAX_CONCURRENT_JOBS (${MAX_CONCURRENT_JOBS}) atingido. Re-enfileirando após 2s.`);
-                await new Promise(res => setTimeout(res, 2000));
-            }
             activeJobs++;
 
             const finalContent = dataToProcess.contents.join('\n');
@@ -414,7 +419,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             console.log(`[PORTEIRO] 📦 Enfileirando ${dataToProcess.contents.length} mensagens para a conversa ${conversationId} [Trace: ${traceId}]`);
 
             try {
-                // Insere na Inbound Queue calculando o sequence_number (Item 2.1 Elite)
+                // Insere na Inbound Queue calculando o sequence_number
                 const { error: queueError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                     p_tenant_id: dataToProcess.tenantId,
                     p_agent_id: dataToProcess.agentId,
@@ -432,7 +437,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                         instanceId: dataToProcess.instanceId,
                         serverURL: dataToProcess.serverURL,
                         mediaUrl: dataToProcess.mediaUrl,
-                        mimetype: dataToProcess.mimetype
+                        mimetype: dataToProcess.mimetype,
+                        raw_evolution_payload: dataToProcess.raw_evolution_payload // O FANTÁSTICO PAYLOAD BRUTO (V50.15)
                     },
                     p_trace_id: traceId,
                     p_message_type: dataToProcess.messageType
