@@ -293,36 +293,73 @@ app.post('/v1/evolution/webhook', async (c) => {
             console.error(`[PORTEIRO] ❌ Contact sync failed:`, contactError);
         }
 
-        // --- 🛡️ SMART CONVERSATION LINKER (V50.9 - Anti-Duplicate) ---
-        // Usamos UPSERT com a constraint de unicidade (tenant_id, agent_id, user_identifier)
-        // Isso garante que NUNCA teremos duas linhas para o mesmo contato no mesmo agente.
-        const { data: conversationData, error: upsertError } = await supabaseAdmin
+        // --- 🛡️ SMART CONVERSATION LINKER & IDENTITY UPGRADE (V50.14) ---
+        // 1. Tenta achar pelo JID exato (LID ou comum)
+        let { data: conversationData, error: findError } = await supabaseAdmin
             .from('conversations')
-            .upsert({
-                tenant_id: agent.tenant_id,
-                agent_id: agent.id,
-                user_identifier: phone,
-                user_name: pushName,
-                channel: 'whatsapp',
-                status: 'ai_active', // Reanima caso estivesse fechada
-                last_message_at: new Date().toISOString()
-            }, { 
-                onConflict: 'tenant_id,agent_id,user_identifier',
-                ignoreDuplicates: false // Queremos atualizar o last_message_at e status
-            })
-            .select('id')
-            .single();
+            .select('id, user_identifier')
+            .eq('tenant_id', agent.tenant_id)
+            .eq('agent_id', agent.id)
+            .eq('user_identifier', remoteID)
+            .maybeSingle();
 
-        if (upsertError) {
-            console.error(`[PORTEIRO] ❌ Critical Failure in atomic upsert:`, upsertError);
-            return c.json({ error: 'Conversation integrity failure', details: upsertError.message }, 500);
+        // 2. Se não achou (ex: Gi Mendes @lid), tenta herança pelo número do telefone
+        if (!conversationData && !findError) {
+            console.log(`[PORTEIRO] 🔍 Identidade ${remoteID} não encontrada. Tentando herança...`);
+            
+            const { data: heritage, error: heritageError } = await supabaseAdmin
+                .from('conversations')
+                .select('id, user_identifier')
+                .eq('tenant_id', agent.tenant_id)
+                .eq('agent_id', agent.id)
+                .like('user_identifier', `${phone}%`)
+                .neq('status', 'closed')
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (heritage) {
+                console.log(`[PORTEIRO] 🧬 Herança encontrada! Migrando conversa ${heritage.id} de ${heritage.user_identifier} -> ${remoteID}`);
+                const { data: updated, error: updateError } = await supabaseAdmin
+                    .from('conversations')
+                    .update({ 
+                        user_identifier: remoteID,
+                        status: 'ai_active',
+                        last_message_at: new Date().toISOString()
+                    })
+                    .eq('id', heritage.id)
+                    .select()
+                    .single();
+                
+                conversationData = updated;
+            }
+        }
+
+        // 3. Se ainda não existir, cria uma do zero
+        if (!conversationData) {
+            console.log(`[PORTEIRO] ✨ Criando nova conversa para ${remoteID}`);
+            const { data: created, error: createError } = await supabaseAdmin
+                .from('conversations')
+                .insert({
+                    tenant_id: agent.tenant_id,
+                    agent_id: agent.id,
+                    user_identifier: remoteID,
+                    user_name: pushName,
+                    channel: 'whatsapp',
+                    status: 'ai_active'
+                })
+                .select()
+                .single();
+            
+            if (createError) {
+                console.error(`[PORTEIRO] ❌ Critical Failure in conversation creation:`, createError);
+                return c.json({ error: 'Conversation creation failed', details: createError.message }, 500);
+            }
+            conversationData = created;
         }
 
         const conversationId = conversationData.id;
-        console.log(`[PORTEIRO] 🛡️ Using Conversation ID: ${conversationId} for ${phone}`);
-
-        // Note: Direct message recording removed. 
-        // Responsibility moved to N8N to handle complex media (Audio/Image) and avoid duplicates.
+        console.log(`[PORTEIRO] 🛡️ Using Unified Conversation ID: ${conversationId} for ${remoteID}`);
 
         // 5. Update last_message_at (Touch conversation)
         await supabaseAdmin
