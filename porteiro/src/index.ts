@@ -195,15 +195,15 @@ app.post('/v1/evolution/webhook', async (c) => {
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
         }
 
-        // --- 🛡️ SMART PHONE EXTRACTION (V50.17 - Ultra-Robust Identity) ---
-        // Normalização agressiva: Buscamos em todas as fontes possíveis do Evolution v2
+        // --- 🛡️ SMART PHONE EXTRACTION (V50.19 - JID First Policy) ---
         const remoteID = rawMsg.key?.remoteJid;
         
-        let rawPhone = rawMsg.phone || 
+        // Prioridade total para o remoteJid, depois outros campos.
+        let rawPhone = (remoteID ? remoteID.split('@')[0] : '') || 
+                    rawMsg.phone || 
                     rawMsg.source || 
                     rawMsg.from?.split('@')[0] || 
                     rawMsg.key?.participant?.split('@')[0] || 
-                    (remoteID ? remoteID.split('@')[0] : '') || 
                     '';
         
         // Remove tudo que não for dígito
@@ -212,15 +212,6 @@ app.post('/v1/evolution/webhook', async (c) => {
         // O ID de usuário no banco DEVE ser o número limpo (para bater com a RPC da campanha)
         const cleanUserIdentifier = phone || (remoteID ? remoteID.split('@')[0].replace(/\D/g, '') : '');
 
-        console.log(`[PORTEIRO] 🕵️ IDENTITY_DEBUG: raw='${rawPhone}', phone='${phone}', cleanID='${cleanUserIdentifier}'`);
-        
-        const pushName = rawMsg.pushName || 'WhatsApp User';
-        const externalId = rawMsg.key?.id;
-        const messageType = rawMsg.messageType || 'conversation';
-        
-        // Technical metadata
-        const platform = rawMsg.source || 'unknown';
-        const instanceId = rawMsg.instanceId || instance;
         const serverURL = payload.server_url || '';
 
         // --- UNIVERSAL MESSAGE INSPECTOR ---
@@ -246,7 +237,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         } else if (rawMsg.message?.videoMessage) {
             detectedMessageType = 'videoMessage';
             textContent = rawMsg.message.videoMessage.caption || '[Vídeo]';
-            mediaUrl = rawMsg.message.videoMessage.url;
+        mediaUrl = rawMsg.message.videoMessage.url;
             mimetype = rawMsg.message.videoMessage.mimetype;
         } else if (rawMsg.message?.documentMessage) {
             detectedMessageType = 'documentMessage';
@@ -254,6 +245,21 @@ app.post('/v1/evolution/webhook', async (c) => {
             mediaUrl = rawMsg.message.documentMessage.url;
             mimetype = rawMsg.message.documentMessage.mimetype;
         } 
+
+        console.log(`[PORTEIRO] 🕵️ IDENTITY_DEBUG: raw='${rawPhone}', cleanID='${cleanUserIdentifier}'`);
+        
+        const pushName = rawMsg.pushName || 'WhatsApp User';
+        const externalId = rawMsg.key?.id;
+        
+        // Technical metadata
+        const platform = rawMsg.source || 'unknown';
+        const instanceId = rawMsg.instanceId || instance;
+
+        // Content Filter: Se temos um identificador limpo e conteúdo, seguimos.
+        if (!cleanUserIdentifier || (!textContent && !mediaUrl)) {
+            console.log(`[PORTEIRO] ⏭️ Missing Content Filter: validID=${!!cleanUserIdentifier}, hasText=${!!textContent}, hasMedia=${!!mediaUrl}`);
+            return c.json({ status: 'ignored', reason: 'missing_id_or_content' });
+        }
 
         // --- 🛡️ CONSTRUCT AUDITABLE PAYLOAD (V50.15) ---
         // Agora incluímos o raw_evolution_payload para possibilitar auditoria profunda
@@ -272,11 +278,6 @@ app.post('/v1/evolution/webhook', async (c) => {
             messageType: detectedMessageType,
             raw_evolution_payload: rawMsg // O "Santo Graal" para depurar LID
         };
-
-        if (!phone || (!textContent && !mediaUrl)) {
-            console.log(`[PORTEIRO] ⏭️ Missing Content Filter: phone='${phone}', hasText=${!!textContent}, hasMedia=${!!mediaUrl}`);
-            return c.json({ status: 'ignored', reason: 'missing_phone_or_content' });
-        }
 
         console.log(`[PORTEIRO] 📥 Msg from ${phone} (${pushName}) on instance: ${instance}`);
 
