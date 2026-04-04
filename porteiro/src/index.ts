@@ -194,19 +194,24 @@ app.post('/v1/evolution/webhook', async (c) => {
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
         }
 
+        // --- 🛡️ SMART PHONE EXTRACTION (V50.17 - Ultra-Robust Identity) ---
+        // Normalização agressiva: Buscamos em todas as fontes possíveis do Evolution v2
         const remoteID = rawMsg.key?.remoteJid;
         
-        // --- 🛡️ SMART PHONE EXTRACTION (V50.16 - Atomic Digit Cleaning) ---
-        // Normalização agressiva: Apenas números.
         let rawPhone = rawMsg.phone || 
                     rawMsg.source || 
                     rawMsg.from?.split('@')[0] || 
                     rawMsg.key?.participant?.split('@')[0] || 
-                    remoteID?.split('@')[0] || '';
+                    (remoteID ? remoteID.split('@')[0] : '') || 
+                    '';
         
+        // Remove tudo que não for dígito
         const phone = rawPhone.replace(/\D/g, '');
-        // O ID de usuário no banco AGORA é estritamente apenas números (para bater com a RPC)
-        const cleanUserIdentifier = remoteID ? remoteID.split('@')[0].replace(/\D/g, '') : phone;
+        
+        // O ID de usuário no banco DEVE ser o número limpo (para bater com a RPC da campanha)
+        const cleanUserIdentifier = phone || (remoteID ? remoteID.split('@')[0].replace(/\D/g, '') : '');
+
+        console.log(`[PORTEIRO] 🕵️ IDENTITY_DEBUG: raw='${rawPhone}', phone='${phone}', cleanID='${cleanUserIdentifier}'`);
         
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
