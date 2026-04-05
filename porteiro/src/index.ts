@@ -198,10 +198,9 @@ app.post('/v1/evolution/webhook', async (c) => {
         // --- 🛡️ SMART PHONE EXTRACTION (V50.19 - JID First Policy) ---
         const remoteID = rawMsg.key?.remoteJid;
         
-        // Prioridade total para o remoteJid, depois outros campos.
+        // Prioridade total para o remoteJid, depois campos que realmente tenham números.
         let rawPhone = (remoteID ? remoteID.split('@')[0] : '') || 
                     rawMsg.phone || 
-                    rawMsg.source || 
                     rawMsg.from?.split('@')[0] || 
                     rawMsg.key?.participant?.split('@')[0] || 
                     '';
@@ -237,7 +236,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         } else if (rawMsg.message?.videoMessage) {
             detectedMessageType = 'videoMessage';
             textContent = rawMsg.message.videoMessage.caption || '[Vídeo]';
-        mediaUrl = rawMsg.message.videoMessage.url;
+            mediaUrl = rawMsg.message.videoMessage.url;
             mimetype = rawMsg.message.videoMessage.mimetype;
         } else if (rawMsg.message?.documentMessage) {
             detectedMessageType = 'documentMessage';
@@ -246,7 +245,8 @@ app.post('/v1/evolution/webhook', async (c) => {
             mimetype = rawMsg.message.documentMessage.mimetype;
         } 
 
-        console.log(`[PORTEIRO] 🕵️ IDENTITY_DEBUG: raw='${rawPhone}', cleanID='${cleanUserIdentifier}'`);
+        // Agora sim, logamos e filtramos com tudo disponível
+        console.log(`[PORTEIRO] 🕵️ IDENTITY_DEBUG: cleanID='${cleanUserIdentifier}', hasText=${!!textContent}, hasMedia=${!!mediaUrl}`);
         
         const pushName = rawMsg.pushName || 'WhatsApp User';
         const externalId = rawMsg.key?.id;
