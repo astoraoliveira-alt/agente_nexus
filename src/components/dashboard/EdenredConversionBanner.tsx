@@ -62,9 +62,6 @@ export function EdenredConversionBanner({
             <span className="text-[#e5003a]">Edenred</span>
           </h3>
         </div>
-        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest border border-border/50 px-2 py-0.5 rounded-full">
-          Sofia ·&nbsp;Crédito&nbsp;EC
-        </span>
       </div>
 
       {/* KPI Grid */}
@@ -78,7 +75,7 @@ export function EdenredConversionBanner({
           <p className="text-3xl font-black text-slate-900 tabular-nums">
             {totalContacts.toLocaleString('pt-BR')}
           </p>
-          <p className="text-[10px] text-muted-foreground">Interagiram com Sofia</p>
+          <p className="text-[10px] text-muted-foreground">Interações registradas</p>
         </div>
 
         {/* 2 – Link sent contacts */}

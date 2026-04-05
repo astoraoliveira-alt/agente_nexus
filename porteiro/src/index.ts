@@ -48,7 +48,55 @@ const pendingMessages = new Map<string, {
     raw_evolution_payload?: any
 }>();
 
-const app = new Hono();
+// --- 🛡️ UNIFIED PORTEIRO LOGGING (V52 - Total Traceability) ---
+
+/**
+ * Logs every hit to integration_logs for audit and debugging.
+ * Uses upsert on (provider, external_id) to update processing status.
+ */
+async function logIntegration(params: {
+    provider: string;
+    external_id?: string;
+    payload: any;
+    tenant_id?: string | null;
+    agent_id?: string | null;
+    status?: string;
+    error_details?: string | null;
+    validation_results?: any;
+    trace_id?: string;
+}) {
+    try {
+        const { provider, external_id, payload, tenant_id, agent_id, status, error_details, validation_results, trace_id } = params;
+        
+        // Se não temos external_id (ex: evento de conexão), usamos o trace_id ou um gerado
+        const finalExternalId = external_id || trace_id || `LOG-${Math.random().toString(36).substring(7).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+
+        const { error } = await supabaseAdmin
+            .from('integration_logs')
+            .upsert({
+                provider,
+                external_id: finalExternalId,
+                payload: payload || {},
+                tenant_id: tenant_id || null,
+                agent_id: agent_id || null,
+                trace_id: trace_id || null,
+                status: status || 'received',
+                error_details: error_details || null,
+                validation_results: validation_results || {},
+                processed_at: new Date().toISOString()
+            }, { onConflict: 'provider,external_id' });
+
+        if (error) {
+            console.error(`[PORTEIRO] ❌ Log Sync Error:`, error.message);
+            // Fallback for missing columns: log to console with enough detail for manual recovery
+            console.log(`[PORTEIRO] 📦 RAW_TRACE: ${finalExternalId} | Status: ${status} | Trace: ${trace_id}`);
+        }
+    } catch (e: any) {
+        console.error(`[PORTEIRO] ❌ Critical Failure in logIntegration:`, e.message);
+    }
+}
+
+const app = new Hono<{ Variables: { user: any } }>();
 
 app.get('/', (c) => c.text('Porteiro Davos Elite está Ativo! 🦾🛡️🎰'));
 
@@ -143,9 +191,11 @@ app.post('/v1/evolution/proxy', async (c) => {
  */
 app.post('/v1/evolution/webhook', async (c) => {
     console.log(`[WEBHOOK] 🔔 Signal received from Evolution!`);
+    let webhookPayload: any = null;
     // 📩 Webhook Processing
     try {
-        const payload = await c.req.json();
+        webhookPayload = await c.req.json();
+        const payload = webhookPayload;
         console.log(`[WEBHOOK] 📦 Payload Event: ${payload.event || 'Unknown'} for instance: ${payload.instance || 'Unknown'}`);
         // 1. Secret Verification (Optional security layer)
         const webhookSecret = process.env.EVOLUTION_WEBHOOK_SECRET;
@@ -159,6 +209,28 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         const { event, instance, data } = payload;
         console.log(`[PORTEIRO] 🕵️ DEBUG: Event=${event}, Instance=${instance}`);
+
+        // --- 0. PRE-VALIDATION LOG (V52.1) ---
+        // Identificamos o Agente o mais cedo possível para logar
+        const { data: earlyAgents } = await supabaseAdmin
+            .from('agents')
+            .select('id, tenant_id')
+            .eq('evolution_instance', instance)
+            .limit(1);
+        
+        const earlyAgent = earlyAgents?.[0];
+        const initialTraceId = `EVO-${Math.random().toString(36).substring(7).toUpperCase()}`;
+
+        await logIntegration({
+            provider: 'evolution',
+            external_id: data?.key?.id || initialTraceId,
+            payload: payload,
+            tenant_id: earlyAgent?.tenant_id,
+            agent_id: earlyAgent?.id,
+            trace_id: initialTraceId,
+            status: 'received',
+            validation_results: { event_type: event, received_at: new Date().toISOString() }
+        });
 
         // --- 1. CONNECTION STATUS CACHE (Item 5) ---
         if (event === 'connection.update') {
@@ -192,6 +264,14 @@ app.post('/v1/evolution/webhook', async (c) => {
         // Skip messages sent by the agent itself
         if (!rawMsg || rawMsg.key?.fromMe) {
             console.log(`[PORTEIRO] ⏭️ Skipping: ${!rawMsg ? 'Empty message' : 'Sent by agent (fromMe)'}`);
+            await logIntegration({
+                provider: 'evolution',
+                external_id: data?.key?.id || initialTraceId,
+                payload: payload,
+                trace_id: initialTraceId,
+                status: 'ignored',
+                validation_results: { reason: 'sent_by_agent_or_empty' }
+            });
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
         }
 
@@ -258,6 +338,14 @@ app.post('/v1/evolution/webhook', async (c) => {
         // Content Filter: Se temos um identificador limpo e conteúdo, seguimos.
         if (!cleanUserIdentifier || (!textContent && !mediaUrl)) {
             console.log(`[PORTEIRO] ⏭️ Missing Content Filter: validID=${!!cleanUserIdentifier}, hasText=${!!textContent}, hasMedia=${!!mediaUrl}`);
+            await logIntegration({
+                provider: 'evolution',
+                external_id: externalId,
+                payload: payload,
+                trace_id: initialTraceId,
+                status: 'ignored',
+                validation_results: { reason: 'missing_id_or_content', phone, clean_id: cleanUserIdentifier }
+            });
             return c.json({ status: 'ignored', reason: 'missing_id_or_content' });
         }
 
@@ -292,6 +380,14 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         if (agentError || !agents?.length) {
             console.error(`[PORTEIRO] ❌ Agent NOT FOUND for instance: ${instance}. Verify the 'evolution_instance' column in the database.`);
+            await logIntegration({
+                provider: 'evolution',
+                external_id: externalId,
+                payload: payload,
+                trace_id: initialTraceId,
+                status: 'error',
+                error_details: agentError?.message || 'Agent not found for this instance'
+            });
             return c.json({ error: 'Instance not mapped to any agent' }, 404);
         }
 
@@ -529,6 +625,23 @@ app.post('/v1/evolution/webhook', async (c) => {
             }
         }, DEBOUNCE_TIME_MS);
 
+        // --- FINAL LOG UPDATE (Success) ---
+        await logIntegration({
+            provider: 'evolution',
+            external_id: externalId,
+            trace_id: initialTraceId,
+            status: 'processed',
+            tenant_id: agent.tenant_id,
+            agent_id: agent.id,
+            payload: payload, // Keep full payload
+            validation_results: { 
+                event_type: event,
+                processed: true,
+                conversation_id: conversationId,
+                message_type: detectedMessageType
+            }
+        });
+
         return c.json({ 
             status: 'success', 
             message: 'Webhook received and debouncing',
@@ -538,6 +651,13 @@ app.post('/v1/evolution/webhook', async (c) => {
 
     } catch (err: any) {
         console.error('[PORTEIRO] ❌ Webhook Error:', err);
+        // Tenta logar o erro final (se initialTraceId existir)
+        await logIntegration({
+            provider: 'evolution',
+            status: 'error',
+            error_details: err.message,
+            payload: webhookPayload
+        });
         return c.json({ error: 'Internal processing error', details: err.message }, 500);
     }
 });
@@ -551,8 +671,10 @@ app.post('/v1/evolution/webhook', async (c) => {
  */
 app.post('/v1/zenvia/webhook', async (c) => {
     console.log(`[ZENVIA] 🔔 Webhook recebido da Zenvia`);
+    let zenviaBody: any = null;
     try {
-        const body = await c.req.json();
+        zenviaBody = await c.req.json();
+        const body = zenviaBody;
 
         // Ignora eventos de saída (loop) e não-MESSAGE
         if (body.direction === 'OUT' || body.type !== 'MESSAGE') {
@@ -581,8 +703,38 @@ app.post('/v1/zenvia/webhook', async (c) => {
         }
 
         if (!phone || (!textContent && !mediaUrl)) {
+            await logIntegration({
+                provider: 'zenvia',
+                external_id: externalId,
+                payload: body,
+                status: 'ignored',
+                error_details: 'Missing phone or content'
+            });
             return c.json({ ok: true, ignored: true, reason: 'missing_content' });
         }
+
+        // --- 0. PRE-VALIDATION LOG (Zenvia) ---
+        const initialTraceId = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
+        
+        // Busca o agente pelo zenvia_channel_id (tentativa rápida para o log)
+        const { data: earlyAgents } = await supabaseAdmin
+            .from('agents')
+            .select('id, tenant_id')
+            .eq('zenvia_channel_id', channelId)
+            .limit(1);
+        
+        const earlyAgent = earlyAgents?.[0];
+
+        await logIntegration({
+            provider: 'zenvia',
+            external_id: externalId,
+            payload: body,
+            tenant_id: earlyAgent?.tenant_id,
+            agent_id: earlyAgent?.id,
+            trace_id: initialTraceId,
+            status: 'received',
+            validation_results: { received_at: new Date().toISOString() }
+        });
 
         // Busca o agente pelo zenvia_channel_id
         const { data: agentRows } = await supabaseAdmin
@@ -594,6 +746,14 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
         if (!agentRows?.length) {
             console.error(`[ZENVIA] ❌ Agente não encontrado para channel: ${channelId}`);
+            await logIntegration({
+                provider: 'zenvia',
+                external_id: externalId,
+                payload: body,
+                trace_id: initialTraceId,
+                status: 'error',
+                error_details: 'Agent not found for channel: ' + channelId
+            });
             return c.json({ error: 'Agent not found' }, 404);
         }
 
@@ -681,10 +841,33 @@ app.post('/v1/zenvia/webhook', async (c) => {
         }
 
         console.log(`[ZENVIA] ✅ Mensagem de ${phone} enfileirada [Trace: ${traceId}]`);
+
+        // --- FINAL LOG UPDATE (Zenvia Processed) ---
+        await logIntegration({
+            provider: 'zenvia',
+            external_id: externalId,
+            trace_id: initialTraceId,
+            status: 'processed',
+            tenant_id: agent.tenant_id,
+            agent_id: agent.id,
+            payload: body,
+            validation_results: { 
+                queue_trace_id: traceId,
+                conversation_id: conversationId,
+                processed: true
+            }
+        });
+
         return c.json({ ok: true, trace_id: traceId });
 
     } catch (err: any) {
         console.error('[ZENVIA] ❌ Webhook Error:', err);
+        await logIntegration({
+            provider: 'zenvia',
+            status: 'error',
+            error_details: err.message,
+            payload: zenviaBody
+        });
         return c.json({ error: 'Internal error', details: err.message }, 500);
     }
 });

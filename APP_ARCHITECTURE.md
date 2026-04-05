@@ -173,6 +173,14 @@ Para transformar a IA de suporte em uma **Consultora de Vendas Proativa**, o Nex
 3.  **Resiliência de Dashboard (Robust Join):** A consulta de conversas no `core.service.ts` utiliza um **Left Join resiliente** (`agents:agent_id(...)`). Isso garante que contatos de campanhas apareçam no dashboard mesmo se houver falhas de permissão ou orfãos no registro do Agente, eliminando o problema de "leads invisíveis".
 4.  **Identity Guard Support Validation:** Em caso de testes de segurança do cliente ("É golpe?"), a IA valida sua identidade via canais oficiais (**4004-2233** da Ticket) e retoma o foco comercial em seguida, sem perder o contexto da venda.
 
+### 2.11 Funil de Conversão Comercial (Edenred V51.1)
+
+Para garantir a precisão do dashboard comercial da Edenred (Fiserv), o motor de telemetria aplica as seguintes regras na RPC `get_edenred_conversion_funnel`:
+
+1.  **Detecção de Link de Proposta**: O sistema busca especificamente pela string `%fiservcapital%` nas mensagens. Isso garante que apenas links reais de simulação comercial sejam contabilizados como "Link Enviado", ignorando boletos genéricos ou outros PDFs.
+2.  **Whitelist de Remetentes (Broad AI Detection)**: Como o n8n pode orquestrar mensagens via diferentes nós (System, AI, Assistant, Lia), a query do funil aceita qualquer `sender_type` dentro de `('ai', 'bot', 'assistant', 'lia', 'system')`.
+3.  **UI Agnóstica (Branding Resilience)**: O componente de dashboard foi desvinculado de nomes fixos (como "Sofia"). Ele utiliza agora termos genéricos ("Interações registradas"), permitindo que o cliente altere o nome do agente sem quebrar a consistência visual do painel.
+
 ---
 
 ## 3. Rotas da Aplicação (Frontend SPA)
