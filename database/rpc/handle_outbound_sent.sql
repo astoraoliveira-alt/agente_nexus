@@ -112,6 +112,7 @@ BEGIN
         SET 
             status = 'sent',
             sent_at = NOW(),
+            conversation_id = v_conversation_id,
             metadata = metadata || jsonb_build_object('message_id', v_message_id)
         WHERE id = p_queue_id;
     END IF;

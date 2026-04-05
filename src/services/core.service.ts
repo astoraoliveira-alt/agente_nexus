@@ -398,13 +398,13 @@ export const coreService = {
     },
 
     async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
-        const select = this._capabilities.agents ? '*, agents!agent_id(name, type)' : '*';
+        const select = '*, agents(name, type)';
 
         let { data, error } = await supabase
             .from('conversations')
-            .select(select)
+            .select('*, agents:agent_id(name, type)')
             .eq('tenant_id', tenantId)
-            .order('last_message_at', { ascending: false });
+            .order('last_message_at', { ascending: false, nullsFirst: false });
 
         if (error && (error.code === 'PGRST204' || error.code === '42703')) {
             console.warn('Agent relation missing in conversations, falling back');

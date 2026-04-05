@@ -379,8 +379,22 @@ app.post('/v1/evolution/webhook', async (c) => {
             conversationData = created;
         }
 
+        if (!conversationData) {
+            return c.json({ error: 'Failed to establish conversation context' }, 500);
+        }
+
         const conversationId = conversationData.id;
         console.log(`[PORTEIRO] 🛡️ Using Unified Conversation ID: ${conversationId} for ${remoteID}`);
+
+        // 4. Atualiza metadados de última atividade para garantir visibilidade no Dashboard
+        await supabaseAdmin
+            .from('conversations')
+            .update({ 
+                last_message_at: new Date().toISOString(),
+                status: 'ai_active',
+                user_name: pushName 
+            })
+            .eq('id', conversationId);
 
         // 5. Update last_message_at (Touch conversation)
         await supabaseAdmin

@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 04/Abr/2026
-> **Versão:** 50.2 (Atomic Campaign Delivery — Digits Only Identity + RPC Success Pattern)
+> **Última Atualização:** 05/Abr/2026
+> **Versão:** 51.0 (Active Sales & Dashboard Resilience — Proactive Consultant + Robust Join)
 > **Status:** Mestre — Produção Edenred (1.750 estabelecimentos)
-> **Fontes Primárias:** `database/rpc/get_next_leads_secure.sql` · `database/rpc/handle_outbound_sent.sql` · `porteiro/src/index.ts` (V50.2)
+> **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `src/services/core.service.ts` · `Agente Nexus - Whatts Fila.json`
 
 ---
 
@@ -163,6 +163,15 @@ Para garantir que 100% das mensagens de campanha cheguem ao destino com a person
 2.  **Placeholder Anti-Parser (N8N Safe):** Devido ao comportamento do n8n de tentar interpretar `{{variavel}}` como JavaScript, as mensagens de campanha usam a técnica `split('{{nome}' + '}').join(valor)` no nó de substituição. Isso garante que o placeholder seja substituído apenas no texto final, sem quebrar o workflow.
 3.  **Sincronização de Conversa (Atomic Delivery):** Ao disparar uma mensagem via n8n, o sistema utiliza a RPC `handle_outbound_sent` para criar a conversa, registrar a mensagem e dar baixa na fila de uma só vez. Isso garante que a conversa apareça no Dashboard INSTANTANEAMENTE após o envio.
 4.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
+
+### 2.10 Otimização de Vendas Ativas & Resiliência de Dashboard (V51)
+
+Para transformar a IA de suporte em uma **Consultora de Vendas Proativa**, o Nexus V51 implementa:
+
+1.  **Venda Consultiva Estruturada:** O System Prompt agora proíbe perguntas passivas ("Como posso ajudar?"). A IA apresenta faixas de crédito (10k-500k) e taxas (1,89%-3,28%) em listas formatadas, induzindo o lead à simulação.
+2.  **Blindagem de Classificação (Intent Filter):** Termos de negócio como "Capital de Giro", "Crédito" e "Simular" são explicitamente incluídos na categoria `general`. Isso impede que o classificador de intenção marque o interesse do cliente como `out_of_scope`.
+3.  **Resiliência de Dashboard (Robust Join):** A consulta de conversas no `core.service.ts` utiliza um **Left Join resiliente** (`agents:agent_id(...)`). Isso garante que contatos de campanhas apareçam no dashboard mesmo se houver falhas de permissão ou orfãos no registro do Agente, eliminando o problema de "leads invisíveis".
+4.  **Identity Guard Support Validation:** Em caso de testes de segurança do cliente ("É golpe?"), a IA valida sua identidade via canais oficiais (**4004-2233** da Ticket) e retoma o foco comercial em seguida, sem perder o contexto da venda.
 
 ---
 
