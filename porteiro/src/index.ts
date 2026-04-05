@@ -211,7 +211,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         console.log(`[PORTEIRO] 🕵️ DEBUG: Event=${event}, Instance=${instance}`);
 
         // --- 0. PRE-VALIDATION LOG (V52.1) ---
-        // Identificamos o Agente o mais cedo possível para logar
+        // Identificamos o Agente e Conversa o mais cedo possível para logar
         const { data: earlyAgents } = await supabaseAdmin
             .from('agents')
             .select('id, tenant_id')
@@ -221,15 +221,35 @@ app.post('/v1/evolution/webhook', async (c) => {
         const earlyAgent = earlyAgents?.[0];
         const initialTraceId = `EVO-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
+        // 🛡️ Tenta identificar a conversa para vincular os logs (V52.5)
+        let resolvedConvId: string | null = null;
+        const remoteJid = data?.key?.remoteJid || data?.remoteJid || payload?.remoteJid;
+        if (remoteJid && earlyAgent) {
+            const cleanId = remoteJid.split('@')[0].replace(/\D/g, '');
+            const { data: conv } = await supabaseAdmin
+                .from('conversations')
+                .select('id')
+                .eq('tenant_id', earlyAgent.tenant_id)
+                .eq('agent_id', earlyAgent.id)
+                .eq('user_identifier', cleanId)
+                .maybeSingle();
+            resolvedConvId = conv?.id || null;
+        }
+
         await logIntegration({
             provider: 'evolution',
-            external_id: data?.key?.id || initialTraceId,
+            external_id: data?.key?.id || data?.id || initialTraceId,
             payload: payload,
             tenant_id: earlyAgent?.tenant_id,
             agent_id: earlyAgent?.id,
             trace_id: initialTraceId,
             status: 'received',
-            validation_results: { event_type: event, received_at: new Date().toISOString() }
+            validation_results: { 
+                event_type: event, 
+                received_at: new Date().toISOString(),
+                conversation_id: resolvedConvId,
+                remoteJid: remoteJid
+            }
         });
 
         // --- 1. CONNECTION STATUS CACHE (Item 5) ---
@@ -242,10 +262,17 @@ app.post('/v1/evolution/webhook', async (c) => {
                 .from('agents')
                 .update({ 
                     status: state === 'open' ? 'active' : 'inactive',
-                    // We store the raw state in metadata or a custom column if exists
-                    // For now, let's use the 'status' as a proxy and log in console
                 })
                 .eq('evolution_instance', instance);
+
+            // Log de atualização final
+            await logIntegration({ 
+                provider: 'evolution', 
+                status: 'processed', 
+                trace_id: initialTraceId,
+                payload, 
+                validation_results: { event_type: event, state: state } 
+            });
 
             return c.json({ status: 'success', event: 'connection.update' });
         }
@@ -253,6 +280,23 @@ app.post('/v1/evolution/webhook', async (c) => {
         // --- 2. UPSERT FILTER (V50.18 - Monitoring) ---
         if (event !== 'messages.upsert') {
             console.log(`[PORTEIRO] 🕵️ Ignoring Non-Upsert event type: ${event}`);
+            
+            // Atualiza log para registro completo mesmo sendo ignorado pela fila (V52.6)
+            await logIntegration({
+                provider: 'evolution',
+                external_id: data?.key?.id || data?.id || initialTraceId,
+                trace_id: initialTraceId,
+                status: 'ignored',
+                payload: payload,
+                tenant_id: earlyAgent?.tenant_id,
+                agent_id: earlyAgent?.id,
+                validation_results: { 
+                    event_type: event, 
+                    reason: `not_upsert_event_${event}`,
+                    conversation_id: resolvedConvId
+                }
+            });
+
             return c.json({ status: 'ignored', reason: `not_upsert_event_${event}` });
         }
 
