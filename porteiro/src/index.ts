@@ -66,6 +66,8 @@ async function logIntegration(params: {
     trace_id?: string;
     latency_ms?: number;
     phone_number?: string | null;
+    conversation_id?: string | null;
+    path?: string | null;
 }) {
     try {
         const { 
@@ -79,7 +81,9 @@ async function logIntegration(params: {
             validation_results, 
             trace_id, 
             latency_ms,
-            phone_number 
+            phone_number,
+            conversation_id,
+            path 
         } = params;
         
         // Se não temos external_id (ex: evento de conexão), usamos o trace_id ou um gerado
@@ -101,6 +105,8 @@ async function logIntegration(params: {
                 agent_id: agent_id || null,
                 trace_id: trace_id || null,
                 phone_number: phone_number || null,
+                conversation_id: conversation_id || null,
+                path: path || null,
                 status: status || 'received',
                 error_details: error_details || null,
                 validation_results: validation_results || {},
@@ -212,6 +218,8 @@ app.post('/v1/evolution/webhook', async (c) => {
     console.log(`[WEBHOOK] 🔔 Signal received from Evolution!`);
     let webhookPayload: any = null;
     // 📩 Webhook Processing
+    let initialTraceId = `EVO-GEN-${Math.random().toString(36).substring(7).toUpperCase()}`;
+    const startTime = Date.now();
     try {
         webhookPayload = await c.req.json();
         const payload = webhookPayload;
@@ -238,8 +246,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             .limit(1);
         
         const earlyAgent = earlyAgents?.[0];
-        const initialTraceId = `EVO-${Math.random().toString(36).substring(7).toUpperCase()}`;
-        const startTime = Date.now();
+        initialTraceId = `EVO-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
         // 🛡️ Tenta identificar a conversa para vincular os logs (V52.5)
         let resolvedConvId: string | null = null;
@@ -266,6 +273,8 @@ app.post('/v1/evolution/webhook', async (c) => {
             agent_id: earlyAgent?.id,
             trace_id: initialTraceId,
             phone_number: phone,
+            conversation_id: resolvedConvId,
+            path: '/v1/evolution/webhook',
             status: 'received',
             validation_results: { 
                 event_type: event, 
@@ -311,6 +320,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                 external_id: data?.key?.id || data?.id || initialTraceId,
                 trace_id: initialTraceId,
                 phone_number: phone,
+                conversation_id: resolvedConvId,
+                path: '/v1/evolution/webhook',
                 status: 'ignored',
                 payload: payload,
                 tenant_id: earlyAgent?.tenant_id,
@@ -691,6 +702,8 @@ app.post('/v1/evolution/webhook', async (c) => {
             external_id: externalId,
             trace_id: initialTraceId,
             phone_number: phone,
+            conversation_id: conversationId,
+            path: '/v1/evolution/webhook',
             status: 'processed',
             tenant_id: agent.tenant_id,
             agent_id: agent.id,
@@ -717,8 +730,10 @@ app.post('/v1/evolution/webhook', async (c) => {
         await logIntegration({
             provider: 'evolution',
             status: 'error',
+            trace_id: initialTraceId,
+            path: '/v1/evolution/webhook',
             error_details: err.message,
-            payload: webhookPayload
+            payload: webhookPayload // O payload bruto capturado no início
         });
         return c.json({ error: 'Internal processing error', details: err.message }, 500);
     }
@@ -734,6 +749,8 @@ app.post('/v1/evolution/webhook', async (c) => {
 app.post('/v1/zenvia/webhook', async (c) => {
     console.log(`[ZENVIA] 🔔 Webhook recebido da Zenvia`);
     let zenviaBody: any = null;
+    let initialTraceId = `ZNV-GEN-${Math.random().toString(36).substring(7).toUpperCase()}`;
+    const startTime_znv = Date.now();
     try {
         zenviaBody = await c.req.json();
         const body = zenviaBody;
@@ -743,6 +760,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
             return c.json({ ok: true, ignored: true });
         }
 
+        initialTraceId = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
         const phone = body.from?.replace(/\D/g, '');
         const channelId = body.to; // número Zenvia do agente
         const pushName = body.visitor?.name || body.visitor?.firstName || phone;
@@ -769,6 +787,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 provider: 'zenvia',
                 external_id: externalId,
                 payload: body,
+                phone_number: phone,
+                path: '/v1/zenvia/webhook',
                 status: 'ignored',
                 error_details: 'Missing phone or content'
             });
@@ -776,7 +796,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
         }
 
         // --- 0. PRE-VALIDATION LOG (Zenvia) ---
-        const initialTraceId = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
         
         // Busca o agente pelo zenvia_channel_id (tentativa rápida para o log)
         const { data: earlyAgents } = await supabaseAdmin
@@ -794,6 +813,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
             tenant_id: earlyAgent?.tenant_id,
             agent_id: earlyAgent?.id,
             trace_id: initialTraceId,
+            phone_number: phone,
+            path: '/v1/zenvia/webhook',
             status: 'received',
             validation_results: { received_at: new Date().toISOString() }
         });
@@ -813,6 +834,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 external_id: externalId,
                 payload: body,
                 trace_id: initialTraceId,
+                phone_number: phone,
+                path: '/v1/zenvia/webhook',
                 status: 'error',
                 error_details: 'Agent not found for channel: ' + channelId
             });
@@ -909,9 +932,13 @@ app.post('/v1/zenvia/webhook', async (c) => {
             provider: 'zenvia',
             external_id: externalId,
             trace_id: initialTraceId,
+            phone_number: phone,
+            conversation_id: conversationId,
+            path: '/v1/zenvia/webhook',
             status: 'processed',
             tenant_id: agent.tenant_id,
             agent_id: agent.id,
+            latency_ms: Date.now() - startTime_znv,
             payload: body,
             validation_results: { 
                 queue_trace_id: traceId,
@@ -927,6 +954,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
         await logIntegration({
             provider: 'zenvia',
             status: 'error',
+            trace_id: initialTraceId,
+            path: '/v1/zenvia/webhook',
             error_details: err.message,
             payload: zenviaBody
         });
