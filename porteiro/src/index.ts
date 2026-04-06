@@ -65,9 +65,22 @@ async function logIntegration(params: {
     validation_results?: any;
     trace_id?: string;
     latency_ms?: number;
+    phone_number?: string | null;
 }) {
     try {
-        const { provider, external_id, payload, tenant_id, agent_id, status, error_details, validation_results, trace_id, latency_ms } = params;
+        const { 
+            provider, 
+            external_id, 
+            payload, 
+            tenant_id, 
+            agent_id, 
+            status, 
+            error_details, 
+            validation_results, 
+            trace_id, 
+            latency_ms,
+            phone_number 
+        } = params;
         
         // Se não temos external_id (ex: evento de conexão), usamos o trace_id ou um gerado
         const finalExternalId = external_id || trace_id || `LOG-${Math.random().toString(36).substring(7).toUpperCase()}-${Date.now().toString().slice(-4)}`;
@@ -87,6 +100,7 @@ async function logIntegration(params: {
                 tenant_id: tenant_id || null,
                 agent_id: agent_id || null,
                 trace_id: trace_id || null,
+                phone_number: phone_number || null,
                 status: status || 'received',
                 error_details: error_details || null,
                 validation_results: validation_results || {},
@@ -229,14 +243,16 @@ app.post('/v1/evolution/webhook', async (c) => {
         // 🛡️ Tenta identificar a conversa para vincular os logs (V52.5)
         let resolvedConvId: string | null = null;
         const remoteJid = data?.key?.remoteJid || data?.remoteJid || payload?.remoteJid;
+        const phone = remoteJid ? remoteJid.split('@')[0].replace(/\D/g, '') : null;
+        const cleanUserIdentifier = phone;
+
         if (remoteJid && earlyAgent) {
-            const cleanId = remoteJid.split('@')[0].replace(/\D/g, '');
             const { data: conv } = await supabaseAdmin
                 .from('conversations')
                 .select('id')
                 .eq('tenant_id', earlyAgent.tenant_id)
                 .eq('agent_id', earlyAgent.id)
-                .eq('user_identifier', cleanId)
+                .eq('user_identifier', cleanUserIdentifier)
                 .maybeSingle();
             resolvedConvId = conv?.id || null;
         }
@@ -248,6 +264,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             tenant_id: earlyAgent?.tenant_id,
             agent_id: earlyAgent?.id,
             trace_id: initialTraceId,
+            phone_number: phone,
             status: 'received',
             validation_results: { 
                 event_type: event, 
@@ -275,6 +292,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 provider: 'evolution', 
                 status: 'processed', 
                 trace_id: initialTraceId,
+                phone_number: phone,
                 payload, 
                 validation_results: { event_type: event, state: state } 
             });
@@ -291,6 +309,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 provider: 'evolution',
                 external_id: data?.key?.id || data?.id || initialTraceId,
                 trace_id: initialTraceId,
+                phone_number: phone,
                 status: 'ignored',
                 payload: payload,
                 tenant_id: earlyAgent?.tenant_id,
@@ -327,18 +346,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // --- 🛡️ SMART PHONE EXTRACTION (V50.19 - JID First Policy) ---
         const remoteID = rawMsg.key?.remoteJid;
         
-        // Prioridade total para o remoteJid, depois campos que realmente tenham números.
-        let rawPhone = (remoteID ? remoteID.split('@')[0] : '') || 
-                    rawMsg.phone || 
-                    rawMsg.from?.split('@')[0] || 
-                    rawMsg.key?.participant?.split('@')[0] || 
-                    '';
-        
-        // Remove tudo que não for dígito
-        const phone = rawPhone.replace(/\D/g, '');
-        
-        // O ID de usuário no banco DEVE ser o número limpo (para bater com a RPC da campanha)
-        const cleanUserIdentifier = phone || (remoteID ? remoteID.split('@')[0].replace(/\D/g, '') : '');
+        // phone já extraído no início do handler no V52.7
 
         const serverURL = payload.server_url || '';
 
@@ -681,6 +689,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             provider: 'evolution',
             external_id: externalId,
             trace_id: initialTraceId,
+            phone_number: phone,
             status: 'processed',
             tenant_id: agent.tenant_id,
             agent_id: agent.id,
