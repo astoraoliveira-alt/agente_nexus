@@ -21,7 +21,8 @@ import {
   LayoutGrid,
   PieChart,
   Activity,
-  Gauge
+  Gauge,
+  Zap
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -43,6 +44,7 @@ const adminNavItems = [
 
 const governanceNavItems = [
   { title: 'CRM (Kanban)',        url: '/lead-crm',       icon: LayoutGrid },
+  { title: 'Observatório',        url: '/observatory',    icon: Zap },
   { title: 'Qualidade',           url: '/quality',         icon: ShieldCheck },
   { title: 'Governança IA',       url: '/governance',      icon: ShieldCheck },
   { title: 'Performance & IA',    url: '/ai-performance',  icon: Gauge },

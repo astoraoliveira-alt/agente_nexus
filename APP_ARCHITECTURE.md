@@ -1,8 +1,8 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 05/Abr/2026
-> **Versão:** 51.0 (Active Sales & Dashboard Resilience — Proactive Consultant + Robust Join)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos)
+> **Versão:** 52.0 (Full Campaign Observability & Dashboard Resilience)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Observabilidade de Erros Centralizada
 > **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `src/services/core.service.ts` · `Agente Nexus - Whatts Fila.json`
 
 ---
@@ -162,7 +162,10 @@ Para garantir que 100% das mensagens de campanha cheguem ao destino com a person
 1.  **Normalização de Telefone (Porteiro Guard):** Todos os números são forçados para o formato `55 + DDD + Número` antes do disparo. O Porteiro rejeita envios sem o prefixo internacional para evitar falhas silenciosas na Evolution API.
 2.  **Placeholder Anti-Parser (N8N Safe):** Devido ao comportamento do n8n de tentar interpretar `{{variavel}}` como JavaScript, as mensagens de campanha usam a técnica `split('{{nome}' + '}').join(valor)` no nó de substituição. Isso garante que o placeholder seja substituído apenas no texto final, sem quebrar o workflow.
 3.  **Sincronização de Conversa (Atomic Delivery):** Ao disparar uma mensagem via n8n, o sistema utiliza a RPC `handle_outbound_sent` para criar a conversa, registrar a mensagem e dar baixa na fila de uma só vez. Isso garante que a conversa apareça no Dashboard INSTANTANEAMENTE após o envio.
-4.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
+4.  **Processamento em Loop Serial (Anti-Spam):** O sistema migrou do processamento em lote para o modelo de **Loop Sequencial** (`Split In Batches` com `Batch Size: 1`). Isso permite a aplicação de uma **Cadência Obrigatória (Wait 5s)** entre cada lead, protegendo a conta de WhatsApp contra bloqueios por spam em disparos de alto volume.
+5.  **Persistência de Contexto no Loop:** Para evitar a perda de dados do lead após respostas de APIs externas (ex: Evolution), o sistema utiliza a referência estrita `$('Loop Over Items').item.json`. Isso garante que metadados como `tenant_id` e `campaign_id` permaneçam disponíveis durante toda a iteração, mesmo em caso de erro.
+6.  **Observabilidade de Erros (Dead-End Tracking):** Falhas de envio (ex: Números Inválidos / 400 Bad Request) são agora interceptadas pelo ramo de erro do n8n e gravadas imediatamente na `outbound_queue`. Um gatilho no banco (`trg_log_outbound_status`) espelha essas falhas centralizadamente na tabela `integration_logs`.
+7.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
 
 ### 2.10 Otimização de Vendas Ativas & Resiliência de Dashboard (V51)
 
@@ -520,7 +523,7 @@ companies (tenants)
 
 ---
 
-## 6. RPCs (Remote Procedure Calls) — Contrato com o Frontend
+## 6. RPCs (Remote Procedure Calls) — Contrato com the Frontend
 
 Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supabase.rpc()`.
 
@@ -896,16 +899,17 @@ Movimentação automática pela IA (baseada em score da auditoria) ou manual pel
 ### 13.3 Campanhas de Outbound (`/campaigns`)
 
 **Fluxo completo:**
-```
 1. Criar campanha (nome, agente, datas, limite diário, mensagem inicial)
 2. Importar lista: .csv/.xls/.xlsx com detecção automática de colunas
 3. Deduplicação automática por (campaign_id, contact_phone) via UNIQUE
 4. Status: draft → active → running → completed/cancelled
-5. N8N consome outbound_queue (status='pending') em janela horária
-6. handle_outbound_sent() → marca como 'sent' + atualiza sent_count
-7. trg_track_campaign_response → detecta resposta inbound → response_detected=true
-8. Dashboard exibe: enviados, falhas, taxa de resposta
-```
+5. N8N consome outbound_queue em **Loop Sequencial (Batch Size 1)** com cadence de 5s.
+6. **Sincronização Automática (Triggers)**:
+   - `trg_sync_campaign_stats`: Atualiza `sent_count` e `failed_count` na tabela `campaigns` em tempo real para cada alteração na `outbound_queue`. O dashboard não depende mais de contagens manuais do n8n.
+   - `trg_log_outbound_status`: Centraliza todos os logs de sucesso e erro (ex: número inválido) na tabela `integration_logs`.
+7. handle_outbound_sent() → marca como 'sent' + atualiza sent_count + cria conversa.
+8. trg_track_campaign_response → detecta resposta inbound → response_detected=true.
+9. Dashboard exibe: enviados, falhas (números errados agora aparecem aqui!), taxa de resposta e progresso real.
 
 ---
 
@@ -1297,7 +1301,7 @@ ORDER BY created_at DESC LIMIT 1;
 ### 21.1 Fase 1: Estabilização, Realtime & ROI (Mar/2026)
 
 - **Item 1: Context & Auth Logic [CONCLUÍDO]**: Estabilização do `AppContext` e fluxo de login com persistência de Tenant. Fim dos re-renders cíclicos e deslogues involuntários. 
-- **Item 2: Supabase Realtime (WhatsApp Sync) [CONCLUÍDO]**: Implementação de WebSockets via Supabase Channels. Mensagens do WhatsApp agora aparecem instantaneamente no chat sem necessidade de Polling ou F5. Resiliência contra payloads parciais do Supabase.
+- **Item 2: Supabase Realtime (WhatsApp Sync) [CONCLUÍDO]**: Implementação do WebSockets via Supabase Channels. Mensagens do WhatsApp agora aparecem instantaneamente no chat sem necessidade de Polling ou F5. Resiliência contra payloads parciais do Supabase.
 - **Item 3: DashMaster V1.3 — Dashboard Consolidado [CONCLUÍDO]**: Implementação completa do Dashboard Master com KPIs operacionais.
     - **RPC `get_dashmaster_v1`**: Master Query que consolida em 1 chamada de rede: KPIs (conversas, automação, trust score), consumo 30d (tokens, msgs, STT/TTS), ROI dinâmico, preços de venda (Empresa > Plano > Default), ranking de agentes, gráfico de mensagens diárias, incidentes e funil CRM.
     - **Diferenciação Crítica (Custo vs Venda)**:
@@ -1931,3 +1935,21 @@ WHERE zenvia_channel_id IS NOT NULL;
 
 *Este documento reflete a era do Scale Guardian V50 — Multi-Provider, Priority Queue e Produção Edenred.*
 
+### 23.8 V52.0 — 05/Abr/2026 — Full Campaign Observability & Statistics Sync
+
+#### 🛡️ Centralização de Logs de Outbound (Non-Repudiation)
+- **Observabilidade Total**: Implementado o gatilho `trg_log_outbound_status` que unifica os logs de falha na `integration_logs`. Anteriormente, erros como "Número Inválido" retornados pela Evolution API eram perdidos no n8n. Agora, cada erro possui um registro auditável com `trace_id`.
+- **Traceability Audit**: O nó de erro do n8n agora captura e persiste o erro no banco, garantindo que o `integration_logs` seja a fonte única da verdade para auditoria técnica.
+
+#### 📊 Sincronização Automática de Dashboard
+- **Counters de Resiliência**: Criada a função `fn_sync_campaign_stats` e seu respectivo gatilho. O sistema agora recalcula os campos `sent_count` e `failed_count` da tabela `campaigns` autonomamente via banco de dados. Isso resolve a discrepância onde o dashboard mostrava dados desatualizados se o n8n falhasse em reportar o contador final.
+- **Progress Accuracy**: O progresso da barra de campanha agora reflete a soma real de processados (sucessos + falhas) sobre o total, fornecendo uma visão fidedigna do fim da operação.
+
+#### 🛰️ n8n Campaign Loop Refactoring
+- **Sequential Iterator**: Substituição do processamento em paralelo por um **Loop de Passo Único (Split In Batches: 1)**.
+- **Anti-Spam Cadence**: Inclusão de um nó `Wait` de 5 segundos obrigatórios entre disparos. Isso reduz drasticamente o risco de banimento de números em campanhas de prospecção.
+- **Strict Reference Logic**: Aplicação da sintaxe `$('Loop Over Items').item.json` em todos os nós subsequentes ao loop para garantir que o contexto do lead não seja sobrescrito pelas respostas de API da Evolution.
+
+---
+
+*Este documento reflete a era de Alta Observabilidade e Resiliência V52 Davos Nexus.*

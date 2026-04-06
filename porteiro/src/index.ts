@@ -64,19 +64,26 @@ async function logIntegration(params: {
     error_details?: string | null;
     validation_results?: any;
     trace_id?: string;
+    latency_ms?: number;
 }) {
     try {
-        const { provider, external_id, payload, tenant_id, agent_id, status, error_details, validation_results, trace_id } = params;
+        const { provider, external_id, payload, tenant_id, agent_id, status, error_details, validation_results, trace_id, latency_ms } = params;
         
         // Se não temos external_id (ex: evento de conexão), usamos o trace_id ou um gerado
         const finalExternalId = external_id || trace_id || `LOG-${Math.random().toString(36).substring(7).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+
+        // Injetamos a latência no payload para o Observatório ler
+        const enhancedPayload = {
+            ...(payload || {}),
+            latency_ms: latency_ms || 0
+        };
 
         const { error } = await supabaseAdmin
             .from('integration_logs')
             .upsert({
                 provider,
                 external_id: finalExternalId,
-                payload: payload || {},
+                payload: enhancedPayload,
                 tenant_id: tenant_id || null,
                 agent_id: agent_id || null,
                 trace_id: trace_id || null,
@@ -88,8 +95,6 @@ async function logIntegration(params: {
 
         if (error) {
             console.error(`[PORTEIRO] ❌ Log Sync Error:`, error.message);
-            // Fallback for missing columns: log to console with enough detail for manual recovery
-            console.log(`[PORTEIRO] 📦 RAW_TRACE: ${finalExternalId} | Status: ${status} | Trace: ${trace_id}`);
         }
     } catch (e: any) {
         console.error(`[PORTEIRO] ❌ Critical Failure in logIntegration:`, e.message);
@@ -575,6 +580,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // Criamos o novo timer para processar a fila
         const currentPending = pendingMessages.get(conversationId)!;
         currentPending.timeout = setTimeout(async () => {
+            const startTime = Date.now();
             const dataToProcess = pendingMessages.get(conversationId);
             if (!dataToProcess) {
                 console.log(`[PORTEIRO] ⚠️ Debounce mismatch: could not find pending for ${conversationId}`);
@@ -613,7 +619,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                         raw_evolution_payload: dataToProcess.raw_evolution_payload
                     },
                     p_trace_id: traceId,
-                    p_message_type: dataToProcess.messageType
+                    p_message_type: dataToProcess.messageType,
+                    p_latency_ms: Date.now() - startTime
                 });
 
                 if (queueError) {
