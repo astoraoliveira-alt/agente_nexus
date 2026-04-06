@@ -239,6 +239,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         
         const earlyAgent = earlyAgents?.[0];
         const initialTraceId = `EVO-${Math.random().toString(36).substring(7).toUpperCase()}`;
+        const startTime = Date.now();
 
         // 🛡️ Tenta identificar a conversa para vincular os logs (V52.5)
         let resolvedConvId: string | null = null;
@@ -693,6 +694,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             status: 'processed',
             tenant_id: agent.tenant_id,
             agent_id: agent.id,
+            latency_ms: Date.now() - startTime,
             payload: payload, // Keep full payload
             validation_results: { 
                 event_type: event,
