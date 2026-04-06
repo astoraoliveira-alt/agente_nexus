@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 05/Abr/2026
-> **Versão:** 52.0 (Full Campaign Observability & Dashboard Resilience)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Observabilidade de Erros Centralizada
-> **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `src/services/core.service.ts` · `Agente Nexus - Whatts Fila.json`
+> **Última Atualização:** 06/Abr/2026
+> **Versão:** 53.0 (Enhanced Campaign Tracking & Type-Safe RPCs)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Observabilidade de Erros v3.3
+> **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `database/fix_messages_direction_v1.sql` · `database/fix_contacts_metadata_v1.sql` · `Agente Nexus - Whatts Fila.json`
 
 ---
 
@@ -166,6 +166,8 @@ Para garantir que 100% das mensagens de campanha cheguem ao destino com a person
 5.  **Persistência de Contexto no Loop:** Para evitar a perda de dados do lead após respostas de APIs externas (ex: Evolution), o sistema utiliza a referência estrita `$('Loop Over Items').item.json`. Isso garante que metadados como `tenant_id` e `campaign_id` permaneçam disponíveis durante toda a iteração, mesmo em caso de erro.
 6.  **Observabilidade de Erros (Dead-End Tracking):** Falhas de envio (ex: Números Inválidos / 400 Bad Request) são agora interceptadas pelo ramo de erro do n8n e gravadas imediatamente na `outbound_queue`. Um gatilho no banco (`trg_log_outbound_status`) espelha essas falhas centralizadamente na tabela `integration_logs`.
 7.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
+8.  **Strict Type-Safety (Enum Binding):** A partir da v53, todas as RPCs de outbound (como `handle_outbound_sent`) forçam o casting explícito de strings para os tipos `public.conversation_channel` e `public.conversation_status`. Isso evita o erro `42804` e garante que mensagens enviadas via n8n sejam tipadas corretamente antes de tocar o disco.
+9.  **Standardized Visibility (Active State):** Leads de campanhas são criados com status `ai_active`. O Dashboard foi otimizado para tratar `ai_active` e `human_active` como estados de visibilidade imediata, garantindo que o operador veja o disparo da campanha no tempo real do chat.
 
 ### 2.10 Otimização de Vendas Ativas & Resiliência de Dashboard (V51)
 
@@ -556,7 +558,7 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `fn_update_conversation_state` | V2 | Atualiza flags e intents na coluna `context_state` da tabela `conversations`. |
 | `fn_enqueue_inbound_message`| Elite V4 | Porta-de-Entrada segura de novos webhooks, gerando o Trace ID. |
 | `sync_vapi_call` | V27 | Sincroniza chamada de voz VAPI: grava payload e mensagens. |
-| `handle_outbound_sent` | V2 | Atômico: Cria Contato -> Cria/Abre Conversa -> Grava Msg -> Update Fila. (Garante visibilidade no Chat). |
+| `handle_outbound_sent` | V2.4 (Strict Type) | Atômico: Cria Contato (com metadata) -> Cria/Abre Conversa (ai_active) -> Grava Msg (direction/sender_type) -> Update Fila. |
 | `get_next_leads_secure` | V2 | Busca leads para n8n com trava atômica (FOR UPDATE SKIP LOCKED) e proteção anti-flood. |
 
 ### 6.3 RPCs de Qualidade & Auditoria

@@ -13,7 +13,8 @@ CREATE OR REPLACE FUNCTION public.handle_outbound_sent(
     p_campaign_id uuid,
     p_message_type text DEFAULT 'text',
     p_remote_id text DEFAULT NULL,
-    p_channel text DEFAULT 'whatsapp'
+    p_channel public.conversation_channel DEFAULT 'whatsapp'::public.conversation_channel,
+    p_trace_id uuid DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -59,7 +60,6 @@ BEGIN
     RETURNING id INTO v_contact_id;
 
     -- [3] UPSERT DE CONVERSA (Abre ou vincula a conversa ao Agente correto)
-    -- O user_identifier é SEMPRE apenas os dígitos (regra de ouro para evitar duplicados)
     INSERT INTO public.conversations (
         tenant_id,
         agent_id,
@@ -74,7 +74,7 @@ BEGIN
         p_agent_id,
         v_clean_phone,
         p_contact_name,
-        COALESCE(p_channel, 'whatsapp'),
+        COALESCE(p_channel, 'whatsapp'::public.conversation_channel),
         'ai_active',
         NOW()
     )
@@ -92,6 +92,7 @@ BEGIN
         content,
         direction,
         message_type,
+        sender_type,
         remote_id,
         metadata
     )
@@ -101,8 +102,13 @@ BEGIN
         p_message_content,
         'outbound',
         p_message_type,
+        'agent',
         p_remote_id,
-        jsonb_build_object('campaign_id', p_campaign_id, 'queue_id', p_queue_id)
+        jsonb_build_object(
+            'campaign_id', p_campaign_id, 
+            'queue_id', p_queue_id,
+            'trace_id', COALESCE(p_trace_id, p_queue_id)
+        )
     )
     RETURNING id INTO v_message_id;
 
@@ -136,5 +142,5 @@ END;
 $$;
 
 -- Permissões
-GRANT EXECUTE ON FUNCTION public.handle_outbound_sent(uuid, uuid, text, text, text, uuid, uuid, text, text, text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.handle_outbound_sent(uuid, uuid, text, text, text, uuid, uuid, text, text, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.handle_outbound_sent(uuid, uuid, text, text, text, uuid, uuid, text, text, public.conversation_channel, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.handle_outbound_sent(uuid, uuid, text, text, text, uuid, uuid, text, text, public.conversation_channel, uuid) TO service_role;
