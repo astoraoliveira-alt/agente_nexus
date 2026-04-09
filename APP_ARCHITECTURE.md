@@ -1,8 +1,8 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 06/Abr/2026
-> **Versão:** 53.0 (Enhanced Campaign Tracking & Type-Safe RPCs)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Observabilidade de Erros v3.3
+> **Última Atualização:** 09/Abr/2026
+> **Versão:** 53.2 (Command Center UI & NPS Automation V2)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Design "Torre de Controle"
 > **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `database/fix_messages_direction_v1.sql` · `database/fix_contacts_metadata_v1.sql` · `Agente Nexus - Whatts Fila.json`
 
 ---
@@ -1955,3 +1955,21 @@ WHERE zenvia_channel_id IS NOT NULL;
 ---
 
 *Este documento reflete a era de Alta Observabilidade e Resiliência V52 Davos Nexus.*
+
+### 23.9 V53.2 — 09/Abr/2026 — Command Center UI & NPS Automation
+
+#### 🕹️ Redesign "Torre de Controle" (Neo-Brutalism)
+- **Visual Overhaul**: Refatoração completa das telas de `Login`, `ForgotPassword` e `SelectTenant`. Migração do layout split-view tradicional para uma estética Monolítica de alto impacto (Command Center).
+- **HUD & Realtime UI**: Integração de elementos HUD funcionais (Relógio milissegundo, Tickers de compliance ISO 42001, Grade animada e scanlines). 
+- **UX Polish**: Remoção de notificações intrusivas (toasts de login) e transições fluidas para o dashboard. Paleta de cores priorizando Azuis Elétricos e Preto Absoluto.
+
+#### 📈 Automação de NPS & Suporte de Vendas
+- **Score-Driven Tags**: Atualização das instruções do Agente Auditor no n8n. Agora, interações com **Score >= 80** recebem automaticamente a tag `success`. Isso resolve o problema de NPS neutro (score 50) no dashboard inicial, permitindo que disparos de IA impecáveis contribuam para a métrica de sucesso operacional.
+- **Audit Loop Alignment**: Removida a proibição de tag de sucesso para interações sem resposta do usuário, desde que a qualidade da abordagem IA atinja a régua crítica de 80%.
+
+#### ⚙️ Infraestrutura de Memória (n8n Fix)
+- **Response Format Handling**: Ajuste estratégico no nó de gravação de memória (`store_success_memory_as_system`) no n8n. A alteração para o formato de resposta **Text** (em vez de JSON) resolve o erro de parsing causado pelo retorno de UUID bruto do Supabase RPC, garantindo que o fluxo termine com status de sucesso nos logs.
+
+---
+
+*Este documento reflete a era de Design Visionário e Automação de NPS V53.2 Davos Nexus.*
