@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Activity, Terminal, Hexagon, Database, Cpu } from 'lucide-react';
+import { Eye, EyeOff, Activity, Terminal, ShieldAlert, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -20,10 +20,17 @@ export default function Login() {
   const [activeField, setActiveField] = useState<string | null>(null);
 
   const [mounted, setMounted] = useState(false);
+  const [time, setTime] = useState('');
 
   useEffect(() => {
     setMounted(true);
     localStorage.removeItem('davos_active_tenant_id');
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      setTime(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`);
+    }, 47);
+    return () => clearInterval(interval);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -42,7 +49,7 @@ export default function Login() {
 
         if (authData.user) {
           await AuthService.createPendingUser(email, fullName, authData.user.id);
-          toast.success('Protocolo de acesso enviado. Aguardando liberação do alto comando.');
+          toast.success('Protocolo de acesso enviado. Aguardando liberação.');
           navigate('/pending-approval');
         }
       } else {
@@ -65,7 +72,7 @@ export default function Login() {
 
           if (userProfile) {
             if (userProfile.status === 'blocked') {
-              toast.error('Acesso revogado internamente. Contate a governança.');
+              toast.error('Acesso revogado internamente.');
               await supabase.auth.signOut();
               return;
             }
@@ -75,8 +82,7 @@ export default function Login() {
             }
           }
 
-          toast.success('Conexão neural estabelecida. Bem-vindo à rede.');
-
+          toast.success('Conexão neural estabelecida.');
           localStorage.setItem('davos_session', JSON.stringify({
             user: { email: data.user.email },
             token: data.session.access_token
@@ -98,82 +104,109 @@ export default function Login() {
   };
 
   return (
-    <div className="h-screen w-full flex bg-[#030303] text-white overflow-hidden relative selection:bg-accent selection:text-black font-sans antialiased">
+    <div className="h-screen w-full relative bg-[#020617] text-white font-sans overflow-hidden selection:bg-[#00D2FF] selection:text-black">
+      
+      {/* 
+        ================================================================
+        LAYER 0: CYBER GRID & ALIGNMENT STRUCTURE
+        ================================================================
+      */}
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none overflow-hidden">
+        {/* Moving Grid Background */}
+        <div className="absolute -inset-[100%] bg-[linear-gradient(rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:40px_40px] animate-[panGrid_20s_linear_infinite]" />
+      </div>
+
+      {/* AMBIENT GLOWS IN THE BACKGROUND */}
+      <div className="absolute inset-0 z-0 pointer-events-none mix-blend-screen overflow-hidden">
+         {/* Huge Floating Orbs */}
+         <div className="absolute top-[-10%] left-[-10%] w-[50vw] h-[50vw] bg-[#00D2FF]/10 rounded-full blur-[120px] animate-[floatOrb_15s_ease-in-out_infinite_alternate]" />
+         <div className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] bg-[#0066FF]/10 rounded-full blur-[150px] animate-[floatOrb_25s_ease-in-out_infinite_alternate_reverse]" />
+      </div>
+
+      {/* VERTICAL & HORIZONTAL SCANLINES */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden opacity-50">
+        <div className="absolute left-[15%] w-[1px] h-[200%] top-[-50%] bg-gradient-to-b from-transparent via-[#00D2FF] to-transparent animate-[scanVertical_6s_linear_infinite]" />
+        <div className="absolute right-[15%] w-[1px] h-[200%] top-[-50%] bg-gradient-to-t from-transparent via-[#0066FF] to-transparent animate-[scanVertical_8s_linear_infinite_reverse]" />
+        
+        <div className="absolute top-[20%] left-[-50%] w-[200%] h-[1px] bg-gradient-to-r from-transparent via-[#00D2FF] to-transparent animate-[scanHorizontal_10s_linear_infinite]" />
+        <div className="absolute bottom-[20%] left-[-50%] w-[200%] h-[1px] bg-gradient-to-l from-transparent via-[#0066FF] to-transparent animate-[scanHorizontal_12s_linear_infinite_reverse]" />
+      </div>
+
+      {/* MASSIVE TYPOGRAPHIC HERO BACKGROUND */}
+      <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none overflow-hidden mix-blend-overlay">
+        <div className={`text-[30vw] font-black uppercase tracking-tighter text-white/[0.02] leading-none transition-transform duration-[2000ms] ease-out ${mounted ? 'scale-100' : 'scale-110'}`}>
+          NEXUS
+        </div>
+      </div>
 
       {/* 
         ================================================================
-        LEFT PANEL: The "Torre de Controle" + Authentication Form
+        LAYER 1: CENTRAL COMMAND MONOLITH
         ================================================================
       */}
-      <div className="w-full lg:w-[45%] xl:w-[42%] flex flex-col justify-between p-6 md:p-8 lg:p-12 relative z-20 bg-[#0A0A0A] border-r border-white/5 overflow-y-auto overflow-x-hidden custom-scrollbar min-w-[420px]">
-
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none" />
-
-        <div className="flex-1 flex flex-col justify-between min-h-fit relative z-10 w-full max-w-2xl mx-auto">
-
-          <div className="space-y-3 pt-2">
-            <div className={`flex items-center gap-4 mb-8 transition-all duration-1000 ease-out ${mounted ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0'}`}>
-              <div className="flex flex-col items-start pt-1">
-                <img src="/logo.png" alt="Davos Nexus" className="h-8 w-auto opacity-90 brightness-110" />
-              </div>
-              <div className="h-8 w-[1px] bg-white/20 mx-1" />
-              <div className="space-y-0.5">
-                <span className="block text-[9px] uppercase tracking-[0.4em] font-black text-white/50 leading-none">Nexus Hub v2.5</span>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[8px] uppercase tracking-widest font-black text-accent/40 animate-pulse">Acesso_Privado_Ativo</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2 relative z-20">
-              <h1 className={`text-4xl md:text-5xl xl:text-7xl font-black tracking-tighter leading-[0.8] transition-all duration-1000 delay-100 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0 blur-lg'}`}>
-                ORQUESTRAR <br />
-                <span className="text-accent underline decoration-accent/10 decoration-4 underline-offset-[-2px]">
-                  RESULTADOS
-                </span>
-              </h1>
-              <p className={`text-xs md:text-sm font-light text-white/40 mt-6 max-w-sm leading-relaxed transition-all duration-1000 delay-200 ease-out ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-8 opacity-0'}`}>
-                {isRegistering
-                  ? 'Inicie o protocolo de integração com a malha neural DavoNexus.'
-                  : 'Central de comando para orquestração de IAs multi-agentes e automação de alta performance.'}
-              </p>
+      <div className="relative z-10 w-full h-full flex items-center justify-center p-4">
+        
+        <div className={`w-full max-w-[480px] transition-all duration-1000 ease-out delay-100 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-24 opacity-0'}`}>
+          
+          {/* HEADER BRANDING */}
+          <div className="flex flex-col items-center mb-10 text-center">
+            
+            <h1 className="text-4xl sm:text-5xl font-black uppercase tracking-tighter leading-none mb-4 flex flex-col">
+              <span className="text-white">TORRE DE</span>
+              <span className="text-[#00D2FF] drop-shadow-[0_0_15px_rgba(0,210,255,0.5)] bg-clip-text">CONTROLE</span>
+            </h1>
+            
+            <div className="flex items-center gap-2 border border-[#00D2FF]/30 bg-[#00D2FF]/5 px-4 py-1.5 rounded-none backdrop-blur-sm relative overflow-hidden">
+              <div className="absolute top-0 right-0 h-full w-2 bg-gradient-to-r from-transparent to-[#00D2FF]/20 animate-[pulseSweep_2s_linear_infinite]" />
+              <Activity className="w-3 h-3 text-[#00D2FF] animate-pulse" />
+              <span className="text-[9px] font-mono font-bold tracking-[0.3em] text-[#00D2FF] uppercase pt-0.5">
+                Central de Comando Multi-Agentes
+              </span>
             </div>
           </div>
 
-          <div className={`w-full max-w-md mt-10 mb-8 bg-[#050505] border border-white/10 p-6 shadow-2xl relative transition-all duration-1000 delay-300 ${mounted ? 'translate-y-0 opacity-100' : 'translate-y-12 opacity-0'}`}>
-            <div className="absolute -top-[1px] -left-[1px] w-2 h-2 border-t border-l border-accent/60" />
-            <div className="absolute -top-[1px] -right-[1px] w-2 h-2 border-t border-r border-accent/60" />
-            <div className="absolute -bottom-[1px] -left-[1px] w-2 h-2 border-b border-l border-accent/60" />
-            <div className="absolute -bottom-[1px] -right-[1px] w-2 h-2 border-b border-r border-accent/60" />
+          {/* THE FORM BOX (Pure Brutalism) */}
+          <div className="relative bg-[#020617]/90 backdrop-blur-xl p-8 sm:p-10 border border-white/10 group/monolith hover:border-[#00D2FF]/50 transition-colors duration-500 shadow-[0_0_50px_rgba(0,0,0,0.8)]">
+            
+            {/* CORNER TARGETS */}
+            <div className="absolute -top-[1px] -left-[1px] w-4 h-4 border-t-[2px] border-l-[2px] border-[#00D2FF] shadow-[0_0_10px_rgba(0,210,255,0.3)] transition-all duration-300 group-hover/monolith:w-6 group-hover/monolith:h-6" />
+            <div className="absolute -bottom-[1px] -right-[1px] w-4 h-4 border-b-[2px] border-r-[2px] border-[#00D2FF] shadow-[0_0_10px_rgba(0,210,255,0.3)] transition-all duration-300 group-hover/monolith:w-6 group-hover/monolith:h-6" />
+            <div className="absolute -top-[1px] -right-[1px] w-2 h-2 border-t-[1px] border-r-[1px] border-white/30" />
+            <div className="absolute -bottom-[1px] -left-[1px] w-2 h-2 border-b-[1px] border-l-[1px] border-white/30" />
 
-            <div className="mb-6 relative z-10">
-              <h2 className="text-lg font-black tracking-widest uppercase mb-1">
-                {isRegistering ? 'Nova Credencial' : 'Autenticação'}
+            <div className="flex justify-between items-end mb-8 relative z-10 border-b border-white/10 pb-4">
+              <h2 className="text-[10px] font-black text-white/50 tracking-[0.3em] uppercase flex items-center gap-2">
+                <Terminal className="w-3 h-3 text-[#00D2FF]" />
+                {isRegistering ? 'Nova_Credencial' : 'Autenticação_Segura'}
               </h2>
-              <div className="h-[2px] w-8 bg-accent mb-3" />
+              <span className="font-mono text-[8px] text-[#00D2FF]/50 opacity-80 uppercase tracking-widest tabular-nums font-bold">
+                {time}
+              </span>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              
               {isRegistering && (
-                <div className="space-y-2 group">
-                  <Label className="text-[9px] uppercase tracking-widest font-bold text-white/40 group-focus-within:text-white transition-colors">Designação (Nome)</Label>
-                  <Input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    required
-                    className="h-10 border-0 border-b border-white/10 bg-transparent rounded-none px-0 text-white focus-visible:ring-0 focus-visible:border-accent transition-colors font-mono"
-                    placeholder="COMANDANTE.SMITH"
-                  />
+                <div className="space-y-2 relative group">
+                  <Label className="text-[9px] uppercase tracking-[0.2em] font-bold text-white/40 group-focus-within:text-[#00D2FF] transition-colors">Designação</Label>
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      required
+                      className="h-12 border-0 border-b-2 border-white/10 bg-white/[0.02] rounded-none px-4 text-sm text-white focus-visible:ring-0 focus-visible:border-[#00D2FF] focus-visible:bg-[#00D2FF]/[0.02] transition-all font-mono shadow-none"
+                      placeholder="COMANDANTE.SMITH"
+                    />
+                  </div>
                 </div>
               )}
 
-              <div className="space-y-2 group">
-                <Label className={`text-[9px] uppercase tracking-widest font-bold transition-colors ${activeField === 'email' ? 'text-accent' : 'text-white/40'}`}>
+              <div className="space-y-2 relative group">
+                <Label className={`text-[9px] uppercase tracking-[0.2em] font-bold transition-colors ${activeField === 'email' ? 'text-[#00D2FF]' : 'text-white/40'}`}>
                   Identificador
                 </Label>
-                <div className="relative flex items-center">
-                  <Terminal className="h-3 w-3 absolute left-0 text-white/20" />
+                <div className="relative">
                   <Input
                     id="email"
                     type="email"
@@ -182,23 +215,27 @@ export default function Login() {
                     onFocus={() => setActiveField('email')}
                     onBlur={() => setActiveField(null)}
                     required
-                    className="h-10 border-0 border-b border-white/10 bg-transparent rounded-none pl-6 pr-0 text-white focus-visible:ring-0 focus-visible:border-accent transition-colors font-mono"
+                    className="h-12 border-0 border-b-2 border-white/10 bg-white/[0.02] rounded-none px-4 text-sm text-white focus-visible:ring-0 focus-visible:border-[#00D2FF] focus-visible:bg-[#00D2FF]/[0.02] transition-all font-mono shadow-none"
                     placeholder="root@empresa.com"
                   />
+                  {activeField === 'email' && (
+                     <div className="absolute right-3 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#00D2FF] rounded-full shadow-[0_0_8px_rgba(0,210,255,0.8)] animate-pulse" />
+                  )}
                 </div>
               </div>
 
-              <div className="space-y-2 group">
-                <Label className={`text-[9px] uppercase tracking-widest font-bold transition-colors flex justify-between ${activeField === 'password' ? 'text-accent' : 'text-white/40'}`}>
-                  <span>Chave Encriptada</span>
+              <div className="space-y-2 relative group">
+                <div className="flex justify-between items-center">
+                  <Label className={`text-[9px] uppercase tracking-[0.2em] font-bold transition-colors ${activeField === 'password' ? 'text-[#00D2FF]' : 'text-white/40'}`}>
+                    Chave_Encriptada
+                  </Label>
                   {!isRegistering && (
-                    <button type="button" onClick={() => navigate('/forgot-password')} className="hover:text-white">RECUPERAR</button>
+                     <button type="button" onClick={() => navigate('/forgot-password')} className="text-[8px] uppercase tracking-[0.2em] text-white/30 hover:text-[#00D2FF] transition-colors focus:outline-none">
+                       ESQUECI A SENHA
+                     </button>
                   )}
-                </Label>
+                </div>
                 <div className="relative flex items-center">
-                  <div className="h-3 w-3 absolute left-0 flex items-center justify-center">
-                    <div className={`w-1.5 h-1.5 rounded-full ${password.length > 0 ? 'bg-accent' : 'bg-white/20'}`} />
-                  </div>
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
@@ -206,151 +243,109 @@ export default function Login() {
                     onFocus={() => setActiveField('password')}
                     onBlur={() => setActiveField(null)}
                     required
-                    className="h-10 border-0 border-b border-white/10 bg-transparent rounded-none pl-6 pr-10 text-white focus-visible:ring-0 focus-visible:border-accent transition-colors font-mono tracking-widest placeholder:tracking-normal"
+                    className="h-12 border-0 border-b-2 border-white/10 bg-white/[0.02] rounded-none pl-4 pr-10 text-md text-white focus-visible:ring-0 focus-visible:border-[#00D2FF] focus-visible:bg-[#00D2FF]/[0.02] transition-all font-mono tracking-[0.3em] placeholder:tracking-normal shadow-none"
                     placeholder="••••••••"
                   />
                   <button
                     type="button"
-                    className="absolute right-0 top-0 h-10 w-10 flex items-center justify-end text-white/20 hover:text-white transition-colors"
+                    className="absolute right-3 h-full flex items-center justify-center text-white/20 hover:text-[#00D2FF] transition-colors focus:outline-none"
                     onClick={() => setShowPassword(!showPassword)}
                   >
-                    {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
-              <div className="pt-2">
+              {/* ACTION BUTTON (High Impact) */}
+              <div className="pt-8">
                 <Button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full h-12 bg-white text-black hover:bg-accent hover:text-white rounded-none uppercase font-black tracking-widest text-[11px] group relative overflow-hidden transition-all duration-300"
+                  className="w-full h-14 bg-gradient-to-r from-[#00D2FF] to-[#0066FF] text-white hover:opacity-90 rounded-none uppercase font-black tracking-[0.3em] text-[11px] relative overflow-hidden transition-all duration-300 group/btn shadow-[0_0_20px_rgba(0,210,255,0.3)] hover:shadow-[0_0_30px_rgba(0,210,255,0.6)]"
                 >
-                  <div className="absolute inset-0 bg-accent translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out z-0" />
+                  <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.3),transparent)] -translate-x-full group-hover/btn:animate-[shimmer_1.5s_infinite]" />
+                  
                   {isLoading ? (
-                    <span className="relative z-10 flex items-center justify-center gap-2">
-                      <Activity className="h-3 w-3 animate-spin" />
-                      AUTENTICANDO...
+                    <span className="relative z-10 flex items-center justify-center gap-3">
+                      <Activity className="h-4 w-4 animate-spin" />
+                      PROCESSANDO...
                     </span>
                   ) : (
-                    <span className="relative z-10 flex items-center justify-center gap-3 group-hover:text-white">
-                      {isRegistering ? 'INICIAR PROTOCOLO' : 'ABRIR TERMINAL'}
-                      <div className="w-4 h-[1px] bg-black group-hover:bg-white" />
+                     <span className="relative z-10 flex items-center justify-center gap-3 transition-transform duration-300 group-hover/btn:scale-105">
+                      {isRegistering ? 'INICIAR_PROTOCOLO' : 'AUTORIZAR_ACESSO'}
+                      <Cpu className="h-4 w-4" />
                     </span>
                   )}
                 </Button>
               </div>
             </form>
-
-            <div className="mt-8 pt-4 border-t border-white/5 flex justify-center text-[9px] font-mono tracking-widest uppercase">
-              <button
-                type="button"
-                onClick={() => setIsRegistering(!isRegistering)}
-                className="text-white/30 hover:text-accent transition-colors"
-              >
-                {isRegistering ? '[ MODIFICAR PARA LOGIN ]' : '[ ATIVAR NOVA CREDENCIAL ]'}
-              </button>
-            </div>
           </div>
-
-          <div className="space-y-1 pb-4">
-            <p className="text-[9px] font-black text-white/40 uppercase tracking-[0.4em]">DavoNexus Systems</p>
-          </div>
-
-        </div>
-      </div>
-
-      {/* 
-        ================================================================
-        RIGHT PANEL: ULTRA-REALISTIC CINEMATIC 3D ROBOT
-        ================================================================
-      */}
-      <div className="hidden lg:block lg:flex-1 relative bg-black h-full border-l border-white/5 overflow-hidden">
-
-        {/* Cinematic Backdrop */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,194,255,0.03)_0%,transparent_70%)]" />
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.01)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.01)_1px,transparent_1px)] bg-[size:60px_60px] opacity-20" />
-        </div>
-
-        {/* Global Metadata - Ultra Minimal */}
-        <div className="absolute top-12 right-12 z-30 text-right font-mono text-[10px] text-white/20 uppercase tracking-[0.3em]">
-          <span className="text-white/40 font-black">NEXUS_CORE //</span> STATUS: ACTIVE
-        </div>
-
-        {/* Clear Visualization Area */}
-        <div className={`relative z-20 w-full h-full flex flex-col items-center justify-center transition-all duration-1000 ease-out delay-500 ${mounted ? 'opacity-100' : 'opacity-0'}`}>
           
-          <div className="relative group max-w-3xl">
-             {/* Main Core Visual - No Text, No HUD pollution */}
-             <div className="relative z-10 w-[600px] h-[600px] xl:w-[850px] xl:h-[850px] transition-all duration-1000">
-                <img
-                  src="/assets/images/nexus-core-min.png"
-                  alt="Nexus Minimal Core"
-                  className="w-full h-full object-contain filter contrast-110 brightness-110 drop-shadow-[0_0_100px_rgba(0,194,255,0.1)]"
-                />
-                
-                {/* Subtle Neural Sync Effect - No Boxes */}
-                <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                   <div className="w-[110%] h-[110%] border-[0.5px] border-white/5 rounded-full animate-[spin_120s_linear_infinite]" />
-                </div>
-             </div>
+          <div className="mt-6 flex justify-center text-[9px] font-mono tracking-widest uppercase relative z-10">
+            <button
+              type="button"
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="px-4 py-2 text-white/30 hover:text-[#00D2FF] transition-colors border border-transparent hover:border-white/20 bg-[#020617]/50 backdrop-blur-sm focus:outline-none"
+            >
+              {isRegistering ? '[ ACESSAR TERMINAL EXISTENTE ]' : '[ REQUISITAR NOVA CREDENCIAL ]'}
+            </button>
           </div>
 
-          {/* LOWER LABEL - Minimalist */}
-          <div className="absolute bottom-24 flex items-center gap-12 text-[10px] font-mono tracking-[0.5em] text-white/20 uppercase">
-             <div className="flex items-center gap-2">
-                <div className="w-1 h-1 bg-accent rounded-full animate-pulse" />
-                <span>SYNC_ENGAGED</span>
-             </div>
-             <div>ORCHESTRATION_READY</div>
-          </div>
         </div>
-
-        {/* MINIMALIST GOVERNANCE FOOTER */}
-        <div className="absolute bottom-0 inset-x-0 w-full bg-gradient-to-t from-black to-transparent pb-10">
-          <div className="max-w-3xl mx-auto px-12 border-t border-white/5 pt-8">
-             <div className="flex justify-between items-center text-[8px] font-mono tracking-[0.3em] text-white/30 uppercase">
-                <div className="flex gap-10">
-                   {['ISO 42001', 'ISO 27001', 'SOC2 TYPE II'].map((iso) => (
-                     <div key={iso} className="hover:text-white transition-colors cursor-crosshair">
-                       {iso}
-                     </div>
-                   ))}
-                </div>
-                <div className="flex items-center gap-4">
-                   <span>SECURE_NODE: PSI-9</span>
-                   <Hexagon className="w-3 h-3 text-white/10" />
-                </div>
-             </div>
-          </div>
-        </div>
-
       </div>
 
-      {/* GLOBAL ANIMATIONS */}
+      {/* TOP & BOTTOM HUD TICKERS */}
+      <div className="absolute top-0 left-0 w-full h-[3px] bg-[#00D2FF] z-50 shadow-[0_0_20px_rgba(0,210,255,0.8)] flex items-center overflow-hidden">
+        <div className="w-[10%] h-full bg-white opacity-80 block animate-[slide_3s_ease-in-out_infinite_alternate]" />
+      </div>
+      <div className="absolute bottom-0 left-0 w-full h-[1px] bg-white/10 z-50 flex items-center overflow-hidden">
+         <div className="w-[30%] h-full bg-[#00D2FF] opacity-80 block animate-[slide_6s_linear_infinite_reverse]" />
+      </div>
+
+      <div className="absolute bottom-6 left-8 z-30 flex items-center gap-3 text-[8px] font-mono text-white/20 uppercase tracking-[0.3em] pointer-events-none hidden md:flex">
+        <ShieldAlert className="w-3 h-3 text-[#00D2FF]" />
+        <span>SECURE_NODE: PSI-9 // ISO_27001</span>
+      </div>
+
+      <div className="absolute bottom-6 right-8 z-30 flex items-center gap-3 text-[8px] font-mono text-white/20 uppercase tracking-[0.3em] pointer-events-none hidden md:flex">
+        <span>LAT: 32ms // SYNC: ENCRYPTED //</span>
+        <div className="w-1.5 h-1.5 bg-[#00D2FF] animate-pulse shadow-[0_0_5px_rgba(0,210,255,1)]" />
+      </div>
+
       <style>{`
-        @keyframes fade-in {
-          0% { opacity: 0; transform: translateY(10px) rotate(3deg); }
-          100% { opacity: 1; transform: translateY(0) rotate(3deg); }
-        }
-        @keyframes slide-in-progress {
+        @keyframes slide {
           0% { transform: translateX(-100%); }
-          100% { transform: translateX(0); }
+          100% { transform: translateX(1000%); }
         }
-        @keyframes scale-y {
-          0% { transform: scaleY(0.2); }
-          100% { transform: scaleY(1); }
+        @keyframes scanVertical {
+          0% { transform: translateY(-50%); }
+          100% { transform: translateY(50%); }
         }
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          50% { transform: translateY(-25px) rotate(1deg); }
+        @keyframes scanHorizontal {
+         0% { transform: translateX(-50%); }
+         100% { transform: translateX(50%); }
         }
-        @keyframes glitch {
-          0% { transform: translate(0); }
-          90% { transform: translate(0); }
-          92% { transform: translate(-2px, 1px) skewX(2deg); }
-          94% { transform: translate(2px, -1px) skewX(-2deg); }
-          96% { transform: translate(0); }
+        @keyframes fadePulse {
+         0%, 100% { opacity: 0.1; }
+         50% { opacity: 0.5; }
+        }
+        @keyframes panGrid {
+         0% { transform: translateY(0) translateX(0); }
+         100% { transform: translateY(40px) translateX(40px); }
+        }
+        @keyframes floatOrb {
+         0% { transform: translate(0, 0) scale(1); }
+         50% { transform: translate(5%, 5%) scale(1.1); }
+         100% { transform: translate(-5%, 10%) scale(0.9); }
+        }
+        @keyframes pulseSweep {
+         0% { transform: translateX(-100%); opacity: 0; }
+         50% { opacity: 1; }
+         100% { transform: translateX(500%); opacity: 0; }
+        }
+        @keyframes shimmer {
+         0% { transform: translateX(-100%); }
+         100% { transform: translateX(100%); }
         }
       `}</style>
     </div>
