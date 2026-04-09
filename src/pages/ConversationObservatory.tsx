@@ -31,6 +31,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { useToast } from "@/components/ui/use-toast";
 import { 
   AreaChart, 
   Area, 
@@ -54,10 +55,8 @@ import {
 interface ObservatoryStats {
   avg_latency: number;
   success_rate: number;
-  total_messages: number;
-  health_score: number;
-  latency_by_component: { name: string; value: number }[];
-  throughput_series: { time: string; count: number }[];
+  service_breakdown: { name: string; latency: number; success_rate: number; throughput?: number }[];
+  latency_timeline: { time: string; throughput: number; porteiro_lat?: number; n8n_lat?: number }[];
 }
 
 interface TraceEvent {
@@ -68,6 +67,8 @@ interface TraceEvent {
   status: 'success' | 'warning' | 'error';
   description: string;
   latency: string;
+  latency_raw?: number;
+  path?: string;
   payload: any;
   incident_ref?: string;
   component: 'porteiro' | 'n8n' | 'hub' | 'db';
@@ -84,6 +85,7 @@ interface RecentAlert {
 }
 
 export default function ConversationObservatory() {
+  const { toast } = useToast();
   const { currentTenant, openSlideOver } = useApp();
   const [searchPhone, setSearchPhone] = useState('');
   const [searchDate, setSearchDate] = useState(new Date().toISOString().split('T')[0]);
@@ -97,10 +99,16 @@ export default function ConversationObservatory() {
     queryKey: ['observatory-stats', currentTenant?.id],
     queryFn: async () => {
       if (!currentTenant?.id) return null;
+      console.log('DEBUG Stats Request:', { p_tenant_id: currentTenant.id, p_date: searchDate });
       const { data, error } = await supabase.rpc('fn_get_observatory_stats', {
-        p_tenant_id: currentTenant.id
+        p_tenant_id: currentTenant.id,
+        p_date: searchDate
       });
-      if (error) throw error;
+      if (error) {
+        console.error('DEBUG Stats Error:', error);
+        throw error;
+      }
+      console.log('DEBUG Stats Success:', data);
       return data as ObservatoryStats;
     },
     enabled: !!currentTenant?.id,
@@ -112,12 +120,18 @@ export default function ConversationObservatory() {
     queryKey: ['trace-lifecycle', activeTrace, searchPhone, currentTenant?.id],
     queryFn: async () => {
       if (!currentTenant?.id) return null;
+      const identifier = activeTrace || searchPhone;
+      console.log('DEBUG Trace Request:', { p_tenant_id: currentTenant.id, p_identifier: identifier, p_date: searchDate });
       const { data, error } = await supabase.rpc('fn_get_trace_lifecycle', {
         p_tenant_id: currentTenant.id,
-        p_identifier: activeTrace || searchPhone,
+        p_identifier: identifier,
         p_date: searchDate
       });
-      if (error) throw error;
+      if (error) {
+        console.error('DEBUG Trace Error:', error);
+        throw error;
+      }
+      console.log('DEBUG Trace Success:', data);
       return data as TraceEvent[];
     },
     enabled: !!currentTenant?.id && (!!activeTrace || !!searchPhone)
@@ -309,10 +323,10 @@ export default function ConversationObservatory() {
                   {/* Grid de KPIs Principais */}
                   <div className="grid grid-cols-4 gap-6">
                     {[
-                      { label: 'Saúde do Sistema', value: `${stats?.health_score || 0}%`, color: 'text-green-500', icon: Activity },
-                      { label: 'Total de Eventos (24h)', value: stats?.total_messages || 0, color: 'text-foreground', icon: RefreshCcw },
-                      { label: 'Gargalo Principal', value: 'LLM (8.2s)', color: 'text-red-500', icon: AlertTriangle },
-                      { label: 'Incidentes Abertos', value: '4', color: 'text-amber-500', icon: ShieldAlert },
+                      { label: 'Saúde do Sistema', value: `${Math.round(stats?.success_rate || 0)}%`, color: 'text-green-500', icon: Activity },
+                      { label: 'Total de Eventos (24h)', value: stats?.service_breakdown?.reduce((acc: number, s: any) => acc + (s.throughput || 0), 0) || 0, color: 'text-foreground', icon: RefreshCcw },
+                      { label: 'Latência Média', value: `${(stats?.avg_latency || 0).toFixed(2)}s`, color: 'text-accent', icon: Zap },
+                      { label: 'Taxa de Sucesso', value: `${(stats?.success_rate || 0).toFixed(1)}%`, color: 'text-emerald-500', icon: CheckCircle2 },
                     ].map((idx) => (
                       <div key={idx.label} className="p-5 border border-border bg-card/40 backdrop-blur-md rounded-none hover:border-accent/60 transition-all shadow-xl group">
                         <div className="flex items-center gap-3 mb-3">
@@ -320,9 +334,7 @@ export default function ConversationObservatory() {
                           <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{idx.label}</span>
                         </div>
                         <div className={cn("text-2xl font-black font-mono tracking-tighter", idx.color)}>
-                          {idx.value === 0 || idx.value === "0" || idx.value === "0.0%" ? (
-                            <span className="opacity-20">--</span>
-                          ) : idx.value}
+                          {stats ? idx.value : <span className="opacity-20">--</span>}
                         </div>
                       </div>
                     ))}
@@ -333,40 +345,52 @@ export default function ConversationObservatory() {
                     <div className="col-span-2 p-6 border border-border bg-background/40 backdrop-blur-sm rounded-none h-[350px]">
                       <div className="flex items-center justify-between mb-6">
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-                          <Activity className="h-3 w-3 text-accent" /> Latência por Componente (ms)
+                          <Activity className="h-3 w-3 text-accent" /> Latência por Componente (s)
                         </h3>
                       </div>
-                      <ResponsiveContainer width="100%" height="80%">
-                        <BarChart data={stats?.latency_by_component || []}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(120,120,120,0.1)" />
-                          <XAxis 
-                            dataKey="name" 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 9, fill: '#888', fontWeight: 'bold' }} 
-                            dy={10}
-                          />
-                          <YAxis 
-                            axisLine={false} 
-                            tickLine={false} 
-                            tick={{ fontSize: 9, fill: '#888', fontWeight: 'bold' }} 
-                          />
-                          <Tooltip 
-                            cursor={{ fill: 'rgba(var(--accent), 0.05)' }}
-                            contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a', borderRadius: '0' }}
-                            itemStyle={{ fontSize: '10px', fontWeight: 'bold' }}
-                          />
-                          <Bar dataKey="value" radius={[0, 0, 0, 0]} barSize={40}>
-                            {(stats?.latency_by_component || []).map((entry, index) => (
-                              <Cell 
-                                key={`cell-${index}`} 
-                                fill={index === 3 ? '#ef4444' : '#14b8a6'} 
-                                fillOpacity={0.8}
-                              />
-                            ))}
-                          </Bar>
-                        </BarChart>
-                      </ResponsiveContainer>
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stats?.service_breakdown || []} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" opacity={0.3} />
+                            <XAxis 
+                              dataKey="name" 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fontSize: 9, fill: '#71717a', fontWeight: '900' }} 
+                              dy={10}
+                            />
+                            <YAxis 
+                              axisLine={false} 
+                              tickLine={false} 
+                              tick={{ fontSize: 9, fill: '#71717a', fontWeight: '900' }} 
+                              unit="s"
+                            />
+                            <Tooltip 
+                              cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                              contentStyle={{ backgroundColor: '#09090b', border: '1px solid #14b8a6', borderRadius: '0', padding: '12px' }}
+                              labelStyle={{ color: '#71717a', fontSize: '9px', fontWeight: 'black', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                              itemStyle={{ color: '#14b8a6', fontSize: '11px', fontWeight: 'bold', fontFamily: 'monospace' }}
+                            />
+                            <Bar 
+                              dataKey="latency" 
+                              name="Latência (s)" 
+                              radius={[0, 0, 0, 0]} 
+                              barSize={32}
+                              minPointSize={4}
+                            >
+                              {(stats?.service_breakdown || []).map((entry: any, index: number) => (
+                                <Cell 
+                                  key={`cell-${index}`} 
+                                  fill={entry.latency > 2 ? '#ef4444' : (entry.latency > 0.8 ? '#f59e0b' : '#14b8a6')} 
+                                  fillOpacity={0.8}
+                                  stroke={entry.latency > 2 ? '#ef4444' : (entry.latency > 0.8 ? '#f59e0b' : '#14b8a6')}
+                                  strokeWidth={1}
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
 
                     <div className="p-6 border border-border bg-card/20 rounded-none h-[350px]">
@@ -374,14 +398,31 @@ export default function ConversationObservatory() {
                         <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Saúde do Tráfego</h3>
                         <Badge className="bg-emerald-500/10 text-emerald-500 text-[8px] rounded-none border-emerald-500/30 font-black">ESTÁVEL</Badge>
                       </div>
-                      <ResponsiveContainer width="100%" height="80%">
-                        <AreaChart data={stats?.throughput_series || []}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
-                          <XAxis dataKey="time" hide />
-                          <Tooltip contentStyle={{ backgroundColor: '#09090b', border: '1px solid #27272a' }} />
-                          <Area type="monotone" dataKey="count" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.1} />
-                        </AreaChart>
-                      </ResponsiveContainer>
+                      <div className="h-[250px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={stats?.latency_timeline || []}>
+                            <defs>
+                              <linearGradient id="colorThroughput" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#14b8a6" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" opacity={0.3} />
+                            <XAxis dataKey="time" hide />
+                            <Tooltip 
+                              contentStyle={{ backgroundColor: '#09090b', border: '1px solid #14b8a6', borderRadius: '0px' }}
+                              itemStyle={{ color: '#14b8a6', fontSize: '10px', fontWeight: 'bold' }}
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="throughput" 
+                              stroke="#14b8a6" 
+                              strokeWidth={2}
+                              fill="url(#colorThroughput)" 
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
                   </div>
 
@@ -414,10 +455,11 @@ export default function ConversationObservatory() {
                 <div className="flex-1 flex flex-col border-r border-border min-w-0">
                   <div className="p-4 border-b border-border bg-card/20 flex items-center justify-between shrink-0">
                     <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="bg-background text-[10px] font-mono h-6 rounded-none border-border">
-                        TRACE ID: {(activeTrace || searchPhone).substring(0, 16)}
+                      <Badge variant="outline" className="bg-background text-[11px] font-black h-7 rounded-none border-border px-3">
+                        {activeTrace?.includes('-') ? 'RASTRO:' : 'CLIENTE:'} <span className="text-accent ml-2 font-mono tracking-tighter">{(activeTrace || searchPhone)}</span>
                       </Badge>
-                      <h2 className="text-[10px] font-black uppercase tracking-widest text-accent">Rastro Técnico</h2>
+                      <div className="h-px w-8 bg-accent/20 hidden sm:block" />
+                      <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent/80">Monitoramento Técnico</h2>
                     </div>
                     <Button variant="ghost" size="sm" onClick={handleReset} className="h-7 text-[9px] font-black uppercase gap-2 hover:bg-accent/5 rounded-none border border-border">
                        <History className="h-3 w-3" /> Reiniciar Auditoria
@@ -466,10 +508,10 @@ export default function ConversationObservatory() {
                                     </div>
                                     <div className="flex items-center gap-1.5 px-2 py-0.5 border border-border bg-background/50">
                                       <Clock className="h-2.5 w-2.5 text-muted-foreground/50" />
-                                      <span className="text-[10px] font-black font-mono">{formatLatency(step.latency || 0)}</span>
+                                      <span className="text-[10px] font-black font-mono">{step.latency}</span>
                                     </div>
                                   </div>
-                                  <h4 className="text-xs font-black text-foreground mb-1 leading-tight tracking-tight uppercase">{step.description}</h4>
+                                  <h4 className="text-[11px] font-black text-foreground mb-1 leading-relaxed tracking-tight uppercase line-clamp-2">{step.description}</h4>
                                   
                                   {step.incident_ref && (
                                     <div 
@@ -523,24 +565,36 @@ export default function ConversationObservatory() {
 
                            <div className="mt-6 space-y-4">
                               <div className="p-5 rounded-none border border-border bg-card/30">
-                                <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] mb-4">Metadados do Sinal</h4>
+                                <h4 className="text-[10px] font-black uppercase text-muted-foreground tracking-[0.2em] mb-4 flex items-center gap-2">
+                                  <div className="w-1 h-1 bg-accent animate-pulse" /> Metadados do Sinal
+                                </h4>
                                 <div className="space-y-3">
                                   {[
-                                    { label: 'Componente Origem', value: selectedSignal.component?.toUpperCase() || 'HUB_CORE' },
-                                    { label: 'Versão do Workflow', value: '4.2.1-stable' },
-                                    { label: 'Tamanho do Payload', value: '1.2 KB' },
-                                    { label: 'Node Executor', value: 'AWS_US_EAST_01' }
+                                    { label: 'Componente Origem', value: selectedSignal.event_type || 'HUB_CORE' },
+                                    { label: 'Rota de Trânsito', value: selectedSignal.path || selectedSignal.payload?.path || selectedSignal.payload?.destination || '/v1/webhook' },
+                                    { label: 'Tamanho do Payload', value: `${(JSON.stringify(selectedSignal.payload || {}).length / 1024).toFixed(2)} KB` },
+                                    { label: 'Node Executor', value: selectedSignal.payload?.server_url || selectedSignal.payload?.node_id || 'SERVER_BR_SP_01' }
                                   ].map(meta => (
-                                    <div key={meta.label} className="flex justify-between items-center py-2 border-b border-border/40">
-                                      <span className="text-[9px] text-muted-foreground uppercase font-bold italic tracking-tighter">{meta.label}</span>
-                                      <span className="text-[10px] font-mono font-black text-accent">{meta.value}</span>
+                                    <div key={meta.label} className="flex justify-between items-center py-2 border-b border-border/20 group/meta">
+                                      <span className="text-[9px] text-muted-foreground uppercase font-bold italic tracking-tighter group-hover/meta:text-accent transition-colors">{meta.label}</span>
+                                      <span className="text-[10px] font-mono font-black text-foreground truncate max-w-[250px] text-right" title={meta.value}>{meta.value}</span>
                                     </div>
                                   ))}
                                 </div>
                               </div>
 
-                              <Button variant="outline" className="w-full text-[9px] font-black uppercase h-9 rounded-none border-border hover:bg-accent/5">
-                                <Workflow className="h-3.5 w-3.5 mr-2" /> Visualizar Grafo Completo
+                              <Button 
+                                variant="outline" 
+                                onClick={() => {
+                                  toast({
+                                    title: "MAPEAMENTO DE FLUXO",
+                                    description: "A renderização do rastro em grafo está sendo compilada para este Tenant.",
+                                    variant: "default"
+                                  });
+                                }}
+                                className="w-full text-[9px] font-black uppercase h-9 rounded-none border-border hover:bg-accent/10 hover:border-accent group/btn transition-all"
+                              >
+                                <Workflow className="h-3.5 w-3.5 mr-2 group-hover/btn:animate-spin" /> Visualizar Grafo Completo
                               </Button>
                            </div>
                         </div>

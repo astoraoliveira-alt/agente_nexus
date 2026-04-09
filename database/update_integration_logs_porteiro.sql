@@ -6,12 +6,17 @@ ADD COLUMN IF NOT EXISTS agent_id UUID REFERENCES public.agents(id),
 ADD COLUMN IF NOT EXISTS trace_id TEXT,
 ADD COLUMN IF NOT EXISTS method TEXT DEFAULT 'POST',
 ADD COLUMN IF NOT EXISTS path TEXT,
-ADD COLUMN IF NOT EXISTS validation_results JSONB DEFAULT '{}'::jsonb;
+ADD COLUMN IF NOT EXISTS validation_results JSONB DEFAULT '{}'::jsonb,
+ADD COLUMN IF NOT EXISTS latency_ms INTEGER DEFAULT 0,
+ADD COLUMN IF NOT EXISTS phone_number TEXT,
+ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES public.conversations(id);
 
 -- 2. Indexação para performance de auditoria
 CREATE INDEX IF NOT EXISTS idx_integration_logs_agent_id ON public.integration_logs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_integration_logs_trace_id ON public.integration_logs(trace_id);
 CREATE INDEX IF NOT EXISTS idx_integration_logs_processed_at ON public.integration_logs(processed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_phone_number ON public.integration_logs(phone_number);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_conversation_id ON public.integration_logs(conversation_id);
 
 -- 3. Comentários para clareza
 COMMENT ON COLUMN public.integration_logs.validation_results IS 'Armazena detalhes de cada etapa de validação (API Key, Herança, Contexto, etc.)';

@@ -110,6 +110,7 @@ async function logIntegration(params: {
                 status: status || 'received',
                 error_details: error_details || null,
                 validation_results: validation_results || {},
+                latency_ms: latency_ms || 0,
                 processed_at: new Date().toISOString()
             }, { onConflict: 'provider,external_id' });
 
@@ -276,6 +277,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             conversation_id: resolvedConvId,
             path: '/v1/evolution/webhook',
             status: 'received',
+            latency_ms: Date.now() - startTime,
             validation_results: { 
                 event_type: event, 
                 received_at: new Date().toISOString(),
@@ -303,7 +305,9 @@ app.post('/v1/evolution/webhook', async (c) => {
                 status: 'processed', 
                 trace_id: initialTraceId,
                 phone_number: phone,
+                path: '/v1/evolution/webhook',
                 payload, 
+                latency_ms: Date.now() - startTime,
                 validation_results: { event_type: event, state: state } 
             });
 
@@ -326,6 +330,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                 payload: payload,
                 tenant_id: earlyAgent?.tenant_id,
                 agent_id: earlyAgent?.id,
+                latency_ms: Date.now() - startTime,
                 validation_results: { 
                     event_type: event, 
                     reason: `not_upsert_event_${event}`,
@@ -349,7 +354,9 @@ app.post('/v1/evolution/webhook', async (c) => {
                 external_id: data?.key?.id || initialTraceId,
                 payload: payload,
                 trace_id: initialTraceId,
+                path: '/v1/evolution/webhook',
                 status: 'ignored',
+                latency_ms: Date.now() - startTime,
                 validation_results: { reason: 'sent_by_agent_or_empty' }
             });
             return c.json({ status: 'ignored', reason: 'sent_by_agent_or_empty' });
@@ -816,6 +823,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
             phone_number: phone,
             path: '/v1/zenvia/webhook',
             status: 'received',
+            latency_ms: Date.now() - startTime_znv,
             validation_results: { received_at: new Date().toISOString() }
         });
 
@@ -837,6 +845,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 phone_number: phone,
                 path: '/v1/zenvia/webhook',
                 status: 'error',
+                latency_ms: Date.now() - startTime_znv,
                 error_details: 'Agent not found for channel: ' + channelId
             });
             return c.json({ error: 'Agent not found' }, 404);
@@ -907,7 +916,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
             },
             p_trace_id: traceId,
             p_message_type: detectedMessageType,
-            p_priority: 100 // Mensagem humana = máxima prioridade
+            p_priority: 100, // Mensagem humana = máxima prioridade
+            p_latency_ms: Date.now() - startTime_znv
         });
 
         if (queueError) {
@@ -956,6 +966,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
             status: 'error',
             trace_id: initialTraceId,
             path: '/v1/zenvia/webhook',
+            latency_ms: Date.now() - startTime_znv,
             error_details: err.message,
             payload: zenviaBody
         });

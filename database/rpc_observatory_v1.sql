@@ -2,6 +2,7 @@
 -- Adds logic to support the "Conversation Observatory" UI with real-time health monitoring
 
 -- 1. Get Overall stats for the overview (KPIs and Service Breakdown)
+DROP FUNCTION IF EXISTS public.fn_get_observatory_stats(UUID, DATE);
 CREATE OR REPLACE FUNCTION public.fn_get_observatory_stats(
     p_tenant_id UUID,
     p_date DATE DEFAULT CURRENT_DATE
@@ -32,14 +33,14 @@ BEGIN
     FROM (
         SELECT 
             CASE 
-                WHEN path ILIKE '%porteiro%' OR payload->>'service' = 'porteiro' THEN 'Porteiro'
+                WHEN path ILIKE '%porteiro%' OR path ILIKE '%webhook%' OR payload->>'service' = 'porteiro' THEN 'Porteiro'
                 WHEN provider = 'n8n' OR path ILIKE '%workflow%' THEN 'n8n'
                 WHEN provider = 'hub' THEN 'Hub Engine'
                 WHEN provider = 'supabase' OR path ILIKE '%rpc%' THEN 'DB Access'
                 ELSE 'Outros'
             END as name,
-            AVG((payload->>'latency_ms')::NUMERIC) / 1000.0 as latency,
-            (COUNT(*) FILTER (WHERE status = 'success')::NUMERIC / NULLIF(COUNT(*), 0)) * 100 as success_rate
+            AVG(COALESCE(latency_ms, (payload->>'latency_ms')::NUMERIC, 0)) / 1000.0 as latency,
+            (COUNT(*) FILTER (WHERE status = 'success' OR status = 'processed')::NUMERIC / NULLIF(COUNT(*), 0)) * 100 as success_rate
         FROM public.integration_logs
         WHERE tenant_id = p_tenant_id AND processed_at::DATE = p_date
         GROUP BY 1
@@ -51,10 +52,10 @@ BEGIN
     FROM (
         SELECT 
             TO_CHAR(DATE_TRUNC('hour', processed_at), 'HH24:00') as time,
-            AVG(CASE WHEN path ILIKE '%porteiro%' THEN (payload->>'latency_ms')::NUMERIC / 1000.0 END) as porteiro_lat,
-            AVG(CASE WHEN provider = 'n8n' THEN (payload->>'latency_ms')::NUMERIC / 1000.0 END) as n8n_lat,
-            AVG(CASE WHEN provider = 'hub' THEN (payload->>'latency_ms')::NUMERIC / 1000.0 END) as hub_lat,
-            AVG(CASE WHEN provider = 'supabase' THEN (payload->>'latency_ms')::NUMERIC / 1000.0 END) as db_lat,
+            AVG(CASE WHEN path ILIKE '%porteiro%' OR path ILIKE '%webhook%' THEN COALESCE(latency_ms, (payload->>'latency_ms')::NUMERIC, 0) / 1000.0 END) as porteiro_lat,
+            AVG(CASE WHEN provider = 'n8n' THEN COALESCE(latency_ms, (payload->>'latency_ms')::NUMERIC, 0) / 1000.0 END) as n8n_lat,
+            AVG(CASE WHEN provider = 'hub' THEN COALESCE(latency_ms, (payload->>'latency_ms')::NUMERIC, 0) / 1000.0 END) as hub_lat,
+            AVG(CASE WHEN provider = 'supabase' THEN COALESCE(latency_ms, (payload->>'latency_ms')::NUMERIC, 0) / 1000.0 END) as db_lat,
             COUNT(*) as throughput
         FROM public.integration_logs
         WHERE tenant_id = p_tenant_id AND processed_at::DATE = p_date
@@ -72,10 +73,12 @@ END;
 $$;
 
 -- 2. Get detailed Trace Details (Vertical Timeline)
+DROP FUNCTION IF EXISTS public.fn_get_trace_lifecycle(UUID, TEXT, DATE);
+DROP FUNCTION IF EXISTS public.fn_get_trace_lifecycle(UUID, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION public.fn_get_trace_lifecycle(
     p_tenant_id UUID,
-    p_phone TEXT DEFAULT NULL,
-    p_trace_id TEXT DEFAULT NULL
+    p_identifier TEXT DEFAULT NULL,
+    p_date DATE DEFAULT CURRENT_DATE
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -84,35 +87,42 @@ AS $$
 DECLARE
     v_events JSONB;
 BEGIN
-    SELECT jsonb_agg(ev)
+    SELECT jsonb_agg(sub)
     INTO v_events
     FROM (
         SELECT 
             id,
             CASE 
-                WHEN path ILIKE '%porteiro%' THEN 'PORTEIRO'
-                WHEN provider = 'n8n' THEN 'WORKFLOW'
-                WHEN provider = 'vapi' THEN 'VOICE'
-                WHEN provider = 'evolution' THEN 'WHATSAPP'
+                WHEN l.path ILIKE '%porteiro%' OR l.path ILIKE '%webhook%' THEN 'PORTEIRO'
+                WHEN l.provider = 'n8n' THEN 'WORKFLOW'
+                WHEN l.provider = 'vapi' THEN 'VOICE'
+                WHEN l.provider = 'evolution' THEN 'WHATSAPP'
                 ELSE 'SYSTEM'
             END as event_type,
-            COALESCE(payload->>'description', 'Evento de sistema capturado') as description,
-            processed_at as timestamp,
-            status,
-            COALESCE(payload->>'latency_ms', '0') || 'ms' as latency,
-            payload,
+            COALESCE(
+                l.payload->'data'->'message'->>'conversation', 
+                l.payload->'payload'->>'content',
+                l.payload->>'description', 
+                'Sinal de rede capturado'
+            ) as description,
+            l.processed_at as timestamp,
+            l.status,
+            COALESCE(l.latency_ms::TEXT, l.payload->>'latency_ms', '0') || 'ms' as latency,
+            l.payload,
             (SELECT id FROM public.incidents WHERE trace_id = l.trace_id LIMIT 1) as incident_ref
         FROM public.integration_logs l
-        WHERE tenant_id = p_tenant_id
-          AND (trace_id = p_trace_id OR phone_number = p_phone)
-        ORDER BY processed_at ASC
-    ) ev;
+        WHERE l.tenant_id = p_tenant_id
+          AND (l.phone_number ILIKE '%' || p_identifier || '%' OR l.trace_id = p_identifier)
+          AND l.processed_at::DATE = p_date
+        ORDER BY l.processed_at ASC
+    ) sub;
 
     RETURN COALESCE(v_events, '[]'::jsonb);
 END;
 $$;
 
 -- 3. Get Recent Alerts with Person Names
+DROP FUNCTION IF EXISTS public.fn_get_recent_alerts(UUID);
 CREATE OR REPLACE FUNCTION public.fn_get_recent_alerts(
     p_tenant_id UUID
 )
