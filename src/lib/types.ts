@@ -117,7 +117,7 @@ export interface AIResponsibles {
   complianceOfficerId: string; // Person ensuring reg. adherence
 }
 
-export type AILifecycleStage = 'development' | 'validation' | 'production' | 'monitoring' | 'retired';
+export type AILifecycleStage = 'development' | 'validation' | 'production' | 'monitoring' | 'retired' | 'poc_demo';
 
 export interface AIRiskAssessment {
   lastAssessmentDate: Date;
@@ -916,9 +916,25 @@ export interface Campaign {
   sentCount: number;
   responseCount: number;
   failedCount?: number;
+  importErrorCount?: number;
+  successCriteria?: string[];
+  successLinkFilter?: string;
   metadata?: Record<string, any>;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface CampaignImportLog {
+  id: string;
+  campaignId: string;
+  tenantId: string;
+  rowNumber: number;
+  contactName?: string;
+  contactPhone?: string;
+  errorType: 'INVALID_PHONE' | 'DUPLICATE' | 'MISSING_NAME' | 'OTHER';
+  errorMessage?: string;
+  rawData?: Record<string, any>;
+  createdAt: Date;
 }
 
 export interface OutboundContact {

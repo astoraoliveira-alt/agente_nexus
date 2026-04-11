@@ -1275,6 +1275,7 @@ export default function Agents() {
                             >
                               <SelectTrigger className="h-8 text-xs font-mono"><SelectValue /></SelectTrigger>
                               <SelectContent>
+                                <SelectItem value="poc_demo">PoC (Demonstração)</SelectItem>
                                 <SelectItem value="development">Development (Sandbox)</SelectItem>
                                 <SelectItem value="validation">Validation (Homologação)</SelectItem>
                                 <SelectItem value="production">Production (Vivo)</SelectItem>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useApp } from "@/contexts/AppContext";
 import { api } from "@/services/api";
-import { Campaign, CampaignStatus, Agent } from "@/lib/types";
+import { Campaign, CampaignStatus, Agent, CampaignImportLog } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import {
@@ -26,7 +27,9 @@ import {
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
-    AlertCircle
+    AlertCircle,
+    Zap,
+    Activity
 } from "lucide-react";
 import {
     Card,
@@ -62,6 +65,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+} from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
@@ -88,6 +98,10 @@ export default function Campaigns() {
     const [contactSearch, setContactSearch] = useState("");
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
     const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
+    const [isImportErrorsOpen, setIsImportErrorsOpen] = useState(false);
+    const [importErrors, setImportErrors] = useState<CampaignImportLog[]>([]);
+    const [isLoadingErrors, setIsLoadingErrors] = useState(false);
+    const [selectedCampaignForErrors, setSelectedCampaignForErrors] = useState<Campaign | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // New Campaign Form State
@@ -101,6 +115,8 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: "",
+        successCriteria: [] as string[],
+        successLinkFilter: "",
     });
 
     useEffect(() => {
@@ -153,6 +169,8 @@ export default function Campaigns() {
                 endTime: newCampaign.endTime,
                 initialMessage: newCampaign.initialMessage,
                 dailyLimit: newCampaign.dailyLimit,
+                successCriteria: newCampaign.successCriteria,
+                successLinkFilter: newCampaign.successCriteria.includes('LINK_SENT') ? newCampaign.successLinkFilter : undefined,
                 status: "active" as CampaignStatus,
             });
 
@@ -240,12 +258,13 @@ export default function Campaigns() {
             if (phoneIdx === -1) phoneIdx = 1;
         }
 
-        const processed = rows.slice(startRow).map(row => {
+        const processed = rows.slice(startRow).map((row, idx) => {
             return {
                 name: row[nameIdx] ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome",
-                phone: row[phoneIdx] ? String(row[phoneIdx]).replace(/\D/g, '').substring(0, 20) : ""
+                phone: row[phoneIdx] ? String(row[phoneIdx]).trim() : "",
+                rowNumber: startRow + idx + 1
             };
-        }).filter(item => item.phone.length >= 8);
+        });
 
         if (processed.length === 0) {
             toast({
@@ -283,20 +302,59 @@ export default function Campaigns() {
         };
 
         try {
-            // 1. Deduplicação local com normalização
-            const uniquePhones = new Set();
-            const localFiltered = importData.filter(item => {
-                const phone = normalizePhone(item.phone);
-                if (uniquePhones.has(phone)) return false;
-                uniquePhones.add(phone);
-                return true;
+            const importLogs: any[] = [];
+            const validContactsMap: Record<string, any> = {};
+            
+            importData.forEach((item) => {
+                const rawPhone = item.phone;
+                // 1. Validação de Telefone (Verifica se contém caracteres inválidos e se tem tamanho mínimo)
+                const hasLetters = /[a-zA-Z]/.test(rawPhone);
+                const cleanPhone = rawPhone.replace(/\D/g, '');
+                
+                if (hasLetters || cleanPhone.length < 10) {
+                    importLogs.push({
+                        campaignId: campaign.id,
+                        tenantId: currentTenant.id,
+                        rowNumber: item.rowNumber,
+                        contactName: item.name,
+                        contactPhone: rawPhone,
+                        errorType: 'INVALID_PHONE',
+                        errorMessage: hasLetters 
+                            ? 'Telefone contém caracteres inválidos (letras não permitidas).' 
+                            : 'Telefone inválido (mínimo 10 dígitos com DDD).',
+                        rawData: item
+                    });
+                    return;
+                }
+
+                // 2. Normalização
+                let phone = cleanPhone;
+                if ((phone.length === 10 || phone.length === 11) && !phone.startsWith('55')) {
+                    phone = '55' + phone;
+                }
+
+                // 3. Deduplicação Local
+                if (validContactsMap[phone]) {
+                    importLogs.push({
+                        campaignId: campaign.id,
+                        tenantId: currentTenant.id,
+                        rowNumber: item.rowNumber,
+                        contactName: item.name,
+                        contactPhone: phone,
+                        errorType: 'DUPLICATE',
+                        errorMessage: 'Contato duplicado detectado no arquivo.',
+                        rawData: item
+                    });
+                    return;
+                }
+
+                validContactsMap[phone] = {
+                    ...item,
+                    phone
+                };
             });
 
-            const skippedInFile = importData.length - localFiltered.length;
-
-            const contactsToInsert = localFiltered.map(item => {
-                const phone = normalizePhone(item.phone);
-                // Personaliza a mensagem se houver {{nome}}
+            const finalContactsToInsert = Object.values(validContactsMap).map(item => {
                 const baseMessage = campaign.initialMessage || "";
                 const personalizedMessage = baseMessage.replace(/{{nome}}/gi, item.name || "Cliente");
 
@@ -305,7 +363,7 @@ export default function Campaigns() {
                     agentId: campaign.agentId,
                     campaignId: campaign.id,
                     contactName: item.name,
-                    contactPhone: phone,
+                    contactPhone: item.phone,
                     status: 'pending' as const,
                     metadata: {
                         content: personalizedMessage
@@ -313,14 +371,25 @@ export default function Campaigns() {
                 };
             });
 
-            // Batch size for better performance (Supabase limit check)
+            // Persistir Logs de Erro se houver
+            if (importLogs.length > 0) {
+                await api.logImportErrors(importLogs);
+                
+                // Atualizar o contador acumulado de erros na campanha
+                const currentErrors = campaign.importErrorCount || 0;
+                await api.updateCampaign(campaign.id, {
+                    importErrorCount: currentErrors + importLogs.length
+                });
+            }
+
+            // Batch upload
             const chunkSize = 500;
-            for (let i = 0; i < contactsToInsert.length; i += chunkSize) {
-                const chunk = contactsToInsert.slice(i, i + chunkSize);
+            for (let i = 0; i < finalContactsToInsert.length; i += chunkSize) {
+                const chunk = finalContactsToInsert.slice(i, i + chunkSize);
                 await api.addToOutboundQueue(chunk);
             }
 
-            // 2. Sincronização de Contador Real (Consultando o banco)
+            // Sincronização de Contador Real
             const allContacts = await api.getOutboundQueue(currentTenant.id, undefined, campaign.id);
             const realTotal = allContacts.length;
 
@@ -328,20 +397,22 @@ export default function Campaigns() {
                 totalContacts: realTotal
             });
 
-            const added = realTotal - (campaign.totalContacts || 0);
+            const added = finalContactsToInsert.length;
+            const errors = importLogs.length;
 
             toast({
                 title: "Importação concluída!",
-                description: `${added} novos contatos únicos adicionados. ${skippedInFile > 0 ? `(${skippedInFile} duplicatas no arquivo ignoradas)` : ''}`,
+                description: `${added} contatos adicionados. ${errors > 0 ? `${errors} inconsistências registradas.` : ''}`,
             });
             setIsImportOpen(false);
             setImportData([]);
             if (fileInputRef.current) fileInputRef.current.value = "";
             loadData();
         } catch (error) {
+            console.error("Import error:", error);
             toast({
                 title: "Erro na importação",
-                description: "Houve um problema ao salvar os contatos na fila.",
+                description: "Houve um problema ao processar a base de dados.",
                 variant: "destructive",
             });
         } finally {
@@ -403,6 +474,9 @@ export default function Campaigns() {
                 startTime: editingCampaign.startTime,
                 endTime: editingCampaign.endTime,
                 initialMessage: editingCampaign.initialMessage,
+                agentId: editingCampaign.agentId,
+                successCriteria: editingCampaign.successCriteria,
+                successLinkFilter: editingCampaign.successLinkFilter,
             });
 
             toast({
@@ -438,6 +512,24 @@ export default function Campaigns() {
             });
         } finally {
             setIsLoadingContacts(false);
+        }
+    };
+
+    const handleViewImportErrors = async (campaign: Campaign) => {
+        setSelectedCampaignForErrors(campaign);
+        setIsLoadingErrors(true);
+        setIsImportErrorsOpen(true);
+        try {
+            const logs = await api.getImportLogs(campaign.id);
+            setImportErrors(logs);
+        } catch (error) {
+            toast({
+                title: "Erro ao carregar logs",
+                description: "Não foi possível buscar os erros de importação.",
+                variant: "destructive",
+            });
+        } finally {
+            setIsLoadingErrors(false);
         }
     };
 
@@ -544,106 +636,173 @@ export default function Campaigns() {
                                         <Plus className="mr-2 h-4 w-4" /> Nova Campanha
                                     </Button>
                                 </DialogTrigger>
-                                <DialogContent className="sm:max-w-[500px] border-accent/20">
-                                    <DialogHeader>
+                                <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
+                                    <DialogHeader className="p-6 pb-2">
                                         <DialogTitle className="text-2xl font-bold text-accent">Criar Estratégia Outbound</DialogTitle>
-                                        <DialogDescription>
-                                            Defina os objetivos técnicos e operacionais desta campanha. O motor de automação processará os leads seguindo estes critérios de cadência e volume.
+                                        <DialogDescription className="text-xs">
+                                            Configure os parâmetros operacionais da sua campanha de automação inteligente.
                                         </DialogDescription>
                                     </DialogHeader>
-                                    <div className="grid gap-6 py-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="name">Nome da Campanha</Label>
-                                            <Input
-                                                id="name"
-                                                placeholder="Ex: Reengajamento - Leads Janeiro"
-                                                className="bg-accent/5"
-                                                value={newCampaign.name}
-                                                onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="agent">Agente Executor</Label>
-                                            <Select onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
-                                                <SelectTrigger className="bg-accent/5">
-                                                    <SelectValue placeholder="Selecione o Agente de IA" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {agents.map(agent => (
-                                                        <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
+                                    
+                                    <div className="flex-1 overflow-y-auto px-6 py-2 space-y-5 custom-scrollbar">
+                                        {/* Seção 1: Identificação */}
+                                        <div className="space-y-4">
                                             <div className="grid gap-2">
-                                                <Label htmlFor="limit">Limite de Novos Envios / Dia</Label>
+                                                <Label htmlFor="name" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Nome da Campanha</Label>
                                                 <Input
-                                                    id="limit"
-                                                    type="number"
-                                                    className="bg-accent/5"
-                                                    value={newCampaign.dailyLimit}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })}
+                                                    id="name"
+                                                    placeholder="Ex: Reengajamento - Leads Janeiro"
+                                                    className="bg-accent/5 h-10"
+                                                    value={newCampaign.name}
+                                                    onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
                                                 />
                                             </div>
+                                            
                                             <div className="grid gap-2">
-                                                <Label htmlFor="start">Data de Início</Label>
+                                                <Label htmlFor="agent" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Agente de IA Executor</Label>
+                                                <Select onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
+                                                    <SelectTrigger className="bg-accent/5 h-10">
+                                                        <SelectValue placeholder="Selecione o cérebro da campanha..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {agents.map(agent => (
+                                                            <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+
+                                        {/* Seção 2: Cadência e Cronograma */}
+                                        <div className="grid grid-cols-2 gap-4 pb-4 border-b border-accent/5">
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="limit" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Limite Diário (Novos)</Label>
+                                                <div className="relative">
+                                                    <Zap className="absolute left-3 top-2.5 h-4 w-4 text-accent/50" />
+                                                    <Input
+                                                        id="limit"
+                                                        type="number"
+                                                        className="bg-accent/5 pl-9 h-10"
+                                                        value={newCampaign.dailyLimit}
+                                                        onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="start" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Data de Início</Label>
                                                 <Input
                                                     id="start"
                                                     type="date"
-                                                    className="bg-accent/5"
+                                                    className="bg-accent/5 h-10"
                                                     value={newCampaign.startDate}
                                                     onChange={(e) => setNewCampaign({ ...newCampaign, startDate: e.target.value })}
                                                 />
                                             </div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
                                             <div className="grid gap-2">
-                                                <Label htmlFor="startTime">Janela de Início</Label>
+                                                <Label htmlFor="startTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela: Início</Label>
                                                 <Input
                                                     id="startTime"
                                                     type="time"
-                                                    className="bg-accent/5"
+                                                    className="bg-accent/5 h-10"
                                                     value={newCampaign.startTime}
                                                     onChange={(e) => setNewCampaign({ ...newCampaign, startTime: e.target.value })}
                                                 />
                                             </div>
                                             <div className="grid gap-2">
-                                                <Label htmlFor="endTime">Janela de Fim</Label>
+                                                <Label htmlFor="endTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela: Fim</Label>
                                                 <Input
                                                     id="endTime"
                                                     type="time"
-                                                    className="bg-accent/5"
+                                                    className="bg-accent/5 h-10"
                                                     value={newCampaign.endTime}
                                                     onChange={(e) => setNewCampaign({ ...newCampaign, endTime: e.target.value })}
                                                 />
                                             </div>
                                         </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="message">Mensagem Inicial (Dica: Use Emojis! 🚀)</Label>
-                                            <textarea
-                                                id="message"
-                                                placeholder="Olá {{nome}}, tudo bem? Gostaríamos de conversar sobre..."
-                                                className="flex min-h-[100px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                value={newCampaign.initialMessage}
-                                                onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
-                                            />
-                                            <p className="text-[10px] text-muted-foreground italic">Dica: Use {"{{nome}}"} para personalizar com o nome do contato.</p>
+
+                                        {/* Seção 3: Mensagem e Criativo */}
+                                        <div className="space-y-4">
+                                            <div className="grid gap-2">
+                                                <div className="flex justify-between items-end">
+                                                    <Label htmlFor="message" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Mensagem Inicial</Label>
+                                                    <span className="text-[9px] text-accent/70 font-mono italic">Variável: {"{{nome}}"}</span>
+                                                </div>
+                                                <textarea
+                                                    id="message"
+                                                    placeholder="Olá {{nome}}, tudo bem? Gostaríamos de conversar sobre..."
+                                                    className="flex min-h-[80px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                                    value={newCampaign.initialMessage}
+                                                    onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
+                                                />
+                                            </div>
                                         </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="description">Objetivo / Contexto (Opcional)</Label>
+
+                                        {/* Seção 4: Critérios de Sucesso (Compacto) */}
+                                        <div className="p-4 bg-accent/5 rounded-xl border border-accent/10 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
+                                                    <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                                                    Sucesso (Conversão)
+                                                </Label>
+                                                <Badge variant="outline" className="text-[8px] border-emerald-500/30 text-emerald-600">Obrigatório</Badge>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2">
+                                                {[
+                                                    { id: 'CLIENT_RESPONDED', label: 'Resposta' },
+                                                    { id: 'LINK_SENT', label: 'Link Enviado' },
+                                                    { id: 'APPOINTMENT', label: 'Agendamento' },
+                                                    { id: 'SALE', label: 'Fechamento' }
+                                                ].map(opt => (
+                                                    <Badge
+                                                        key={opt.id}
+                                                        variant={newCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
+                                                        className={cn(
+                                                            "cursor-pointer px-3 py-1 text-[11px] transition-all",
+                                                            newCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent shadow-sm shadow-emerald-200" : "hover:bg-accent/10 border-slate-200 text-slate-500"
+                                                        )}
+                                                        onClick={() => {
+                                                            const current = [...newCampaign.successCriteria];
+                                                            if (current.includes(opt.id)) {
+                                                                setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
+                                                            } else {
+                                                                setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {opt.label}
+                                                    </Badge>
+                                                ))}
+                                            </div>
+
+                                            {newCampaign.successCriteria.includes('LINK_SENT') && (
+                                                <div className="mt-2 space-y-1.5 animate-in slide-in-from-top-1">
+                                                    <Label htmlFor="linkFilter" className="text-[9px] font-bold uppercase text-slate-400">Termo para Gatilho (Ex: checkout, link, proposta)</Label>
+                                                    <Input
+                                                        id="linkFilter"
+                                                        placeholder="Ex: fiservcapital"
+                                                        className="h-8 text-xs bg-white border-emerald-100"
+                                                        value={newCampaign.successLinkFilter}
+                                                        onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="grid gap-2 pb-4">
+                                            <Label htmlFor="description" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Objetivo (Opcional)</Label>
                                             <Input
                                                 id="description"
-                                                placeholder="Breve descrição da meta desta campanha"
-                                                className="bg-accent/5"
+                                                placeholder="Breve descrição da meta..."
+                                                className="bg-accent/5 h-10 mb-4"
                                                 value={newCampaign.description}
                                                 onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })}
                                             />
                                         </div>
                                     </div>
-                                    <DialogFooter>
-                                        <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancelar</Button>
-                                        <Button onClick={handleCreateCampaign} className="bg-accent hover:bg-accent/90">Salvar Estratégia</Button>
+
+                                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
+                                        <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500">Cancelar</Button>
+                                        <Button onClick={handleCreateCampaign} className="bg-accent hover:bg-accent/90 px-8 font-bold">Salvar Estratégia</Button>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
@@ -701,7 +860,7 @@ export default function Campaigns() {
                         <Card className="bg-green-500/5 border-green-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">ROI / Conversão</span>
+                                    <span className="text-sm font-medium text-muted-foreground">Conversão</span>
                                     <TrendingUp className="h-4 w-4 text-green-500" />
                                 </div>
                                 <div className="text-2xl font-bold">
@@ -733,11 +892,12 @@ export default function Campaigns() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-accent/5">
-                                            <TableHead className="w-[200px]">Campanha / Agente</TableHead>
+                                            <TableHead className="w-[180px]">Campanha / Agente</TableHead>
+                                            <TableHead>Criada em</TableHead>
                                             <TableHead>Status</TableHead>
-                                            <TableHead className="text-center">Leads</TableHead>
-                                            <TableHead className="text-center">Envios</TableHead>
-                                            <TableHead className="text-center text-red-500">Falhas</TableHead>
+                                            <TableHead className="text-center">Carregados</TableHead>
+                                            <TableHead className="text-center">Válidos</TableHead>
+                                            <TableHead className="text-center text-red-500">Inconsistentes</TableHead>
                                             <TableHead>Progresso</TableHead>
                                             <TableHead>Vigência</TableHead>
                                             <TableHead className="text-right">Respostas</TableHead>
@@ -745,71 +905,102 @@ export default function Campaigns() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredCampaigns.map((campaign) => (
-                                            <TableRow key={campaign.id} className="hover:bg-accent/5">
-                                                <TableCell>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-bold">{campaign.name}</span>
-                                                        <span className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
-                                                            <Bot className="h-3 w-3" />
-                                                            {agents.find(a => a.id === campaign.agentId)?.name || 'Agente'}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                                                <TableCell className="text-center font-semibold">
-                                                    {campaign.totalContacts || 0}
-                                                </TableCell>
-                                                <TableCell className="text-center font-semibold text-accent">
-                                                    {campaign.sentCount || 0}
-                                                </TableCell>
-                                                <TableCell className="text-center font-semibold text-red-500">
-                                                    {campaign.failedCount || 0}
-                                                </TableCell>
-                                                <TableCell className="w-[150px]">
-                                                    <div className="flex flex-col gap-1">
-                                                        <div className="flex justify-between text-[10px] text-muted-foreground">
-                                                            <span>{campaign.totalContacts ? Math.round(((campaign.sentCount || 0) / campaign.totalContacts) * 100) : 0}%</span>
+                                        {filteredCampaigns.map((campaign) => {
+                                            const total = campaign.totalContacts || 0;
+                                            const sent = campaign.sentCount || 0;
+                                            const failed = campaign.failedCount || 0;
+                                            const responses = campaign.responseCount || 0;
+                                            
+                                            const sentPct = total > 0 ? (sent / total) * 100 : 0;
+                                            const failedPct = total > 0 ? (failed / total) * 100 : 0;
+                                            const responsePct = sent > 0 ? (responses / sent) * 100 : 0;
+
+                                            return (
+                                                <TableRow key={campaign.id} className="hover:bg-accent/5">
+                                                    <TableCell>
+                                                        <div className="flex flex-col">
+                                                            <span className="font-bold">{campaign.name}</span>
+                                                            <span className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
+                                                                <Bot className="h-3 w-3" />
+                                                                {agents.find(a => a.id === campaign.agentId)?.name || 'Agente'}
+                                                            </span>
                                                         </div>
-                                                        <Progress value={campaign.totalContacts ? ((campaign.sentCount || 0) / campaign.totalContacts) * 100 : 0} className="h-1 shadow-inner" />
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="text-xs space-y-1">
-                                                        <div className="flex items-center gap-1">
-                                                            <Clock className="h-3 w-3" />
-                                                            {format(campaign.startDate, "dd MMM", { locale: ptBR })}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="text-xs text-muted-foreground font-medium">
+                                                            {format(campaign.createdAt, "dd/MM/yyyy", { locale: ptBR })}
                                                         </div>
-                                                        <div className="text-[10px] text-muted-foreground italic">Limite: {campaign.dailyLimit}/dia</div>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-right font-bold text-blue-500">
-                                                    {campaign.responseCount || 0}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <div className="flex justify-end gap-1">
-                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => {
-                                                            setSelectedCampaignForImport(campaign.id);
-                                                            setIsImportOpen(true);
-                                                        }}>
-                                                            <FileUp className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-400" onClick={() => handleViewContacts(campaign.id)}>
-                                                            <Eye className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleOpenEdit(campaign)}>
-                                                            <Pencil className="h-4 w-4" />
-                                                        </Button>
-                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleTogglePause(campaign)}>
-                                                            {campaign.status === 'paused' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                                                        </Button>
-                                                        <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500" onClick={() => handleDeleteCampaign(campaign.id)}>
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
+                                                    </TableCell>
+                                                    <TableCell>{getStatusBadge(campaign.status)}</TableCell>
+                                                    <TableCell className="text-center font-semibold">
+                                                        {total}
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-accent">{sent}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{sentPct.toFixed(0)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-center">
+                                                        <div 
+                                                            className={cn(
+                                                                "flex flex-col items-center cursor-pointer hover:bg-red-500/10 rounded p-1 transition-colors",
+                                                                (campaign.importErrorCount || 0) > 0 ? "text-red-500 font-bold" : "text-muted-foreground opacity-50"
+                                                            )}
+                                                            onClick={() => handleViewImportErrors(campaign)}
+                                                        >
+                                                            <span className="text-sm">{campaign.importErrorCount || 0}</span>
+                                                            <span className="text-[10px] uppercase">Logs</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="w-[150px]">
+                                                        <div className="flex flex-col gap-1">
+                                                            <div className="flex justify-between text-[11px] text-muted-foreground">
+                                                                <span>{Math.round(sentPct)}%</span>
+                                                            </div>
+                                                            <Progress value={sentPct} className="h-1 shadow-inner" />
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="text-xs space-y-1">
+                                                            <div className="flex items-center gap-1">
+                                                                <Clock className="h-3 w-3" />
+                                                                {format(campaign.startDate, "dd MMM", { locale: ptBR })}
+                                                            </div>
+                                                            <div className="text-[10px] text-muted-foreground italic">Limite: {campaign.dailyLimit}/dia</div>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex flex-col items-end text-blue-500">
+                                                            <span className="font-bold">{responses}</span>
+                                                            <span className="text-[11px] opacity-70">{responsePct.toFixed(1)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-1">
+                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => {
+                                                                setSelectedCampaignForImport(campaign.id);
+                                                                setIsImportOpen(true);
+                                                            }}>
+                                                                <FileUp className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-400" onClick={() => handleViewContacts(campaign.id)}>
+                                                                <Eye className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleOpenEdit(campaign)}>
+                                                                <Pencil className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleTogglePause(campaign)}>
+                                                                {campaign.status === 'paused' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                                                            </Button>
+                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500" onClick={() => handleDeleteCampaign(campaign.id)}>
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
                                     </TableBody>
                                 </Table>
                             )}
@@ -845,21 +1036,19 @@ export default function Campaigns() {
 
             {/* Import Modal */}
             <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <FileUp className="h-5 w-5 text-accent" />
-                            Importar Base de Leads
-                        </DialogTitle>
-                        <DialogDescription>
+                <DialogContent className="sm:max-w-[500px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
+                    <DialogHeader className="p-6 pb-2">
+                        <DialogTitle className="text-2xl font-bold text-accent">Importar Leads</DialogTitle>
+                        <DialogDescription className="text-xs">
                             Carregue arquivos .csv, .xls ou .xlsx com as informações dos seus contatos.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-6 py-4">
-                        <div className="grid gap-2">
-                            <Label>Campanha de Destino</Label>
+
+                    <div className="flex-1 overflow-y-auto px-6 py-2 pb-6 space-y-6 custom-scrollbar">
+                        <div className="grid gap-2 text-sm">
+                            <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Campanha de Destino</Label>
                             <Select onValueChange={setSelectedCampaignForImport} value={selectedCampaignForImport || ""}>
-                                <SelectTrigger className="bg-accent/5">
+                                <SelectTrigger className="bg-accent/5 h-10">
                                     <SelectValue placeholder="Escolha a Campanha Ativa" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -870,15 +1059,15 @@ export default function Campaigns() {
                             </Select>
                         </div>
 
-                        <div className="grid gap-2">
-                            <Label>Arquivo de Contatos (Excel ou CSV)</Label>
+                        <div className="grid gap-4">
+                            <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Arquivo de Contatos</Label>
                             <div
                                 onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-accent/20 rounded-lg p-8 flex flex-col items-center justify-center gap-3 bg-accent/5 hover:bg-accent/10 cursor-pointer transition-colors"
+                                className="border-2 border-dashed border-accent/20 rounded-xl p-8 flex flex-col items-center justify-center gap-3 bg-accent/5 hover:bg-accent/10 cursor-pointer transition-colors"
                             >
                                 <FileUp className="h-8 w-8 text-accent opacity-50" />
                                 <div className="text-center">
-                                    <p className="text-sm font-medium">Clique para selecionar</p>
+                                    <p className="text-sm font-bold">Clique para selecionar</p>
                                     <p className="text-xs text-muted-foreground mt-1">ou arraste o arquivo aqui</p>
                                 </div>
                                 <input
@@ -891,38 +1080,59 @@ export default function Campaigns() {
                             </div>
 
                             {importData.length > 0 && (
-                                <div className="flex items-center justify-between p-2 bg-green-500/10 border border-green-500/20 rounded text-xs text-green-600">
-                                    <span className="flex items-center gap-1">
-                                        <ShieldCheck className="h-3 w-3" />
-                                        {importData.length} contatos validados
-                                    </span>
-                                    <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setImportData([])}>
-                                        Remover
-                                    </Button>
+                                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="flex items-center justify-between p-3 bg-green-500/5 border border-green-500/15 rounded-xl text-[11px] text-green-600">
+                                        <span className="flex items-center gap-1.5 font-bold">
+                                            <ShieldCheck className="h-4 w-4" />
+                                            {importData.length} registros prontos
+                                        </span>
+                                        <Button variant="ghost" size="sm" className="h-7 text-[10px] hover:bg-red-50 hover:text-red-500 font-bold" onClick={() => setImportData([])}>
+                                            Limpar
+                                        </Button>
+                                    </div>
+                                    
+                                    <div className="p-4 bg-muted/30 border border-border/50 rounded-xl">
+                                        <p className="text-[10px] font-bold text-muted-foreground uppercase mb-3 tracking-wider flex items-center gap-2">
+                                            <Activity className="w-3 h-3" />
+                                            Amostra dos Dados
+                                        </p>
+                                        <div className="space-y-2">
+                                            {importData.slice(0, 3).map((item, i) => (
+                                                <div key={i} className="flex items-center justify-between text-[11px] bg-background/80 p-2 rounded border border-border/20 shadow-sm">
+                                                    <span className="font-medium truncate max-w-[150px]">{item.name}</span>
+                                                    <span className="font-mono text-accent font-bold">{item.phone}</span>
+                                                </div>
+                                            ))}
+                                            {importData.length > 3 && (
+                                                <p className="text-[10px] text-center text-muted-foreground italic pt-2 border-t border-border/10">...e outros {importData.length - 3} contatos</p>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>
 
-                        <div className="p-3 bg-amber-500/5 border border-amber-500/20 rounded-lg space-y-2">
-                            <h4 className="text-[10px] font-bold uppercase text-amber-600 flex items-center gap-1">
-                                <Clock className="h-3 w-3" /> Instruções de Formato
+                        <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-2">
+                            <h4 className="text-[10px] font-bold uppercase text-amber-700 flex items-center gap-2">
+                                <AlertCircle className="h-3 w-3" /> 
+                                Segurança de Formato
                             </h4>
-                            <ul className="text-[10px] text-muted-foreground list-disc pl-4 space-y-1">
-                                <li><strong>Colunas Obrigatórias:</strong> 'Nome' e 'Telefone' (ou 'Phone').</li>
-                                <li><strong>Formato Telefone:</strong> Deve conter DDI + DDD + Número (ex: 5511999999999).</li>
-                                <li><strong>Tamanho Base:</strong> Máximo de 5.000 contatos por arquivo.</li>
-                                <li><strong>Limpeza:</strong> Símbolos como (+, -, space) são removidos automaticamente.</li>
+                            <ul className="text-[10px] text-slate-600 space-y-1.5 list-none pl-1">
+                                <li className="flex gap-2"><span>•</span> <span>O sistema remove automaticamente parênteses, traços e espaços.</span></li>
+                                <li className="flex gap-2"><span>•</span> <span>Certifique-se de incluir o código do país (DDI 55 para Brasil).</span></li>
+                                <li className="flex gap-2"><span>•</span> <span>O cabeçalho deve conter as palavras 'Nome' e 'Telefone'.</span></li>
                             </ul>
                         </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsImportOpen(false)}>Cancelar</Button>
+
+                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
+                        <Button variant="ghost" onClick={() => setIsImportOpen(false)} className="text-slate-500">Cancelar</Button>
                         <Button
                             onClick={handleImportContacts}
-                            className="bg-accent hover:bg-accent/90"
+                            className="bg-accent hover:bg-accent/90 px-8 font-bold"
                             disabled={importData.length === 0 || !selectedCampaignForImport || isImporting}
                         >
-                            {isImporting ? "Processando..." : `Importar ${importData.length > 0 ? importData.length : ''} Leads`}
+                            {isImporting ? "Processando..." : `Importar Carga`}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -930,101 +1140,160 @@ export default function Campaigns() {
 
             {/* Edit Campaign Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="sm:max-w-[500px] border-accent/20">
-                    <DialogHeader>
+                <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
+                    <DialogHeader className="p-6 pb-2">
                         <DialogTitle className="text-2xl font-bold text-accent">Editar Estratégia Outbound</DialogTitle>
-                        <DialogDescription>
-                            Atualize as configurações da sua campanha. As mudanças não afetam contatos que já estão sendo processados.
+                        <DialogDescription className="text-xs">
+                            Atualize os parâmetros operacionais da sua campanha ativa.
                         </DialogDescription>
                     </DialogHeader>
                     {editingCampaign && (
-                        <div className="grid gap-6 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="edit-name">Nome da Campanha</Label>
-                                <Input
-                                    id="edit-name"
-                                    className="bg-accent/5"
-                                    value={editingCampaign.name}
-                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
-                                />
-                            </div>
-                            <div className="grid grid-cols-3 gap-4">
+                        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-5 custom-scrollbar">
+                            <div className="space-y-4">
                                 <div className="grid gap-2">
-                                    <Label htmlFor="edit-limit">Limite Diário</Label>
+                                    <Label htmlFor="edit-name" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Nome da Campanha</Label>
+                                    <Input
+                                        id="edit-name"
+                                        className="bg-accent/5 h-10"
+                                        value={editingCampaign.name}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Agente Executor</Label>
+                                    <Select 
+                                        value={editingCampaign.agentId} 
+                                        onValueChange={(val) => setEditingCampaign({ ...editingCampaign, agentId: val })}
+                                    >
+                                        <SelectTrigger className="bg-accent/5 h-10">
+                                            <SelectValue placeholder="Selecione o agente" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {agents.map(agent => (
+                                                <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 pb-4 border-b border-accent/5">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-limit" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Limite Diário</Label>
                                     <Input
                                         id="edit-limit"
                                         type="number"
-                                        className="bg-accent/5"
+                                        className="bg-accent/5 h-10"
                                         value={editingCampaign.dailyLimit}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, dailyLimit: parseInt(e.target.value) })}
                                     />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="edit-start">Início</Label>
+                                    <Label htmlFor="edit-start" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Data de Início</Label>
                                     <Input
                                         id="edit-start"
                                         type="date"
-                                        className="bg-accent/5"
+                                        className="bg-accent/5 h-10"
                                         value={format(new Date(editingCampaign.startDate), "yyyy-MM-dd")}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: new Date(e.target.value) })}
                                     />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="edit-end">Fim</Label>
-                                    <Input
-                                        id="edit-end"
-                                        type="date"
-                                        className="bg-accent/5"
-                                        value={editingCampaign.endDate ? format(new Date(editingCampaign.endDate), "yyyy-MM-dd") : ""}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, endDate: e.target.value ? new Date(e.target.value) : undefined })}
-                                    />
-                                </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-startTime">Janela Início</Label>
+                                    <Label htmlFor="edit-startTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela Início</Label>
                                     <Input
                                         id="edit-startTime"
                                         type="time"
-                                        className="bg-accent/5"
+                                        className="bg-accent/5 h-10"
                                         value={editingCampaign.startTime || "09:00"}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, startTime: e.target.value })}
                                     />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="edit-endTime">Janela Fim</Label>
+                                    <Label htmlFor="edit-endTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela Fim</Label>
                                     <Input
                                         id="edit-endTime"
                                         type="time"
-                                        className="bg-accent/5"
+                                        className="bg-accent/5 h-10"
                                         value={editingCampaign.endTime || "18:00"}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, endTime: e.target.value })}
                                     />
                                 </div>
                             </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="edit-message">Mensagem Inicial</Label>
-                                <textarea
-                                    id="edit-message"
-                                    className="flex min-h-[100px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    value={editingCampaign.initialMessage || ""}
-                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="edit-description">Descrição</Label>
-                                <Input
-                                    id="edit-description"
-                                    className="bg-accent/5"
-                                    value={editingCampaign.description || ""}
-                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, description: e.target.value })}
-                                />
+
+                            <div className="space-y-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-message" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Mensagem Inicial</Label>
+                                    <textarea
+                                        id="edit-message"
+                                        className="flex min-h-[100px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                        value={editingCampaign.initialMessage || ""}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-description" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Descrição / Objetivo</Label>
+                                    <Input
+                                        id="edit-description"
+                                        className="bg-accent/5 h-10"
+                                        value={editingCampaign.description || ""}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, description: e.target.value })}
+                                    />
+                                </div>
+
+                                {/* Seção: Critérios de Sucesso (Compacto) */}
+                                <div className="p-4 bg-accent/5 rounded-xl border border-accent/10 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
+                                            <ShieldCheck className="w-3 h-3 text-emerald-500" />
+                                            Critérios de Sucesso
+                                        </Label>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {[
+                                            { id: 'CLIENT_RESPONDED', label: 'Resposta' },
+                                            { id: 'LINK_SENT', label: 'Link Enviado' },
+                                            { id: 'APPOINTMENT', label: 'Agendamento' },
+                                            { id: 'SALE', label: 'Fechamento' }
+                                        ].map(opt => (
+                                            <Badge
+                                                key={opt.id}
+                                                variant={(editingCampaign.successCriteria || []).includes(opt.id) ? "default" : "outline"}
+                                                className={cn(
+                                                    "cursor-pointer px-3 py-1 text-[11px] transition-all",
+                                                    (editingCampaign.successCriteria || []).includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent shadow-sm shadow-emerald-200" : "hover:bg-accent/10 border-slate-200 text-slate-500"
+                                                )}
+                                                onClick={() => {
+                                                    const current = [...(editingCampaign.successCriteria || [])];
+                                                    if (current.includes(opt.id)) {
+                                                        setEditingCampaign({ ...editingCampaign, successCriteria: current.filter(id => id !== opt.id) });
+                                                    } else {
+                                                        setEditingCampaign({ ...editingCampaign, successCriteria: [...current, opt.id] });
+                                                    }
+                                                }}
+                                            >
+                                                {opt.label}
+                                            </Badge>
+                                        ))}
+                                    </div>
+
+                                    {(editingCampaign.successCriteria || []).includes('LINK_SENT') && (
+                                        <div className="mt-2 space-y-1.5 animate-in slide-in-from-top-1">
+                                            <Label htmlFor="edit-linkFilter" className="text-[9px] font-bold uppercase text-slate-400">Termo para Gatilho</Label>
+                                            <Input
+                                                id="edit-linkFilter"
+                                                className="h-8 text-xs bg-white border-emerald-100"
+                                                value={editingCampaign.successLinkFilter || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, successLinkFilter: e.target.value })}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancelar</Button>
-                        <Button onClick={handleUpdateCampaign} className="bg-accent hover:bg-accent/90">Salvar Alterações</Button>
+                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
+                        <Button variant="ghost" onClick={() => setIsEditOpen(false)} className="text-slate-500">Cancelar</Button>
+                        <Button onClick={handleUpdateCampaign} className="bg-accent hover:bg-accent/90 px-8 font-bold">Salvar Alterações</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -1142,6 +1411,75 @@ export default function Campaigns() {
                     </div>
                 </DialogContent>
             </Dialog>
+            {/* Import Errors Slide-over */}
+            <Sheet open={isImportErrorsOpen} onOpenChange={setIsImportErrorsOpen}>
+                <SheetContent className="sm:max-w-[500px] border-l border-accent/20">
+                    <SheetHeader className="mb-6">
+                        <SheetTitle className="text-2xl font-bold flex items-center gap-2 text-foreground">
+                            <AlertCircle className="h-6 w-6 text-red-500" />
+                            Inconsistências na Importação
+                        </SheetTitle>
+                        <SheetDescription>
+                            Logs detalhados de problemas encontrados no arquivo de <strong>{selectedCampaignForErrors?.name}</strong>.
+                        </SheetDescription>
+                    </SheetHeader>
+
+                    {isLoadingErrors ? (
+                        <div className="flex flex-col items-center justify-center h-64 gap-4">
+                            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
+                            <p className="text-sm text-muted-foreground font-medium">Analisando logs de auditoria...</p>
+                        </div>
+                    ) : importErrors.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center h-64 text-center p-8 bg-green-500/5 rounded-xl border border-green-500/10 hover:bg-green-500/10 transition-all">
+                            <ShieldCheck className="h-12 w-12 text-green-500 mb-4 opacity-50" />
+                            <h3 className="text-lg font-bold text-green-700">Tudo limpo!</h3>
+                            <p className="text-sm text-green-600/80">Nenhuma inconsistência foi registrada para esta campanha até o momento.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-200px)] pr-2 scrollbar-thin scrollbar-thumb-accent/20 scrollbar-track-transparent">
+                            <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 py-1 mb-2">
+                                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                                    <Clock className="w-3 h-3" /> Registros de Auditoria ({importErrors.length})
+                                </p>
+                            </div>
+                            {importErrors.map((log) => (
+                                <div key={log.id} className="p-4 bg-muted/30 border border-border/50 rounded-xl hover:border-red-500/30 hover:bg-red-500/5 transition-all group relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-100 transition-opacity">
+                                        <AlertCircle className="h-4 w-4 text-red-500" />
+                                    </div>
+                                    <div className="flex items-start justify-between mb-3">
+                                        <Badge variant="outline" className={cn(
+                                            "text-[9px] px-1.5 py-0 h-4 border-none font-bold uppercase tracking-tight",
+                                            log.errorType === 'INVALID_PHONE' ? 'bg-red-500 text-white' : 
+                                            log.errorType === 'DUPLICATE' ? 'bg-amber-500 text-white' : 'bg-slate-500 text-white'
+                                        )}>
+                                            {log.errorType === 'INVALID_PHONE' ? 'Tel Inválido' : 
+                                             log.errorType === 'DUPLICATE' ? 'Duplicado' : 'Erro'}
+                                        </Badge>
+                                        <span className="text-[10px] font-mono text-muted-foreground bg-muted p-1 px-2 rounded-md group-hover:text-red-500 transition-colors">LINHA {log.rowNumber}</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <div>
+                                            <p className="text-xs font-bold text-foreground/80 truncate mb-1">DADO CARREGADO:</p>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-sm font-medium">{log.contactName || "Sem Nome"}</span>
+                                                <span className="text-xs text-muted-foreground opacity-50">•</span>
+                                                <span className="text-[11px] font-mono font-bold text-accent">{log.contactPhone || "Vazio"}</span>
+                                            </div>
+                                        </div>
+                                        <div className="pt-2 border-t border-border/10">
+                                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                                <span className="font-bold text-red-500/70 mr-1">MOTIVO:</span>
+                                                {log.errorMessage}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </SheetContent>
+            </Sheet>
 
         </MainLayout >
     );

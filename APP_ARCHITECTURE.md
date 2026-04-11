@@ -1,8 +1,8 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 09/Abr/2026
-> **Versão:** 53.2 (Command Center UI & NPS Automation V2)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Design "Torre de Controle"
+> **Última Atualização:** 11/Abr/2026
+> **Versão:** 54.1 (Lead Enrichment & Modal Parity)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + PoC Simplificado V1
 > **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `database/fix_messages_direction_v1.sql` · `database/fix_contacts_metadata_v1.sql` · `Agente Nexus - Whatts Fila.json`
 
 ---
@@ -1970,6 +1970,42 @@ WHERE zenvia_channel_id IS NOT NULL;
 #### ⚙️ Infraestrutura de Memória (n8n Fix)
 - **Response Format Handling**: Ajuste estratégico no nó de gravação de memória (`store_success_memory_as_system`) no n8n. A alteração para o formato de resposta **Text** (em vez de JSON) resolve o erro de parsing causado pelo retorno de UUID bruto do Supabase RPC, garantindo que o fluxo termine com status de sucesso nos logs.
 
+### 23.10 V53.3 — 09/Abr/2026 — PoC Mode & Security Auth Templates
+
+#### 🧪 PoC (Demonstração) Mode
+- **Lifecycle Extension**: Adição do estágio `poc_demo` ao enum `AILifecycleStage`. Este modo permite identificar agentes que requerem um fluxo de execução simplificado no n8n.
+- **Pipeline Bifurcation (n8n)**: Implementação (conceitual) de um nó `IF` no início do workflow principal. Agentes em estágio de PoC ignoram: **Classificação de Intenção**, **Guardrails**, **Ferramentas (Tools)** e **Curadoria (Human-in-the-loop)**, respondendo instantaneamente com base apenas no `systemPrompt`.
+
+#### 🔐 Security Authentication Templates (Neo-Brutalism)
+- **Email Redesign**: Personalização de todos os templates de e-mail do Supabase Auth (Confirmation, Invite, Magic Link, Recovery, Reauthentication) para a estética "Command Center".
+- **Visual Shielding**: Uso de fundo preto absoluto (#000000), containers com bordas Azuis Elétricas (#0066FF), e headers no formato `SYSTEM: [TYPE]_GATE`.
+- **Custom Notifications**: Habilitação e design dos e-mails de segurança para `Password Changed` e `Email Address Changed`.
+- **Standardized Subjects**: Implementação de assuntos no formato `SYSTEM: [ACTION] // Davos Nexus` para garantir consistência visual em todas as comunicações transacionais.
+
 ---
 
-*Este documento reflete a era de Design Visionário e Automação de NPS V53.2 Davos Nexus.*
+*Este documento reflete a era de Velocidade de Demonstração e Segurança Identitária V53.3 Davos Nexus.*
+---
+12.  **Monitoramento e Observabilidade de Campanhas (V54)**
+
+O Nexus V54 introduz uma camada profunda de auditoria e métricas reais para o pipeline de outbound, eliminando a dependência de dados mockados e garantindo a integridade dos leads carregados.
+
+### 12.1 Pipeline de Ingestão de Leads
+Para evitar falhas silenciosas durante a carga de grandes arquivos (CSV/Excel), o sistema implementa:
+1.  **Validação de Telefone (Fiserv Guard)**: Números com menos de 10 dígitos ou caracteres inválidos são interceptados no frontend.
+2.  **Deduplicação Local**: O sistema remove duplicatas dentro do próprio lote antes de enviar ao banco.
+3.  **Auditoria de Inconsistências**: Leads rejeitados são gravados na tabela `campaign_import_logs` com o número da linha original e o motivo do erro.
+4.  **UI de Auditoria**: Através de um Slide-over lateral (`CampaignImportErrorsSheet`), o gestor pode auditar exatamente por que um lote de 10.000 leads teve, por exemplo, 50 erros.
+
+### 12.2 Critérios de Sucesso Parametrizáveis
+A conversão não é mais uma métrica fixa. O usuário define o que é sucesso para cada campanha:
+- **`CLIENT_RESPONDED`**: Marcar sucesso se o cliente responder qualquer coisa.
+- **`LINK_SENT`**: Marcar sucesso se o Agente de IA enviar um link que case com o filtro definido (ex: `%app.davosnexus.com/proposta%`).
+- **Lógica de Agregação**: A RPC `get_campaign_dashboard_stats` realiza o join em tempo real entre a fila de disparos e o histórico de mensagens para calcular o ROI exato da campanha.
+
+### 12.3 Dashboard Executivo Realtime
+O `CampaignExecutiveView` foi refatorado para exibir:
+- **Total de Carga**: Leads no arquivo vs Leads válidos vs Erros.
+- **Engajamento**: Taxa de entrega (sent) vs Taxa de resposta (reply).
+- **Conversão de Negócio**: Leads que atingiram o critério de sucesso específico definido pelo usuário.
+- **Escalabilidade A/B**: A arquitetura permite disparar diferentes campanhas para o mesmo contato de forma isolada, permitindo testes de performance de scripts de IA.

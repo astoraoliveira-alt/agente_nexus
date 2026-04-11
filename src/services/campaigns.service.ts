@@ -36,6 +36,27 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }));
     },
 
+    async getEnrichedOutboundQueue(tenantId: string, campaignId?: string): Promise<any[]> {
+        const { data, error } = await supabase.rpc('get_campaign_leads_enriched', {
+            p_campaign_id: campaignId || null,
+            p_tenant_id: tenantId
+        });
+
+        if (error) {
+            console.error('Error fetching enriched outbound queue:', error);
+            return [];
+        }
+
+        return (data as any[] || []).map((d: any) => ({
+            id: d.id,
+            contactPhone: d.contact_phone,
+            contactName: d.contact_name,
+            status: d.status,
+            metadata: d.metadata,
+            cnpj: d.cnpj
+        }));
+    },
+
 async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {
         const dbPayload = contacts.map(c => ({
             tenant_id: c.tenantId,
@@ -87,9 +108,12 @@ async getCampaigns(tenantId: string): Promise<import('@/lib/types').Campaign[]> 
             sentCount: c.sent_count,
             failedCount: c.failed_count,
             responseCount: c.response_count,
+            importErrorCount: c.import_error_count,
             startTime: c.start_time,
             endTime: c.end_time,
             initialMessage: c.initial_message,
+            successCriteria: c.success_criteria,
+            successLinkFilter: c.success_link_filter,
             metadata: c.metadata,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
@@ -109,6 +133,8 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             start_time: campaign.startTime || '09:00',
             end_time: campaign.endTime || '18:00',
             initial_message: campaign.initialMessage,
+            success_criteria: campaign.successCriteria || [],
+            success_link_filter: campaign.successLinkFilter,
             metadata: campaign.metadata || {}
         };
 
@@ -133,6 +159,8 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             totalContacts: data.total_contacts,
             sentCount: data.sent_count,
             responseCount: data.response_count,
+            successCriteria: data.success_criteria,
+            successLinkFilter: data.success_link_filter,
             createdAt: new Date(data.created_at),
             updatedAt: new Date(data.updated_at)
         } as any;
@@ -149,10 +177,13 @@ async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign
         if (updates.startTime) dbPayload.start_time = updates.startTime;
         if (updates.endTime) dbPayload.end_time = updates.endTime;
         if (updates.initialMessage) dbPayload.initial_message = updates.initialMessage;
+        if (updates.successCriteria) dbPayload.success_criteria = updates.successCriteria;
+        if (updates.successLinkFilter !== undefined) dbPayload.success_link_filter = updates.successLinkFilter;
         if (updates.metadata) dbPayload.metadata = updates.metadata;
         if (updates.totalContacts !== undefined) dbPayload.total_contacts = updates.totalContacts;
         if (updates.sentCount !== undefined) dbPayload.sent_count = updates.sentCount;
         if (updates.responseCount !== undefined) dbPayload.response_count = updates.responseCount;
+        if (updates.importErrorCount !== undefined) dbPayload.import_error_count = updates.importErrorCount;
 
         const { error } = await supabase
             .from('campaigns')
@@ -169,5 +200,86 @@ async deleteCampaign(id: string): Promise<void> {
             .eq('id', id);
 
         if (error) throw error;
+    },
+
+    async logImportErrors(logs: Partial<import('@/lib/types').CampaignImportLog>[]): Promise<void> {
+        const dbPayload = logs.map(l => ({
+            campaign_id: l.campaignId,
+            tenant_id: l.tenantId,
+            row_number: l.rowNumber,
+            contact_name: l.contactName,
+            contact_phone: l.contactPhone,
+            error_type: l.errorType,
+            error_message: l.errorMessage,
+            raw_data: l.rawData || {}
+        }));
+
+        const { error } = await supabase
+            .from('campaign_import_logs')
+            .insert(dbPayload);
+
+        if (error) {
+            console.error('Error logging import errors:', error);
+            throw error;
+        }
+    },
+
+    async getImportLogs(campaignId: string): Promise<import('@/lib/types').CampaignImportLog[]> {
+        const { data, error } = await supabase
+            .from('campaign_import_logs')
+            .select('*')
+            .eq('campaign_id', campaignId)
+            .order('row_number', { ascending: true });
+
+        if (error) {
+            console.error('Error fetching import logs:', error);
+            return [];
+        }
+
+        return data.map((l: any) => ({
+            id: l.id,
+            campaignId: l.campaign_id,
+            tenantId: l.tenant_id,
+            rowNumber: l.row_number,
+            contactName: l.contact_name,
+            contactPhone: l.contact_phone,
+            errorType: l.error_type,
+            errorMessage: l.error_message,
+            rawData: l.raw_data,
+            createdAt: new Date(l.created_at)
+        }));
+    },
+
+    async getCampaignStats(campaignId: string, tenantId?: string) {
+        const { data, error } = await supabase.rpc('get_campaign_dashboard_stats', {
+            p_campaign_id: campaignId === "" ? null : campaignId,
+            p_tenant_id: campaignId === "" ? tenantId : null
+        });
+
+        if (error) throw error;
+        return data as {
+            total_contacts: number;
+            import_errors: number;
+            sent_count: number;
+            response_count: number;
+            conversion_count: number;
+            conversion_rate: number;
+            success_criteria_used: string[];
+        };
+    },
+
+    async getLeadsByPhones(tenantId: string, phones: string[]): Promise<any[]> {
+        const { data, error } = await supabase
+            .from('agent_leads')
+            .select('whatsapp, identifier')
+            .eq('tenant_id', tenantId)
+            .in('whatsapp', phones);
+
+        if (error) {
+            console.error('Error fetching leads by phones:', error);
+            return [];
+        }
+
+        return data;
     }
 };

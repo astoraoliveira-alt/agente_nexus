@@ -189,7 +189,7 @@
 
   /* KPI Card styles */
   .kpi-card {
-    @apply bg-card border border-border p-6 transition-all duration-200 hover:border-accent/50;
+    @apply bg-card border border-border p-4 transition-all duration-200 hover:border-accent/50;
   }
 
   /* Conversation list item */

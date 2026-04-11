@@ -1,4 +1,4 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { EdenredConversionBanner } from '@/components/dashboard/EdenredConversionBanner';
@@ -12,6 +12,9 @@ import { api } from '@/services/api';
 import { dashboardService } from '@/services/dashboard.service';
 import { cn } from '@/lib/utils';
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { ABPerformanceArena } from '@/components/dashboard/ABPerformanceArena';
+import { CampaignExecutiveView } from '@/components/dashboard/CampaignExecutiveView';
 
 const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 
@@ -68,15 +71,39 @@ export default function Index() {
 
   return (
     <MainLayout>
-      <div className="h-full overflow-y-auto bg-[#F8FAFC]">
-        <div className="p-8 max-w-[1600px] mx-auto space-y-8 pb-12">
+      <div className="min-h-screen bg-[#F8FAFC] pb-20">
+        <div className="p-4 lg:p-8 max-w-[1800px] mx-auto space-y-6">
           
-          <div className="flex flex-col gap-1">
-            <h1 className="text-3xl font-black tracking-tight text-[#0F172A]">Dashboard</h1>
-            <p className="text-muted-foreground font-medium">Visão consolidada da operação de IA</p>
-          </div>
+          <Tabs defaultValue="geral" className="w-full space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <TabsList className="bg-white border border-border/50 p-1 h-12 shadow-sm rounded-xl w-fit">
+                <TabsTrigger value="geral" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#0F172A] data-[state=active]:text-white rounded-lg transition-all h-full">
+                  <BarChart3 className="w-3 h-3 mr-2" />
+                  Painel Geral
+                </TabsTrigger>
+                <TabsTrigger value="ab-test" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-lg transition-all h-full">
+                  <Zap className="w-3 h-3 mr-2" />
+                  Arena A/B
+                </TabsTrigger>
+                <TabsTrigger value="executive" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#E5003A] data-[state=active]:text-white rounded-lg transition-all h-full">
+                  <Target className="w-3 h-3 mr-2" />
+                  Campanha Executiva
+                </TabsTrigger>
+              </TabsList>
 
-          <TooltipProvider delayDuration={200}>
+              <div className="hidden md:flex items-center gap-3">
+                <Badge variant="outline" className="font-mono text-[10px] px-3 py-1 bg-white border-border/50 text-muted-foreground">
+                  UPTIME: 99.9%
+                </Badge>
+                <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-full border border-border/50 shadow-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-slate-600 uppercase">Sincronizado</span>
+                </div>
+              </div>
+            </div>
+
+            <TabsContent value="geral" className="space-y-4 animate-in fade-in zoom-in duration-300 overflow-y-auto pr-2">
+              <TooltipProvider delayDuration={200}>
             {/* Row 1: KPIs */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
               <KPICard 
@@ -127,7 +154,7 @@ export default function Index() {
           )}
 
           {/* Row 2: Operation Blocks */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="bg-white rounded-xl border border-border/50 p-6 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
@@ -204,7 +231,7 @@ export default function Index() {
           </div>
 
           {/* Row 3: Charts and Funnel */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 bg-white rounded-xl border border-border/50 p-6 shadow-sm">
               <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground/80 mb-6 font-sans">Fluxo de Mensagens (Consolidado)</h3>
               <div className="h-[280px]">
@@ -304,6 +331,17 @@ export default function Index() {
               </div>
             </div>
           </div>
+
+            </TabsContent>
+
+            <TabsContent value="ab-test" className="animate-in fade-in duration-500">
+              <ABPerformanceArena />
+            </TabsContent>
+
+            <TabsContent value="executive" className="animate-in fade-in duration-500">
+              <CampaignExecutiveView />
+            </TabsContent>
+          </Tabs>
 
         </div>
       </div>
