@@ -432,6 +432,13 @@ export interface Agent {
   gatekeeper_scope?: 'specific' | 'tenant';
   requires_security?: boolean;
   gatekeeper_config?: any;
+  workflow_blueprint?: {
+    initial_step: string;
+    steps: Record<string, {
+      rules: string;
+      allowed_next: string[];
+    }>;
+  };
 }
 
 export interface AgentTool {

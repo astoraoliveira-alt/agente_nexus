@@ -43,7 +43,8 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             zenvia_api_token: agent.zenvia_api_token,
             is_gatekeeper: agent.is_gatekeeper || false,
             gatekeeper_scope: agent.gatekeeper_scope || null,
-            requires_security: agent.requires_security || false
+            requires_security: agent.requires_security || false,
+            workflow_blueprint: agent.workflow_blueprint || null
         };
 
         const { data, error } = await supabase
@@ -83,6 +84,7 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             evolution_token: data.evolution_token,
             zenvia_channel_id: data.zenvia_channel_id,
             zenvia_api_token: data.zenvia_api_token,
+            workflow_blueprint: data.workflow_blueprint
         } as unknown as Agent;
     },
 
@@ -123,6 +125,7 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.requires_security !== undefined) dbPayload.requires_security = updates.requires_security;
         if (updates.is_gatekeeper !== undefined) dbPayload.is_gatekeeper = updates.is_gatekeeper;
         if (updates.gatekeeper_scope !== undefined) dbPayload.gatekeeper_scope = updates.gatekeeper_scope;
+        if (updates.workflow_blueprint !== undefined) dbPayload.workflow_blueprint = updates.workflow_blueprint;
 
         const { data, error } = await supabase
             .from('agents')
@@ -166,6 +169,7 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
             evolution_token: data.evolution_token,
             zenvia_channel_id: data.zenvia_channel_id,
             zenvia_api_token: data.zenvia_api_token,
+            workflow_blueprint: data.workflow_blueprint,
             // Legacy mapping
             integration: {
                 voice_provider: data.voice_config?.provider === 'none' ? null : data.voice_config?.provider,

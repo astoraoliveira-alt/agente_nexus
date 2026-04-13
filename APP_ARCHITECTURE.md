@@ -1,9 +1,18 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 11/Abr/2026
-> **Versão:** 54.1 (Lead Enrichment & Modal Parity)
+> **Última Atualização:** 12/Abr/2026
+> **Versão:** 55.0 (Contextual Isolation & Robust Reset)
 > **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + PoC Simplificado V1
 > **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `database/fix_messages_direction_v1.sql` · `database/fix_contacts_metadata_v1.sql` · `Agente Nexus - Whatts Fila.json`
+
+---
+
+## [V55.0] - Contextual Isolation & Robust Reset
+### Engine de Isolamento Temporal
+- **reopened_at**: Implementação de marco temporal nas conversas para filtrar o `messages_history`.
+- **record_message hook**: A função de log de mensagens agora detecta o comando `#reset` e dispara automaticamente o reset do histórico no banco de dados.
+- **n8n Fix**: Correção na chamada de `close_conversation` para garantir que conversas inativas sejam devidamente fechadas, permitindo o isolamento correto na reabertura.
+- **fn_fetch_next_inbound_message**: Reforço na lógica de consulta para ignorar mensagens anteriores ao `reopened_at`.
 
 ---
 
@@ -955,16 +964,6 @@ Padrões de regex para mascarar automaticamente no frontend antes da renderizaç
 | Email | `[\w.-]+@[\w.-]+` | `u***@d***.com` |
 | Telefone | `(\+55)?\d{10,11}` | `(**) ****-5678` |
 | Cartão de Crédito | `\d{4} \d{4} \d{4} \d{4}` | `**** **** **** 1234` |
-
-### V27.0 — 23/Mar/2026 — Resilience & Inbound Logic Optimization
-
-#### 🛡️ Inbound Safety Guard (Guarda de Fila)
-- **Silent Execution**: Implementado nó `IF` de validação de dados (`queue_id`) no n8n. Isso elimina o ruído de execuções vermelhas ("Undefined properties") quando a fila de mensagens está vazia. O fluxo agora termina silenciosamente em caminhos sem dados.
-- **SQL Resilience**: Ajuste na RPC `fn_finish_inbound_message` para garantir o fechamento atômico do ciclo de vida da mensagem, liberando a trava de sequência no banco de dados.
-
-#### ⚖️ Segurança & Transacionalidade
-- **Traceability Audit**: Atualização do contrato de telemetria no n8n. Cada passo (da entrada ao envio da resposta) agora é carimbado com o `trace_id` original na tabela de métricas, permitindo depuração forense de custos.
-- **Responses API Ban**: Fixado o status de desativação da Responses API para evitar conflitos de memória e erros de chamada de ferramenta (tool call mismatch).
 
 ---
 

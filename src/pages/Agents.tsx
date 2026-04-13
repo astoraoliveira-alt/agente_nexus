@@ -72,6 +72,9 @@ export default function Agents() {
   const [newToolHeadersRaw, setNewToolHeadersRaw] = useState('{}');
   const [newToolBodyRaw, setNewToolBodyRaw] = useState('{}');
 
+  // Blueprint state
+  const [blueprintRaw, setBlueprintRaw] = useState('');
+
   // Sub-agent dialog state
   const [isSubAgentDialogOpen, setIsSubAgentDialogOpen] = useState(false);
   const [parentAgentForSub, setParentAgentForSub] = useState<Agent | null>(null);
@@ -210,6 +213,7 @@ export default function Agents() {
     if (agent) {
       setEditingAgent(agent);
       setFormData(agent);
+      setBlueprintRaw(agent.workflow_blueprint ? JSON.stringify(agent.workflow_blueprint, null, 2) : '');
     } else {
       setEditingAgent(null);
       setFormData({
@@ -234,8 +238,10 @@ export default function Agents() {
         },
         integrationConfig: {
           response_mode: 'match_input'
-        }
+        },
+        workflow_blueprint: undefined
       });
+      setBlueprintRaw('');
     }
     setIsDialogOpen(true);
   };
@@ -253,11 +259,32 @@ export default function Agents() {
       return;
     }
 
+    // Parse Blueprint JSON
+    let parsedBlueprint = undefined;
+    if (blueprintRaw.trim()) {
+      try {
+        parsedBlueprint = JSON.parse(blueprintRaw);
+        // Basic validation
+        if (!parsedBlueprint.initial_step || !parsedBlueprint.steps) {
+          toast.error('Blueprint inválido: deve conter "initial_step" e "steps".');
+          return;
+        }
+      } catch (e) {
+        toast.error('Erro no Blueprint: JSON inválido.');
+        return;
+      }
+    }
+
     try {
+      const finalFormData = {
+        ...formData,
+        workflow_blueprint: parsedBlueprint
+      };
+
       if (editingAgent) {
         // Update
         const updated = await api.updateAgent(editingAgent.id, {
-          ...formData,
+          ...finalFormData,
           last_actor_name: currentUser?.name || 'Sistema'
         });
         setAgents(prev => prev.map(a => a.id === updated.id ? { ...a, ...updated } : a));
@@ -265,7 +292,7 @@ export default function Agents() {
       } else {
         // Create
         const newAgentRef: Partial<Agent> = {
-          ...formData,
+          ...finalFormData,
           tenantId: currentTenant.id,
           last_actor_name: currentUser?.name || 'Sistema'
         };
@@ -913,6 +940,75 @@ export default function Agents() {
                       <p className="text-[10px] text-muted-foreground">Dica: Use {'{message}'} para que o sistema injete a fala do usuário dinamicamente.</p>
                     </div>
                   </div>
+
+                   {/* Workflow State Machine (Blueprint) */}
+                   {!editingAgent?.parent_agent_id && (
+                    <div className="space-y-4 border-t border-border pt-6">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Workflow className="h-5 w-5 text-accent" />
+                          <Label className="text-sm font-bold secondary-text text-accent uppercase tracking-wider">Blueprint da Conversa (State Machine)</Label>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] font-mono border-muted text-muted-foreground">OPCIONAL / JSON</Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <div className="lg:col-span-8 flex flex-col space-y-2">
+                           <Textarea
+                            className="flex-1 p-4 font-mono text-xs bg-[#090F14] text-green-400 rounded-md border border-[#1A2E44] focus:ring-2 focus:ring-accent outline-none resize-none leading-relaxed h-[350px] shadow-inner"
+                            placeholder='{ "initial_step": "start", "steps": { "start": { "rules": "...", "allowed_next": ["confirmacao"] } } }'
+                            value={blueprintRaw}
+                            onChange={(e) => setBlueprintRaw(e.target.value)}
+                          />
+                        </div>
+                        
+                        <div className="lg:col-span-4 space-y-4">
+                          <div className="bg-accent/5 border border-accent/20 rounded-lg p-4">
+                            <h5 className="text-xs font-bold text-accent uppercase flex items-center gap-2 mb-2">
+                              <HelpCircle className="h-4 w-4" /> Como configurar o Fluxo?
+                            </h5>
+                            <p className="text-[11px] text-muted-foreground leading-relaxed">
+                              O Blueprint define os <strong>estados determinísticos</strong> da conversa. Isso evita que a IA tome decisões aleatórias.
+                            </p>
+                            
+                            <div className="mt-4 space-y-3">
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-foreground">initial_step:</span>
+                                <p className="text-[10px] text-muted-foreground">Nome do estado onde toda nova conversa começa.</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-foreground">rules:</span>
+                                <p className="text-[10px] text-muted-foreground">Instrução específica que a IA deve seguir neste estado atual.</p>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-foreground">allowed_next:</span>
+                                <p className="text-[10px] text-muted-foreground">Lista de estados para onde a IA tem permissão de "pular".</p>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 pt-4 border-t border-accent/10">
+                               <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="w-full text-[10px] h-8 border-accent/30 text-accent hover:bg-accent/10"
+                                onClick={() => setBlueprintRaw(JSON.stringify({
+                                  initial_step: "start",
+                                  steps: {
+                                    start: { rules: "Apresente-se e veja se o cliente quer o link.", allowed_next: ["confirmacao"] },
+                                    confirmacao: { rules: "Peça o CNPJ. Se ok, avance para link.", allowed_next: ["link"] },
+                                    link: { rules: "Envie o link e finalize.", allowed_next: ["suporte"] },
+                                    suporte: { rules: "Apenas tire dúvidas.", allowed_next: ["suporte"] }
+                                  }
+                                }, null, 2))}
+                              >
+                                Carregar Exemplo Padrão
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                   )}
 
                   {/* Security toggle — only shown when editing a sub-agent */}
                   {editingAgent?.parent_agent_id && (
