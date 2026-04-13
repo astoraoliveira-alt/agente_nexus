@@ -922,6 +922,8 @@ export interface Campaign {
   totalContacts: number;
   sentCount: number;
   responseCount: number;
+  totalMessages: number;
+  conversionCount: number;
   failedCount?: number;
   importErrorCount?: number;
   successCriteria?: string[];
