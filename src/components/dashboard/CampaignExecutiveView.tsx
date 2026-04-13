@@ -31,6 +31,7 @@ import { ptBR } from 'date-fns/locale';
 
 
 
+
 interface CampaignStats {
     total_contacts: number;
     import_errors: number;
@@ -89,20 +90,20 @@ export function CampaignExecutiveView() {
 
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-700 pb-20">
-      {!selectedCampaignId ? (
-        <CampaignSummaryView 
-          campaigns={campaigns} 
-          agents={agents} 
-          onSelectCampaign={setSelectedCampaignId} 
-        />
-      ) : (
-        <CampaignDetailView 
-          campaignId={selectedCampaignId} 
-          campaigns={campaigns}
-          onSelect={setSelectedCampaignId}
-          onBack={() => setSelectedCampaignId(null)} 
-        />
-      )}
+        {!selectedCampaignId ? (
+            <CampaignSummaryView 
+                campaigns={campaigns} 
+                agents={agents} 
+                onSelectCampaign={setSelectedCampaignId} 
+            />
+        ) : (
+            <CampaignDetailView 
+                campaignId={selectedCampaignId} 
+                campaigns={campaigns}
+                onSelect={setSelectedCampaignId}
+                onBack={() => setSelectedCampaignId(null)} 
+            />
+        )}
     </div>
   );
 }

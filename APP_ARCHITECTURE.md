@@ -1,18 +1,21 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 12/Abr/2026
-> **Versão:** 55.0 (Contextual Isolation & Robust Reset)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + PoC Simplificado V1
-> **Fontes Primárias:** `database/rpc/handle_outbound_sent.sql` · `database/fix_messages_direction_v1.sql` · `database/fix_contacts_metadata_v1.sql` · `Agente Nexus - Whatts Fila.json`
+> **Última Atualização:** 13/Abr/2026
+> **Versão:** 56.0 (Executive Intelligence & Insights)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + PoC Executivo V1
+> **Fontes Primárias:** `database/executive_insights_v4.sql` · `src/components/dashboard/CampaignInsightsView.tsx` · `Agente Nexus - Executive.json`
+
+---
+
+## [V56.0] - Executive Intelligence & Insights Dashboard
+### Camada de Business Intelligence
+- **get_executive_insights V4.1**: Nova engine de agregação em tempo real que consolida volume de mensagens, conversão estratificada e ROI operacional em uma única chamada.
+- **Insights Dashboard**: Nova visão primária focada em tomada de decisão executiva, substituindo métricas técnicas por KPIs de negócio (Yield de Conversão, Volume de Mensagens Diário, Funil de Vendas).
+- **Navigation Reorg**: Elevação dos Insights para aba principal e simplificação da visão operacional.
 
 ---
 
 ## [V55.0] - Contextual Isolation & Robust Reset
-### Engine de Isolamento Temporal
-- **reopened_at**: Implementação de marco temporal nas conversas para filtrar o `messages_history`.
-- **record_message hook**: A função de log de mensagens agora detecta o comando `#reset` e dispara automaticamente o reset do histórico no banco de dados.
-- **n8n Fix**: Correção na chamada de `close_conversation` para garantir que conversas inativas sejam devidamente fechadas, permitindo o isolamento correto na reabertura.
-- **fn_fetch_next_inbound_message**: Reforço na lógica de consulta para ignorar mensagens anteriores ao `reopened_at`.
 
 ---
 
@@ -2008,3 +2011,26 @@ O `CampaignExecutiveView` foi refatorado para exibir:
 - **Engajamento**: Taxa de entrega (sent) vs Taxa de resposta (reply).
 - **Conversão de Negócio**: Leads que atingiram o critério de sucesso específico definido pelo usuário.
 - **Escalabilidade A/B**: A arquitetura permite disparar diferentes campanhas para o mesmo contato de forma isolada, permitindo testes de performance de scripts de IA.
+
+---
+13.  **Inteligência Executiva & Insights (V56.0)**
+
+O Nexus V56 eleva a plataforma de uma ferramenta operacional para um sistema de **Business Intelligence (BI)** em tempo real. O foco desta camada é fornecer aos tomadores de decisão KPIs estratégicos de alta fidelidade sem a poluição técnica de logs de sistema.
+
+### 13.1 Arquitetura de Agregação (get_executive_insights)
+Diferente dos dashboards operacionais, a RPC de Insights (`get_executive_insights V4.1`) utiliza uma arquitetura de **agregação estratificada**:
+1.  **Séries Temporais (Generate Series)**: Garante que o gráfico de volume exiba todos os dias do período (mesmo dias com zero atividade), garantindo uma visualização honesta do engajamento.
+2.  **Cálculo de Média por Lead (Conviviality Metric)**: O sistema calcula a intensidade da conversa por lead (mensagens/contato), separando estatisticamente leads convertidos de não-convertidos. Isso permite identificar o "ponto de equilíbrio" do esforço comercial da IA.
+3.  **Cross-Subquery Isolation**: Utiliza sub-queries independentes vinculadas pela série temporal (`gs.date`) para evitar inflação de contagem comum em Joins complexos de N:N (Mensagens vs Outbound).
+
+### 13.2 Funil de Conversão Estratégico
+O dashboard introduz um mapeamento visual de 3 etapas críticas:
+-   **Alcance (Outreach)**: Volume bruto de abordagens únicas iniciadas pelo sistema.
+-   **Engate (Engagement)**: Taxa de "Primeira Resposta", indicando o quão atraente está sendo a abordagem inicial.
+-   **Sucesso (Conversion)**: Taxa de finalização baseada em critérios de negócio (envio de proposta/link).
+
+### 13.3 Motor de Visualização de Volume Diário
+A nova visualização central (`Daily Message Volume`) consolida interações totais (entrada e saída). Esta métrica é o indicador primário de "Atividade do Ecossistema", permitindo ao executivo monitorar picos de tráfego e sazonalidade de operação sem precisar auditar campanhas individualmente.
+
+### 13.4 Simplificação de Navegação
+Para maximizar a produtividade executiva, as visões técnicas ("Painel Geral" e "Arena A/B") foram movidas para segundo plano (hidden), tornando o **Nexus Hub** uma interface "Action-Oriented" onde os dados estratégicos são o primeiro contato do usuário ao logar.

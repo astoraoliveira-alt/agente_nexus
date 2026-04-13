@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ABPerformanceArena } from '@/components/dashboard/ABPerformanceArena';
 import { CampaignExecutiveView } from '@/components/dashboard/CampaignExecutiveView';
+import { CampaignInsightsView } from '@/components/dashboard/CampaignInsightsView';
 
 const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 
@@ -74,17 +75,23 @@ export default function Index() {
       <div className="min-h-screen bg-[#F8FAFC] pb-20">
         <div className="p-4 lg:p-8 max-w-[1800px] mx-auto space-y-6">
           
-          <Tabs defaultValue="geral" className="w-full space-y-6">
+          <Tabs defaultValue="insights" className="w-full space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <TabsList className="bg-white border border-border/50 p-1 h-12 shadow-sm rounded-xl w-fit">
-                <TabsTrigger value="geral" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#0F172A] data-[state=active]:text-white rounded-lg transition-all h-full">
+                <TabsTrigger value="insights" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#0F172A] data-[state=active]:text-white rounded-lg transition-all h-full">
                   <BarChart3 className="w-3 h-3 mr-2" />
+                  Insights Executivos
+                </TabsTrigger>
+                {/* 
+                <TabsTrigger value="geral" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#0F172A] data-[state=active]:text-white rounded-lg transition-all h-full">
+                  <TrendingUp className="w-3 h-3 mr-2" />
                   Painel Geral
                 </TabsTrigger>
                 <TabsTrigger value="ab-test" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-blue-600 data-[state=active]:text-white rounded-lg transition-all h-full">
                   <Zap className="w-3 h-3 mr-2" />
                   Arena A/B
                 </TabsTrigger>
+                */}
                 <TabsTrigger value="executive" className="px-6 font-bold uppercase tracking-widest text-[10px] data-[state=active]:bg-[#E5003A] data-[state=active]:text-white rounded-lg transition-all h-full">
                   <Target className="w-3 h-3 mr-2" />
                   Campanha Executiva
@@ -101,6 +108,10 @@ export default function Index() {
                 </div>
               </div>
             </div>
+
+            <TabsContent value="insights" className="animate-in fade-in duration-500">
+                <CampaignInsightsView />
+            </TabsContent>
 
             <TabsContent value="geral" className="space-y-4 animate-in fade-in zoom-in duration-300 overflow-y-auto pr-2">
               <TooltipProvider delayDuration={200}>

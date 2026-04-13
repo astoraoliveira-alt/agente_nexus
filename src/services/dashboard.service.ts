@@ -134,5 +134,19 @@ export const dashboardService = {
         }
 
         return data as { total_contacts: number; link_sent_contacts: number; conversion_rate: number };
+    },
+
+    async getExecutiveInsights(tenantId: string, days: number): Promise<any> {
+        const { data, error } = await supabase.rpc('get_executive_insights', {
+            p_tenant_id: tenantId,
+            p_days: days
+        });
+
+        if (error) {
+            console.error('Failed to get executive insights:', error);
+            throw error;
+        }
+
+        return data;
     }
 };
