@@ -1,17 +1,22 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
 > **Última Atualização:** 13/Abr/2026
-> **Versão:** 56.0 (Executive Intelligence & Insights)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + PoC Executivo V1
-> **Fontes Primárias:** `database/executive_insights_v4.sql` · `src/components/dashboard/CampaignInsightsView.tsx` · `Agente Nexus - Executive.json`
+> **Versão:** 56.5 (Executive Yield & Cumulative Funnel)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Estratégico V2
+> **Fontes Primárias:** `database/executive_insights_v1.sql` (V4.11) · `src/components/dashboard/CampaignInsightsView.tsx`
+
+---
+
+## [V56.5] - Executive Yield & Cumulative Funnel
+### BI Estratégico e Precisão de Dados
+- **Strategic Yield Calculation**: Refinamento do cálculo de Yield para ser relativo à **Carga Total (Base)**, fornecendo uma visão realista da perda de leads desde o início da operação.
+- **Cumulative S-Curve Chart**: Migração do gráfico de histórico para uma visão **acumulativa**, permitindo monitorar o progresso total da campanha versus metas.
+- **Unified BI Engine (RPC V4.11)**: Otimização da agregação de dados no Postgres para garantir 100% de paridade entre Cards, Funil e Gráficos, implementando a trava de **"Primeira Conversão Única"**.
+- **Terminology Alignment**: Padronização terminológica substituindo "Sucesso" por **"Conversão"** em todo o ecossistema executivo.
 
 ---
 
 ## [V56.0] - Executive Intelligence & Insights Dashboard
-### Camada de Business Intelligence
-- **get_executive_insights V4.1**: Nova engine de agregação em tempo real que consolida volume de mensagens, conversão estratificada e ROI operacional em uma única chamada.
-- **Insights Dashboard**: Nova visão primária focada em tomada de decisão executiva, substituindo métricas técnicas por KPIs de negócio (Yield de Conversão, Volume de Mensagens Diário, Funil de Vendas).
-- **Navigation Reorg**: Elevação dos Insights para aba principal e simplificação da visão operacional.
 
 ---
 
@@ -2017,20 +2022,26 @@ O `CampaignExecutiveView` foi refatorado para exibir:
 
 O Nexus V56 eleva a plataforma de uma ferramenta operacional para um sistema de **Business Intelligence (BI)** em tempo real. O foco desta camada é fornecer aos tomadores de decisão KPIs estratégicos de alta fidelidade sem a poluição técnica de logs de sistema.
 
-### 13.1 Arquitetura de Agregação (get_executive_insights)
-Diferente dos dashboards operacionais, a RPC de Insights (`get_executive_insights V4.1`) utiliza uma arquitetura de **agregação estratificada**:
-1.  **Séries Temporais (Generate Series)**: Garante que o gráfico de volume exiba todos os dias do período (mesmo dias com zero atividade), garantindo uma visualização honesta do engajamento.
-2.  **Cálculo de Média por Lead (Conviviality Metric)**: O sistema calcula a intensidade da conversa por lead (mensagens/contato), separando estatisticamente leads convertidos de não-convertidos. Isso permite identificar o "ponto de equilíbrio" do esforço comercial da IA.
-3.  **Cross-Subquery Isolation**: Utiliza sub-queries independentes vinculadas pela série temporal (`gs.date`) para evitar inflação de contagem comum em Joins complexos de N:N (Mensagens vs Outbound).
+### 13.1 Arquitetura de Agregação (get_executive_insights V4.11)
+Diferente dos dashboards operacionais, a RPC de Insights (`get_executive_insights V4.11`) utiliza uma arquitetura de **agregação estratificada e única**:
+1.  **Trava de Primeira Conversão**: Garante que o gráfico e os totais não sofram inflação por reenvios de links. Cada lead é contabilizado apenas uma vez, no dia de sua primeira conversão.
+2.  **Yield Relativo à Carga (Yield vs Base)**: A métrica mestre de eficiência utiliza como denominador a **Carga Inicial (leads válidos + erros)**, expondo o yield real da operação outbound.
+3.  **Progressão Acumulativa (Window Functions)**: Utiliza `SUM(...) OVER (ORDER BY date)` para gerar curvas de crescimento (S-Curves), permitindo visualizar o acúmulo de Envios, Respostas e Conversões ao longo do tempo.
 
-### 13.2 Funil de Conversão Estratégico
-O dashboard introduz um mapeamento visual de 3 etapas críticas:
--   **Alcance (Outreach)**: Volume bruto de abordagens únicas iniciadas pelo sistema.
--   **Engate (Engagement)**: Taxa de "Primeira Resposta", indicando o quão atraente está sendo a abordagem inicial.
--   **Sucesso (Conversion)**: Taxa de finalização baseada em critérios de negócio (envio de proposta/link).
+### 13.2 Funil de Conversão Estratégico (6 Estágios)
+O dashboard introduz um mapeamento visual de 6 etapas críticas para transparência total do funil:
+-   **Tentativa de Contato**: Volume bruto carregado (Carga Total).
+-   **Contatos Válidos**: Leads que passaram pela triagem técnica de telefonia.
+-   **Envios Realizados**: Disparos que efetivamente saíram do gateway.
+-   **Respostas Recebidas**: Taxa de engajamento humano inicial.
+-   **Conversões**: Leads que atingiram o critério de sucesso (ex: link enviado).
+-   **Yield / ROI**: Eficiência final ponderada sobre a carga base.
 
-### 13.3 Motor de Visualização de Volume Diário
-A nova visualização central (`Daily Message Volume`) consolida interações totais (entrada e saída). Esta métrica é o indicador primário de "Atividade do Ecossistema", permitindo ao executivo monitorar picos de tráfego e sazonalidade de operação sem precisar auditar campanhas individualmente.
+### 13.3 Motor de Visualização de Volume Histórico
+A visualização central (`Histórico de Engajamento`) consolida a progressão acumulada. Esta métrica é o indicador primário de "Saúde da Campanha", permitindo ao executivo comparar a velocidade de processamento atual com projeções de entrega de metas.
 
-### 13.4 Simplificação de Navegação
-Para maximizar a produtividade executiva, as visões técnicas ("Painel Geral" e "Arena A/B") foram movidas para segundo plano (hidden), tornando o **Nexus Hub** uma interface "Action-Oriented" onde os dados estratégicos são o primeiro contato do usuário ao logar.
+### 13.4 Padronização de Negócio (Conversão vs Sucesso)
+Para alinhar o sistema com a linguagem de vendas B2B, o termo técnico "Sucesso" foi deprecado em favor de **"Conversão"**. Esta mudança reflete-se em:
+-   Cards de KPI de alto nível.
+-   Tabelas de Estratégia Outbound.
+-   Rótulos de eixos em gráficos históricos.

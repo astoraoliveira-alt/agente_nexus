@@ -104,62 +104,92 @@ export function CampaignInsightsView() {
         </div>
       </div>
 
-      {/* Big Numbers */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <Card className="p-6 border-none shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                <Users className="w-20 h-20 text-[#E5003A]" />
+      {/* Big Numbers (Funil Executivo Estratégico) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        {/* 1. Tentativa de Contatos (Base) */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <Users className="w-12 h-12 text-slate-400" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Contatos Alcançados</span>
-            <div className="flex items-end gap-2 mt-1">
-                <span className="text-3xl font-black text-slate-900">{data?.totals?.sent || 0}</span>
-                <Badge className="mb-1 bg-emerald-50 text-emerald-600 border-none">Leads</Badge>
-            </div>
-        </Card>
-
-        <Card className="p-6 border-none shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                <MessageSquare className="w-20 h-20 text-blue-600" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Mensagens Trocadas</span>
-            <div className="flex items-end gap-2 mt-1">
-                <span className="text-3xl font-black text-slate-900">{data?.totals?.messages || 0}</span>
-                <Badge className="mb-1 bg-blue-50 text-blue-600 border-none">Volume</Badge>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Tentativa de Contatos</span>
+            <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900">{data?.totals?.leads || 0}</span>
+                <Badge className="text-[8px] bg-slate-50 text-slate-500 border-none px-1 h-4">Carga</Badge>
             </div>
         </Card>
 
-        <Card className="p-6 border-none shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                <Activity className="w-20 h-20 text-blue-600" />
+        {/* 2. Mensagens Enviadas (Sucesso) */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <ArrowUpRight className="w-12 h-12 text-blue-600" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Respostas Ativas</span>
-            <div className="flex items-end gap-2 mt-1">
-                <span className="text-3xl font-black text-slate-900">{data?.totals?.responses || 0}</span>
-                <span className="text-[10px] font-bold text-slate-400 mb-1">
-                    {data?.totals?.sent > 0 ? ((data.totals.responses / data.totals.sent) * 100).toFixed(1) : 0}% Yield
-                </span>
-            </div>
-        </Card>
-
-        <Card className="p-6 border-none shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                <Target className="w-20 h-20 text-emerald-600" />
-            </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Conversões (Link)</span>
-            <div className="flex items-end gap-2 mt-1">
-                <span className="text-3xl font-black text-slate-900">{data?.totals?.conversions || 0}</span>
-                <Badge className="mb-1 bg-[#E5003A] text-white border-none">ROI</Badge>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Mensagens Enviadas</span>
+            <div className="flex flex-col">
+                <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-black text-slate-900">{data?.totals?.sent || 0}</span>
+                    <span className="text-[10px] font-bold text-blue-500">
+                        {data?.totals?.leads > 0 ? ((data.totals.sent / data.totals.leads) * 100).toFixed(0) : 0}%
+                    </span>
+                </div>
+                <span className="text-[8px] font-bold text-slate-400 uppercase">Sucesso vs Carga</span>
             </div>
         </Card>
 
-        <Card className="p-6 border-none shadow-sm relative overflow-hidden group">
-            <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:scale-110 transition-transform">
-                <Briefcase className="w-20 h-20 text-purple-600" />
+        {/* 3. Respostas Recebidas */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <Activity className="w-12 h-12 text-emerald-600" />
             </div>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Estratégias Ativas</span>
-            <div className="flex items-end gap-2 mt-1">
-                <span className="text-3xl font-black text-slate-900">{data?.totals?.campaigns || 0}</span>
-                <span className="text-[10px] font-bold text-slate-400 mb-1">Campanhas</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Respostas Recebidas</span>
+            <div className="flex flex-col">
+                <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-black text-slate-900">{data?.totals?.responses || 0}</span>
+                    <span className="text-[10px] font-bold text-emerald-500">
+                        {data?.totals?.leads > 0 ? ((data.totals.responses / data.totals.leads) * 100).toFixed(0) : 0}%
+                    </span>
+                </div>
+                <span className="text-[8px] font-bold text-slate-400 uppercase">Engate vs Carga</span>
+            </div>
+        </Card>
+
+        {/* 4. Conversões (Link) */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <Target className="w-12 h-12 text-[#E5003A]" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Conversões Realizadas</span>
+            <div className="flex flex-col">
+                <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-black text-slate-900">{data?.totals?.conversions || 0}</span>
+                    <span className="text-[10px] font-bold text-[#E5003A]">
+                        {data?.totals?.leads > 0 ? ((data.totals.conversions / data.totals.leads) * 100).toFixed(0) : 0}%
+                    </span>
+                </div>
+                <span className="text-[8px] font-bold text-slate-400 uppercase">ROI vs Carga</span>
+            </div>
+        </Card>
+
+        {/* 5. Volume Total de Msgs */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <MessageSquare className="w-12 h-12 text-blue-600" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Volume de Mensagens</span>
+            <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-2xl font-black text-slate-900">{data?.totals?.total_messages || data?.totals?.messages || 0}</span>
+                <Badge className="text-[8px] bg-blue-50 text-blue-600 border-none px-1 h-4">Troca</Badge>
+            </div>
+        </Card>
+
+        {/* 6. Estratégias Ativas */}
+        <Card className="p-4 border-none shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-2 opacity-5">
+                <Briefcase className="w-12 h-12 text-purple-600" />
+            </div>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Estratégias Ativas</span>
+            <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-2xl font-black text-slate-900">{data?.totals?.campaigns || 0}</span>
+                <Badge className="text-[8px] bg-purple-50 text-purple-600 border-none px-1 h-4">Campaigns</Badge>
             </div>
         </Card>
       </div>
@@ -339,7 +369,21 @@ export function CampaignInsightsView() {
             </div>
 
             <div className="flex-1 flex flex-col justify-between py-2">
-                {/* Step 1: Outreach */}
+                {/* Step 1: Carga */}
+                <div className="flex items-center gap-6">
+                    <div className="w-24 text-right">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none block">CARGA</span>
+                        <span className="text-lg font-black text-slate-900">{data?.totals?.leads}</span>
+                    </div>
+                    <div className="flex-1 h-12 bg-slate-100/30 rounded-xl relative overflow-hidden group">
+                        <div className="absolute inset-y-0 left-0 bg-slate-500/10 w-full" />
+                        <div className="absolute inset-0 flex items-center px-4">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Leads Totais (Base)</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Step 2: Outreach */}
                 <div className="flex items-center gap-6">
                     <div className="w-24 text-right">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none block">ALCANCE</span>
@@ -349,12 +393,12 @@ export function CampaignInsightsView() {
                         <div className="absolute inset-y-0 left-0 bg-blue-500/10 w-full" />
                         <div className="absolute inset-y-0 left-0 bg-blue-500 w-full" />
                         <div className="absolute inset-0 flex items-center px-4">
-                            <span className="text-[9px] font-black text-white uppercase tracking-widest">Contatos Iniciados (100%)</span>
+                            <span className="text-[9px] font-black text-white uppercase tracking-widest">Contatos Entregues ({data?.totals?.leads > 0 ? (data.totals.sent / data.totals.leads * 100).toFixed(0) : 0}%)</span>
                         </div>
                     </div>
                 </div>
 
-                {/* Step 2: Response */}
+                {/* Step 3: Response */}
                 <div className="flex items-center gap-6">
                     <div className="w-24 text-right">
                         <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none block">ENGATE</span>
@@ -370,14 +414,14 @@ export function CampaignInsightsView() {
                     </div>
                 </div>
 
-                {/* Step 3: Success */}
+                {/* Step 4: Conversion */}
                 <div className="flex items-center gap-6">
                     <div className="w-24 text-right">
-                        <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest leading-none block">SUCESSO</span>
+                        <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest leading-none block">CONVERSÃO</span>
                         <span className="text-lg font-black text-emerald-600">{data?.totals?.conversions}</span>
                     </div>
                     <div className="flex-1 h-12 bg-slate-100/50 rounded-xl relative overflow-hidden">
-                        <div className="absolute inset-y-0 left-0 bg-emerald-500 w-[30%] shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all duration-1000" style={{ width: `${data?.totals?.sent > 0 ? (data.totals.conversions / data.totals.sent * 100) * 1.5 : 0}%` }} />
+                        <div className="absolute inset-y-0 left-0 bg-emerald-500 w-[30%] shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all duration-1000" style={{ width: `${data?.totals?.sent > 0 ? (data.totals.conversions / data.totals.sent * 100) : 0}%` }} />
                         <div className="absolute inset-0 flex items-center px-4">
                             <span className="text-[9px] font-black text-white uppercase tracking-widest">
                                 Conversão Final ({data?.totals?.sent > 0 ? (data.totals.conversions / data.totals.sent * 100).toFixed(1) : 0}%)

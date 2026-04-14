@@ -156,7 +156,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Base</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Envios</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Mensagens</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Sucesso</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Conversão</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Yield / ROI</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-10">Agente</th>
               </tr>

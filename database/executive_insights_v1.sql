@@ -1,6 +1,4 @@
--- RPC FINAL: Insights Executivos Davos Nexus (CORRIGIDA)
--- Substituído updated_at por created_at que é a coluna real da outbound_queue
-
+-- RPC FINAL V4.2: Insights Executivos com Funil Completo (Carga vs Sucesso)
 CREATE OR REPLACE FUNCTION public.get_executive_insights(
   p_tenant_id UUID,
   p_days INTEGER DEFAULT 0 
@@ -14,6 +12,7 @@ AS $$
 DECLARE
   v_start_date TIMESTAMP;
   v_total_campaigns BIGINT;
+  v_total_leads BIGINT; -- NOVA MÉTRICA (CARGA TOTAL)
   v_total_sent BIGINT;
   v_total_responses BIGINT;
   v_total_conversions BIGINT;
@@ -32,16 +31,22 @@ BEGIN
         v_start_date := (CURRENT_DATE - (p_days || ' days')::INTERVAL);
     END IF;
 
-    -- 2. Contagens Básicas
-    SELECT COUNT(*) INTO v_total_campaigns FROM campaigns WHERE tenant_id = p_tenant_id AND created_at >= v_start_date;
+    -- 2. Contagens Básicas (Funil de Vendas)
+    SELECT COUNT(*) INTO v_total_campaigns FROM campaigns WHERE tenant_id = p_tenant_id AND (created_at >= v_start_date OR status = 'active');
     
+    -- [NOVO] Total de Leads carregados na fila (Independente de status)
+    SELECT COUNT(DISTINCT contact_phone) INTO v_total_leads FROM outbound_queue 
+    WHERE tenant_id = p_tenant_id AND created_at >= v_start_date;
+
+    -- Total de mensagens enviadas com SUCESSO
     SELECT COUNT(DISTINCT contact_phone) INTO v_total_sent FROM outbound_queue 
     WHERE tenant_id = p_tenant_id AND status = 'sent' AND created_at >= v_start_date;
 
+    -- Total de respostas detectadas
     SELECT COUNT(DISTINCT contact_phone) INTO v_total_responses FROM outbound_queue 
     WHERE tenant_id = p_tenant_id AND response_detected = TRUE AND created_at >= v_start_date;
 
-    -- 3. Métras de Eficiência
+    -- 3. Métricas de Eficiência e Conversão
     WITH contact_stats AS (
         SELECT 
             oq.contact_phone,
@@ -75,29 +80,21 @@ BEGIN
         v_avg_msgs_failed
     FROM contact_stats;
 
-    -- 4. Gráfico Diário
+    -- 4. Gráfico Diário (Volume de Operação)
     SELECT jsonb_agg(t) INTO v_daily_data FROM (
         SELECT 
             d::DATE as date,
             COUNT(DISTINCT oq.contact_phone) as sent,
             COUNT(DISTINCT oq.contact_phone) FILTER (WHERE oq.response_detected = TRUE) as responses,
-            COUNT(DISTINCT oq.contact_phone) FILTER (WHERE EXISTS (
-                 SELECT 1 FROM messages m 
-                 JOIN conversations c ON m.conversation_id = c.id
-                 JOIN campaigns cp ON oq.campaign_id = cp.id
-                 WHERE REGEXP_REPLACE(c.user_identifier, '[^0-9]', '', 'g') = REGEXP_REPLACE(oq.contact_phone, '[^0-9]', '', 'g')
-                   AND c.tenant_id = p_tenant_id
-                   AND m.sender_type != 'user'
-                   AND m.created_at::DATE = d::DATE
-                   AND COALESCE(cp.success_link_filter, '') <> ''
-                   AND m.content ILIKE '%' || cp.success_link_filter || '%'
-            )) as conversions
+            (SELECT COUNT(*) FROM messages m2 
+             JOIN conversations c2 ON m2.conversation_id = c2.id 
+             WHERE c2.tenant_id = p_tenant_id AND m2.created_at::DATE = d::DATE) as total_messages
         FROM generate_series(v_start_date::DATE, CURRENT_DATE, '1 day'::interval) d
         LEFT JOIN outbound_queue oq ON oq.created_at::DATE = d::DATE AND oq.tenant_id = p_tenant_id AND oq.status = 'sent'
-        GROUP BY 1 ORDER BY 1
+        GROUP BY 1, d::DATE ORDER BY 1
     ) t;
 
-    -- 5. Ranking de Campanhas
+    -- 5. Ranking de Campanhas Ativas
     SELECT jsonb_agg(t) INTO v_campaign_breakdown FROM (
         SELECT c.name, COUNT(oq.id) as sent, COUNT(oq.id) FILTER (WHERE oq.response_detected = TRUE) as responses
         FROM campaigns c
@@ -108,6 +105,7 @@ BEGIN
 
     RETURN json_build_object(
         'totals', json_build_object(
+            'leads', COALESCE(v_total_leads, 0),
             'campaigns', COALESCE(v_total_campaigns, 0),
             'sent', COALESCE(v_total_sent, 0),
             'responses', COALESCE(v_total_responses, 0),
