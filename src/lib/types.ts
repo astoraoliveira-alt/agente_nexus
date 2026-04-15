@@ -663,6 +663,7 @@ export interface Conversation {
   agentId: string;
   userId: string;
   userName: string;
+  establishmentName?: string;
   userStatus?: string;
   userAvatar?: string;
   agentName?: string;

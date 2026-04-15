@@ -2,6 +2,25 @@ import { supabase } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const coreService = {
+    normalizePhone(phone?: string | null): string {
+        return String(phone || '').replace(/\D/g, '');
+    },
+
+    getPhoneVariants(phone?: string | null): string[] {
+        const normalized = this.normalizePhone(phone);
+        if (!normalized) return [];
+
+        const variants = new Set<string>([normalized]);
+
+        if (normalized.startsWith('55') && normalized.length > 11) {
+            variants.add(normalized.slice(2));
+        } else {
+            variants.add(`55${normalized}`);
+        }
+
+        return Array.from(variants);
+    },
+
     async getInitialUser(): Promise<User | null> {
         // Consolidated search: find first active operator or super_admin in one query
         const { data, error } = await supabase
@@ -434,18 +453,66 @@ export const coreService = {
             console.warn('⚠️ get_conversation_message_counts RPC missing, showing 0:', countsResult.error.message);
         }
 
-        // Fetch contacts to get Ban Status
+        // Fetch contacts to get Ban Status and agent leads to enrich the establishment name
         const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
         let contactsMap = new Map<string, string>();
+        let establishmentMap = new Map<string, string>();
         if (userIdentifiers.length > 0) {
-            const { data: contactsData } = await supabase
-                .from('contacts')
-                .select('identifier, status')
-                .eq('tenant_id', tenantId)
-                .in('identifier', userIdentifiers);
+            const [contactsResult, rpcEstablishmentsResult, leadsResult] = await Promise.all([
+                supabase
+                    .from('contacts')
+                    .select('identifier, status')
+                    .eq('tenant_id', tenantId)
+                    .in('identifier', userIdentifiers),
+                supabase.rpc('get_conversation_establishments', {
+                    p_tenant_id: tenantId,
+                    p_user_identifiers: userIdentifiers
+                }),
+                supabase
+                    .from('agent_leads')
+                    .select('whatsapp, name')
+                    .eq('tenant_id', tenantId)
+                    .not('whatsapp', 'is', null)
+            ]);
+
+            const { data: contactsData } = contactsResult;
 
             if (contactsData) {
                 contactsMap = new Map(contactsData.map(c => [c.identifier, c.status]));
+            }
+
+            if (!rpcEstablishmentsResult.error && rpcEstablishmentsResult.data) {
+                for (const row of rpcEstablishmentsResult.data as any[]) {
+                    const establishmentName = String(row.establishment_name || '').trim();
+                    if (!establishmentName) continue;
+
+                    for (const variant of this.getPhoneVariants(row.user_identifier)) {
+                        if (!establishmentMap.has(variant)) {
+                            establishmentMap.set(variant, establishmentName);
+                        }
+                    }
+                }
+            }
+
+            if (rpcEstablishmentsResult.error) {
+                console.warn('RPC get_conversation_establishments unavailable, falling back to direct agent_leads query:', rpcEstablishmentsResult.error.message);
+            }
+
+            if (establishmentMap.size === 0 && leadsResult.error) {
+                console.error('Error fetching establishment names from agent_leads:', leadsResult.error);
+            }
+
+            if (establishmentMap.size === 0 && !leadsResult.error && leadsResult.data) {
+                for (const lead of leadsResult.data as any[]) {
+                    const establishmentName = String(lead.name || '').trim();
+                    if (!establishmentName) continue;
+
+                    for (const variant of this.getPhoneVariants(lead.whatsapp)) {
+                        if (!establishmentMap.has(variant)) {
+                            establishmentMap.set(variant, establishmentName);
+                        }
+                    }
+                }
             }
         }
 
@@ -457,6 +524,9 @@ export const coreService = {
             agentType: c.agents?.type as any,
             userId: c.user_identifier,
             userName: c.user_name || 'Cliente Sem Nome',
+            establishmentName: this.getPhoneVariants(c.user_identifier)
+                .map(variant => establishmentMap.get(variant))
+                .find(Boolean),
             userStatus: contactsMap.get(c.user_identifier) || 'active',
             channel: c.channel,
             status: c.status,

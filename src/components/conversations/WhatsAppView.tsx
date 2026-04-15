@@ -17,6 +17,23 @@ const formatWaTime = (dateStr: string) => {
 export const parseMessageContent = (rawText: string) => {
     if (!rawText) return '';
     const trimmed = rawText.trim();
+
+    // Pattern 1: ```json\n{...}\n``` or ```\n{...}\n``` (markdown code fence from LLM agents)
+    const codeFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeFenceMatch) {
+        const inner = codeFenceMatch[1].trim();
+        try {
+            const parsed = JSON.parse(inner);
+            if (parsed && typeof parsed.content === 'string') return parsed.content;
+            if (parsed && typeof parsed.output === 'string') return parsed.output;
+            if (parsed && typeof parsed.text === 'string') return parsed.text;
+        } catch {
+            // valid fence but not JSON — return inner text stripped of fence
+        }
+        return inner;
+    }
+
+    // Pattern 2: Plain JSON object ={...} or {...}
     if (trimmed.startsWith('={') || trimmed.startsWith('{')) {
         try {
             const jsonStr = trimmed.startsWith('=') ? trimmed.substring(1) : trimmed;
@@ -24,8 +41,8 @@ export const parseMessageContent = (rawText: string) => {
             if (parsed && typeof parsed.content === 'string') return parsed.content;
             if (parsed && typeof parsed.output === 'string') return parsed.output;
             if (parsed && typeof parsed.text === 'string') return parsed.text;
-        } catch (e) {
-            // Ignore parse errors, return raw text
+        } catch {
+            // ignore, fall through
         }
     }
     return rawText;
@@ -39,17 +56,23 @@ interface WhatsAppViewProps {
 export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
     const { maskingEnabled } = useApp();
     const scrollRef = useRef<HTMLDivElement>(null);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Auto-scroll to bottom directly
+    // Auto-scroll to bottom whenever the conversation or the message list changes.
     useEffect(() => {
-        if (scrollRef.current) {
-            // Accessing the viewport of the scroll area to set scrollTop
-            const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
-            if (viewport) {
-                (viewport as HTMLElement).scrollTop = (viewport as HTMLElement).scrollHeight;
+        const raf = requestAnimationFrame(() => {
+            if (scrollRef.current) {
+                const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+                if (viewport) {
+                    (viewport as HTMLElement).scrollTop = (viewport as HTMLElement).scrollHeight;
+                }
             }
-        }
-    }, [conversation.messages]);
+
+            messagesEndRef.current?.scrollIntoView({ block: 'end' });
+        });
+
+        return () => cancelAnimationFrame(raf);
+    }, [conversation.id, conversation.messages?.length]);
 
     return (
         <div className="flex flex-col h-full bg-[#E4DDD6] dark:bg-[#111b21] relative font-sans">
@@ -94,8 +117,8 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
             </div>
 
             {/* Messages Area */}
-            <ScrollArea className="flex-1" ref={scrollRef}>
-                <div className="px-3 py-2 space-y-2 relative z-10">
+            <ScrollArea className="flex-1 min-w-0" ref={scrollRef}>
+                <div className="w-full min-w-0 px-3 py-2 space-y-2 relative z-10 overflow-x-hidden">
                     {/* Date Divider Example */}
                     <div className="flex justify-center my-3">
                         <span className="bg-[#E4ECEC] dark:bg-[#1f2c34] text-[#5e6c71] dark:text-[#8696a0] text-xs px-2 py-1 rounded-md shadow-sm">
@@ -107,15 +130,19 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                         // Robust check for "Me" (Agent) vs "Them" (User)
                         const rawRole = (msg.sender || (msg as any).sender_type || '').toLowerCase().trim();
 
-                        // Treat these as "Them" (Left Side / White Bubble)
-                        // INCLUDED 'human' here because in Sim Mode, manual inputs (Human) often represent the User.
-                        const isThem = ['user', 'client', 'customer', 'contact', 'human'].includes(rawRole);
+                        // Mirror the desktop rule exactly:
+                        // only explicit "user" stays on the left, everything else goes to the right.
+                        const isThem = rawRole === 'user';
                         const isMe = !isThem;
 
+                        const parsedContent = parseMessageContent(msg.content || '');
+                        const parsedTranscription = parseMessageContent((msg as any).transcription || '');
+                        const displayText = parsedContent || parsedTranscription;
+
                         return (
-                            <div key={msg.id} className={cn("flex w-full mb-2", isMe ? "justify-end" : "justify-start")}>
+                            <div key={msg.id} className={cn("flex w-full min-w-0 mb-2", isMe ? "justify-end" : "justify-start")}>
                                 <div className={cn(
-                                    "relative max-w-[85%] px-2 pt-1.5 pb-5 rounded-lg shadow-sm text-sm leading-[19px] min-w-[100px]",
+                                    "relative w-fit max-w-[85%] min-w-[120px] px-2 pt-1.5 pb-5 pr-14 rounded-lg shadow-sm text-sm leading-[19px]",
                                     isMe
                                         ? "bg-[#E7FFDB] dark:bg-[#005c4b] text-[#111b21] dark:text-[#e9edef] rounded-tr-none"
                                         : "bg-[#ffffff] dark:bg-[#202c33] text-[#111b21] dark:text-[#e9edef] rounded-tl-none"
@@ -131,8 +158,23 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                                         </svg>
                                     </span>
 
-                                    <div className="relative z-10">
-                                        <span className="whitespace-pre-wrap break-words">{maskSensitiveData(parseMessageContent(msg.content), maskingEnabled)}</span>
+                                    <div className="relative z-10 min-w-0">
+                                        {msg.type === 'image' && msg.imageUrl ? (
+                                            <img src={msg.imageUrl} alt="" className="max-w-full rounded-md mb-2" />
+                                        ) : null}
+
+                                        {msg.type === 'audio' ? (
+                                            <div className="space-y-1">
+                                                <div className="text-xs opacity-70">Mensagem de audio</div>
+                                                <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                                    {maskSensitiveData(displayText || '[Audio sem transcricao]', maskingEnabled)}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <span className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                                                {maskSensitiveData(displayText, maskingEnabled)}
+                                            </span>
+                                        )}
                                     </div>
 
                                     <div className="absolute right-2 bottom-1 flex items-center space-x-1 select-none pointer-events-none">
@@ -147,6 +189,7 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                             </div>
                         );
                     })}
+                    <div ref={messagesEndRef} />
                 </div>
             </ScrollArea>
 

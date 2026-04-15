@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ArrowRightLeft, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -19,13 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import { ArtifactsDrawer } from './ArtifactsDrawer';
 import { maskSensitiveData } from '@/lib/masking';
 
@@ -335,14 +328,14 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
 
       {/* Chat Header */}
       <div className={cn(
-        "h-14 px-4 flex items-center justify-between border-b transition-colors shrink-0",
+        "min-h-14 px-4 py-2 flex items-center justify-between gap-4 border-b transition-colors shrink-0",
         conversation.evaluation && conversation.evaluation.score < 40
           ? "bg-red-50 border-red-200"
           : conversation.status !== 'closed'
             ? "bg-emerald-500/5 border-emerald-500/20"
             : "bg-card border-border"
       )}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className={cn(
             "w-10 h-10 flex items-center justify-center rounded-full border transition-colors",
             conversation.status !== 'closed'
@@ -410,31 +403,30 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           </div>
         </div>
 
-        {/* View Toggle (Center) */}
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-muted/50 p-1 rounded-lg border border-border">
-          <button
-            onClick={() => setViewMode('default')}
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            title="Visão Padrão (SaaS)"
-          >
-            <Monitor className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setViewMode('mobile')}
-            className={cn(
-              "p-1.5 rounded-md transition-all",
-              viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-            title="Visão Cliente (WhatsApp)"
-          >
-            <Smartphone className="h-4 w-4" />
-          </button>
-        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center bg-muted/50 p-1 rounded-lg border border-border">
+            <button
+              onClick={() => setViewMode('default')}
+              className={cn(
+                "p-1.5 rounded-md transition-all",
+                viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Visão Padrão (SaaS)"
+            >
+              <Monitor className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('mobile')}
+              className={cn(
+                "p-1.5 rounded-md transition-all",
+                viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Visão Cliente (WhatsApp)"
+            >
+              <Smartphone className="h-4 w-4" />
+            </button>
+          </div>
 
-        <div className="flex items-center gap-2">
           <button
             onClick={() => setArtifactsDrawerOpen(true)}
             className="flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer bg-muted/50 px-3 py-0.5 rounded-md border border-border/50 h-8 mr-1 shadow-sm"
@@ -476,38 +468,6 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
               </Button>
             )}
           </div>
-
-          {/* Transfer Dialog */}
-          <Dialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <ArrowRightLeft className="h-4 w-4 mr-2" />
-                Transferir
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Transferir Conversa</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-2 py-4">
-                {operators.map((op) => (
-                  <button
-                    key={op.id}
-                    className="w-full flex items-center gap-3 p-3 hover:bg-muted transition-colors text-left"
-                    onClick={() => handleTransfer(op.id)}
-                  >
-                    <div className="w-10 h-10 bg-muted flex items-center justify-center">
-                      <span className="text-sm font-medium">{op.avatar}</span>
-                    </div>
-                    <div>
-                      <p className="font-medium">{op.name}</p>
-                      <p className="text-sm text-muted-foreground capitalize">{op.role.replace('_', ' ')}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </DialogContent>
-          </Dialog>
 
           {/* More Options */}
           <DropdownMenu>

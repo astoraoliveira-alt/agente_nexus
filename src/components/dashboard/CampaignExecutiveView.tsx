@@ -311,7 +311,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       const mappedLeads = enrichedContacts.map(c => ({
           cnpj: c.cnpj || '-',
           whatsapp: c.contactPhone,
-          name: c.contactName || 'Sem Nome',
+          name: c.establishmentName || c.contactName || 'Sem Nome',
           status: c.status === 'sent' ? 'Enviada' : 
                  c.status === 'failed' ? 'Erro' : 
                  c.status === 'pending' ? 'Pendente' : c.status
@@ -475,9 +475,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
               </div>
               <div className="flex items-center gap-3">
                 {isLoading && <Clock className="w-4 h-4 text-[#E5003A] animate-spin" />}
-                <Badge variant="outline" className="bg-white text-slate-400 font-mono text-[9px] uppercase tracking-tighter">
-                  Data Stream: Socket Active
-                </Badge>
               </div>
             </div>
             

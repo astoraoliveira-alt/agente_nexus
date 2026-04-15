@@ -18,7 +18,7 @@ export default function Conversations() {
         {/* Conversation List */}
         <div className={cn(
           "flex-shrink-0 transition-all duration-300 ease-in-out",
-          isListCollapsed ? "w-0 overflow-hidden" : "w-80"
+          isListCollapsed ? "w-0 overflow-hidden" : "w-[22rem]"
         )}>
           <ConversationList
             conversations={conversations}
@@ -34,7 +34,7 @@ export default function Conversations() {
           variant="ghost"
           size="icon"
           className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-12 w-6 bg-muted hover:bg-muted/80 border border-border"
-          style={{ left: isListCollapsed ? 0 : '19rem' }}
+          style={{ left: isListCollapsed ? 0 : '21rem' }}
           onClick={() => setIsListCollapsed(!isListCollapsed)}
         >
           {isListCollapsed ? (

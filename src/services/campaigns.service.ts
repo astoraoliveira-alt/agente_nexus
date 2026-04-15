@@ -2,6 +2,25 @@ import { supabase } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const campaignsService = {
+    normalizePhone(phone?: string | null): string {
+        return String(phone || '').replace(/\D/g, '');
+    },
+
+    getPhoneVariants(phone?: string | null): string[] {
+        const normalized = this.normalizePhone(phone);
+        if (!normalized) return [];
+
+        const variants = new Set<string>([normalized]);
+
+        if (normalized.startsWith('55') && normalized.length > 11) {
+            variants.add(normalized.slice(2));
+        } else {
+            variants.add(`55${normalized}`);
+        }
+
+        return Array.from(variants);
+    },
+
 async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string): Promise<import('@/lib/types').OutboundContact[]> {
         let query = supabase
             .from('outbound_queue')
@@ -42,15 +61,53 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             p_tenant_id: tenantId
         });
 
+        let queueRows = data as any[] || [];
+
         if (error) {
             console.error('Error fetching enriched outbound queue:', error);
-            return [];
+
+            // Fallback: keep the screen working even if the RPC is temporarily unavailable
+            // (e.g. schema cache lag after altering the function).
+            const fallbackQueue = await this.getOutboundQueue(tenantId, undefined, campaignId);
+            queueRows = fallbackQueue.map((row: any) => ({
+                id: row.id,
+                contact_phone: row.contactPhone,
+                contact_name: row.contactName,
+                status: row.status,
+                metadata: row.metadata,
+                cnpj: row.metadata?.cnpj || null,
+                establishment_name: null
+            }));
+        }
+        const { data: leadsData, error: leadsError } = await supabase
+            .from('agent_leads')
+            .select('whatsapp, name')
+            .eq('tenant_id', tenantId)
+            .not('whatsapp', 'is', null);
+
+        if (leadsError) {
+            console.error('Error fetching establishment names for outbound queue:', leadsError);
         }
 
-        return (data as any[] || []).map((d: any) => ({
+        const establishmentMap = new Map<string, string>();
+        for (const lead of leadsData || []) {
+            const establishmentName = String((lead as any).name || '').trim();
+            if (!establishmentName) continue;
+
+            for (const variant of this.getPhoneVariants((lead as any).whatsapp)) {
+                if (!establishmentMap.has(variant)) {
+                    establishmentMap.set(variant, establishmentName);
+                }
+            }
+        }
+
+        return queueRows.map((d: any) => ({
             id: d.id,
             contactPhone: d.contact_phone,
             contactName: d.contact_name,
+            establishmentName: String(d.establishment_name || '').trim() || this.getPhoneVariants(d.contact_phone)
+                .map(variant => establishmentMap.get(variant))
+                .find(Boolean),
             status: d.status,
             metadata: d.metadata,
             cnpj: d.cnpj

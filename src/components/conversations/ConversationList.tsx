@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle, Building2 } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -188,9 +188,9 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <div className="flex flex-col min-w-0">
-                      <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 mb-2 items-start">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className={cn(
                           "font-medium truncate transition-colors",
                           conv.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-muted-foreground",
@@ -204,80 +204,91 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                           <Badge variant="destructive" className="h-4 px-1 scale-75 transform origin-left uppercase">Banido</Badge>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono">{conv.userId}</span>
+
+                      {conv.establishmentName ? (
+                        <div className="flex items-start gap-1.5 min-w-0 text-[11px] text-foreground/80">
+                          <Building2 className="h-3 w-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                          <span className="leading-4 break-words line-clamp-2">
+                            {conv.establishmentName}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="flex items-center gap-1.5 min-w-0 text-[10px] text-muted-foreground">
+                        <Phone className="h-3 w-3 flex-shrink-0" />
+                        <span className="font-mono truncate">{conv.userId}</span>
+                      </div>
                     </div>
-                    <span className="text-[10px] text-muted-foreground flex-shrink-0">
+
+                    <span className="text-[10px] text-muted-foreground flex-shrink-0 pt-0.5 text-right whitespace-nowrap">
                       {formatDistanceToNow(conv.lastMessageTime, { addSuffix: false, locale: ptBR })}
                     </span>
                   </div>
 
-                  {/* Agent & Channel Info Badges */}
-                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                    <Badge variant="secondary" className={cn(
-                      "h-4 px-1 rounded-[2px] text-[9px] font-normal gap-1",
-                      conv.status !== 'closed'
-                        ? "bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20"
-                        : "bg-muted text-muted-foreground"
-                    )}>
-                      <Bot className="h-2.5 w-2.5" />
-                      {conv.agentName || 'Agente'}
-                    </Badge>
-
-                    {/* Channel Badge */}
-                    <Badge variant="secondary" className={cn(
-                      "h-4 px-1.5 rounded-[2px] text-[9px] font-medium gap-1 border-transparent flex-shrink-0",
-                      conv.channel === 'voice' ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400" :
-                        conv.channel === 'whatsapp' ? "bg-[#25D366]/10 text-[#075E54] dark:bg-[#25D366]/20 dark:text-[#25D366]" :
-                          "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
-                    )}>
-                      {conv.channel === 'voice' ? <Phone className="h-2.5 w-2.5" /> : conv.channel === 'whatsapp' ? <Smartphone className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
-                      <span>{conv.channel === 'voice' ? 'Voz' : conv.channel === 'whatsapp' ? 'WhatsApp' : 'Web'}</span>
-                    </Badge>
-
-                    {conv.status === 'closed' && (
-                      <Badge
-                        variant="secondary"
-                        className="h-4 px-1.5 text-[9px] font-medium bg-slate-100 text-slate-500 border-transparent dark:bg-slate-800 dark:text-slate-400"
-                      >
-                        Fechada
-                      </Badge>
-                    )}
-
-                    {/* Sentiment badge — only renders when the AI agent has filled it */}
-                    {conv.sentiment && (() => {
-                      const sentimentMap: Record<string, { label: string; emoji: string; className: string }> = {
-                        interessado: {
-                          label: 'Interessado',
-                          emoji: '🔥',
-                          className: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20',
-                        },
-                        neutro: {
-                          label: 'Neutro',
-                          emoji: '😐',
-                          className: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
-                        },
-                        resistente: {
-                          label: 'Resistente',
-                          emoji: '🚫',
-                          className: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20',
-                        },
-                      };
-                      const config = sentimentMap[conv.sentiment.toLowerCase()];
-                      if (!config) return null;
-                      return (
+                  <div className="space-y-1.5 mb-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {conv.status === 'closed' && (
                         <Badge
-                          variant="outline"
-                          className={cn(
-                            'h-4 px-1.5 text-[9px] font-medium gap-0.5 border rounded-[2px]',
-                            config.className
-                          )}
-                          title={`Sentimento detectado: ${config.label}`}
+                          variant="secondary"
+                          className="h-4 px-1.5 text-[9px] font-medium bg-slate-100 text-slate-500 border-transparent dark:bg-slate-800 dark:text-slate-400"
                         >
-                          <span>{config.emoji}</span>
-                          <span>{config.label}</span>
+                          Fechada
                         </Badge>
-                      );
-                    })()}
+                      )}
+
+                      {conv.sentiment && (() => {
+                        const sentimentMap: Record<string, { label: string; emoji: string; className: string }> = {
+                          interessado: {
+                            label: 'Interessado',
+                            emoji: '🔥',
+                            className: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20',
+                          },
+                          neutro: {
+                            label: 'Neutro',
+                            emoji: '😐',
+                            className: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
+                          },
+                          resistente: {
+                            label: 'Resistente',
+                            emoji: '🚫',
+                            className: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20',
+                          },
+                        };
+                        const config = sentimentMap[conv.sentiment.toLowerCase()];
+                        if (!config) return null;
+                        return (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'h-4 px-1.5 text-[9px] font-medium gap-0.5 border rounded-[2px]',
+                              config.className
+                            )}
+                            title={`Sentimento detectado: ${config.label}`}
+                          >
+                            <span>{config.emoji}</span>
+                            <span>{config.label}</span>
+                          </Badge>
+                        );
+                      })()}
+
+                      {/* Channel Badge */}
+                      <Badge variant="secondary" className={cn(
+                        "h-4 px-1.5 rounded-[2px] text-[9px] font-medium gap-1 border-transparent flex-shrink-0",
+                        conv.channel === 'voice' ? "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400" :
+                          conv.channel === 'whatsapp' ? "bg-[#25D366]/10 text-[#075E54] dark:bg-[#25D366]/20 dark:text-[#25D366]" :
+                            "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400"
+                      )}>
+                        {conv.channel === 'voice' ? <Phone className="h-2.5 w-2.5" /> : conv.channel === 'whatsapp' ? <Smartphone className="h-2.5 w-2.5" /> : <MessageSquare className="h-2.5 w-2.5" />}
+                        <span>{conv.channel === 'voice' ? 'Voz' : conv.channel === 'whatsapp' ? 'WhatsApp' : 'Web'}</span>
+                      </Badge>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap text-[10px] text-muted-foreground">
+                      <div className="inline-flex items-center gap-1 rounded-[2px] bg-muted/40 px-1.5 py-0.5 min-w-0">
+                        <Bot className="h-3 w-3 flex-shrink-0" />
+                        <span className="truncate">{conv.agentName || 'Agente'}</span>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-muted-foreground/80">

@@ -207,7 +207,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const hasChanges = tenantConversations.length !== prev.length ||
           tenantConversations.some(c => {
             const p = prev.find(old => old.id === c.id);
-            return !p || p.lastMessageTime !== c.lastMessageTime || p.status !== c.status;
+            return !p ||
+              p.lastMessageTime?.getTime?.() !== c.lastMessageTime?.getTime?.() ||
+              p.status !== c.status ||
+              p.userName !== c.userName ||
+              p.userId !== c.userId ||
+              p.userStatus !== c.userStatus ||
+              p.agentName !== c.agentName ||
+              p.channel !== c.channel ||
+              p.messageCount !== c.messageCount ||
+              p.establishmentName !== c.establishmentName;
           });
 
         if (!hasChanges) return prev;
@@ -295,6 +304,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
+    const leadsChannel = supabase
+      .channel(`tenant-leads-${currentTenant.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'agent_leads',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        async (payload: any) => {
+          console.log(`🏪 Realtime Lead Change [${payload.eventType}]`);
+          debouncedRefresh();
+        }
+      )
+      .subscribe();
+
     // Health-check Polling (Extreme safety: 10 minutes)
     const intervalId = setInterval(loadConversationsList, 600000);
 
@@ -302,6 +328,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log("📴 Unsubscribing from Realtime...");
       supabase.removeChannel(convChannel);
       supabase.removeChannel(msgChannel);
+      supabase.removeChannel(leadsChannel);
       clearInterval(intervalId);
       if (refreshTimeout) clearTimeout(refreshTimeout);
     };
