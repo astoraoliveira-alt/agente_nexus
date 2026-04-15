@@ -206,51 +206,79 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
     return agents.find(a => a.id === agentId)?.name || 'Agente';
   };
 
+  const totalCampaigns = campaigns.length;
+  const totalValidLeads = campaigns.reduce((sum, campaign) => sum + (campaign.totalContacts || 0), 0);
+  const totalLinksSent = campaigns.reduce((sum, campaign) => sum + (campaign.conversionCount || 0), 0);
+  const overallConversionRate = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
+
   const calculateConversion = (campaign: Campaign) => {
-    if (typeof campaign.conversionRate === 'number') return campaign.conversionRate;
-    if (!campaign.sentCount || campaign.sentCount === 0) return 0;
-    return ((campaign.conversionCount || 0) / campaign.sentCount) * 100;
+    if (!campaign.totalContacts || campaign.totalContacts === 0) return 0;
+    return ((campaign.conversionCount || 0) / campaign.totalContacts) * 100;
+  };
+
+  const getConversionColor = (value: number) => {
+    if (value <= 10) return 'bg-rose-500';
+    if (value <= 15) return 'bg-amber-400';
+    return 'bg-emerald-500';
+  };
+
+  const getConversionTextColor = (value: number) => {
+    if (value <= 10) return 'text-rose-600';
+    if (value <= 15) return 'text-amber-500';
+    return 'text-emerald-600';
   };
 
   return (
     <div className="space-y-6">
-      <div className="bg-white border border-border/50 p-8 rounded-2xl shadow-sm flex items-center justify-between relative overflow-hidden">
+      <div className="bg-white border border-border/50 p-8 rounded-2xl shadow-sm relative overflow-hidden">
         <div className="absolute top-0 left-0 w-2 h-full bg-[#E5003A]" />
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
-            <Target className="w-6 h-6 text-[#E5003A]" />
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <Target className="w-6 h-6 text-[#E5003A]" />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Visão Geral</span>
+              <span className="text-2xl font-black text-slate-900 italic tracking-tight">Painel Principal Outbound</span>
+            </div>
           </div>
-          <div className="flex flex-col">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Visão Geral</span>
-            <span className="text-2xl font-black text-slate-900 italic tracking-tight">Painel Principal Outbound</span>
+
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:min-w-[42rem]">
+            <BigNumberCard label="Total de Campanhas" value={totalCampaigns.toLocaleString('pt-BR')} />
+            <BigNumberCard label="Válidos" value={totalValidLeads.toLocaleString('pt-BR')} />
+            <BigNumberCard label="Links Enviados" value={totalLinksSent.toLocaleString('pt-BR')} />
+            <BigNumberCard
+              label="% Conversão"
+              value={`${overallConversionRate.toFixed(1)}%`}
+              accentClass={getConversionTextColor(overallConversionRate)}
+            />
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="bg-white text-slate-400 font-mono text-[9px] uppercase tracking-tighter">
-            Total em Execução: {campaigns.filter(c => c.status === 'active').length}
-          </Badge>
+
         </div>
       </div>
 
       <div className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto lg:overflow-x-visible">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50/50">
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest first:pl-10">Campanha</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Início</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Carregados</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Válidos</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Conversão</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Mensagens</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-10">Agente</th>
+                <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest first:pl-8">Campanha</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Status</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Início</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Carregados</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Válidos</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Enviados</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Entregues</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Abandonados</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Links Enviados</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
+                <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-8">Agente</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {campaigns.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-8 py-20 text-center text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                  <td colSpan={11} className="px-8 py-20 text-center text-slate-400 uppercase text-[10px] font-bold tracking-widest">
                     Nenhuma campanha estratégica encontrada
                   </td>
                 </tr>
@@ -264,20 +292,39 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     onClick={() => onSelectCampaign(c.id)}
                     className="hover:bg-slate-50/80 transition-all group cursor-pointer border-l-4 border-l-transparent hover:border-l-[#E5003A]"
                   >
-                    <td className="px-8 py-5 first:pl-10">
-                      <div className="flex flex-col">
+                    <td className="px-6 py-5 first:pl-8">
+                      <div className="flex flex-col max-w-[180px]">
                         <span className="text-sm font-bold text-slate-900 group-hover:text-[#E5003A] transition-colors">{c.name}</span>
-                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-tighter">{c.status}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-5 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className={cn(
+                          "h-2.5 w-2.5 rounded-full",
+                          c.status === 'active' ? "bg-emerald-500" : "bg-slate-300"
+                        )} />
+                        <span className="text-xs font-bold text-slate-600">
+                          {c.status === 'active' ? 'Ativa' : 'Inativa'}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-5 text-xs font-mono text-slate-500 text-center">
                       {format(new Date(c.startDate), "dd/MMM", { locale: ptBR }).toUpperCase()}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-500 text-center">
+                      {((c.totalContacts || 0) + (c.importErrorCount || 0)).toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {c.totalContacts.toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {c.sentCount.toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
+                      {c.responseCount.toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
+                      {Math.max((c.sentCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-indigo-600 text-center">
                       <div className="flex items-center justify-center gap-1.5">
@@ -285,26 +332,25 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                         {c.conversionCount.toLocaleString('pt-BR')}
                       </div>
                     </td>
-                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <MessageSquare className="w-3 h-3 text-emerald-500" />
-                        {c.totalMessages.toLocaleString('pt-BR')}
-                      </div>
-                    </td>
-                    <td className="px-8 py-5 text-center">
+                    <td className="px-4 py-5 text-center">
+                      {(() => {
+                        const conversion = calculateConversion(c);
+                        return (
                       <div className="flex flex-col items-center gap-1.5">
-                        <span className="text-sm font-black text-slate-900 italic">
-                          {calculateConversion(c).toFixed(1)}%
+                        <span className={cn("text-sm font-black italic", getConversionTextColor(conversion))}>
+                          {conversion.toFixed(1)}%
                         </span>
                         <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                           <div 
-                            className="h-full bg-[#E5003A]" 
-                            style={{ width: `${Math.min(calculateConversion(c), 100)}%` }}
+                            className={cn("h-full", getConversionColor(conversion))}
+                            style={{ width: `${Math.min(conversion, 100)}%` }}
                           />
                         </div>
                       </div>
+                        );
+                      })()}
                     </td>
-                    <td className="px-8 py-5 last:pr-10">
+                    <td className="px-6 py-5 last:pr-8">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center">
                           <User className="w-3 h-3 text-slate-400" />
@@ -957,6 +1003,23 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 }
 
 // --- SHARED COMPONENTS ---
+
+function BigNumberCard({
+  label,
+  value,
+  accentClass = 'text-slate-900'
+}: {
+  label: string;
+  value: string;
+  accentClass?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 px-4 py-3 shadow-sm text-center">
+      <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">{label}</div>
+      <div className={cn("mt-2 text-2xl font-black tracking-tight text-center", accentClass)}>{value}</div>
+    </div>
+  );
+}
 
 function OperationCluster({ title, subtitle, icon: Icon, children }: { 
   title: string; 

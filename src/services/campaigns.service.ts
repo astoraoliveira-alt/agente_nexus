@@ -55,6 +55,35 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }));
     },
 
+    async getOutboundQueueMetricsByCampaign(tenantId: string): Promise<Record<string, { total: number; sent: number }>> {
+        const { data, error } = await supabase
+            .from('outbound_queue')
+            .select('campaign_id,status')
+            .eq('tenant_id', tenantId)
+            .not('campaign_id', 'is', null);
+
+        if (error) {
+            console.error('Error fetching outbound queue metrics by campaign:', error);
+            return {};
+        }
+
+        return (data || []).reduce((acc: Record<string, { total: number; sent: number }>, row: any) => {
+            const campaignId = row.campaign_id;
+            if (!campaignId) return acc;
+
+            if (!acc[campaignId]) {
+                acc[campaignId] = { total: 0, sent: 0 };
+            }
+
+            acc[campaignId].total += 1;
+            if (row.status === 'sent') {
+                acc[campaignId].sent += 1;
+            }
+
+            return acc;
+        }, {});
+    },
+
     async getEnrichedOutboundQueue(tenantId: string, campaignId?: string): Promise<any[]> {
         const { data, error } = await supabase.rpc('get_campaign_leads_enriched', {
             p_campaign_id: campaignId || null,

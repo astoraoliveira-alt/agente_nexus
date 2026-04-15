@@ -84,6 +84,7 @@ export default function Campaigns() {
     const { toast } = useToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [agents, setAgents] = useState<Agent[]>([]);
+    const [queueMetricsByCampaign, setQueueMetricsByCampaign] = useState<Record<string, { total: number; sent: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -109,13 +110,13 @@ export default function Campaigns() {
         name: "",
         description: "",
         agentId: "",
-        dailyLimit: 30,
+        dailyLimit: 1000,
         startDate: format(new Date(), "yyyy-MM-dd"),
         endDate: "",
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: "",
-        successCriteria: [] as string[],
+        successCriteria: ['LINK_SENT'] as string[],
         successLinkFilter: "",
     });
 
@@ -129,12 +130,42 @@ export default function Campaigns() {
         if (!currentTenant) return;
         setIsLoading(true);
         try {
-            const [campaignsData, agentsData] = await Promise.all([
+            const [campaignsData, agentsData, queueMetricsData] = await Promise.all([
                 api.getCampaigns(currentTenant.id),
-                api.getAgents(currentTenant.id)
+                api.getAgents(currentTenant.id),
+                api.getOutboundQueueMetricsByCampaign(currentTenant.id)
             ]);
-            setCampaigns(campaignsData);
+
+            const statsResults = await Promise.allSettled(
+                campaignsData.map(async (campaign) => ({
+                    campaignId: campaign.id,
+                    stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+                }))
+            );
+
+            const statsByCampaignId = new Map(
+                statsResults
+                    .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: Awaited<ReturnType<typeof api.getCampaignStats>> }> => result.status === 'fulfilled')
+                    .map((result) => [result.value.campaignId, result.value.stats])
+            );
+
+            const campaignsWithLiveStats = campaignsData.map((campaign) => {
+                const liveStats = statsByCampaignId.get(campaign.id);
+                if (!liveStats) return campaign;
+
+                return {
+                    ...campaign,
+                    sentCount: liveStats.sent_count,
+                    responseCount: liveStats.response_count,
+                    conversionCount: liveStats.conversion_count,
+                    conversionRate: liveStats.conversion_rate,
+                    importErrorCount: liveStats.import_errors
+                };
+            });
+
+            setCampaigns(campaignsWithLiveStats);
             setAgents(agentsData);
+            setQueueMetricsByCampaign(queueMetricsData);
         } catch (error) {
             console.error("Error loading campaigns:", error);
             toast({
@@ -158,7 +189,7 @@ export default function Campaigns() {
         }
 
         try {
-            await api.createCampaign({
+            const createdCampaign = await api.createCampaign({
                 tenantId: currentTenant.id,
                 agentId: newCampaign.agentId,
                 name: newCampaign.name,
@@ -179,18 +210,24 @@ export default function Campaigns() {
                 description: "Sua campanha estratégica foi salva e está pronta para disparos.",
             });
             setIsCreateOpen(false);
+            setSelectedCampaignForImport(createdCampaign.id);
+            setImportData([]);
+            if (fileInputRef.current) fileInputRef.current.value = "";
             setNewCampaign({
                 name: "",
                 description: "",
                 agentId: "",
-                dailyLimit: 30,
+                dailyLimit: 1000,
                 startDate: format(new Date(), "yyyy-MM-dd"),
                 endDate: "",
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: "",
+                successCriteria: ['LINK_SENT'],
+                successLinkFilter: "",
             });
-            loadData();
+            await loadData();
+            setIsImportOpen(true);
         } catch (error) {
             toast({
                 title: "Erro ao criar",
@@ -407,7 +444,8 @@ export default function Campaigns() {
             setIsImportOpen(false);
             setImportData([]);
             if (fileInputRef.current) fileInputRef.current.value = "";
-            loadData();
+            await loadData();
+            await handleViewContacts(campaign.id);
         } catch (error) {
             console.error("Import error:", error);
             toast({
@@ -548,10 +586,21 @@ export default function Campaigns() {
         }
     };
 
-    const totalSent = campaigns.reduce((acc, curr) => acc + (curr.sentCount || 0), 0);
-    const totalResponses = campaigns.reduce((acc, curr) => acc + (curr.responseCount || 0), 0);
-    const totalFailures = campaigns.reduce((acc, curr) => acc + (curr.failedCount || 0), 0);
-    const avgResponseRate = totalSent > 0 ? ((totalResponses / totalSent) * 100).toFixed(1) : "0.0";
+    const totalCampaigns = campaigns.length;
+    const totalInconsistencies = campaigns.reduce((acc, curr) => acc + (curr.importErrorCount || 0), 0);
+    const totalLoadedLeads = campaigns.reduce((acc, curr) => {
+        const queueMetrics = queueMetricsByCampaign[curr.id] || { total: 0, sent: 0 };
+        return acc + queueMetrics.total + (curr.importErrorCount || 0);
+    }, 0);
+    const totalValidLeads = campaigns.reduce((acc, curr) => {
+        const queueMetrics = queueMetricsByCampaign[curr.id] || { total: 0, sent: 0 };
+        return acc + queueMetrics.total;
+    }, 0);
+    const totalLinksSent = campaigns.reduce((acc, curr) => acc + (curr.conversionCount || 0), 0);
+    const totalLoadedPct = totalValidLeads > 0 ? (totalLoadedLeads / totalValidLeads) * 100 : 0;
+    const totalValidPct = totalValidLeads > 0 ? 100 : 0;
+    const totalInconsistenciesPct = totalValidLeads > 0 ? (totalInconsistencies / totalValidLeads) * 100 : 0;
+    const totalLinksSentPct = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
 
     const filteredCampaigns = campaigns.filter(c =>
         c.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -604,6 +653,11 @@ export default function Campaigns() {
             : <ArrowDown className="ml-2 h-3 w-3 text-accent" />;
     };
 
+    const headerBaseClass = "bg-slate-50/90 px-2.5 py-3 text-xs font-bold tracking-tight text-slate-600 border-b border-slate-200/80 leading-tight";
+    const headerLeftClass = `${headerBaseClass} text-left`;
+    const headerCenterClass = `${headerBaseClass} text-center`;
+    const headerRightClass = `${headerBaseClass} text-right`;
+
     return (
         <MainLayout>
             <div className="h-full overflow-y-auto">
@@ -612,7 +666,7 @@ export default function Campaigns() {
                         <div>
                             <h1 className="text-2xl font-bold flex items-center gap-2">
                                 <Megaphone className="h-6 w-6 text-accent" />
-                                Campanhas Estratégicas
+                                Gestão de Campanhas
                             </h1>
                             <p className="text-sm text-muted-foreground">Gerencie o ciclo de vida das suas abordagens proativas inteligentes (Outbound).</p>
                         </div>
@@ -638,7 +692,7 @@ export default function Campaigns() {
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
                                     <DialogHeader className="p-6 pb-2">
-                                        <DialogTitle className="text-2xl font-bold text-accent">Criar Estratégia Outbound</DialogTitle>
+                                        <DialogTitle className="text-2xl font-bold text-accent">Criar Campanha</DialogTitle>
                                         <DialogDescription className="text-xs">
                                             Configure os parâmetros operacionais da sua campanha de automação inteligente.
                                         </DialogDescription>
@@ -813,60 +867,70 @@ export default function Campaigns() {
                 <div className="p-6 space-y-6">
                     {/* Stats Cards */}
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                        <Card className="bg-accent/5 border-accent/20">
+                        <Card className="bg-slate-500/5 border-slate-300/60">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Total Ativo</span>
-                                    <Megaphone className="h-4 w-4 text-accent" />
+                                    <span className="text-sm font-medium text-muted-foreground">Campanha</span>
+                                    <Megaphone className="h-4 w-4 text-slate-500" />
                                 </div>
-                                <div className="text-2xl font-bold">{campaigns.reduce((acc, c) => acc + (c.sentCount || 0), 0)}</div>
-                                <div className="text-xs text-muted-foreground mt-1">Disparos realizados</div>
-                            </CardContent>
-                        </Card>
-
-                        <Card className="bg-amber-500/5 border-amber-500/20">
-                            <CardContent className="pt-6">
-                                <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Lista de Espera</span>
-                                    <Clock className="h-4 w-4 text-amber-500" />
-                                </div>
-                                <div className="text-2xl font-bold">{campaigns.reduce((acc, c) => acc + ((c.totalContacts || 0) - (c.sentCount || 0)), 0)}</div>
-                                <div className="text-xs text-muted-foreground mt-1">Contatos aguardando disparo</div>
+                                <div className="text-2xl font-bold text-slate-700">{totalCampaigns}</div>
+                                <div className="text-xs text-muted-foreground mt-1">Campanhas criadas</div>
                             </CardContent>
                         </Card>
 
                         <Card className="bg-blue-500/5 border-blue-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Respostas</span>
-                                    <MessageSquare className="h-4 w-4 text-blue-500" />
+                                    <span className="text-sm font-medium text-muted-foreground">Leads Carregados</span>
+                                    <Clock className="h-4 w-4 text-blue-500" />
                                 </div>
-                                <div className="text-2xl font-bold text-accent">{totalResponses}</div>
-                                <p className="text-xs text-muted-foreground">Interações detectadas</p>
+                                <div className="flex items-end gap-2">
+                                    <div className="text-2xl font-bold text-blue-600">{totalLoadedLeads}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-blue-500">{totalLoadedPct.toFixed(1)}%</div>
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1">Leads importados na operação</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="bg-emerald-500/5 border-emerald-500/20">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-muted-foreground">Leads válidos</span>
+                                    <MessageSquare className="h-4 w-4 text-emerald-500" />
+                                </div>
+                                <div className="flex items-end gap-2">
+                                    <div className="text-2xl font-bold text-emerald-600">{totalValidLeads}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-emerald-500">{totalValidPct.toFixed(1)}%</div>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Base elegível para disparo</p>
                             </CardContent>
                         </Card>
 
                         <Card className="bg-red-500/5 border-red-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Falhas de Envio</span>
+                                    <span className="text-sm font-medium text-muted-foreground">Inconsistentes</span>
                                     <AlertCircle className="h-4 w-4 text-red-500" />
                                 </div>
-                                <div className="text-2xl font-bold text-red-500">{totalFailures}</div>
-                                <p className="text-xs text-muted-foreground">Erros de entrega registrados</p>
+                                <div className="flex items-end gap-2">
+                                    <div className="text-2xl font-bold text-red-500">{totalInconsistencies}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-red-400">{totalInconsistenciesPct.toFixed(1)}%</div>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Registros inválidos na importação</p>
                             </CardContent>
                         </Card>
 
-                        <Card className="bg-green-500/5 border-green-500/20">
+                        <Card className="bg-emerald-500/5 border-emerald-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Conversão</span>
-                                    <TrendingUp className="h-4 w-4 text-green-500" />
+                                    <span className="text-sm font-medium text-muted-foreground">Links Enviados</span>
+                                    <TrendingUp className="h-4 w-4 text-emerald-500" />
                                 </div>
-                                <div className="text-2xl font-bold">
-                                    {avgResponseRate}%
+                                <div className="flex items-end gap-2">
+                                    <div className="text-2xl font-bold text-emerald-600">{totalLinksSent}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-emerald-500">{totalLinksSentPct.toFixed(1)}%</div>
                                 </div>
-                                <div className="text-xs text-muted-foreground mt-1">Média global de resposta</div>
+                                <div className="text-xs text-muted-foreground mt-1">Conversões registradas por link</div>
                             </CardContent>
                         </Card>
                     </div>
@@ -889,59 +953,63 @@ export default function Campaigns() {
                                     <p className="text-muted-foreground text-sm">Crie sua primeira campanha para começar os disparos.</p>
                                 </div>
                             ) : (
-                                <Table>
+                                <div className="w-full rounded-xl border border-slate-100 overflow-hidden">
+                                <Table className="w-full table-fixed">
                                     <TableHeader>
-                                        <TableRow className="bg-accent/5">
-                                            <TableHead className="w-[180px]">Campanha / Agente</TableHead>
-                                            <TableHead>Criada em</TableHead>
-                                            <TableHead>Status</TableHead>
-                                            <TableHead className="text-center">Carregados</TableHead>
-                                            <TableHead className="text-center">Válidos</TableHead>
-                                            <TableHead className="text-center text-red-500">Inconsistentes</TableHead>
-                                            <TableHead>Progresso</TableHead>
-                                            <TableHead>Vigência</TableHead>
-                                            <TableHead className="text-right">Respostas</TableHead>
-                                            <TableHead className="text-right">Ações</TableHead>
+                                        <TableRow className="border-b-0">
+                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[18%] align-middle rounded-tl-xl")}>Campanha / Agente</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[9%] align-middle")}>Criada em</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle")}>Status</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[7%] align-middle")}>Carregados</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle text-red-500")}>Inconsistentes</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[7%] align-middle")}>Válidos</TableHead>
+                                            <TableHead colSpan={2} className={cn(headerCenterClass, "w-[16%]")}>Conversas Iniciadas</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle")}>Links Enviados</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[9%] align-middle")}>Vigência</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerRightClass, "w-[10%] align-middle rounded-tr-xl")}>Ações</TableHead>
+                                        </TableRow>
+                                        <TableRow className="border-b border-slate-200/80">
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>Msgs<br />Enviadas</TableHead>
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>Msgs Entregues</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
                                         {filteredCampaigns.map((campaign) => {
-                                            const total = campaign.totalContacts || 0;
+                                            const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0 };
+                                            const validRecords = queueMetrics.total;
+                                            const totalLoaded = validRecords + (campaign.importErrorCount || 0);
                                             const sent = campaign.sentCount || 0;
-                                            const failed = campaign.failedCount || 0;
-                                            const responses = campaign.responseCount || 0;
+                                            const queuedMessages = queueMetrics.total;
+                                            const delivered = queueMetrics.sent;
+                                            const linksSent = campaign.conversionCount || 0;
                                             
-                                            const sentPct = total > 0 ? (sent / total) * 100 : 0;
-                                            const failedPct = total > 0 ? (failed / total) * 100 : 0;
-                                            const responsePct = sent > 0 ? (responses / sent) * 100 : 0;
+                                            const validPct = validRecords > 0 ? 100 : 0;
+                                            const sentPct = validRecords > 0 ? (sent / validRecords) * 100 : 0;
+                                            const queuedPct = validRecords > 0 ? (queuedMessages / validRecords) * 100 : 0;
+                                            const deliveredPct = validRecords > 0 ? (delivered / validRecords) * 100 : 0;
+                                            const linksPct = validRecords > 0 ? (linksSent / validRecords) * 100 : 0;
 
                                             return (
                                                 <TableRow key={campaign.id} className="hover:bg-accent/5">
-                                                    <TableCell>
+                                                    <TableCell className="px-3 py-4">
                                                         <div className="flex flex-col">
-                                                            <span className="font-bold">{campaign.name}</span>
+                                                            <span className="font-bold leading-tight break-words">{campaign.name}</span>
                                                             <span className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
                                                                 <Bot className="h-3 w-3" />
                                                                 {agents.find(a => a.id === campaign.agentId)?.name || 'Agente'}
                                                             </span>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-4">
                                                         <div className="text-xs text-muted-foreground font-medium">
                                                             {format(campaign.createdAt, "dd/MM/yyyy", { locale: ptBR })}
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                                                    <TableCell className="text-center font-semibold">
-                                                        {total}
+                                                    <TableCell className="px-2 py-4 text-center">{getStatusBadge(campaign.status)}</TableCell>
+                                                    <TableCell className="px-2 py-4 text-center font-semibold">
+                                                        {totalLoaded}
                                                     </TableCell>
-                                                    <TableCell className="text-center">
-                                                        <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-accent">{sent}</span>
-                                                            <span className="text-[11px] text-muted-foreground">{sentPct.toFixed(0)}%</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-center">
+                                                    <TableCell className="px-2 py-4 text-center">
                                                         <div 
                                                             className={cn(
                                                                 "flex flex-col items-center cursor-pointer hover:bg-red-500/10 rounded p-1 transition-colors",
@@ -953,15 +1021,31 @@ export default function Campaigns() {
                                                             <span className="text-[10px] uppercase">Logs</span>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="w-[150px]">
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex justify-between text-[11px] text-muted-foreground">
-                                                                <span>{Math.round(sentPct)}%</span>
-                                                            </div>
-                                                            <Progress value={sentPct} className="h-1 shadow-inner" />
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-accent">{validRecords}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{validPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell>
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold">{queuedMessages}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{queuedPct.toFixed(0)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-emerald-600">{delivered}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{deliveredPct.toFixed(0)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-violet-600">{linksSent}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{linksPct.toFixed(1)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-4">
                                                         <div className="text-xs space-y-1">
                                                             <div className="flex items-center gap-1">
                                                                 <Clock className="h-3 w-3" />
@@ -970,30 +1054,24 @@ export default function Campaigns() {
                                                             <div className="text-[10px] text-muted-foreground italic">Limite: {campaign.dailyLimit}/dia</div>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <div className="flex flex-col items-end text-blue-500">
-                                                            <span className="font-bold">{responses}</span>
-                                                            <span className="text-[11px] opacity-70">{responsePct.toFixed(1)}%</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-right">
-                                                        <div className="flex justify-end gap-1">
-                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => {
+                                                    <TableCell className="px-2 py-4 text-right">
+                                                        <div className="flex justify-end gap-0.5">
+                                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => {
                                                                 setSelectedCampaignForImport(campaign.id);
                                                                 setIsImportOpen(true);
                                                             }}>
                                                                 <FileUp className="h-4 w-4" />
                                                             </Button>
-                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-400" onClick={() => handleViewContacts(campaign.id)}>
+                                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-blue-400" onClick={() => handleViewContacts(campaign.id)}>
                                                                 <Eye className="h-4 w-4" />
                                                             </Button>
-                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleOpenEdit(campaign)}>
+                                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => handleOpenEdit(campaign)}>
                                                                 <Pencil className="h-4 w-4" />
                                                             </Button>
-                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground" onClick={() => handleTogglePause(campaign)}>
+                                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => handleTogglePause(campaign)}>
                                                                 {campaign.status === 'paused' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                                                             </Button>
-                                                            <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500" onClick={() => handleDeleteCampaign(campaign.id)}>
+                                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => handleDeleteCampaign(campaign.id)}>
                                                                 <Trash2 className="h-4 w-4" />
                                                             </Button>
                                                         </div>
@@ -1003,34 +1081,11 @@ export default function Campaigns() {
                                         })}
                                     </TableBody>
                                 </Table>
+                                </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    {/* Tips */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div className="flex gap-3">
-                            <ShieldCheck className="h-5 w-5 text-accent shrink-0" />
-                            <div className="text-xs text-muted-foreground">
-                                <span className="font-bold text-foreground block mb-1">Proteção Anti-Ban</span>
-                                O sistema respeita o limite diário configurado para manter a saúde do seu número.
-                            </div>
-                        </div>
-                        <div className="flex gap-3">
-                            <TrendingUp className="h-5 w-5 text-blue-500 shrink-0" />
-                            <div className="text-xs text-muted-foreground">
-                                <span className="font-bold text-foreground block mb-1">Tracking Real</span>
-                                Detectamos automaticamente quando um lead responde e marcamos na campanha.
-                            </div>
-                        </div>
-                        <div className="flex gap-3">
-                            <MessageSquare className="h-5 w-5 text-green-500 shrink-0" />
-                            <div className="text-xs text-muted-foreground">
-                                <span className="font-bold text-foreground block mb-1">CRM Integrado</span>
-                                Respostas fluem naturalmente para o seu CRM de Leads para fechamento.
-                            </div>
-                        </div>
-                    </div>
                 </div>
             </div>
 
