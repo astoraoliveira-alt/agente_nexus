@@ -185,27 +185,38 @@ const HighlightText = ({ text, term }: { text: string; term?: string }) => {
 };
 
 // Helper for parsing raw JSON messages from Webhooks/LLMs
-const parseMessageContent = (rawText: string) => {
+const parseMessageContent = (rawText: string): string => {
   if (!rawText) return '';
   const trimmed = rawText.trim();
-  // Check if it looks like a noisy JSON string (e.g. ={\n "content": "..."\n})
+
+  // Pattern 1: ```json\n{...}\n``` or ```\n{...}\n``` (markdown code fence from LLM agents)
+  const codeFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeFenceMatch) {
+    const inner = codeFenceMatch[1].trim();
+    try {
+      const parsed = JSON.parse(inner);
+      if (parsed && typeof parsed.content === 'string') return parsed.content;
+      if (parsed && typeof parsed.output === 'string') return parsed.output;
+      if (parsed && typeof parsed.text === 'string') return parsed.text;
+    } catch {
+      // valid fence but not JSON — return inner text stripped of fence
+    }
+    return inner;
+  }
+
+  // Pattern 2: Plain JSON object ={...} or {...}
   if (trimmed.startsWith('={') || trimmed.startsWith('{')) {
     try {
       const jsonStr = trimmed.startsWith('=') ? trimmed.substring(1) : trimmed;
       const parsed = JSON.parse(jsonStr);
-      if (parsed && typeof parsed.content === 'string') {
-        return parsed.content;
-      }
-      if (parsed && typeof parsed.output === 'string') {
-        return parsed.output;
-      }
-      if (parsed && typeof parsed.text === 'string') {
-        return parsed.text;
-      }
-    } catch (e) {
-      // Ignore parse errors, return raw text
+      if (parsed && typeof parsed.content === 'string') return parsed.content;
+      if (parsed && typeof parsed.output === 'string') return parsed.output;
+      if (parsed && typeof parsed.text === 'string') return parsed.text;
+    } catch {
+      // ignore, fall through
     }
   }
+
   return rawText;
 };
 
@@ -363,7 +374,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
               <span className={cn(
                 "font-bold",
                 conversation.status !== 'closed' ? "text-black dark:text-white" : "text-muted-foreground"
-              )}>{conversation.messages.length}</span>
+              )}>{conversation.messageCount ?? conversation.messages.length}</span>
             </div>
             <span className="text-border">|</span>
             <div className="flex items-center gap-1.5">

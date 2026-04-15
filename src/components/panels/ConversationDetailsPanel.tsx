@@ -222,7 +222,7 @@ export function ConversationDetailsPanel({ data }: ConversationDetailsPanelProps
                 <div className="flex items-center gap-2 text-sm">
                   <MessageSquare className="h-4 w-4 text-muted-foreground" />
                   <span className="text-muted-foreground">Mensagens:</span>
-                  <span>{data.messages.length}</span>
+                  <span>{data.messageCount ?? data.messages.length}</span>
                 </div>
 
                 <div className="flex items-center gap-2 text-sm">

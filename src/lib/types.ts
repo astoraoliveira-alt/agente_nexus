@@ -674,6 +674,8 @@ export interface Conversation {
   lastMessageTime: Date;
   unreadCount: number;
   messages: Message[];
+  messageCount?: number; // Real total from DB — messages[] is paginated (max 50)
+  sentiment?: string | null;   // Filled by AI agent: 'interessado' | 'neutro' | 'resistente' | null
   createdAt: Date;
   isSimulation?: boolean; // Phase 2: Playground
   active_agent_id?: string; // ID of the currently active agent (Parent or Gatekeeper)
@@ -924,6 +926,7 @@ export interface Campaign {
   responseCount: number;
   totalMessages: number;
   conversionCount: number;
+  conversionRate?: number;
   failedCount?: number;
   importErrorCount?: number;
   successCriteria?: string[];

@@ -67,7 +67,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
   }, [conversations, searchTerm, agentFilter]);
 
   const totalMessages = useMemo(() => {
-    return filteredConversations.reduce((acc, curr) => acc + (curr.messages?.length || 0), 0);
+    return filteredConversations.reduce((acc, curr) => acc + (curr.messageCount ?? curr.messages?.length ?? 0), 0);
   }, [filteredConversations]);
 
   return (
@@ -242,6 +242,42 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                         Fechada
                       </Badge>
                     )}
+
+                    {/* Sentiment badge — only renders when the AI agent has filled it */}
+                    {conv.sentiment && (() => {
+                      const sentimentMap: Record<string, { label: string; emoji: string; className: string }> = {
+                        interessado: {
+                          label: 'Interessado',
+                          emoji: '🔥',
+                          className: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/20',
+                        },
+                        neutro: {
+                          label: 'Neutro',
+                          emoji: '😐',
+                          className: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20',
+                        },
+                        resistente: {
+                          label: 'Resistente',
+                          emoji: '🚫',
+                          className: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-500/10 dark:text-rose-400 dark:border-rose-500/20',
+                        },
+                      };
+                      const config = sentimentMap[conv.sentiment.toLowerCase()];
+                      if (!config) return null;
+                      return (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'h-4 px-1.5 text-[9px] font-medium gap-0.5 border rounded-[2px]',
+                            config.className
+                          )}
+                          title={`Sentimento detectado: ${config.label}`}
+                        >
+                          <span>{config.emoji}</span>
+                          <span>{config.label}</span>
+                        </Badge>
+                      );
+                    })()}
                   </div>
 
                   <div className="flex items-center gap-2 text-xs text-muted-foreground/80">

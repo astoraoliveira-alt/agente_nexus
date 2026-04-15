@@ -70,7 +70,41 @@ export function CampaignExecutiveView() {
         api.getCampaigns(currentTenant.id),
         api.getAgents(currentTenant.id)
       ]);
-      setCampaigns(campaignsData);
+
+      // Keep summary and detail aligned by hydrating each campaign with the same RPC used in the detail view.
+      const statsResults = await Promise.allSettled(
+        campaignsData.map(async (campaign) => ({
+          campaignId: campaign.id,
+          stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+        }))
+      );
+
+      const statsByCampaignId = new Map(
+        statsResults
+          .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: CampaignStats }> => result.status === 'fulfilled')
+          .map((result) => [result.value.campaignId, result.value.stats])
+      );
+
+      const campaignsWithLiveStats = campaignsData.map((campaign) => {
+        const liveStats = statsByCampaignId.get(campaign.id);
+
+        if (!liveStats) {
+          return campaign;
+        }
+
+        return {
+          ...campaign,
+          totalContacts: liveStats.total_contacts,
+          sentCount: liveStats.sent_count,
+          responseCount: liveStats.response_count,
+          totalMessages: liveStats.total_messages,
+          conversionCount: liveStats.conversion_count,
+          conversionRate: liveStats.conversion_rate,
+          importErrorCount: liveStats.import_errors
+        };
+      });
+
+      setCampaigns(campaignsWithLiveStats);
       setAgents(agentsData);
     } catch (error) {
       console.error("Error loading data for campaign executive:", error);
@@ -100,6 +134,7 @@ export function CampaignExecutiveView() {
             <CampaignDetailView 
                 campaignId={selectedCampaignId} 
                 campaigns={campaigns}
+                agents={agents}
                 onSelect={setSelectedCampaignId}
                 onBack={() => setSelectedCampaignId(null)} 
             />
@@ -122,8 +157,9 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
   };
 
   const calculateConversion = (campaign: Campaign) => {
-    if (!campaign.totalContacts || campaign.totalContacts === 0) return 0;
-    return ((campaign.conversionCount || 0) / campaign.totalContacts) * 100;
+    if (typeof campaign.conversionRate === 'number') return campaign.conversionRate;
+    if (!campaign.sentCount || campaign.sentCount === 0) return 0;
+    return ((campaign.conversionCount || 0) / campaign.sentCount) * 100;
   };
 
   return (
@@ -153,11 +189,11 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
               <tr className="bg-slate-50/50">
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest first:pl-10">Campanha</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Início</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Base</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Envios</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Mensagens</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Carregados</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Válidos</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Conversão</th>
-                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Yield / ROI</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Mensagens</th>
+                <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
                 <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-10">Agente</th>
               </tr>
             </thead>
@@ -193,16 +229,16 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {c.sentCount.toLocaleString('pt-BR')}
                     </td>
-                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
-                        <MessageSquare className="w-3 h-3 text-emerald-500" />
-                        {c.totalMessages.toLocaleString('pt-BR')}
-                      </div>
-                    </td>
                     <td className="px-4 py-5 text-xs font-bold text-indigo-600 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <Zap className="w-3 h-3" />
                         {c.conversionCount.toLocaleString('pt-BR')}
+                      </div>
+                    </td>
+                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <MessageSquare className="w-3 h-3 text-emerald-500" />
+                        {c.totalMessages.toLocaleString('pt-BR')}
                       </div>
                     </td>
                     <td className="px-8 py-5 text-center">
@@ -244,11 +280,12 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
 interface CampaignDetailViewProps {
   campaignId: string;
   campaigns: Campaign[];
+  agents: Agent[];
   onSelect: (id: string) => void;
   onBack: () => void;
 }
 
-function CampaignDetailView({ campaignId, campaigns, onSelect, onBack }: CampaignDetailViewProps) {
+function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }: CampaignDetailViewProps) {
   const { currentTenant } = useApp();
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [leads, setLeads] = useState<LeadResult[]>([]);
@@ -288,6 +325,7 @@ function CampaignDetailView({ campaignId, campaigns, onSelect, onBack }: Campaig
   };
 
   const selectedCampaign = campaigns.find(c => c.id === campaignId);
+  const selectedAgent = agents.find(agent => agent.id === selectedCampaign?.agentId);
 
   const sortedLeads = useMemo(() => {
     let items = [...leads];
@@ -334,21 +372,41 @@ function CampaignDetailView({ campaignId, campaigns, onSelect, onBack }: Campaig
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10 w-full">
             <div className="flex items-center gap-12">
               <div className="flex flex-col">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Estratégia Outbound</span>
-                <span className="text-xl font-black text-slate-900 italic tracking-tight">
-                    {campaignId === 'all_consolidated' ? 'Consolidado Geral' : selectedCampaign?.name}
-                </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Campanha</span>
+                  <span className="text-xl font-black text-slate-900 italic tracking-tight">
+                      {campaignId === 'all_consolidated' ? 'Consolidado Geral' : selectedCampaign?.name}
+                  </span>
               </div>
 
               <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden md:flex">
                 <Calendar className="w-5 h-5 text-blue-500" />
                 <div className="flex flex-col">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Referência</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Início</span>
                     <span className="text-sm font-bold text-slate-700 font-mono">
                         {campaignId === 'all_consolidated' ? 'Todos os Períodos' : selectedCampaign ? format(new Date(selectedCampaign.startDate), "dd/MM/yyyy") : '-'}
                     </span>
                 </div>
               </div>
+
+                <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden xl:flex">
+                  <Target className="w-5 h-5 text-[#E5003A]" />
+                  <div className="flex flex-col max-w-[280px]">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Meta / Objetivo</span>
+                    <span className="text-sm font-bold text-slate-700 truncate">
+                      {campaignId === 'all_consolidated' ? 'Visão consolidada das campanhas' : selectedCampaign?.description || 'Nao informado'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden xl:flex">
+                  <User className="w-5 h-5 text-slate-500" />
+                  <div className="flex flex-col max-w-[220px]">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Agente</span>
+                    <span className="text-sm font-bold text-slate-700 truncate">
+                      {campaignId === 'all_consolidated' ? 'Multiplos agentes' : selectedAgent?.name || 'Nao informado'}
+                    </span>
+                  </div>
+                </div>
             </div>
             
             <div className="flex items-center gap-3 ml-auto">
@@ -391,21 +449,21 @@ function CampaignDetailView({ campaignId, campaigns, onSelect, onBack }: Campaig
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <OperationCluster title="Processamento de Leads" subtitle="Ingestão e Validação" icon={Users}>
-              <KPISquare label="Total no Arquivo" value={stats.total_contacts + stats.import_errors} percentage={100} subLabel="Volume de Carga" />
-              <KPISquare label="Leads Válidos" value={stats.total_contacts} percentage={stats.total_contacts > 0 ? (stats.total_contacts / (stats.total_contacts + stats.import_errors)) * 100 : 0} isPositive subLabel="Inseridos na Fila" />
-              <KPISquare label="Inconsistentes" value={stats.import_errors} percentage={stats.import_errors > 0 ? (stats.import_errors / (stats.total_contacts + stats.import_errors)) * 100 : 0} isNegative subLabel="Erros de Importação" />
+              <KPISquare label="Total no Arquivo" value={stats.total_contacts + stats.import_errors} percentage={stats.total_contacts > 0 ? ((stats.total_contacts + stats.import_errors) / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" hidePercentage />
+              <KPISquare label="Leads Válidos" value={stats.total_contacts} percentage={stats.total_contacts > 0 ? 100 : 0} isPositive subLabel="Base do card (100%)" />
+              <KPISquare label="Inconsistentes" value={stats.import_errors} percentage={stats.total_contacts > 0 ? (stats.import_errors / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
             </OperationCluster>
 
-            <OperationCluster title="Tráfego de Mensagens" subtitle="Interações reais detectadas" icon={MessageSquare}>
-              <KPISquare label="Envios" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Disparos Realizados" />
-              <KPISquare label="Total Mensagens" value={stats.total_messages || 0} percentage={100} isPositive subLabel="Volume de Tráfego Real" />
-              <KPISquare label="Respostas" value={stats.response_count} percentage={stats.sent_count > 0 ? (stats.response_count / stats.sent_count) * 100 : 0} isPositive subLabel="Engajamento Criado" />
+            <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
+              <KPISquare label="Enviados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
+              <KPISquare label="Entregues" value={stats.response_count} percentage={stats.total_contacts > 0 ? (stats.response_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
+              <KPISquare label="Não Entregues" value={Math.max(stats.sent_count - stats.response_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.response_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
             </OperationCluster>
 
-            <OperationCluster title="Resultados de Negócio" subtitle="Conversão por Critério" icon={Zap}>
-              <KPISquare label="Ativos" value={stats.sent_count} percentage={100} subLabel="Prospects Contatados" />
-              <KPISquare label="Conversões" value={stats.conversion_count} percentage={stats.conversion_rate} isHighlight subLabel="Meta Alcançada" />
-              <KPISquare label="Taxa de Sucesso" value={`${stats.conversion_rate}%`} percentage={stats.conversion_rate} isPositive subLabel="ROI de Engajamento" />
+            <OperationCluster title="Resultado de Interações" subtitle="Baseados nos leads válidos" icon={Zap}>
+              <KPISquare label="Iniciados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
+              <KPISquare label="Insucessos" value={Math.max(stats.sent_count - stats.conversion_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.conversion_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
+              <KPISquare label="Links Enviados" value={stats.conversion_count} percentage={stats.total_contacts > 0 ? (stats.conversion_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
             </OperationCluster>
           </div>
 
@@ -517,6 +575,7 @@ function KPISquare({
   value, 
   percentage, 
   subLabel, 
+  hidePercentage = false,
   isPositive = false, 
   isNegative = false, 
   isHighlight = false 
@@ -525,6 +584,7 @@ function KPISquare({
   value: string | number;
   percentage: number;
   subLabel: string;
+  hidePercentage?: boolean;
   isPositive?: boolean;
   isNegative?: boolean;
   isHighlight?: boolean;
@@ -537,14 +597,16 @@ function KPISquare({
     )}>
       <div className="flex justify-between items-start">
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 leading-none">{label}</span>
-        <div className={cn(
-          "px-1.5 py-0.5 text-[9px] font-black rounded-lg border",
-          isPositive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : 
-          isNegative ? "bg-rose-50 text-rose-600 border-rose-100" : 
-          "bg-slate-50 text-slate-600 border-slate-100"
-        )}>
-          {typeof percentage === 'number' ? `${percentage.toFixed(0)}%` : percentage}
-        </div>
+        {!hidePercentage && (
+          <div className={cn(
+            "px-1.5 py-0.5 text-[9px] font-black rounded-lg border",
+            isPositive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : 
+            isNegative ? "bg-rose-50 text-rose-600 border-rose-100" : 
+            "bg-slate-50 text-slate-600 border-slate-100"
+          )}>
+            {typeof percentage === 'number' ? `${percentage.toFixed(0)}%` : percentage}
+          </div>
+        )}
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-2xl font-black text-slate-950 tabular-nums tracking-tighter">{displayValue}</span>
@@ -569,4 +631,3 @@ function KPISquare({
     </div>
   );
 }
-

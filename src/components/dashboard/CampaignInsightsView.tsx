@@ -177,8 +177,14 @@ export function CampaignInsightsView() {
             <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400 block mb-1">Volume de Mensagens</span>
             <div className="flex items-baseline gap-2 mt-1">
                 <span className="text-2xl font-black text-slate-900">{data?.totals?.total_messages || data?.totals?.messages || 0}</span>
-                <Badge className="text-[8px] bg-blue-50 text-blue-600 border-none px-1 h-4">Troca</Badge>
+                <Badge className="text-[8px] bg-blue-50 text-blue-600 border-none px-1 h-4">Total</Badge>
             </div>
+            {(data?.totals?.campaign_messages ?? 0) > 0 && (
+                <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-sm font-bold text-slate-500">{data.totals.campaign_messages}</span>
+                    <span className="text-[9px] text-slate-400 leading-tight">via campanha</span>
+                </div>
+            )}
         </Card>
 
         {/* 6. Estratégias Ativas */}
@@ -273,7 +279,7 @@ export function CampaignInsightsView() {
                 <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-end">
                         <span className="text-[10px] font-bold uppercase text-slate-500">Média Geral por Lead</span>
-                        <span className="text-xl font-black text-slate-900">{data?.averages?.total} msgs</span>
+                        <span className="text-xl font-black text-slate-900">{data?.averages?.total ?? 0} msgs</span>
                     </div>
                     <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div className="h-full bg-slate-300" style={{ width: '60%' }} />
@@ -283,7 +289,7 @@ export function CampaignInsightsView() {
                 <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-end">
                         <span className="text-[10px] font-bold uppercase text-emerald-600">Leads Convertidos</span>
-                        <span className="text-xl font-black text-emerald-600">{data?.averages?.converted} msgs</span>
+                        <span className="text-xl font-black text-emerald-600">{data?.averages?.converted ?? 0} msgs</span>
                     </div>
                     <div className="h-2 bg-emerald-50 rounded-full overflow-hidden">
                         <div className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: '40%' }} />
@@ -294,7 +300,7 @@ export function CampaignInsightsView() {
                 <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-end">
                         <span className="text-[10px] font-bold uppercase text-[#E5003A]">Leads Não Convertidos</span>
-                        <span className="text-xl font-black text-[#E5003A]">{data?.averages?.failed} msgs</span>
+                        <span className="text-xl font-black text-[#E5003A]">{data?.averages?.failed ?? 0} msgs</span>
                     </div>
                     <div className="h-2 bg-[#E5003A]/5 rounded-full overflow-hidden">
                         <div className="h-full bg-[#E5003A]" style={{ width: '85%' }} />
@@ -307,7 +313,7 @@ export function CampaignInsightsView() {
                 <div className="flex gap-3 items-center">
                     <Zap className="w-5 h-5 text-amber-400 shrink-0" />
                     <p className="text-[10px] font-bold text-slate-600 leading-tight">
-                        Insight: Conversas com mais de {Math.ceil(data?.averages?.converted * 1.5)} msgs tendem a perder o engajamento.
+                        Insight: Conversas com mais de {Math.ceil((data?.averages?.converted ?? 0) * 1.5) || 5} msgs tendem a perder o engajamento.
                     </p>
                 </div>
             </div>

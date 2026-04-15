@@ -398,13 +398,17 @@ export const coreService = {
     },
 
     async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
-        const select = '*, agents(name, type)';
+        // Run both queries in parallel for performance
+        const [convResult, countsResult] = await Promise.all([
+            supabase
+                .from('conversations')
+                .select('*, agents:agent_id(name, type)')
+                .eq('tenant_id', tenantId)
+                .order('last_message_at', { ascending: false, nullsFirst: false }),
+            supabase.rpc('get_conversation_message_counts', { p_tenant_id: tenantId })
+        ]);
 
-        let { data, error } = await supabase
-            .from('conversations')
-            .select('*, agents:agent_id(name, type)')
-            .eq('tenant_id', tenantId)
-            .order('last_message_at', { ascending: false, nullsFirst: false });
+        let { data, error } = convResult;
 
         if (error && (error.code === 'PGRST204' || error.code === '42703')) {
             console.warn('Agent relation missing in conversations, falling back');
@@ -419,6 +423,16 @@ export const coreService = {
         }
 
         if (error) throw error;
+
+        // Build a lookup map: conversationId → real message count (from RPC)
+        const countsMap = new Map<string, number>();
+        if (!countsResult.error && countsResult.data) {
+            for (const row of countsResult.data as any[]) {
+                countsMap.set(row.conversation_id, Number(row.message_count));
+            }
+        } else if (countsResult.error) {
+            console.warn('⚠️ get_conversation_message_counts RPC missing, showing 0:', countsResult.error.message);
+        }
 
         // Fetch contacts to get Ban Status
         const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
@@ -435,29 +449,29 @@ export const coreService = {
             }
         }
 
-        return (data as any[]).map(c => {
-            return {
-                id: c.id,
-                tenantId: c.tenant_id,
-                agentId: c.agent_id,
-                agentName: c.agents?.name || 'Agente Desconhecido',
-                agentType: c.agents?.type as any, // 'embedded' | 'whatsapp' ...
-                userId: c.user_identifier,
-                userName: c.user_name || 'Cliente Sem Nome',
-                userStatus: contactsMap.get(c.user_identifier) || 'active',
-                channel: c.channel,
-                status: c.status,
-                assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
-                lastMessage: '', // Overview doesn't fetch content to save bandwidth. 
-                // Ideally, we should add a 'last_message_preview' column to conversations table for this.
-                lastMessageTime: new Date(c.last_message_at),
-                unreadCount: 0,
-                complianceScore: c.compliance_score, // Added compliance_score mapping
-                messages: [], // Empty by default
-                createdAt: new Date(c.created_at)
-            };
-        }) as unknown as Conversation[];
+        return (data as any[]).map(c => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            agentId: c.agent_id,
+            agentName: c.agents?.name || 'Agente Desconhecido',
+            agentType: c.agents?.type as any,
+            userId: c.user_identifier,
+            userName: c.user_name || 'Cliente Sem Nome',
+            userStatus: contactsMap.get(c.user_identifier) || 'active',
+            channel: c.channel,
+            status: c.status,
+            assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
+            lastMessage: '',
+            lastMessageTime: new Date(c.last_message_at),
+            unreadCount: 0,
+            complianceScore: c.compliance_score,
+            messageCount: countsMap.get(c.id) ?? 0, // Real total — no pagination limit
+            sentiment: c.sentiment ?? null,
+            messages: [],
+            createdAt: new Date(c.created_at)
+        })) as unknown as Conversation[];
     },
+
 
     async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
         const { error } = await supabase
