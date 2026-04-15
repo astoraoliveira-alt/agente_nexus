@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { 
   Users, 
   MessageSquare, 
@@ -17,7 +17,14 @@ import {
   ChevronUp,
   ChevronDown,
   ArrowUpDown,
-  Target
+  Target,
+  Filter,
+  X,
+  PanelRightOpen,
+  SmilePlus,
+  MessagesSquare,
+  TimerReset,
+  UserRound
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -43,10 +50,53 @@ interface CampaignStats {
 }
 
 interface LeadResult {
+    id: string;
     cnpj: string;
     whatsapp: string;
     name: string;
     status: string;
+    contactName?: string;
+    establishmentName?: string;
+    conversationId?: string | null;
+    responseDetected?: boolean;
+    sentAt?: string | null;
+    createdAt?: string | null;
+    campaignId?: string | null;
+}
+
+interface ConversationAnalytics {
+    conversationId: string;
+    startedAt: string;
+    lastInteractionAt: string;
+    participants: {
+        contactName: string;
+        contactPhone: string;
+        agentName: string;
+    };
+    durationSeconds: number;
+    messageCount: number;
+    inboundCount: number;
+    outboundCount: number;
+    predominantSentiment: string;
+    topics: string[];
+    auditTags: string[];
+    summary: string | null;
+    score: number | null;
+    lastMessagePreview: string | null;
+    criteriaResults: Record<string, number | string>;
+    evaluationCount: number;
+    latestAuditAt: string | null;
+    aiModel: string | null;
+    wasConverted: boolean;
+    responseDetected: boolean;
+    queueStatus: string | null;
+    sentAt: string | null;
+    campaignId: string | null;
+    channel: string | null;
+    conversationStatus: string | null;
+    contactLifecycleStatus: string | null;
+    contactStatus: string | null;
+    contactTags: string[];
 }
 
 export function CampaignExecutiveView() {
@@ -290,10 +340,16 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [leads, setLeads] = useState<LeadResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedLead, setSelectedLead] = useState<LeadResult | null>(null);
+  const [analyticsData, setAnalyticsData] = useState<ConversationAnalytics | null>(null);
+  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+  const [analyticsCache, setAnalyticsCache] = useState<Record<string, ConversationAnalytics | null>>({});
   const [sortConfig, setSortConfig] = useState<{
     key: 'cnpj' | 'whatsapp' | 'name' | 'status' | null;
     direction: 'asc' | 'desc';
   }>({ key: null, direction: 'asc' });
+  const analyticsPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -309,12 +365,23 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
       const enrichedContacts = await api.getEnrichedOutboundQueue(currentTenant.id, targetCampaignId as any);
       const mappedLeads = enrichedContacts.map(c => ({
+          id: c.id,
           cnpj: c.cnpj || '-',
           whatsapp: c.contactPhone,
           name: c.establishmentName || c.contactName || 'Sem Nome',
+          contactName: c.contactName || 'Sem Nome',
+          establishmentName: c.establishmentName || null,
+          conversationId: c.conversationId || null,
+          responseDetected: Boolean(c.responseDetected),
+          sentAt: c.sentAt || null,
+          createdAt: c.createdAt || null,
+          campaignId: c.campaignId || null,
           status: c.status === 'sent' ? 'Enviada' : 
                  c.status === 'failed' ? 'Erro' : 
-                 c.status === 'pending' ? 'Pendente' : c.status
+                 c.status === 'pending' ? 'Pendente' : 
+                 c.status === 'processing' ? 'Processando' :
+                 c.status === 'responded' ? 'Respondida' :
+                 c.status === 'converted' ? 'Convertida' : c.status
       }));
       setLeads(mappedLeads);
     } catch (error) {
@@ -324,11 +391,89 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     }
   };
 
+  useEffect(() => {
+    if (!selectedLead || !currentTenant) return;
+
+    const cacheKey = `${selectedLead.id}:${selectedLead.whatsapp}`;
+    if (cacheKey in analyticsCache) {
+      setAnalyticsData(analyticsCache[cacheKey]);
+      return;
+    }
+
+    let active = true;
+    setIsAnalyticsLoading(true);
+
+    api.getConversationAnalytics(currentTenant.id, {
+      conversationId: selectedLead.conversationId,
+      phone: selectedLead.whatsapp,
+      campaignId: selectedLead.campaignId || (campaignId === 'all_consolidated' ? null : campaignId),
+      leadId: selectedLead.id
+    })
+      .then((result) => {
+        if (!active) return;
+        const analyticsResult = result as ConversationAnalytics | null;
+        setAnalyticsData(analyticsResult);
+        setAnalyticsCache(prev => ({ ...prev, [cacheKey]: analyticsResult }));
+      })
+      .catch((error) => {
+        console.error('Error loading conversation analytics:', error);
+        if (!active) return;
+        setAnalyticsData(null);
+      })
+      .finally(() => {
+        if (active) {
+          setIsAnalyticsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedLead, currentTenant, analyticsCache]);
+
+  useEffect(() => {
+    if (!selectedLead) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedLead(null);
+      }
+    };
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+
+      if (analyticsPanelRef.current?.contains(target)) return;
+      if (target.closest('[data-analytics-trigger="true"]')) return;
+
+      setSelectedLead(null);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [selectedLead]);
+
   const selectedCampaign = campaigns.find(c => c.id === campaignId);
   const selectedAgent = agents.find(agent => agent.id === selectedCampaign?.agentId);
 
+  const statusOptions = useMemo(
+    () => Array.from(new Set(leads.map((lead) => lead.status))).sort((a, b) => a.localeCompare(b)),
+    [leads]
+  );
+
+  const filteredLeads = useMemo(() => {
+    if (selectedStatuses.length === 0) return leads;
+    return leads.filter((lead) => selectedStatuses.includes(lead.status));
+  }, [leads, selectedStatuses]);
+
   const sortedLeads = useMemo(() => {
-    let items = [...leads];
+    let items = [...filteredLeads];
     if (sortConfig.key) {
       items.sort((a, b) => {
         const aValue = String(a[sortConfig.key!] || '').toLowerCase();
@@ -339,7 +484,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       });
     }
     return items;
-  }, [leads, sortConfig]);
+  }, [filteredLeads, sortConfig]);
 
   const toggleSort = (key: 'cnpj' | 'whatsapp' | 'name' | 'status') => {
     setSortConfig(prev => ({
@@ -353,6 +498,65 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     return sortConfig.direction === 'asc' 
       ? <ChevronUp className="w-3 h-3 text-slate-900 ml-1 inline" /> 
       : <ChevronDown className="w-3 h-3 text-slate-900 ml-1 inline" />;
+  };
+
+  const toggleStatusFilter = (status: string) => {
+    setSelectedStatuses((prev) =>
+      prev.includes(status) ? prev.filter((item) => item !== status) : [...prev, status]
+    );
+  };
+
+  const clearStatusFilters = () => setSelectedStatuses([]);
+
+  const openAnalytics = (lead: LeadResult) => {
+    setSelectedLead(lead);
+    setAnalyticsData(null);
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return 'Nao informado';
+    return format(new Date(value), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+  };
+
+  const formatDuration = (seconds?: number | null) => {
+    const totalSeconds = Math.max(seconds || 0, 0);
+    if (totalSeconds === 0) return 'Nao informado';
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    if (mins === 0) return `${secs}s`;
+    const hours = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    if (hours === 0) return `${mins}min`;
+    return `${hours}h ${remainingMins}min`;
+  };
+
+  const formatMetricLabel = (key: string) =>
+    key
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const renderStatusBadge = (status?: string | null) => {
+    const normalized = String(status || '').toLowerCase();
+    const classes = normalized === 'enviada' || normalized === 'concluída' || normalized === 'concluida' || normalized === 'convertida'
+      ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+      : normalized === 'erro'
+        ? 'bg-rose-50 text-rose-600 border border-rose-100'
+        : 'bg-amber-50 text-amber-600 border border-amber-100';
+    const Icon = normalized === 'enviada' || normalized === 'concluída' || normalized === 'concluida' || normalized === 'convertida'
+      ? CheckCircle2
+      : normalized === 'erro'
+        ? AlertTriangle
+        : Clock;
+
+    return (
+      <span className={cn(
+        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+        classes
+      )}>
+        <Icon className="w-3 h-3" />
+        {status}
+      </span>
+    );
   };
 
   if (isLoading && !stats) {
@@ -469,15 +673,58 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
           <div className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-8 border-b border-border/50 flex items-center justify-between bg-slate-50/30">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <Activity className="w-5 h-5 text-slate-900" />
                 <h3 className="text-sm font-bold uppercase tracking-widest text-slate-900">Monitor de Transações Exclusivas</h3>
+                <div className="flex items-center gap-2 flex-wrap ml-0 lg:ml-4">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1">
+                    <Filter className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Status</span>
+                  </div>
+                  {statusOptions.map((status) => {
+                    const isSelected = selectedStatuses.includes(status);
+                    const count = leads.filter((lead) => lead.status === status).length;
+                    return (
+                      <Button
+                        key={status}
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleStatusFilter(status)}
+                        className={cn(
+                          "h-8 rounded-full border px-3 text-[10px] font-black uppercase tracking-widest transition-all",
+                          isSelected
+                            ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                        )}
+                      >
+                        {status}
+                        <span className={cn("ml-1.5 text-[9px]", isSelected ? "text-white/80" : "text-slate-400")}>
+                          {count}
+                        </span>
+                      </Button>
+                    );
+                  })}
+                  {selectedStatuses.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearStatusFilters}
+                      className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50"
+                    >
+                      Limpar
+                    </Button>
+                  )}
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 {isLoading && <Clock className="w-4 h-4 text-[#E5003A] animate-spin" />}
               </div>
             </div>
             
+            <div className={cn(
+              "relative transition-all duration-300",
+              selectedLead ? "lg:pr-[25rem]" : ""
+            )}>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -494,47 +741,213 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-10 cursor-pointer" onClick={() => toggleSort('status')}>
                       <div className="flex items-center justify-end">Status <SortIcon column="status" /></div>
                     </th>
+                    <th className="px-8 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-10 text-right">
+                      Ações
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {sortedLeads.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-8 py-20 text-center text-slate-400 uppercase text-[10px] font-bold tracking-widest">
+                      <td colSpan={5} className="px-8 py-20 text-center text-slate-400 uppercase text-[10px] font-bold tracking-widest">
                         Nenhum dado de lead processado
                       </td>
                     </tr>
                   ) : (
                     sortedLeads.map((lead, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                        <td className="px-8 py-5 text-xs font-mono text-slate-600 first:pl-10">
+                        <td className="px-8 py-5 text-sm font-mono text-slate-600 first:pl-10">
                           <div className="flex items-center gap-2">
                             <Hash className="w-3 h-3 opacity-30" /> {lead.cnpj}
                           </div>
                         </td>
-                        <td className="px-8 py-5 text-xs font-medium text-slate-600">
+                        <td className="px-8 py-5 text-sm font-medium text-slate-600">
                           <div className="flex items-center gap-2">
                             <Phone className="w-3 h-3 opacity-30" /> {lead.whatsapp}
                           </div>
                         </td>
                         <td className="px-8 py-5">
-                          <p className="text-xs font-bold text-slate-900">{lead.name}</p>
+                          <p className="text-sm font-bold text-slate-900">{lead.name}</p>
                         </td>
                         <td className="px-8 py-5 last:pr-10 text-right">
-                          <span className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-                            lead.status === 'Enviada' || lead.status === 'Concluída' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' :
-                            lead.status === 'Erro' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
-                            'bg-amber-50 text-amber-600 border border-amber-100'
-                          )}>
-                            {lead.status === 'Enviada' || lead.status === 'Concluída' ? <CheckCircle2 className="w-3 h-3" /> : lead.status === 'Erro' ? <AlertTriangle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                            {lead.status}
-                          </span>
+                          {renderStatusBadge(lead.status)}
+                        </td>
+                        <td className="px-8 py-5 last:pr-10 text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            data-analytics-trigger="true"
+                            onClick={() => openAnalytics(lead)}
+                            className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50"
+                          >
+                            <PanelRightOpen className="w-3.5 h-3.5 mr-1.5" />
+                            Detalhar
+                          </Button>
                         </td>
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
+            </div>
+            <AnimatePresence>
+              {selectedLead && (
+                <motion.aside
+                  ref={analyticsPanelRef}
+                  initial={{ x: 32, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: 32, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: 'easeOut' }}
+                  className="absolute inset-y-0 right-0 z-10 w-full border-l border-slate-200 bg-white shadow-2xl md:w-[25rem]"
+                >
+                  <div className="flex h-full flex-col">
+                    <div className="flex items-start justify-between border-b border-slate-100 p-6">
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resumo Analítico</div>
+                        <h4 className="text-lg font-black text-slate-900">
+                          {selectedLead.establishmentName || selectedLead.contactName || selectedLead.name}
+                        </h4>
+                        <p className="text-xs text-slate-500">{selectedLead.whatsapp}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setSelectedLead(null)}
+                        className="h-9 w-9 rounded-full border border-slate-200"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {isAnalyticsLoading ? (
+                        <div className="flex h-full min-h-[240px] items-center justify-center">
+                          <div className="flex flex-col items-center gap-3 text-slate-500">
+                            <div className="h-7 w-7 animate-spin rounded-full border-b-2 border-[#E5003A]" />
+                            <span className="text-xs font-bold uppercase tracking-widest">Carregando inteligência...</span>
+                          </div>
+                        </div>
+                      ) : analyticsData ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-3">
+                            <AnalyticsMetric icon={Calendar} label="Data/Hora" value={formatDateTime(analyticsData.startedAt)} />
+                            <AnalyticsMetric icon={Clock} label="Última interação" value={formatDateTime(analyticsData.lastInteractionAt)} />
+                            <AnalyticsMetric icon={TimerReset} label="Duração" value={formatDuration(analyticsData.durationSeconds)} />
+                            <AnalyticsMetric icon={MessagesSquare} label="Mensagens" value={String(analyticsData.messageCount)} />
+                            <AnalyticsMetric icon={ArrowUpRight} label="Saídas" value={String(analyticsData.outboundCount)} />
+                            <AnalyticsMetric icon={ArrowRight} label="Entradas" value={String(analyticsData.inboundCount)} />
+                          </div>
+
+                          <AnalyticsBlock title="Visão Executiva" icon={Activity}>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fila</p>
+                                <div className="mt-2">{renderStatusBadge(analyticsData.queueStatus || selectedLead.status)}</div>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conversão</p>
+                                <p className="mt-2 font-semibold text-slate-900">
+                                  {analyticsData.wasConverted ? 'Convertido' : analyticsData.responseDetected ? 'Interagiu' : 'Sem conversão'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Canal</p>
+                                <p className="mt-2 font-semibold text-slate-900">{analyticsData.channel || 'Nao informado'}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Status da conversa</p>
+                                <p className="mt-2 font-semibold text-slate-900">{analyticsData.conversationStatus || 'Nao informado'}</p>
+                              </div>
+                            </div>
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Participantes" icon={UserRound}>
+                            <p><span className="font-semibold">Contato:</span> {analyticsData.participants.contactName}</p>
+                            <p><span className="font-semibold">Agente:</span> {analyticsData.participants.agentName}</p>
+                            <p><span className="font-semibold">Telefone:</span> {analyticsData.participants.contactPhone}</p>
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Auditoria" icon={SmilePlus}>
+                            <p>{analyticsData.predominantSentiment}</p>
+                            {typeof analyticsData.score === 'number' && (
+                              <p className="text-xs text-slate-500">Score analítico: {analyticsData.score}/100</p>
+                            )}
+                            <p className="text-xs text-slate-500">
+                              Avaliações: {analyticsData.evaluationCount} {analyticsData.latestAuditAt ? `| Última auditoria: ${formatDateTime(analyticsData.latestAuditAt)}` : ''}
+                            </p>
+                            {analyticsData.aiModel && (
+                              <p className="text-xs text-slate-500">Modelo: {analyticsData.aiModel}</p>
+                            )}
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Tags de auditoria" icon={MessageSquare}>
+                            {analyticsData.auditTags.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {analyticsData.auditTags.map((tag) => (
+                                  <Badge key={tag} variant="outline" className="text-[10px] uppercase tracking-widest">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <p>Nenhuma tag de auditoria identificada.</p>
+                            )}
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Critérios da auditoria" icon={Target}>
+                            {Object.keys(analyticsData.criteriaResults || {}).length > 0 ? (
+                              <div className="grid grid-cols-2 gap-3">
+                                {Object.entries(analyticsData.criteriaResults).map(([key, value]) => (
+                                  <div key={key} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                                      {formatMetricLabel(key)}
+                                    </div>
+                                    <div className="mt-1 text-sm font-semibold text-slate-900">{String(value)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p>Nenhum critério detalhado disponível.</p>
+                            )}
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Perfil do contato" icon={User}>
+                            <p><span className="font-semibold">Lifecycle:</span> {analyticsData.contactLifecycleStatus || 'Nao informado'}</p>
+                            <p><span className="font-semibold">Status:</span> {analyticsData.contactStatus || 'Nao informado'}</p>
+                            <p><span className="font-semibold">Sentimento:</span> {analyticsData.predominantSentiment}</p>
+                            {analyticsData.contactTags.length > 0 ? (
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {analyticsData.contactTags.map((tag) => (
+                                  <Badge key={tag} variant="outline" className="text-[10px] uppercase tracking-widest">
+                                    {tag}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <p>Sem tags do contato.</p>
+                            )}
+                          </AnalyticsBlock>
+
+                          <AnalyticsBlock title="Resumo da conversa" icon={Activity}>
+                            <p>{analyticsData.summary || analyticsData.lastMessagePreview || 'Nenhum resumo disponível.'}</p>
+                          </AnalyticsBlock>
+                        </>
+                      ) : (
+                        <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                          <div className="space-y-2">
+                            <p className="text-sm font-bold text-slate-700">Nenhum resumo analítico encontrado</p>
+                            <p className="text-xs text-slate-500">
+                              Esta linha ainda não possui uma conversa relacionada ou dados analíticos suficientes.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.aside>
+              )}
+            </AnimatePresence>
             </div>
           </div>
         </>
@@ -625,6 +1038,30 @@ function KPISquare({
         </div>
         <span className="text-[9px] font-bold uppercase text-slate-400 tracking-tighter">{subLabel}</span>
       </div>
+    </div>
+  );
+}
+
+function AnalyticsMetric({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+      </div>
+      <div className="text-sm font-bold text-slate-900 leading-snug">{value}</div>
+    </div>
+  );
+}
+
+function AnalyticsBlock({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+        <Icon className="h-3.5 w-3.5 text-slate-500" />
+        {title}
+      </div>
+      <div className="space-y-2 text-sm leading-6 text-slate-700">{children}</div>
     </div>
   );
 }

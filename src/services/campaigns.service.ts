@@ -79,17 +79,29 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
                 establishment_name: null
             }));
         }
-        const { data: leadsData, error: leadsError } = await supabase
+        const [{ data: leadsData, error: leadsError }, { data: queueContextData, error: queueContextError }] = await Promise.all([
+            supabase
             .from('agent_leads')
-            .select('whatsapp, name')
+            .select('whatsapp, name, identifier')
             .eq('tenant_id', tenantId)
-            .not('whatsapp', 'is', null);
+            .or('whatsapp.not.is.null,identifier.not.is.null'),
+            supabase
+                .from('outbound_queue')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .order('created_at', { ascending: false })
+        ]);
 
         if (leadsError) {
             console.error('Error fetching establishment names for outbound queue:', leadsError);
         }
 
+        if (queueContextError) {
+            console.error('Error fetching queue context for analytics:', queueContextError);
+        }
+
         const establishmentMap = new Map<string, string>();
+        const establishmentByIdentifier = new Map<string, string>();
         for (const lead of leadsData || []) {
             const establishmentName = String((lead as any).name || '').trim();
             if (!establishmentName) continue;
@@ -99,19 +111,210 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
                     establishmentMap.set(variant, establishmentName);
                 }
             }
+
+            const identifier = String((lead as any).identifier || '').trim();
+            if (identifier && !establishmentByIdentifier.has(identifier)) {
+                establishmentByIdentifier.set(identifier, establishmentName);
+            }
+        }
+
+        const queueContextById = new Map<string, any>();
+        for (const row of queueContextData || []) {
+            if (campaignId && (row as any).campaign_id !== campaignId) continue;
+            queueContextById.set((row as any).id, row);
         }
 
         return queueRows.map((d: any) => ({
+            ...(queueContextById.get(d.id) || {}),
             id: d.id,
             contactPhone: d.contact_phone,
             contactName: d.contact_name,
-            establishmentName: String(d.establishment_name || '').trim() || this.getPhoneVariants(d.contact_phone)
-                .map(variant => establishmentMap.get(variant))
-                .find(Boolean),
+            establishmentName:
+                String(d.establishment_name || '').trim() ||
+                establishmentByIdentifier.get(String(d.cnpj || '').trim()) ||
+                this.getPhoneVariants(d.contact_phone)
+                    .map(variant => establishmentMap.get(variant))
+                    .find(Boolean),
             status: d.status,
             metadata: d.metadata,
-            cnpj: d.cnpj
+            cnpj: d.cnpj,
+            conversationId: (queueContextById.get(d.id) as any)?.conversation_id || d.conversation_id || d.metadata?.conversation_id || null,
+            responseDetected: Boolean((queueContextById.get(d.id) as any)?.response_detected),
+            sentAt: (queueContextById.get(d.id) as any)?.sent_at || null,
+            createdAt: (queueContextById.get(d.id) as any)?.created_at || null,
+            campaignId: (queueContextById.get(d.id) as any)?.campaign_id || campaignId || null
         }));
+    },
+
+    async getConversationAnalytics(
+        tenantId: string,
+        params: {
+            conversationId?: string | null;
+            phone?: string | null;
+            campaignId?: string | null;
+            leadId?: string | null;
+        }
+    ): Promise<any | null> {
+        const variants = this.getPhoneVariants(params.phone);
+        const normalizedVariants = new Set(variants);
+
+        let conversation: any | null = null;
+
+        if (params.conversationId) {
+            const { data: conversationById, error: conversationByIdError } = await supabase
+                .from('conversations')
+                .select('id, user_name, user_identifier, last_message_at, created_at, duration_seconds, sentiment, agent_id, channel, status, campaign_id, agents!conversations_agent_id_fkey(name)')
+                .eq('tenant_id', tenantId)
+                .eq('id', params.conversationId)
+                .maybeSingle();
+
+            if (conversationByIdError) {
+                console.error('Error fetching conversation by id for analytics:', conversationByIdError);
+            }
+
+            conversation = conversationById;
+        }
+
+        if (!conversation && variants.length > 0) {
+            const baseQuery = supabase
+                .from('conversations')
+                .select('id, user_name, user_identifier, last_message_at, created_at, duration_seconds, sentiment, agent_id, channel, status, campaign_id, agents!conversations_agent_id_fkey(name)')
+                .eq('tenant_id', tenantId)
+                .order('last_message_at', { ascending: false, nullsFirst: false })
+                .order('created_at', { ascending: false });
+
+            const exactQuery = params.campaignId
+                ? baseQuery.eq('campaign_id', params.campaignId).in('user_identifier', variants)
+                : baseQuery.in('user_identifier', variants);
+
+            const { data: exactMatches, error: exactMatchesError } = await exactQuery;
+
+            if (exactMatchesError) {
+                console.error('Error fetching conversation analytics by exact phone:', exactMatchesError);
+            }
+
+            conversation = (exactMatches as any[] || [])[0] || null;
+
+            if (!conversation) {
+                const fallbackQuery = params.campaignId
+                    ? baseQuery.eq('campaign_id', params.campaignId).limit(200)
+                    : baseQuery.limit(400);
+
+                const { data: fallbackConversations, error: fallbackError } = await fallbackQuery;
+                if (fallbackError) {
+                    console.error('Error fetching conversation analytics fallback:', fallbackError);
+                } else {
+                    conversation = (fallbackConversations as any[] || []).find((item) =>
+                        normalizedVariants.has(this.normalizePhone(item.user_identifier))
+                    ) || null;
+                }
+            }
+        }
+
+        if (!conversation) return null;
+
+        const [{ data: messagesData, error: messagesError }, { data: evaluationsData, error: evaluationsError }, { data: contactsData, error: contactsError }, { data: queueRows, error: queueError }] = await Promise.all([
+            supabase
+                .from('messages')
+                .select('id, created_at, sender_type, direction, content, message_type')
+                .eq('conversation_id', conversation.id)
+                .order('created_at', { ascending: true }),
+            supabase
+                .from('evaluations')
+                .select('score, summary, tags, criteria_results, ai_model, created_at')
+                .eq('conversation_id', conversation.id)
+                .order('created_at', { ascending: false }),
+            variants.length > 0
+                ? supabase
+                    .from('contacts')
+                    .select('id, name, identifier, phone, lifecycle_status, sentiment, tags, status')
+                    .eq('tenant_id', tenantId)
+                    .or(`identifier.in.(${variants.join(',')}),phone.in.(${variants.join(',')})`)
+                    .limit(5)
+                : Promise.resolve({ data: [], error: null } as any),
+            supabase
+                .from('outbound_queue')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .or(params.leadId
+                    ? `id.eq.${params.leadId},conversation_id.eq.${conversation.id}`
+                    : `conversation_id.eq.${conversation.id}`)
+                .order('created_at', { ascending: false })
+        ]);
+
+        if (messagesError) {
+            console.error('Error fetching conversation messages for analytics:', messagesError);
+        }
+
+        if (evaluationsError) {
+            console.error('Error fetching conversation evaluations for analytics:', evaluationsError);
+        }
+
+        if (contactsError) {
+            console.error('Error fetching contact analytics context:', contactsError);
+        }
+
+        if (queueError) {
+            console.error('Error fetching queue analytics context:', queueError);
+        }
+
+        const messages = messagesData || [];
+        const evaluations = evaluationsData || [];
+        const latestEvaluation = (evaluations || [])[0] as any;
+        const latestQueueRow = (queueRows || [])[0] as any;
+        const matchedContact = (contactsData || []).find((contact: any) => {
+            const candidates = [contact.identifier, contact.phone].map((value) => this.normalizePhone(value));
+            return candidates.some((value) => normalizedVariants.has(value));
+        }) as any;
+        const lastMessage = messages[messages.length - 1] as any;
+        const agentName = (conversation as any).agents?.name || 'Agente';
+        const inboundCount = messages.filter((message: any) => {
+            const sender = String(message.sender_type || '').toLowerCase();
+            const direction = String(message.direction || '').toLowerCase();
+            return sender === 'user' || direction === 'inbound';
+        }).length;
+        const outboundCount = Math.max(messages.length - inboundCount, 0);
+        const criteriaResults = latestEvaluation?.criteria_results || {};
+        const auditTags = Array.from(new Set(
+            (evaluations || []).flatMap((evaluation: any) => evaluation.tags || [])
+        ));
+        const wasConverted = latestQueueRow?.status === 'converted';
+        const responseDetected = Boolean(latestQueueRow?.response_detected);
+
+        return {
+            conversationId: conversation.id,
+            startedAt: conversation.created_at,
+            lastInteractionAt: conversation.last_message_at || lastMessage?.created_at || conversation.created_at,
+            participants: {
+                contactName: conversation.user_name || matchedContact?.name || 'Contato',
+                contactPhone: conversation.user_identifier || params.phone || '-',
+                agentName
+            },
+            durationSeconds: conversation.duration_seconds || 0,
+            messageCount: messages.length,
+            inboundCount,
+            outboundCount,
+            predominantSentiment: latestEvaluation?.tags?.[0] || matchedContact?.sentiment || conversation.sentiment || 'Nao identificado',
+            topics: auditTags,
+            auditTags,
+            summary: latestEvaluation?.summary || null,
+            score: latestEvaluation?.score ?? null,
+            lastMessagePreview: lastMessage?.content || null,
+            criteriaResults,
+            evaluationCount: evaluations.length,
+            latestAuditAt: latestEvaluation?.created_at || null,
+            aiModel: latestEvaluation?.ai_model || null,
+            wasConverted,
+            responseDetected,
+            queueStatus: latestQueueRow?.status || null,
+            sentAt: latestQueueRow?.sent_at || null,
+            campaignId: latestQueueRow?.campaign_id || conversation.campaign_id || params.campaignId || null,
+            channel: conversation.channel || null,
+            conversationStatus: conversation.status || null,
+            contactLifecycleStatus: matchedContact?.lifecycle_status || null,
+            contactStatus: matchedContact?.status || null,
+            contactTags: matchedContact?.tags || []
+        };
     },
 
 async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {

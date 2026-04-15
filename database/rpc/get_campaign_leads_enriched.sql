@@ -25,14 +25,14 @@ BEGIN
   RETURN QUERY
   SELECT 
     oq.id,
-    oq.contact_phone,
-    oq.contact_name,
-    oq.status,
+    oq.contact_phone::text,
+    oq.contact_name::text,
+    oq.status::text,
     oq.metadata,
     COALESCE(
-      oq.metadata->>'cnpj', 
+      (oq.metadata->>'cnpj')::text, 
       (
-        SELECT al.identifier 
+        SELECT al.identifier::text
         FROM public.agent_leads al 
         WHERE al.tenant_id = oq.tenant_id 
           AND (
@@ -45,7 +45,7 @@ BEGIN
       )
     ) as cnpj,
     (
-      SELECT trim(al.name)
+      SELECT trim(al.name)::text
       FROM public.agent_leads al
       WHERE al.tenant_id = oq.tenant_id
         AND trim(COALESCE(al.name, '')) <> ''
@@ -53,9 +53,9 @@ BEGIN
           al.whatsapp = oq.contact_phone
           OR regexp_replace(al.whatsapp, '^55', '') = regexp_replace(oq.contact_phone, '^55', '')
           OR al.identifier = COALESCE(
-            oq.metadata->>'cnpj',
+            (oq.metadata->>'cnpj')::text,
             (
-              SELECT al2.identifier
+              SELECT al2.identifier::text
               FROM public.agent_leads al2
               WHERE al2.tenant_id = oq.tenant_id
                 AND (

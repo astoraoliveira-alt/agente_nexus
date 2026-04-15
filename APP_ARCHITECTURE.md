@@ -1,9 +1,20 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 13/Abr/2026
-> **Versão:** 56.5 (Executive Yield & Cumulative Funnel)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Estratégico V2
-> **Fontes Primárias:** `database/executive_insights_v1.sql` (V4.11) · `src/components/dashboard/CampaignInsightsView.tsx`
+> **Última Atualização:** 15/Abr/2026
+> **Versão:** 56.6 (Executive Campaign Control & Analytics Drawer)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Executivo Unificado
+> **Fontes Primárias:** `src/components/dashboard/CampaignExecutiveView.tsx` · `src/services/campaigns.service.ts` · `database/rpc/get_campaign_leads_enriched.sql`
+
+---
+
+## [V56.6] - Executive Campaign Control & Analytics Drawer
+### Dashboard Executivo Unificado
+- **Single-View Dashboard**: O `Index.tsx` passou a expor apenas a aba **Campanha Executiva** no dashboard principal. A navegação abre diretamente em `executive`, reduzindo ruído visual e concentrando a leitura operacional em um único painel.
+- **Status Filter (Multi-Select)**: O `CampaignExecutiveView` recebeu filtro externo por status, com múltipla seleção e opções derivadas dinamicamente dos registros carregados da campanha.
+- **Right Analytics Drawer**: Cada linha da tabela `Monitor de Transações Exclusivas` agora possui ação de detalhamento com drawer lateral direito animado, fechamento por `X`, estado de loading e estado vazio resiliente.
+- **Conversation Analytics Engine**: O serviço `campaigns.service.ts` prioriza o vínculo por `outbound_queue.conversation_id` para buscar analytics; quando ausente, aplica fallback por `campaign_id + telefone normalizado`, agregando `conversations`, `messages`, `evaluations`, `criteria_results`, `contacts` e contexto da própria fila.
+- **Executive Insight Payload**: O drawer exibe data/hora, última interação, duração, quantidade total de mensagens, volume inbound/outbound, tags de auditoria, critérios avaliados, score, modelo de auditoria, status da conversa, status da fila, conversão/interação detectada e resumo final.
+- **Lead Enrichment RPC**: A RPC `get_campaign_leads_enriched` consolida `establishment_name` como campo retornado e o frontend aplica fallback por `identifier` e telefone normalizado para manter a exibição do estabelecimento sem quebrar a UI.
 
 ---
 
@@ -222,7 +233,7 @@ Roteamento gerenciado por `react-router-dom` v6. Todas as rotas protegidas reque
 | Rota | Componente | Acesso | Descrição |
 | :--- | :--- | :--- | :--- |
 | `/select-tenant` | `SelectTenant.tsx` | Super Admin | Seletor de empresa para Super Admins impersonarem tenants. |
-| `/` | `Index.tsx` (Dashboard) | Todos | Dashboard principal com visão operacional tática. |
+| `/` | `Index.tsx` (Dashboard) | Todos | Dashboard principal com foco unificado na visão **Campanha Executiva**, com navegação simplificada e detalhamento analítico lateral por lead. |
 | `/lead-crm` | `LeadCRM.tsx` | Tenant Admin+ | Visualização Kanban de leads por estágio do funil. |
 | `/conversations` | `Conversations.tsx` | Operator+ | Inbox de conversas com chat em tempo real. |
 | `/agents` | `Agents.tsx` | Tenant Admin+ | Gestão completa de agentes (CRUD + RAG + Governança). |
@@ -929,6 +940,33 @@ Movimentação automática pela IA (baseada em score da auditoria) ou manual pel
 7. handle_outbound_sent() → marca como 'sent' + atualiza sent_count + cria conversa.
 8. trg_track_campaign_response → detecta resposta inbound → response_detected=true.
 9. Dashboard exibe: enviados, falhas (números errados agora aparecem aqui!), taxa de resposta e progresso real.
+
+### 13.4 Campanha Executiva (`CampaignExecutiveView`)
+
+- **Fonte Única de Métricas**: O resumo e o detalhe da Campanha Executiva consomem a mesma RPC `get_campaign_dashboard_stats`, evitando divergência entre cards e tabela.
+- **Filtro Operacional por Status**: O monitor de transações suporta seleção múltipla de status diretamente acima da tabela, atualizando a grade em tempo real sem roundtrip extra.
+- **Detalhamento por Linha**: A ação `Detalhar` abre um drawer lateral direito sem bloquear a tabela, preservando a leitura do grid em resoluções amplas.
+- **Estratégia de Match de Conversa**:
+  1. Prioriza `outbound_queue.conversation_id`
+  2. Cai para `conversations.campaign_id + user_identifier`
+  3. Aplica normalização de telefone como fallback final
+- **Blocos Analíticos do Drawer**:
+  - Visão executiva: status da fila, status da conversa, canal e conversão/interação
+  - Participantes: contato, agente e telefone
+  - Auditoria: sentimento, score, total de avaliações e modelo
+  - Tags e critérios: `tags[]` e `criteria_results`
+  - Perfil do contato: lifecycle, status e tags do CRM
+  - Resumo: síntese auditada ou última mensagem disponível
+
+### 13.5 RPC `get_campaign_leads_enriched`
+
+- **Contrato Atual**: `id`, `contact_phone`, `contact_name`, `status`, `metadata`, `cnpj`, `establishment_name`
+- **Objetivo**: alimentar a tabela executiva com nome de estabelecimento e identificador enriquecido sem depender exclusivamente da UI.
+- **Fallbacks Aplicados**:
+  - Match por `agent_leads.whatsapp = outbound_queue.contact_phone`
+  - Match flexível removendo prefixo `55`
+  - Match por `agent_leads.identifier` usando `metadata->>'cnpj'`
+- **Observação de Resiliência**: Mesmo se a RPC falhar por cache/schema, o frontend mantém a tela funcional via fallback para `getOutboundQueue`, perdendo apenas parte do enriquecimento.
 
 ---
 
