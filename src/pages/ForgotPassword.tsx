@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
+import { getSetPasswordUrl } from '@/lib/app-url';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
@@ -27,9 +29,19 @@ export default function ForgotPassword() {
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate API
-    toast.success('Protocolo de resgate enviado para a caixa de entrada.');
-    setIsLoading(false);
+    try {
+      const redirectTo = getSetPasswordUrl();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo,
+      });
+      if (error) throw error;
+      toast.success('Link de redefinição enviado para a caixa de entrada.');
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || 'Erro ao enviar link de redefinição.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

@@ -1,6 +1,3 @@
-import { supabase } from '@/lib/supabase';
-import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
-
 import { coreService } from './core.service';
 import { dashboardService } from './dashboard.service';
 import { usersService } from './users.service';
@@ -11,6 +8,7 @@ import { incidentsService } from './incidents.service';
 import { capabilitiesService } from './capabilities.service';
 import { financialService } from './financial.service';
 import { campaignsService } from './campaigns.service';
+import { profilesService } from './profiles.service';
 
 export const api = {
 _capabilities: {
@@ -28,4 +26,5 @@ _capabilities: {
 ...capabilitiesService,
 ...financialService,
 ...campaignsService,
+...profilesService,
 };

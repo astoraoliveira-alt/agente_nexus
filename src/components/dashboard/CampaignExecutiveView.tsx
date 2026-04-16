@@ -109,7 +109,12 @@ export function CampaignExecutiveView() {
   useEffect(() => {
     if (currentTenant) {
       loadInitialData();
+      return;
     }
+
+    setCampaigns([]);
+    setAgents([]);
+    setIsLoading(false);
   }, [currentTenant]);
 
   const loadInitialData = async () => {

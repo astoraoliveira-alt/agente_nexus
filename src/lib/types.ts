@@ -27,6 +27,9 @@ export interface User {
   name: string;
   email: string;
   role: string;
+  profileId?: string | null;
+  profileName?: string | null;
+  permissions?: string[];
   tenantId: string | null; // Changed to nullable for pending users
   avatar?: string;
   isActive?: boolean; // Legacy, map to status
@@ -36,6 +39,22 @@ export interface User {
   provider?: string;
   status: 'active' | 'pending' | 'blocked' | 'invited';
   owner_id?: string;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  isSystem: boolean;
+  systemKey?: string | null;
+  tenantId: string | null;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  usersCount?: number;
 }
 
 export interface PlanDetails {

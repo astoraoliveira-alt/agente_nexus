@@ -24,6 +24,11 @@ export default function SelectTenant() {
       try {
         const data = await api.getCompanies();
         setCompanies(data);
+        if (data.length === 1) {
+          await switchTenant(data[0].id);
+          navigate('/');
+          return;
+        }
       } catch (error) {
         console.error('Failed to load companies:', error);
         toast.error('Erro ao carregar lista de empresas');

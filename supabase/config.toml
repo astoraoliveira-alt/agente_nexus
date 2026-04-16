@@ -13,3 +13,13 @@ entrypoint = "./functions/process-billing/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/process-document/index.ts"
+
+[functions.invite-user]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/invite-user/index.ts"
+
+[functions.ensure-business-user]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/ensure-business-user/index.ts"

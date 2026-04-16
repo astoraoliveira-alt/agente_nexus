@@ -578,7 +578,7 @@ export const coreService = {
             .from('companies')
             .select('plan_prices, roi_config')
             .eq('id', tenantId)
-            .single();
+            .maybeSingle();
 
         if (companyError) {
             console.error('Error fetching company for pricing:', companyError);

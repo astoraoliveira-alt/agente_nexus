@@ -14,6 +14,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -30,11 +31,13 @@ import { useState, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { PendingUsersList } from '@/components/admin/PendingUsersList';
+import { ManagedProfile } from '@/lib/profile-management';
 
 export default function Users() {
-  const { currentTenant, currentUser } = useApp();
+  const { currentTenant, currentUser, hasPermission } = useApp();
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<User[]>([]);
+  const [profiles, setProfiles] = useState<ManagedProfile[]>([]);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -48,8 +51,12 @@ export default function Users() {
     async function loadUsers() {
       if (currentTenant) {
         try {
-          const data = await api.getUsers(currentTenant.id);
-          setUsers(data);
+          const [usersData, profilesData] = await Promise.all([
+            api.getUsers(currentTenant.id),
+            api.getProfiles(currentTenant.id).catch(() => []),
+          ]);
+          setUsers(usersData);
+          setProfiles(profilesData);
         } catch (error) {
           console.error('Failed to fetch users:', error);
           toast.error('Erro ao carregar usuários');
@@ -69,11 +76,13 @@ export default function Users() {
       setEditingUser(user);
       setFormData(user);
     } else {
+      const defaultProfile = profiles.find((profile) => profile.systemKey === 'operator');
       setEditingUser(null);
       setFormData({
         name: '',
         email: '',
         role: 'operator',
+        profileId: defaultProfile?.id || null,
       });
     }
     setIsDialogOpen(true);
@@ -99,12 +108,44 @@ export default function Users() {
         };
         const createdUser = await api.createUser(newUserPayload);
         setUsers(prev => [...prev, createdUser]);
-        toast.success(`Usuário ${createdUser.name} criado com sucesso`);
+        toast.success(`Convite enviado para ${createdUser.email}`);
       }
       setIsDialogOpen(false);
     } catch (error) {
       console.error('Error saving user:', error);
-      toast.error('Erro ao salvar usuário');
+      const errorMessage = (error as any)?.message || '';
+      const message = (error as any)?.code === '42501' || (error as any)?.status === 403
+        ? 'Sem permissão para criar usuário. É necessário ajustar a política RLS da tabela users.'
+        : errorMessage.includes('Unauthorized')
+          ? 'Sessão do Supabase inválida ou expirada. Saia e entre novamente antes de enviar convites.'
+        : errorMessage.includes('already been registered')
+          ? 'Este email já possui acesso no Supabase Auth. Use "Enviar Email" apenas para usuários ainda não provisionados ou revise o cadastro.'
+        : errorMessage || 'Erro ao salvar usuário';
+      toast.error(message);
+    }
+  };
+
+  const handleSendInvite = async (user: User) => {
+    try {
+      const updatedUser = await api.resendInvite({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        profileId: user.profileId,
+        tenantId: user.tenantId,
+      });
+      setUsers(prev => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)));
+      toast.success(`Convite reenviado para ${updatedUser.email}`);
+    } catch (error) {
+      console.error('Error resending invite:', error);
+      const errorMessage = (error as any)?.message || '';
+      const message = errorMessage.includes('Unauthorized')
+        ? 'Sessão do Supabase inválida ou expirada. Saia e entre novamente antes de reenviar o convite.'
+        : errorMessage.includes('already been registered')
+        ? 'Este email já existe no Supabase Auth. Se o usuário não recebeu o convite inicial, revise as configurações de email do Supabase ou envie um reset de senha.'
+        : errorMessage || 'Erro ao enviar convite por email';
+      toast.error(message);
     }
   };
 
@@ -127,6 +168,45 @@ export default function Users() {
         return <Badge variant="secondary">Operador</Badge>;
       default:
         return <Badge variant="outline">{role}</Badge>;
+    }
+  };
+
+  const getProfileLabel = (user: User) => {
+    const linkedProfile = profiles.find((profile) => profile.id === user.profileId);
+    return linkedProfile?.name || user.profileName || 'Sem perfil';
+  };
+
+  const getStatusBadge = (status?: string) => {
+    switch (status) {
+      case 'active':
+        return (
+          <div className="flex items-center gap-2">
+            <div className="status-dot status-online" />
+            <span className="text-sm">Ativo</span>
+          </div>
+        );
+      case 'pending':
+      case 'invited':
+        return (
+          <div className="flex items-center gap-2">
+            <div className="status-dot bg-amber-500" />
+            <span className="text-sm">Pendente</span>
+          </div>
+        );
+      case 'blocked':
+        return (
+          <div className="flex items-center gap-2">
+            <div className="status-dot bg-red-500" />
+            <span className="text-sm">Bloqueado</span>
+          </div>
+        );
+      default:
+        return (
+          <div className="flex items-center gap-2">
+            <div className="status-dot bg-slate-400" />
+            <span className="text-sm">Indefinido</span>
+          </div>
+        );
     }
   };
 
@@ -161,10 +241,12 @@ export default function Users() {
                   </p>
                 </div>
               </div>
-              <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenDialog()}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Usuário
-              </Button>
+              {hasPermission('users.create') && (
+                <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenDialog()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Novo Usuário
+                </Button>
+              )}
             </div>
 
             {/* Search */}
@@ -206,12 +288,14 @@ export default function Users() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-muted-foreground">{user.email}</td>
-                      <td className="py-3 px-4">{getRoleBadge(user.role)}</td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className="status-dot status-online" />
-                          <span className="text-sm">Ativo</span>
+                        <div className="space-y-1">
+                          {getRoleBadge(user.role)}
+                          <div className="text-xs text-muted-foreground">{getProfileLabel(user)}</div>
                         </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        {getStatusBadge(user.status)}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <DropdownMenu>
@@ -221,19 +305,25 @@ export default function Users() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleSendInvite(user)}>
                               <Mail className="h-4 w-4 mr-2" />
                               Enviar Email
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleOpenDialog(user)}>
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Editar
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteUser(user.id)}>
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Excluir
-                            </DropdownMenuItem>
+                            {hasPermission('users.edit') && (
+                              <DropdownMenuItem onClick={() => handleOpenDialog(user)}>
+                                <Pencil className="h-4 w-4 mr-2" />
+                                Editar
+                              </DropdownMenuItem>
+                            )}
+                            {hasPermission('users.delete') && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteUser(user.id)}>
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Excluir
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </td>
@@ -257,6 +347,11 @@ export default function Users() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingUser ? 'Editar Usuário' : 'Novo Usuário'}</DialogTitle>
+              <DialogDescription>
+                {editingUser
+                  ? 'Atualize os dados de acesso do usuário selecionado.'
+                  : 'Cadastre um novo usuário para a empresa atual e defina o perfil de acesso inicial.'}
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div className="p-3 bg-muted rounded-md border border-border">
@@ -284,7 +379,7 @@ export default function Users() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Perfil de Acesso</Label>
+                <Label>Função Base</Label>
                 <Select
                   value={formData.role}
                   onValueChange={(v: any) => setFormData({ ...formData, role: v })}
@@ -296,6 +391,29 @@ export default function Users() {
                     <SelectItem value="tenant_admin">Admin da Empresa</SelectItem>
                     <SelectItem value="operator">Operador</SelectItem>
                     <SelectItem value="viewer">Visualizador</SelectItem>
+                  </SelectContent>
+                </Select>
+                {!editingUser && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Define o papel macro usado como fallback de compatibilidade e governança.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Perfil de Acesso</Label>
+                <Select
+                  value={formData.profileId || undefined}
+                  onValueChange={(v: any) => setFormData({ ...formData, profileId: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione um perfil salvo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((profile) => (
+                      <SelectItem key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 {!editingUser && (

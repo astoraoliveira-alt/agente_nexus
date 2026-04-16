@@ -46,7 +46,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { agentsService } from '@/services/agents.service';
 
 export default function Agents() {
-  const { openSlideOver, currentTenant, currentUser } = useApp();
+  const { openSlideOver, currentTenant, currentUser, hasPermission } = useApp();
   const [search, setSearch] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [availablePolicies, setAvailablePolicies] = useState<AIPolicy[]>([]);
@@ -334,10 +334,12 @@ export default function Agents() {
                 <h1 className="text-2xl font-bold">Agentes</h1>
                 <p className="text-sm text-muted-foreground">Gerencie seus agentes de IA conversacionais</p>
               </div>
-              <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenDialog()}>
-                <Plus className="h-4 w-4 mr-2" />
-                Novo Agente
-              </Button>
+              {hasPermission('agents.create') && (
+                <Button className="bg-accent hover:bg-accent/90" onClick={() => handleOpenDialog()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Novo Agente
+                </Button>
+              )}
             </div>
 
             {/* Search */}
@@ -358,6 +360,12 @@ export default function Agents() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {parentAgents.map((agent) => {
               const subAgents = getSubAgents(agent.id);
+              const canOpenAgentActions =
+                hasPermission('agents.edit') ||
+                hasPermission('agents.history') ||
+                hasPermission('agents.duplicate') ||
+                hasPermission('agents.delete') ||
+                (!agent.parent_agent_id && hasPermission('agents.create'));
               return (
                 <div key={agent.id} className="flex flex-col gap-0">
                   {/* ─── Parent Agent Card ─── */}
@@ -389,41 +397,53 @@ export default function Agents() {
                   <div className="flex items-center gap-2">
                     <div className={`status-dot ${agent.status === 'active' ? 'status-online' : 'status-offline'}`} />
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2" onClick={(e) => e.stopPropagation()}>
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenDialog(agent); }}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Editar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openSlideOver('agent-history', agent); }}>
-                          <History className="h-4 w-4 mr-2" />
-                          Ver Histórico
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCloneAgent(agent); }}>
-                          <Copy className="h-4 w-4 mr-2" />
-                          Duplicar
-                        </DropdownMenuItem>
-                        {!agent.parent_agent_id && (
-                          <DropdownMenuItem 
-                            className="text-accent focus:bg-accent focus:text-white focus:!text-white"
-                            onClick={(e) => { e.stopPropagation(); handleOpenSubAgentDialog(agent); }}
-                          >
-                            <Bot className="h-4 w-4 mr-2" />
-                            <span className="font-medium">Adicionar Sub-agente</span>
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Excluir
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {canOpenAgentActions && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2" onClick={(e) => e.stopPropagation()}>
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {hasPermission('agents.edit') && (
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleOpenDialog(agent); }}>
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
+                          )}
+                          {hasPermission('agents.history') && (
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openSlideOver('agent-history', agent); }}>
+                              <History className="h-4 w-4 mr-2" />
+                              Ver Histórico
+                            </DropdownMenuItem>
+                          )}
+                          {hasPermission('agents.duplicate') && (
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleCloneAgent(agent); }}>
+                              <Copy className="h-4 w-4 mr-2" />
+                              Duplicar
+                            </DropdownMenuItem>
+                          )}
+                          {!agent.parent_agent_id && hasPermission('agents.create') && (
+                            <DropdownMenuItem 
+                              className="text-accent focus:bg-accent focus:text-white focus:!text-white"
+                              onClick={(e) => { e.stopPropagation(); handleOpenSubAgentDialog(agent); }}
+                            >
+                              <Bot className="h-4 w-4 mr-2" />
+                              <span className="font-medium">Adicionar Sub-agente</span>
+                            </DropdownMenuItem>
+                          )}
+                          {hasPermission('agents.delete') && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={(e) => handleDelete(agent.id, e)}>
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
                 </div>
 

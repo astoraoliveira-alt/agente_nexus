@@ -80,7 +80,7 @@ import { ptBR } from "date-fns/locale";
 import { MainLayout } from "@/components/layout/MainLayout";
 
 export default function Campaigns() {
-    const { currentTenant } = useApp();
+    const { currentTenant, hasPermission } = useApp();
     const { toast } = useToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [agents, setAgents] = useState<Agent[]>([]);
@@ -671,25 +671,29 @@ export default function Campaigns() {
                             <p className="text-sm text-muted-foreground">Gerencie o ciclo de vida das suas abordagens proativas inteligentes (Outbound).</p>
                         </div>
                         <div className="flex gap-2">
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    if (campaigns.length === 0) {
-                                        toast({ title: "Crie uma campanha primeiro" });
-                                        return;
-                                    }
-                                    setIsImportOpen(true);
-                                }}
-                                className="border-accent text-accent hover:bg-accent/10 h-9"
-                            >
-                                <FileUp className="mr-2 h-4 w-4" /> Importar Lista
-                            </Button>
+                            {hasPermission('campaigns.import') && (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                        if (campaigns.length === 0) {
+                                            toast({ title: "Crie uma campanha primeiro" });
+                                            return;
+                                        }
+                                        setIsImportOpen(true);
+                                    }}
+                                    className="border-accent text-accent hover:bg-accent/10 h-9"
+                                >
+                                    <FileUp className="mr-2 h-4 w-4" /> Importar Lista
+                                </Button>
+                            )}
                             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+                                {hasPermission('campaigns.create') && (
                                 <DialogTrigger asChild>
                                     <Button className="bg-accent hover:bg-accent/90 text-accent-foreground font-bold shadow-lg shadow-accent/20 h-9">
                                         <Plus className="mr-2 h-4 w-4" /> Nova Campanha
                                     </Button>
                                 </DialogTrigger>
+                                )}
                                 <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
                                     <DialogHeader className="p-6 pb-2">
                                         <DialogTitle className="text-2xl font-bold text-accent">Criar Campanha</DialogTitle>
@@ -1056,24 +1060,34 @@ export default function Campaigns() {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-right">
                                                         <div className="flex justify-end gap-0.5">
+                                                            {hasPermission('campaigns.import') && (
                                                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => {
                                                                 setSelectedCampaignForImport(campaign.id);
                                                                 setIsImportOpen(true);
                                                             }}>
                                                                 <FileUp className="h-4 w-4" />
                                                             </Button>
+                                                            )}
+                                                            {hasPermission('campaigns.view_contacts') && (
                                                             <Button size="icon" variant="ghost" className="h-7 w-7 text-blue-400" onClick={() => handleViewContacts(campaign.id)}>
                                                                 <Eye className="h-4 w-4" />
                                                             </Button>
+                                                            )}
+                                                            {hasPermission('campaigns.edit') && (
                                                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => handleOpenEdit(campaign)}>
                                                                 <Pencil className="h-4 w-4" />
                                                             </Button>
+                                                            )}
+                                                            {hasPermission('campaigns.pause') && (
                                                             <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground" onClick={() => handleTogglePause(campaign)}>
                                                                 {campaign.status === 'paused' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                                                             </Button>
+                                                            )}
+                                                            {hasPermission('campaigns.delete') && (
                                                             <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => handleDeleteCampaign(campaign.id)}>
                                                                 <Trash2 className="h-4 w-4" />
                                                             </Button>
+                                                            )}
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>

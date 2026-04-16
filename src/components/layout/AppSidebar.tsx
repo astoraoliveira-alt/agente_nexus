@@ -35,27 +35,26 @@ import { mockAlerts } from '@/lib/mock-data';
 // Navigation items are now handled dynamically inside the component to support real-time badges
 
 const adminNavItems = [
-  { title: 'Status do Sistema', url: '/admin/status', icon: Activity },
-  { title: 'Usuários', url: '/users', icon: Users },
-  { title: 'Perfis', url: '/profiles', icon: Shield },
-
-  { title: 'Configurações', url: '/settings', icon: Settings },
+  { title: 'Status do Sistema', url: '/admin/status', icon: Activity, permission: 'system_status.view' },
+  { title: 'Usuários', url: '/users', icon: Users, permission: 'users.view' },
+  { title: 'Perfis', url: '/profiles', icon: Shield, permission: 'profiles.view' },
+  { title: 'Configurações', url: '/settings', icon: Settings, permission: 'settings.view' },
 ];
 
 const governanceNavItems = [
-  { title: 'CRM (Kanban)',        url: '/lead-crm',       icon: LayoutGrid },
-  { title: 'Observatório',        url: '/observatory',    icon: Zap },
-  { title: 'Qualidade',           url: '/quality',         icon: ShieldCheck },
-  { title: 'Governança IA',       url: '/governance',      icon: ShieldCheck },
-  { title: 'Performance & IA',    url: '/ai-performance',  icon: Gauge },
+  { title: 'CRM (Kanban)',        url: '/lead-crm',       icon: LayoutGrid, permission: 'crm.view' },
+  { title: 'Observatório',        url: '/observatory',    icon: Zap, permission: 'observatory.view' },
+  { title: 'Qualidade',           url: '/quality',         icon: ShieldCheck, permission: 'quality.view' },
+  { title: 'Governança IA',       url: '/governance',      icon: ShieldCheck, permission: 'governance.view' },
+  { title: 'Performance & IA',    url: '/ai-performance',  icon: Gauge, permission: 'ai_performance.view' },
   // { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
   // { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];
 
 const platformNavItems = [
-  { title: 'Empresas', url: '/companies', icon: Building2 },
-  { title: 'Planos de Serviço', url: '/plans', icon: CreditCard },
-  { title: 'Resumo Financeiro', url: '/financials', icon: PieChart },
+  { title: 'Empresas', url: '/companies', icon: Building2, permission: 'companies.view' },
+  { title: 'Planos de Serviço', url: '/plans', icon: CreditCard, permission: 'plans.view' },
+  { title: 'Resumo Financeiro', url: '/financials', icon: PieChart, permission: 'financials.view' },
 ];
 
 export function AppSidebar() {
@@ -66,12 +65,12 @@ export function AppSidebar() {
   const activeConversationsCount = conversations.filter(c => c.status !== 'closed').length;
 
   const dynamicMainNavItems = [
-    { title: 'Dashboard', url: '/', icon: LayoutDashboard },
-    { title: 'Consumo', url: '/consumption', icon: BarChart3 },
-    { title: 'Conversas', url: '/conversations', icon: MessageSquare, badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
-    { title: 'Contatos', url: '/contacts', icon: Users },
-    { title: 'Agentes', url: '/agents', icon: Bot },
-    { title: 'Campanhas', url: '/campaigns', icon: Megaphone },
+    { title: 'Dashboard', url: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
+    { title: 'Consumo', url: '/consumption', icon: BarChart3, permission: 'consumption.view' },
+    { title: 'Conversas', url: '/conversations', icon: MessageSquare, permission: 'conversations.view', badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
+    { title: 'Contatos', url: '/contacts', icon: Users, permission: 'contacts.view' },
+    { title: 'Agentes', url: '/agents', icon: Bot, permission: 'agents.view' },
+    { title: 'Campanhas', url: '/campaigns', icon: Megaphone, permission: 'campaigns.view' },
   ];
 
   const handleLogout = () => {
@@ -82,6 +81,10 @@ export function AppSidebar() {
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
   const isAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'tenant_admin';
+  const filteredMainNavItems = dynamicMainNavItems.filter((item) => hasPermission(item.permission));
+  const filteredGovernanceNavItems = governanceNavItems.filter((item) => hasPermission(item.permission));
+  const filteredAdminNavItems = adminNavItems.filter((item) => hasPermission(item.permission));
+  const filteredPlatformNavItems = platformNavItems.filter((item) => hasPermission(item.permission));
 
   return (
     <aside
@@ -148,7 +151,7 @@ export function AppSidebar() {
             <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Principal</p>
           )}
           <ul className="space-y-1">
-            {dynamicMainNavItems.map((item) => (
+            {filteredMainNavItems.map((item) => (
               <li key={item.url}>
                 <NavLink
                   to={item.url}
@@ -177,13 +180,13 @@ export function AppSidebar() {
         </div>
 
         {/* Governance Section */}
-        {hasPermission('governance.view') && (
+        {filteredGovernanceNavItems.length > 0 && (
           <div className="px-3 mt-4">
             {!collapsed && (
               <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Governança</p>
             )}
             <ul className="space-y-1">
-              {governanceNavItems.map((item) => (
+              {filteredGovernanceNavItems.map((item) => (
                 <li key={item.url}>
                   <NavLink
                     to={item.url}
@@ -203,13 +206,13 @@ export function AppSidebar() {
         )}
 
         {/* Admin Section */}
-        {isAdmin && (
+        {isAdmin && filteredAdminNavItems.length > 0 && (
           <div className="px-3 mt-4">
             {!collapsed && (
               <p className="text-xs text-sidebar-foreground/60 uppercase tracking-wider px-3 mb-2">Admin</p>
             )}
             <ul className="space-y-1">
-              {adminNavItems.map((item) => (
+              {filteredAdminNavItems.map((item) => (
                 <li key={item.url}>
                   <NavLink
                     to={item.url}
@@ -229,7 +232,7 @@ export function AppSidebar() {
         )}
 
         {/* Platform Admin Section (Super Admin Only) */}
-        {isSuperAdmin && (
+        {isSuperAdmin && filteredPlatformNavItems.length > 0 && (
           <div className={cn(
             "mt-4 pt-4 border-t border-sidebar-border/60 bg-blue-500/5 pb-2 mx-2 rounded-xl transition-all duration-300",
             collapsed ? "px-1" : "px-1"
@@ -238,7 +241,7 @@ export function AppSidebar() {
               <p className="text-[10px] text-blue-500/80 font-black uppercase tracking-[0.2em] px-3 mb-2">Admin Davos</p>
             )}
             <ul className="space-y-1">
-              {platformNavItems.map((item) => (
+              {filteredPlatformNavItems.map((item) => (
                 <li key={item.url}>
                   <NavLink
                     to={item.url}

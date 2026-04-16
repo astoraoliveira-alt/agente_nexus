@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { AuthService } from "@/services/auth";
 import { api } from "@/services/api";
 import { User, Company } from "@/lib/types";
+import { ManagedProfile } from "@/lib/profile-management";
 import {
     Dialog,
     DialogContent,
@@ -33,6 +34,8 @@ export function PendingUsersList() {
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [selectedTenant, setSelectedTenant] = useState<string>('');
     const [selectedRole, setSelectedRole] = useState<string>('operator');
+    const [availableProfiles, setAvailableProfiles] = useState<ManagedProfile[]>([]);
+    const [selectedProfileId, setSelectedProfileId] = useState<string>('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
 
     useEffect(() => {
@@ -61,8 +64,35 @@ export function PendingUsersList() {
         setSelectedUser(user);
         setSelectedRole('operator'); // Reset default
         setSelectedTenant(''); // Reset
+        setAvailableProfiles([]);
+        setSelectedProfileId('');
         setIsDialogOpen(true);
     };
+
+    useEffect(() => {
+        async function loadProfilesForTenant() {
+            if (!selectedTenant) {
+                setAvailableProfiles([]);
+                setSelectedProfileId('');
+                return;
+            }
+
+            try {
+                const profiles = await api.getProfiles(selectedTenant);
+                setAvailableProfiles(profiles);
+                const defaultProfile = profiles.find((profile: ManagedProfile) => profile.systemKey === selectedRole)
+                    || profiles.find((profile: ManagedProfile) => profile.systemKey === 'operator')
+                    || profiles[0];
+                setSelectedProfileId(defaultProfile?.id || '');
+            } catch (error) {
+                console.error('Error loading profiles for approval:', error);
+                setAvailableProfiles([]);
+                setSelectedProfileId('');
+            }
+        }
+
+        loadProfilesForTenant();
+    }, [selectedTenant, selectedRole]);
 
     const confirmApproval = async () => {
         if (!selectedUser || !selectedTenant) {
@@ -71,7 +101,7 @@ export function PendingUsersList() {
         }
 
         try {
-            await AuthService.approveUser(selectedUser.id, selectedTenant, selectedRole);
+            await AuthService.approveUser(selectedUser.id, selectedTenant, selectedRole, selectedProfileId || null);
             toast.success(`Usuário ${selectedUser.name} aprovado com sucesso!`);
             setIsDialogOpen(false);
             loadData(); // Refresh list
@@ -195,6 +225,22 @@ export function PendingUsersList() {
                                         <SelectItem value="operator">Operador (Padrão)</SelectItem>
                                         <SelectItem value="tenant_admin">Admin da Empresa</SelectItem>
                                         <SelectItem value="super_admin">Super Admin (Cuidado)</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label>Perfil Persistido</Label>
+                                <Select onValueChange={setSelectedProfileId} value={selectedProfileId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Selecione um perfil..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {availableProfiles.map((profile) => (
+                                            <SelectItem key={profile.id} value={profile.id}>
+                                                {profile.name}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>

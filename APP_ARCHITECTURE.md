@@ -1,9 +1,9 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 15/Abr/2026
-> **Versão:** 56.6 (Executive Campaign Control & Analytics Drawer)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Executivo Unificado
-> **Fontes Primárias:** `src/components/dashboard/CampaignExecutiveView.tsx` · `src/services/campaigns.service.ts` · `database/rpc/get_campaign_leads_enriched.sql`
+> **Última Atualização:** 16/Abr/2026
+> **Versão:** 56.7 (Auth Onboarding, Persisted RBAC & Approval Alignment)
+> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Executivo Unificado + Onboarding por Convite
+> **Fontes Primárias:** `src/components/dashboard/CampaignExecutiveView.tsx` · `src/contexts/AppContext.tsx` · `src/services/auth.ts` · `src/lib/permissions.ts` · `database/migrations/20260416_profiles_rbac_persistence.sql`
 
 ---
 
@@ -15,6 +15,18 @@
 - **Conversation Analytics Engine**: O serviço `campaigns.service.ts` prioriza o vínculo por `outbound_queue.conversation_id` para buscar analytics; quando ausente, aplica fallback por `campaign_id + telefone normalizado`, agregando `conversations`, `messages`, `evaluations`, `criteria_results`, `contacts` e contexto da própria fila.
 - **Executive Insight Payload**: O drawer exibe data/hora, última interação, duração, quantidade total de mensagens, volume inbound/outbound, tags de auditoria, critérios avaliados, score, modelo de auditoria, status da conversa, status da fila, conversão/interação detectada e resumo final.
 - **Lead Enrichment RPC**: A RPC `get_campaign_leads_enriched` consolida `establishment_name` como campo retornado e o frontend aplica fallback por `identifier` e telefone normalizado para manter a exibição do estabelecimento sem quebrar a UI.
+
+---
+
+## [V56.7] - Auth Onboarding, Persisted RBAC & Approval Alignment
+### Convite, Primeiro Acesso e Perfis Persistidos
+- **Primeiro Acesso por Convite**: O fluxo público agora inclui a rota `/set-password`, consumindo o link do Supabase para definição inicial de senha e também para reset de credencial.
+- **Convite Seguro via Edge Function**: A função `invite-user` passou a aceitar `profile_id`, enviar `redirectTo` explícito para `/set-password` e validar o chamador por JWT em lógica interna.
+- **Bootstrap de Usuário de Negócio**: A Edge Function `ensure-business-user` faz o vínculo do `auth.users` com `public.users` no primeiro login, promovendo `invited -> pending` e mantendo `pending` até aprovação administrativa.
+- **Fallback de Tenant no Boot**: O `AppContext` carrega o tenant pelo `tenant_id` do usuário e, se necessário, aplica fallback via `getCompanies()` para auto-seleção quando há apenas um tenant disponível.
+- **RBAC Persistido**: O projeto ganhou a base `profiles` + `profile_permissions` + `users.profile_id`, com seed dos perfis sistêmicos e backfill por `role`, mantendo compatibilidade com o modelo legado.
+- **Permissões no Runtime**: O `AppContext` agora prioriza permissões persistidas carregadas por `profile_id` e usa `role` apenas como fallback de compatibilidade.
+- **Aprovação Coerente**: O fluxo de aprovação de usuários passou a gravar `profile_id` além de `role`, e o onboarding passou a preservar usuários em `pending` até liberação explícita.
 
 ---
 
@@ -226,6 +238,7 @@ Roteamento gerenciado por `react-router-dom` v6. Todas as rotas protegidas reque
 | :--- | :--- | :--- |
 | `/login` | `Login.tsx` | Autenticação via email/senha (Supabase Auth). Dark, high-tech aesthetic. |
 | `/forgot-password` | `ForgotPassword.tsx` | Fluxo de recuperação de senha. |
+| `/set-password` | `SetPassword.tsx` | Primeiro acesso e redefinição de senha via link do Supabase Auth. |
 | `/pending-approval` | `PendingApproval.tsx` | Tela exibida para usuários com `status = 'pending'`. |
 
 ### 3.2 Rotas Protegidas (Requerem Autenticação)
@@ -261,7 +274,7 @@ Roteamento gerenciado por `react-router-dom` v6. Todas as rotas protegidas reque
 ### 4.1 Tabelas de Identidade
 
 **`auth.users` (Supabase):** Gerencia credenciais, tokens e sessões JWT.
-**`public.users` (Nexus):** Gerencia o negócio — papéis, status, vínculo com tenant.
+**`public.users` (Nexus):** Gerencia o negócio — papéis, status, vínculo com tenant e associação com perfil persistido.
 
 ```sql
 -- Campos-chave de public.users
@@ -270,6 +283,7 @@ tenant_id UUID REFERENCES companies -- Nullable para Super Admins
 email VARCHAR(255) UNIQUE
 full_name VARCHAR(255)
 role VARCHAR(50)                   -- 'super_admin' | 'tenant_admin' | 'operator' | 'viewer'
+profile_id UUID NULL               -- FK para public.profiles (fallback legado continua em role)
 status VARCHAR(20)                 -- 'pending' | 'active' | 'blocked' | 'invited'
 provider_id VARCHAR                -- Elo com auth.users (auth.uid())
 is_active BOOLEAN
@@ -279,49 +293,66 @@ last_login_at TIMESTAMPTZ
 ### 4.2 Fluxo de Login Híbrido (`AuthService` + `AppContext`)
 
 ```
-1. Usuário faz login via Supabase Auth (email/senha).
-2. AppContext.boot() intercepta a sessão: getSession() retorna {user}.
-3. AuthService.getUserByProviderId(auth.uid()) busca em public.users.
+1. Usuário faz login via Supabase Auth (email/senha) ou chega por link de convite/reset em `/set-password`.
+2. `AppContext.boot()` intercepta a sessão: `getSession()` retorna `{ user }`.
+3. `AuthService.getUserByProviderId(auth.uid())` busca em `public.users`.
 4. [Auto-Link] Se não encontrado, tenta vincular por email (invite/legacy).
+5. [Server-side Ensure] Se ainda não houver perfil de negócio, chama `ensure-business-user` para consolidar o vínculo entre `auth.users` e `public.users`.
 
 Validação de Status:
+├─ status = 'invited'  → Primeiro login converte para 'pending' via ensure-business-user
 ├─ status = 'pending'  → Redireciona para /pending-approval
 ├─ status = 'blocked'  → Força signOut() imediato
 └─ status = 'active'   → Carrega tenant (via localStorage) e libera acesso
 
-5. Super Admin: redireciona para /select-tenant se não tiver tenant salvo.
-6. Tenant salvo em localStorage['davos_active_tenant_id'] para persistência.
+6. Super Admin: redireciona para `/select-tenant` se não tiver tenant salvo.
+7. Se `getTenant()` falhar, o boot aplica fallback via `getCompanies()`; quando houver apenas um tenant, ele é auto-selecionado.
+8. Tenant salvo em `localStorage['davos_active_tenant_id']` para persistência.
 ```
 
 ### 4.3 RBAC — Permissões Granulares
 
-O sistema define ~21 permissões em `src/lib/types.ts`:
+O sistema define uma matriz persistível de permissões em `src/lib/permissions.ts`, organizada por módulo e seção. O runtime carrega `profile_permissions` do banco quando `users.profile_id` está preenchido; caso contrário usa `getDefaultPermissionsForRole(role)` como fallback legado.
 
 | Categoria | Permissões |
 | :--- | :--- |
-| **Conversas** | `conversations.view`, `.operate`, `.takeover`, `.transfer`, `.ai_toggle` |
-| **Agentes** | `agents.view`, `.edit`, `.create` |
-| **Fluxos** | `flows.view`, `.manage` |
-| **Consumo** | `consumption.view`, `.financial`, `.export` |
-| **Usuários** | `users.view`, `.manage` |
-| **Governança** | `governance.view`, `.manage`, `.incidents` |
-| **Administração** | `profiles.manage`, `settings.manage` |
-| **Plataforma** | `platform.companies`, `platform.global_settings` (Super Admin only) |
+| **Dashboard** | `dashboard.view` |
+| **Consumo** | `consumption.view`, `.export` |
+| **Conversas** | `conversations.view`, `.takeover`, `.transfer`, `.reply`, `.details` |
+| **Contatos** | `contacts.view`, `.create`, `.edit`, `.delete`, `.export` |
+| **Agentes** | `agents.view`, `.create`, `.edit`, `.delete`, `.history`, `.duplicate` |
+| **Campanhas** | `campaigns.view`, `.create`, `.edit`, `.delete`, `.import`, `.view_contacts`, `.pause` |
+| **Governança** | `crm.view`, `.manage_cards`, `.edit_stage`, `observatory.view`, `.export`, `quality.view`, `.export`, `governance.view`, `.manage`, `ai_performance.view`, `.export` |
+| **Administração** | `system_status.view`, `users.view`, `.create`, `.edit`, `.delete`, `profiles.view`, `.create`, `.edit`, `.delete`, `settings.view`, `.edit` |
+| **Admin Davos** | `companies.*`, `plans.*`, `financials.view`, `financials.export` |
 
-**Papéis do Sistema (DEFAULT_ROLES):**
-- `super_admin`: Todas as permissões + acesso mult-tenant.
-- `tenant_admin`: Todas exceto `platform.*`.
-- `operator`: Subset focado em conversas e visualização.
-- `viewer`: Somente leitura (view permissions).
+**Persistência Real (V56.7):**
+- `public.profiles`: cadastro do perfil
+- `public.profile_permissions`: permissões vinculadas ao perfil
+- `public.users.profile_id`: elo usuário → perfil
+
+**Perfis do Sistema (seed):**
+- `super_admin`: todas as permissões + multitenancy
+- `tenant_admin`: administração completa do tenant
+- `operator`: operação diária com subset de execução
+- `viewer`: leitura e acompanhamento
+
+**Regra de Compatibilidade:**
+- `profile_id` é a fonte principal quando presente
+- `role` continua obrigatório para bootstrap, approval flow, convites e fallback legado
 
 ### 4.4 Fluxo de Aprovação (Admin UI)
 
 ```
-Novo Cadastro → status = 'pending'
+Convite via invite-user → status = 'invited'
       ↓
-Super Admin vê lista em /users (aba "Pendentes")
+Usuário define senha em /set-password
       ↓
-Aprovar: define tenant_id + role → status = 'active'
+Primeiro login → ensure-business-user vincula provider_id e converte invited -> pending
+      ↓
+Super Admin vê lista em /users (Solicitações de Acesso)
+      ↓
+Aprovar: define tenant_id + role + profile_id → status = 'active'
 Rejeitar: status = 'blocked'
 ```
 

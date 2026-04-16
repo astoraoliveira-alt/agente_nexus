@@ -3,6 +3,7 @@ import { User, Tenant, Conversation } from '@/lib/types'; // Using real types
 import { api } from '@/services/api';
 import { AuthService } from '@/services/auth';
 import { supabase } from '@/lib/supabase';
+import { getDefaultPermissionsForRole } from '@/lib/permissions';
 
 export type SlideOverContentType =
   | 'conversation-details'
@@ -113,15 +114,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
           }
 
+          if (!businessUser) {
+            console.log('🛠️ Attempting server-side business user ensure...');
+            businessUser = await AuthService.ensureBusinessUser();
+          }
+
           if (businessUser) {
             console.log('👤 Business Profile Loaded:', businessUser);
             setCurrentUser(businessUser);
 
             // 4. Permission Logic
-            if (businessUser.role === 'super_admin' || businessUser.role === 'tenant_admin') {
-              setUserPermissions(['all']);
-            } else {
-              setUserPermissions(['view_only']);
+            try {
+              const persistedPermissions = businessUser.profileId
+                ? await api.getProfilePermissions(businessUser.profileId)
+                : [];
+              setUserPermissions(
+                persistedPermissions.length > 0
+                  ? persistedPermissions
+                  : getDefaultPermissionsForRole(businessUser.role)
+              );
+            } catch (permissionError) {
+              console.error('⚠️ Failed to load profile permissions, using role fallback:', permissionError);
+              setUserPermissions(getDefaultPermissionsForRole(businessUser.role));
             }
 
             // 5. Tenant Logic
@@ -133,7 +147,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             if (tenantIdToLoad) {
               const tenant = await api.getTenant(tenantIdToLoad);
-              if (tenant) setCurrentTenant(tenant);
+              if (tenant) {
+                setCurrentTenant(tenant);
+                console.log('🏢 Tenant loaded:', tenant.name);
+              } else {
+                console.warn('⚠️ Tenant fetch failed via getTenant. Attempting fallback via getCompanies...');
+                const availableCompanies = await api.getCompanies();
+                const fallbackTenant = availableCompanies.find((company) => company.id === tenantIdToLoad)
+                  || (availableCompanies.length === 1 ? availableCompanies[0] : null);
+
+                if (fallbackTenant) {
+                  setCurrentTenant(fallbackTenant);
+                  localStorage.setItem('davos_active_tenant_id', fallbackTenant.id);
+                  console.log('🏢 Tenant loaded via fallback:', fallbackTenant.name);
+                } else {
+                  console.warn('⚠️ No tenant could be loaded for business user.');
+                }
+              }
+            } else if (businessUser.role !== 'super_admin') {
+              const availableCompanies = await api.getCompanies();
+              if (availableCompanies.length === 1) {
+                setCurrentTenant(availableCompanies[0]);
+                localStorage.setItem('davos_active_tenant_id', availableCompanies[0].id);
+                console.log('🏢 Single tenant auto-selected:', availableCompanies[0].name);
+              }
             }
           }
         } else {
@@ -352,7 +389,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const hasPermission = (permission: string): boolean => {
     // Super admin always has all permissions
     if (currentUser?.role === 'super_admin') return true;
-    return userPermissions.includes(permission);
+    return userPermissions.includes('all') || userPermissions.includes(permission);
   };
 
   const switchTenant = async (tenantId: string) => {
