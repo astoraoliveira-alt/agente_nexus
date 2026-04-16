@@ -67,6 +67,27 @@ interface AppContextType {
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
 
+  const hexToHslTuple = (hex: string) => {
+    hex = hex.replace(/^#/, '');
+    if (hex.length === 3) hex = hex.split('').map(x => x + x).join('');
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    if(max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch(max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h /= 6;
+    }
+    return `${(h * 360).toFixed(2)} ${(s * 100).toFixed(2)}% ${(l * 100).toFixed(2)}%`;
+  };
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -383,6 +404,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  // Handle Global Branding
+  useEffect(() => {
+    if (currentTenant?.brand_color) {
+      try {
+        const hslString = hexToHslTuple(currentTenant.brand_color);
+        document.documentElement.style.setProperty('--primary', hslString);
+        document.documentElement.style.setProperty('--sidebar-background', hslString);
+        document.documentElement.style.setProperty('--sidebar-primary', hslString);
+        // Ensure accent elements also pick up the brand if needed
+        document.documentElement.style.setProperty('--accent', hslString);
+      } catch(e) {
+        console.error("Failed to apply brand color", e);
+      }
+    } else {
+      // Revert to CSS defaults
+      document.documentElement.style.removeProperty('--primary');
+      document.documentElement.style.removeProperty('--sidebar-background');
+      document.documentElement.style.removeProperty('--sidebar-primary');
+      document.documentElement.style.removeProperty('--accent');
+    }
+  }, [currentTenant?.brand_color]);
 
   const toggleDarkMode = () => setIsDarkMode(!isDarkMode);
 

@@ -36,6 +36,11 @@ export default function Settings() {
   });
 
   const [sessionTimeout, setSessionTimeout] = useState(currentTenant?.settings?.session_timeout || 30);
+  
+  // Brand Preferences State
+  const [brandColor, setBrandColor] = useState(currentTenant?.brand_color || '#ea580c'); // Default Signal Orange
+  const [logoUrl, setLogoUrl] = useState(currentTenant?.logo_url || '');
+
   const [isSaving, setIsSaving] = useState(false);
 
   // Tenants Management State (Super Admin)
@@ -62,6 +67,8 @@ export default function Settings() {
         compliance_officer_id: currentTenant.compliance_officer_id || ''
       });
       setSessionTimeout(currentTenant.settings?.session_timeout || 30);
+      setBrandColor(currentTenant.brand_color || '#ea580c');
+      setLogoUrl(currentTenant.logo_url || '');
     }
   }, [currentTenant?.id]);
 
@@ -109,6 +116,27 @@ export default function Settings() {
       toast({ title: "Sucesso", description: "Privacidade e segurança atualizadas." });
     } catch (error) {
       toast({ title: "Erro", description: "Falha ao salvar configurações.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSavePreferences = async () => {
+    if (!currentTenant) return;
+    setIsSaving(true);
+    try {
+      await api.updateCompany({
+        id: currentTenant.id,
+        brand_color: brandColor,
+        logo_url: logoUrl
+      });
+      // Force UI to pick up the change immediately
+      currentTenant.brand_color = brandColor;
+      currentTenant.logo_url = logoUrl;
+      toast({ title: "Sucesso", description: "Preferências de marca salvas! A página será atualizada." });
+      setTimeout(() => window.location.reload(), 1000); // give time to toast
+    } catch (error) {
+      toast({ title: "Erro", description: "Falha ao salvar preferências.", variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
@@ -368,14 +396,28 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl">
                   <div className="space-y-4 p-6 border border-border rounded-xl bg-muted/20 relative group">
                     <div className="absolute -top-3 left-6 px-2 bg-background border border-border rounded text-[10px] font-bold text-primary tracking-widest uppercase">Visual</div>
-                    <div>
-                      <Label className="text-sm">Logo da Empresa</Label>
-                      <p className="text-xs text-muted-foreground mb-4">Aparece na barra lateral e faturas.</p>
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 border-2 border-dashed border-border flex items-center justify-center rounded-lg bg-background group-hover:border-primary/50 transition-colors">
-                          <Building2 className="h-6 w-6 text-muted-foreground" />
+                    <div className="space-y-2">
+                      <Label htmlFor="logoUrl" className="text-sm">Link da Logo (URL)</Label>
+                      <p className="text-xs text-muted-foreground mb-4">Insira o endereço da imagem da logo para o tenant.</p>
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-4">
+                          {logoUrl ? (
+                            <div className="w-16 h-16 border border-border flex items-center justify-center rounded-lg bg-background overflow-hidden p-2">
+                              <img src={logoUrl} alt="Logo preview" className="max-w-full max-h-full object-contain" />
+                            </div>
+                          ) : (
+                            <div className="w-16 h-16 border-2 border-dashed border-border flex items-center justify-center rounded-lg bg-background group-hover:border-primary/50 transition-colors">
+                              <Building2 className="h-6 w-6 text-muted-foreground" />
+                            </div>
+                          )}
+                          <Input 
+                            id="logoUrl" 
+                            placeholder="https://exemplo.com/logo.png" 
+                            value={logoUrl} 
+                            onChange={(e) => setLogoUrl(e.target.value)} 
+                            className="flex-1"
+                          />
                         </div>
-                        <Button variant="outline" size="sm">Fazer Upload</Button>
                       </div>
                     </div>
                   </div>
@@ -384,20 +426,53 @@ export default function Settings() {
                     <div className="absolute -top-3 left-6 px-2 bg-background border border-border rounded text-[10px] font-bold text-primary tracking-widest uppercase">Cores</div>
                     <div>
                       <Label className="text-sm">Cor Primária</Label>
-                      <p className="text-xs text-muted-foreground mb-4">Aplica-se a botões, links e destaques.</p>
-                      <div className="flex items-center gap-3">
-                        {['bg-blue-600', 'bg-emerald-600', 'bg-orange-600', 'bg-purple-600'].map(color => (
+                      <p className="text-xs text-muted-foreground mb-4">Aplica-se a faturas, barra lateral, botões, links e destaques.</p>
+                      
+                      <div className="flex items-center gap-4">
+                        <Input
+                          type="color"
+                          value={brandColor}
+                          onChange={(e) => setBrandColor(e.target.value)}
+                          className="w-16 h-12 p-1 cursor-pointer"
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-sm font-mono">{brandColor}</span>
+                          <span className="text-xs text-muted-foreground">HEX Code</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 mt-6">
+                        <span className="text-xs text-muted-foreground mr-2">Sugestões:</span>
+                        {[
+                          { color: '#2563eb', label: 'Blue' },
+                          { color: '#059669', label: 'Emerald' },
+                          { color: '#ea580c', label: 'Signal Orange' },
+                          { color: '#1e3a8a', label: 'Azul Marinho' },
+                          { color: '#1e293b', label: 'Grafite' },
+                          { color: '#14532d', label: 'Verde Profundo' },
+                          { color: '#4c1d95', label: 'Roxo Escuro' },
+                          { color: '#451a03', label: 'Castanho Escuro' },
+                          { color: '#991b1b', label: 'Vermelho Escuro' },
+                          { color: '#0a0a0a', label: 'Preto' },
+                          { color: '#94a3b8', label: 'Prateado' }
+                        ].map(c => (
                           <button
-                            key={color}
-                            className={`w-8 h-8 rounded-full ${color} shadow-sm border-2 border-transparent hover:scale-110 active:scale-95 transition-all`}
+                            key={c.color}
+                            onClick={() => setBrandColor(c.color)}
+                            title={c.label}
+                            className={`w-6 h-6 rounded-full shadow-sm border-2 transition-all hover:scale-110 active:scale-95 ${brandColor === c.color ? 'border-primary' : 'border-transparent'}`}
+                            style={{ backgroundColor: c.color }}
                           />
                         ))}
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="mt-8 flex justify-end border-t border-border pt-4">
-                  <Button variant="ghost" className="text-xs text-muted-foreground underline">Restaurar padrões de fábrica</Button>
+                <div className="mt-8 flex justify-between items-center border-t border-border pt-6">
+                  <Button variant="ghost" className="text-xs text-muted-foreground underline" onClick={() => { setBrandColor('#ea580c'); setLogoUrl(''); }}>Restaurar padrões de fábrica</Button>
+                  <Button size="sm" onClick={handleSavePreferences} disabled={isSaving}>
+                    {isSaving ? "Salvando..." : "Salvar Preferências"}
+                  </Button>
                 </div>
               </div>
             </TabsContent>

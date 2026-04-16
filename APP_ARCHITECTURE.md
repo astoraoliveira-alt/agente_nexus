@@ -7,6 +7,19 @@
 
 ---
 
+## [V56.8] - White-Label Branding & Edge Function Resiliency
+### UI & Identidade Visual Dinâmica
+- **Pixel-Perfect Brand Colors**: As cores principais da marca (brand_color) escolhidas na aba "Aparência" (Settings) aplicam-se a todo o sistema, injetando instantaneamente variáveis CSS dinâmicas (ex: \`--primary\`, \`--ring\`) via \`AppContext\`.
+- **Conversor HSL de Alta Precisão**: Atualização na lógica do \`hexToHslTuple\` (com uso de \`.toFixed(2)\`) eliminando arredondamentos imprecisos que causavam diferenças de *brightness* (brilho) entre a Sidebar e os botões.
+- **Isolamento de Cascade CSS**: O \`AppSidebar\` agora adere estritamente através de *inline styles* sob o motor do React, suplantando possíveis sobrescritas globais de variáveis do Tailwind e assegurando 100% de paridade visual.
+- **Login e Recuperação de Senha**: As telas do fluxo externo (Login, Recuperação e Nova Senha) agora respeitam a aparência legada da cor definida pelo tenant, ocultando defaults pré-existentes como logos abstratos.
+
+### Roteamento e Tratamento de Erros no Edge
+- **Deno Serialization Fix**: Mitigado o bug clássico de serialização do \`Deno\` em Edge Functions onde instâncias da classe \`Error\` (como \`AuthApiError\`) são processadas como um objeto vazio (\`{}\`) pelo \`JSON.stringify\`. Agora a string \`error.message\` é mapeada e devolvida de forma explícita.
+- **User Invitation Pipeline**: Robustez na validação do HTTP Client no frontend (\`users.service.ts\`) onde mesmo erros brutos reestruturados conseguem invocar um parsing resiliente, e impedir o botão de criar contatos duplicados já presentes dentro do Auth.
+
+---
+
 ## [V56.6] - Executive Campaign Control & Analytics Drawer
 ### Dashboard Executivo Unificado
 - **Single-View Dashboard**: O `Index.tsx` passou a expor apenas a aba **Campanha Executiva** no dashboard principal. A navegação abre diretamente em `executive`, reduzindo ruído visual e concentrando a leitura operacional em um único painel.

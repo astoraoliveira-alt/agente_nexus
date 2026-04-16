@@ -155,6 +155,8 @@ export const coreService = {
             planName: c.plan_name || 'Free', // The real name from the DB
             privacySettings: c.privacy_settings || {},
             planPrices: c.plan_prices || {}, // New Field
+            brand_color: c.brand_color,
+            logo_url: c.logo_url,
             _count: {
                 agents: c.agents_count || 0,
                 users: c.users_count || 0,
@@ -201,6 +203,9 @@ export const coreService = {
         if (company.planDetails) dbCompany.plan_details = company.planDetails; // Sending full object back
         if (company.privacySettings) dbCompany.privacy_settings = company.privacySettings;
         if (company.settings) dbCompany.privacy_settings = company.settings;
+
+        if (company.brand_color !== undefined) dbCompany.brand_color = company.brand_color;
+        if (company.logo_url !== undefined) dbCompany.logo_url = company.logo_url;
 
         const { error } = await supabase
             .from('companies')

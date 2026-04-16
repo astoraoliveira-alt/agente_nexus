@@ -53,7 +53,18 @@ async invokeInviteUser(payload: Record<string, unknown>): Promise<any> {
         }
 
         if (!response.ok) {
-            const errorMessage = parsedBody?.error || `Edge Function invite-user retornou ${response.status}.`;
+            console.error('EDGE FUNCTION RAW RESPONSE:', responseText);
+            let errorMessage = "Unknown error";
+            if (typeof parsedBody?.error === 'string') {
+              errorMessage = parsedBody.error;
+            } else if (parsedBody?.error?.message) {
+              errorMessage = parsedBody.error.message;
+            } else if (parsedBody?.error) {
+              errorMessage = JSON.stringify(parsedBody.error);
+            } else {
+              errorMessage = `Edge Function invite-user retornou ${response.status}: ${responseText}`;
+            }
+            
             const error = new Error(errorMessage) as Error & { status?: number; payload?: any };
             error.status = response.status;
             error.payload = parsedBody;

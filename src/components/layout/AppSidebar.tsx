@@ -89,25 +89,32 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        'h-screen bg-sidebar flex flex-col border-r border-sidebar-border transition-all duration-300',
+        'h-screen flex flex-col border-r border-black/10 transition-all duration-300',
         collapsed ? 'w-16' : 'w-64'
       )}
+      style={{ backgroundColor: currentTenant?.brand_color || 'hsl(var(--primary))' }}
     >
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-sidebar-border">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-accent flex items-center justify-center">
-              <span className="text-accent-foreground font-bold text-sm">DN</span>
-            </div>
-            <span className="font-semibold text-sidebar-foreground">Davos Nexus</span>
+          <div className="flex items-center gap-2 truncate">
+            {currentTenant?.logo_url ? (
+              <img src={currentTenant.logo_url} alt="Logo" className="h-8 max-w-[120px] object-contain" />
+            ) : (
+              <>
+                <div className="w-8 h-8 bg-black/20 flex items-center justify-center rounded-sm shrink-0">
+                  <span className="text-white font-bold text-sm">DN</span>
+                </div>
+                <span className="font-semibold text-white truncate">Davos Nexus</span>
+              </>
+            )}
           </div>
         )}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setCollapsed(!collapsed)}
-          className="text-sidebar-foreground hover:bg-sidebar-accent"
+          className="text-sidebar-foreground hover:bg-black/10"
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </Button>
@@ -120,7 +127,7 @@ export function AppSidebar() {
             "p-3 rounded-md border transition-all duration-200",
             (isSuperAdmin && currentUser?.tenantId !== currentTenant.id)
               ? "bg-amber-100/10 border-amber-500/30" // Impersonation Mode
-              : "bg-sidebar-accent border-sidebar-border" // Normal Mode
+              : "bg-black/20 border-black/10" // Normal Mode
           )}>
             <div className="flex items-center justify-between">
               <div className="min-w-0">
@@ -157,10 +164,10 @@ export function AppSidebar() {
                   to={item.url}
                   end={item.url === '/'}
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                    'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-black/10 hover:text-sidebar-foreground transition-colors',
                     collapsed && 'justify-center'
                   )}
-                  activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                  activeClassName="bg-black/20 text-sidebar-foreground border-l-2 border-accent"
                 >
                   <item.icon className="h-5 w-5 flex-shrink-0" />
                   {!collapsed && (
@@ -191,10 +198,10 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-black/10 hover:text-sidebar-foreground transition-colors',
                       collapsed && 'justify-center'
                     )}
-                    activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                    activeClassName="bg-black/20 text-sidebar-foreground border-l-2 border-accent"
                   >
                     <item.icon className="h-5 w-5 flex-shrink-0" />
                     {!collapsed && <span>{item.title}</span>}
@@ -217,10 +224,10 @@ export function AppSidebar() {
                   <NavLink
                     to={item.url}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
+                      'flex items-center gap-3 px-3 py-2 text-xs font-medium text-sidebar-foreground/80 hover:bg-black/10 hover:text-sidebar-foreground transition-colors',
                       collapsed && 'justify-center'
                     )}
-                    activeClassName="bg-sidebar-accent text-sidebar-foreground border-l-2 border-accent"
+                    activeClassName="bg-black/20 text-sidebar-foreground border-l-2 border-accent"
                   >
                     <item.icon className="h-5 w-5 flex-shrink-0" />
                     {!collapsed && <span>{item.title}</span>}
@@ -275,7 +282,7 @@ export function AppSidebar() {
           size="icon"
           onClick={toggleDarkMode}
           title={isDarkMode ? 'Modo Claro' : 'Modo Escuro'}
-          className="h-9 w-9 text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground shrink-0"
+          className="h-9 w-9 text-sidebar-foreground/80 hover:bg-black/10 hover:text-sidebar-foreground shrink-0"
         >
           {isDarkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
@@ -286,7 +293,7 @@ export function AppSidebar() {
           onClick={() => openSlideOver('user-profile')}
           title={`Perfil: ${currentUser?.name}`}
           className={cn(
-            "h-10 p-1 hover:bg-sidebar-accent transition-all duration-200 overflow-hidden",
+            "h-10 p-1 hover:bg-black/10 transition-all duration-200 overflow-hidden",
             collapsed ? "w-10 justify-center" : "flex-1 justify-start gap-2 px-2"
           )}
         >

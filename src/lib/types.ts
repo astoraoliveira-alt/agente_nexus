@@ -107,6 +107,8 @@ export interface Tenant {
     anonymizationEnabled?: boolean;
     session_timeout?: number;
   };
+  brand_color?: string;
+  logo_url?: string;
 
   limits: {
     llmTokens: number;
@@ -253,6 +255,9 @@ export interface Company {
   planDetails?: TenantPlan;
   privacySettings: TenantPrivacySettings;
   isoStatus?: TenantISOStatus;
+  
+  brand_color?: string;
+  logo_url?: string;
 
   // Legacy compatibility (will be derived from planDetails)
   plan: 'free' | 'pro' | 'enterprise' | string; // Deprecated in favor of planId

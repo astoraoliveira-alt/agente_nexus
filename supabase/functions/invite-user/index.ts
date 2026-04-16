@@ -15,6 +15,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+    const publicAppUrl = (Deno.env.get('PUBLIC_APP_URL') || '').trim().replace(/\/$/, '');
 
     if (!supabaseUrl || !serviceRoleKey) {
       throw new Error('Supabase environment not configured.');
@@ -129,7 +130,9 @@ serve(async (req) => {
     }
 
     const inviteResult = await adminClient.auth.admin.inviteUserByEmail(normalizedEmail, {
-      redirectTo: redirectTo || `${new URL(req.url).origin.replace('.functions.supabase.co', '.supabase.co')}/set-password`,
+      // Always prefer an explicit public domain redirect (configured as a secret),
+      // otherwise fall back to client-provided redirectTo. Avoid defaulting to *.supabase.co.
+      redirectTo: (publicAppUrl ? `${publicAppUrl}/set-password` : undefined) || redirectTo,
       data: {
         tenant_id: tenantId,
         role,
@@ -219,8 +222,10 @@ serve(async (req) => {
   } catch (error) {
     console.error('invite-user error:', error);
 
+    const errorMessage = error instanceof Error ? error.message : (error && typeof error === 'object' && 'message' in error) ? (error as any).message : 'Unexpected error';
+
     return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : 'Unexpected error',
+      error: errorMessage,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400,
