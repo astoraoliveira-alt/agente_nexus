@@ -106,9 +106,23 @@ export const AuthService = {
         const targetUser = this.pickBestUserCandidate(candidates, providerId);
         if (!targetUser) return null;
 
+        const currentStatus = targetUser.status;
+        const hasTenant = !!targetUser.tenant_id;
+        const nextStatus = currentStatus === 'invited'
+            ? 'active'
+            : currentStatus === 'pending'
+                ? 'pending'
+                : currentStatus || 'active';
+        const nextIsActive = nextStatus === 'active';
+
         const { data, error } = await supabase
             .from('users')
-            .update({ provider_id: providerId })
+            .update({ 
+                provider_id: providerId,
+                provider: 'supabase',
+                status: nextStatus,
+                is_active: nextIsActive
+            })
             .eq('id', targetUser.id)
             .select()
             .single();

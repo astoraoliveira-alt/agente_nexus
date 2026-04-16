@@ -193,28 +193,46 @@ async updateUser(userId: string, updates: Partial<User>): Promise<User> {
         if (updates.name) dbUpdates.full_name = updates.name;
         if (updates.email) dbUpdates.email = updates.email;
         if (updates.role) dbUpdates.role = updates.role;
+        if (updates.avatar) dbUpdates.avatar_url = updates.avatar;
         if (Object.prototype.hasOwnProperty.call(updates, 'profileId')) dbUpdates.profile_id = updates.profileId;
 
+        // Use the new RPC to bypass recursive RLS policies causing PGRST116 during user updates
         const { data, error } = await supabase
-            .from('users')
-            .update(dbUpdates)
-            .eq('id', userId)
-            .select()
-            .single();
+            .rpc('update_user_profile', {
+                p_user_id: userId,
+                p_full_name: dbUpdates.full_name,
+                p_email: dbUpdates.email,
+                p_avatar_url: dbUpdates.avatar_url
+            });
 
-        if (error) {
-            console.error('Error updating user:', error);
-            throw error;
+        // Fallback to standard update if RPC doesn't exist yet (in case script wasn't run)
+        let finalData = data;
+        let finalError = error;
+
+        if (error && error.message.includes('Could not find the function')) {
+            const fallback = await supabase
+                .from('users')
+                .update(dbUpdates)
+                .eq('id', userId)
+                .select()
+                .single();
+            finalData = fallback.data;
+            finalError = fallback.error;
+        }
+
+        if (finalError) {
+            console.error('Error updating user:', finalError);
+            throw finalError;
         }
 
         return {
-            id: data.id,
-            name: data.full_name,
-            email: data.email,
-            role: data.role,
-            profileId: data.profile_id,
-            tenantId: data.tenant_id,
-            isActive: data.is_active
+            id: finalData.id,
+            name: finalData.full_name,
+            email: finalData.email,
+            role: finalData.role,
+            profileId: finalData.profile_id,
+            tenantId: finalData.tenant_id,
+            isActive: finalData.is_active
         } as User;
     },
 
@@ -264,11 +282,11 @@ async getTenant(tenantId: string): Promise<Company | null> {
             settings: company.privacy_settings || {},
             planName: plan?.name,
             planPrices: plan ? {
-                basePrice: Number(plan.base_price),
-                llmTokenPrice: Number(plan.llm_token_price),
-                messagePrice: Number(plan.message_price),
-                sttMinutePrice: Number(plan.stt_minute_price),
-                ttsMinutePrice: Number(plan.tts_minute_price)
+                basePrice: Number(company.plan_prices?.monthly_flat ?? plan.base_price),
+                llmTokenPrice: Number(company.plan_prices?.tokens_per_1k ?? plan.llm_token_price),
+                messagePrice: Number(company.plan_prices?.message_flat ?? plan.message_price),
+                sttMinutePrice: Number(company.plan_prices?.stt_minute ?? plan.stt_minute_price),
+                ttsMinutePrice: Number(company.plan_prices?.tts_minute ?? plan.tts_minute_price)
             } : undefined
         } as unknown as Company;
     }

@@ -100,13 +100,22 @@ export default function Consumption() {
     };
 
     filteredMetrics.forEach(m => {
-      const cost = m.cost || 0;
-      if (m.metricType === 'tokens') {
-        totals.tokens += m.value;
-        totals.costTokens += cost;
-      } else if (m.metricType === 'messages') {
+      // Use price from plan if message or calculate on the fly for voice/tokens
+      // This ensures the dashboard always reflects the current billing contract
+      let cost = m.cost || 0;
+      
+      if (m.metricType === 'messages') {
+        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
+        // Aplica o preço configurado no cadastro do plano (ou override da empresa)
+        if (msgPrice > 0) {
+          cost = m.value * msgPrice;
+        }
+        
         totals.messages += m.value;
         totals.messageCost += cost;
+      } else if (m.metricType === 'tokens') {
+        totals.tokens += m.value;
+        totals.costTokens += cost;
       } else if (m.metricType === 'stt_minutes') {
         totals.stt += m.value;
         totals.costSTT += cost;
@@ -184,11 +193,18 @@ export default function Consumption() {
         };
       }
       if (m.metricType === 'messages') {
+        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
+        let costToUse = cost;
+        if (msgPrice > 0) {
+          costToUse = m.value * msgPrice;
+        }
         agents[agentId].messages += m.value;
-        agents[agentId].messageCost += cost;
+        agents[agentId].messageCost += costToUse;
+        agents[agentId].cost += costToUse;
+      } else {
+        agents[agentId].cost += cost;
       }
       if (m.channel) agents[agentId].usedChannels.add(m.channel);
-      agents[agentId].cost += cost;
     });
     return Object.values(agents);
   }, [filteredMetrics, realAgents]);
@@ -208,12 +224,19 @@ export default function Consumption() {
       }
       const entry = channels[channelKey];
       if (m.metricType === 'messages') {
+        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
+        let costToUse = cost;
+        if (msgPrice > 0) {
+          costToUse = m.value * msgPrice;
+        }
         entry.messages += m.value;
-        entry.messageCost += cost;
+        entry.messageCost += costToUse;
+        entry.cost += costToUse;
+      } else {
+        if (m.metricType === 'stt_minutes') entry.stt = (entry.stt || 0) + m.value;
+        if (m.metricType === 'tts_minutes') entry.tts = (entry.tts || 0) + m.value;
+        entry.cost += cost;
       }
-      if (m.metricType === 'stt_minutes') entry.stt = (entry.stt || 0) + m.value;
-      if (m.metricType === 'tts_minutes') entry.tts = (entry.tts || 0) + m.value;
-      entry.cost += cost;
     });
     return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
   }, [filteredMetrics]);

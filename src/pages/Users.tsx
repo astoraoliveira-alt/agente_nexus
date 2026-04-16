@@ -186,11 +186,17 @@ export default function Users() {
           </div>
         );
       case 'pending':
-      case 'invited':
         return (
           <div className="flex items-center gap-2">
             <div className="status-dot bg-amber-500" />
-            <span className="text-sm">Pendente</span>
+            <span className="text-sm">Aprovação Pendente</span>
+          </div>
+        );
+      case 'invited':
+        return (
+          <div className="flex items-center gap-2">
+            <div className="status-dot bg-blue-500" />
+            <span className="text-sm">Aguardando Acesso</span>
           </div>
         );
       case 'blocked':

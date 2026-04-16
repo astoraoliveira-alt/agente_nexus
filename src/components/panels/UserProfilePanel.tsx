@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { useApp } from '@/contexts/AppContext';
+import { api } from '@/services/api';
+import { supabase } from '@/lib/supabase';
 
 export function UserProfilePanel() {
   const { currentUser } = useApp();
@@ -25,27 +27,43 @@ export function UserProfilePanel() {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   const handleSaveProfile = async () => {
+    if (!currentUser?.id) return;
     setIsSaving(true);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Update mock session
-    const session = localStorage.getItem('davos_session');
-    if (session) {
-      const parsed = JSON.parse(session);
-      parsed.user.name = name;
-      parsed.user.email = email;
-      localStorage.setItem('davos_session', JSON.stringify(parsed));
+    try {
+      // If email changed, trigger Supabase Auth update
+      if (email !== currentUser.email) {
+        const { error: emailError } = await supabase.auth.updateUser({ email });
+        if (emailError) throw emailError;
+        toast.info('Um link de confirmação foi enviado para o novo e-mail.');
+      }
+
+      // Update public user profile
+      const updatedUser = await api.updateUser(currentUser.id, {
+        name,
+        avatar,
+        email // The backend will sync email if necessary, but Auth is the source of truth
+      });
+
+      // Update local state by forcing a refresh or just trusting the update
+      // A full page reload or context refresh is ideal, but let's just show success
+      toast.success('Perfil atualizado com sucesso!');
+      
+      // Force reload to update AppContext with new data from Supabase
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      toast.error(error.message || 'Erro ao atualizar perfil');
+    } finally {
+      setIsSaving(false);
     }
-    
-    toast.success('Perfil atualizado com sucesso!');
-    setIsSaving(false);
   };
 
   const handleChangePassword = async () => {
     if (!currentPassword) {
-      toast.error('Informe a senha atual');
+      toast.error('Informe a senha atual por segurança');
       return;
     }
     
@@ -61,14 +79,24 @@ export function UserProfilePanel() {
     
     setIsChangingPassword(true);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    toast.success('Senha alterada com sucesso!');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setIsChangingPassword(false);
+    try {
+      // Supabase uses the active session to update password
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      toast.success('Senha alterada com sucesso!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (error: any) {
+      console.error('Error changing password:', error);
+      toast.error('Erro ao alterar senha: ' + (error.message || error));
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   return (
@@ -139,7 +167,7 @@ export function UserProfilePanel() {
         >
           {isSaving ? (
             <span className="flex items-center gap-2">
-              <span className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground animate-spin" style={{ borderRadius: '50%' }} />
+              <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" style={{ borderRadius: '50%' }} />
               Salvando...
             </span>
           ) : (

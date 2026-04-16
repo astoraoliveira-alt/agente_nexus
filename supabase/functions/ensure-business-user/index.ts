@@ -141,7 +141,7 @@ serve(async (req) => {
 
     const currentStatus = String(candidate.status || '');
     const nextStatus = currentStatus === 'invited'
-      ? 'pending'
+      ? 'active'
       : currentStatus === 'pending'
         ? 'pending'
         : currentStatus || 'active';
