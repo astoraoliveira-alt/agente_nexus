@@ -986,3 +986,17 @@ export interface OutboundContact {
   sentAt?: Date;
   createdAt: Date;
 }
+
+export interface AgentLead {
+  id: string;
+  tenantId: string;
+  campaignId?: string | null;
+  identifier: string;
+  identifierType?: string | null;
+  name?: string | null;
+  whatsapp?: string | null;
+  ctaLink?: string | null;
+  status?: string | null;
+  metadata?: Record<string, any>;
+  createdAt?: Date;
+}

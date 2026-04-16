@@ -371,6 +371,34 @@ async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact
         }
     },
 
+    async upsertAgentLeads(leads: Partial<import('@/lib/types').AgentLead>[]): Promise<void> {
+        if (!leads.length) return;
+
+        const dbPayload = leads.map((lead) => ({
+            tenant_id: lead.tenantId,
+            campaign_id: lead.campaignId || null,
+            identifier: lead.identifier,
+            identifier_type: lead.identifierType || 'cnpj',
+            name: lead.name || null,
+            whatsapp: lead.whatsapp || null,
+            cta_link: lead.ctaLink || null,
+            status: lead.status || 'pending',
+            metadata: lead.metadata || {},
+        }));
+
+        const { error } = await supabase
+            .from('agent_leads')
+            .upsert(dbPayload, {
+                onConflict: 'tenant_id,identifier',
+                ignoreDuplicates: false,
+            });
+
+        if (error) {
+            console.error('Error upserting agent leads:', error);
+            throw error;
+        }
+    },
+
 async getCampaigns(tenantId: string): Promise<import('@/lib/types').Campaign[]> {
         const { data, error } = await supabase
             .from('campaigns')

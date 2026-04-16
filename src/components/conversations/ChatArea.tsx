@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ArtifactsDrawer } from './ArtifactsDrawer';
 import { maskSensitiveData } from '@/lib/masking';
+import { normalizeMessagingText } from '@/lib/message-formatting';
 
 interface ChatAreaProps {
   conversation: Conversation | null;
@@ -210,7 +211,7 @@ const parseMessageContent = (rawText: string): string => {
     }
   }
 
-  return rawText;
+  return normalizeMessagingText(rawText);
 };
 
 export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {

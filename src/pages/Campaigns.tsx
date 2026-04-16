@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useApp } from "@/contexts/AppContext";
 import { api } from "@/services/api";
 import { Campaign, CampaignStatus, Agent, CampaignImportLog } from "@/lib/types";
+import { normalizeMessagingText } from "@/lib/message-formatting";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
@@ -79,6 +80,15 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MainLayout } from "@/components/layout/MainLayout";
 
+type CampaignImportRow = {
+    name: string;
+    phone: string;
+    identifier: string;
+    ctaLink: string;
+    rowNumber: number;
+    rawData?: Record<string, any>;
+};
+
 export default function Campaigns() {
     const { currentTenant, hasPermission } = useApp();
     const { toast } = useToast();
@@ -91,7 +101,7 @@ export default function Campaigns() {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [isContactsViewOpen, setIsContactsViewOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
-    const [importData, setImportData] = useState<{ name: string; phone: string }[]>([]);
+    const [importData, setImportData] = useState<CampaignImportRow[]>([]);
     const [isImporting, setIsImporting] = useState(false);
     const [isLoadingContacts, setIsLoadingContacts] = useState(false);
     const [selectedCampaignForImport, setSelectedCampaignForImport] = useState<string | null>(null);
@@ -104,6 +114,37 @@ export default function Campaigns() {
     const [isLoadingErrors, setIsLoadingErrors] = useState(false);
     const [selectedCampaignForErrors, setSelectedCampaignForErrors] = useState<Campaign | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const sanitizeUrlValue = (value: any) =>
+        String(value ?? '')
+            .trim()
+            .replace(/^["'`\s]+|["'`\s]+$/g, '');
+
+    const decodeJwtPayload = (token: string) => {
+        try {
+            const payload = token.split('.')[1];
+            if (!payload) return null;
+            const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+            const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+            return JSON.parse(atob(padded));
+        } catch {
+            return null;
+        }
+    };
+
+    const getLinkCnpj = (ctaLink: string) => {
+        try {
+            const sanitized = sanitizeUrlValue(ctaLink);
+            if (!sanitized) return '';
+            const url = new URL(sanitized);
+            const token = url.searchParams.get('t');
+            if (!token) return '';
+            const payload = decodeJwtPayload(token);
+            return String(payload?.cnpj_sanitize || payload?.cnpj || '').replace(/\D/g, '');
+        } catch {
+            return '';
+        }
+    };
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
@@ -198,7 +239,7 @@ export default function Campaigns() {
                 endDate: newCampaign.endDate ? new Date(newCampaign.endDate) : undefined,
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
-                initialMessage: newCampaign.initialMessage,
+                initialMessage: normalizeMessagingText(newCampaign.initialMessage),
                 dailyLimit: newCampaign.dailyLimit,
                 successCriteria: newCampaign.successCriteria,
                 successLinkFilter: newCampaign.successCriteria.includes('LINK_SENT') ? newCampaign.successLinkFilter : undefined,
@@ -274,39 +315,69 @@ export default function Campaigns() {
     const processImportData = (rows: any[][]) => {
         if (!rows || rows.length === 0) return;
 
-        let nameIdx = 0;
+        let identifierIdx = 0;
         let phoneIdx = 1;
+        let nameIdx = 2;
+        let ctaLinkIdx = 3;
         let startRow = 0;
 
-        // Tenta detectar se a primeira linha é um cabeçalho
-        const firstRow = rows[0].map(c => String(c).toLowerCase());
+        const normalizeHeader = (value: any) =>
+            String(value ?? '')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .trim()
+                .toLowerCase();
+
+        const firstRow = Array.from(rows[0] || [], normalizeHeader);
         const hasHeader = firstRow.some(c =>
-            c.includes('nome') || c.includes('name') || c.includes('contato') ||
-            c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp')
+            c.includes('cnpj') ||
+            c.includes('whatsapp') ||
+            c.includes('telefone') ||
+            c.includes('phone') ||
+            c.includes('razao social') ||
+            c.includes('nome') ||
+            c === 'link' ||
+            c.includes('cta')
         );
 
         if (hasHeader) {
-            nameIdx = firstRow.findIndex(c => c.includes('nome') || c.includes('name') || c.includes('contato'));
+            identifierIdx = firstRow.findIndex(c => c.includes('cnpj') || c.includes('cpf') || c.includes('documento') || c.includes('identifier'));
             phoneIdx = firstRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
+            nameIdx = firstRow.findIndex(c => c.includes('razao social') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
+            ctaLinkIdx = firstRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
             startRow = 1; // Pula o cabeçalho
 
-            // Fallback se não achou uma das colunas mas tem cabeçalho
-            if (nameIdx === -1) nameIdx = 0;
+            if (identifierIdx === -1) identifierIdx = 0;
             if (phoneIdx === -1) phoneIdx = 1;
+            if (nameIdx === -1) nameIdx = 2;
+            if (ctaLinkIdx === -1) ctaLinkIdx = 3;
         }
 
         const processed = rows.slice(startRow).map((row, idx) => {
+            const identifier = row[identifierIdx] ? String(row[identifierIdx]).trim() : "";
+            const phone = row[phoneIdx] ? String(row[phoneIdx]).trim() : "";
+            const name = row[nameIdx] ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome";
+            const ctaLink = row[ctaLinkIdx] ? sanitizeUrlValue(row[ctaLinkIdx]) : "";
+
             return {
-                name: row[nameIdx] ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome",
-                phone: row[phoneIdx] ? String(row[phoneIdx]).trim() : "",
-                rowNumber: startRow + idx + 1
+                name,
+                phone,
+                identifier,
+                ctaLink,
+                rowNumber: startRow + idx + 1,
+                rawData: {
+                    identifier,
+                    phone,
+                    name,
+                    ctaLink,
+                }
             };
-        });
+        }).filter((row) => row.identifier || row.phone || row.name !== "Sem Nome" || row.ctaLink);
 
         if (processed.length === 0) {
             toast({
                 title: "Nenhum dado válido",
-                description: "Certifique-se de que o arquivo tem colunas de 'Nome' e 'Telefone'.",
+                description: "Certifique-se de que o arquivo segue a estrutura CNPJ, Whatsapp, Razão Social e LINK.",
                 variant: "destructive"
             });
             return;
@@ -341,13 +412,31 @@ export default function Campaigns() {
         try {
             const importLogs: any[] = [];
             const validContactsMap: Record<string, any> = {};
+            const validLeadsByIdentifier: Record<string, any> = {};
             
             importData.forEach((item) => {
                 const rawPhone = item.phone;
+                const rawIdentifier = item.identifier;
+                const sanitizedLink = sanitizeUrlValue(item.ctaLink);
                 // 1. Validação de Telefone (Verifica se contém caracteres inválidos e se tem tamanho mínimo)
                 const hasLetters = /[a-zA-Z]/.test(rawPhone);
                 const cleanPhone = rawPhone.replace(/\D/g, '');
+                const cleanIdentifier = rawIdentifier.replace(/\D/g, '');
                 
+                if (!cleanIdentifier || cleanIdentifier.length < 14) {
+                    importLogs.push({
+                        campaignId: campaign.id,
+                        tenantId: currentTenant.id,
+                        rowNumber: item.rowNumber,
+                        contactName: item.name,
+                        contactPhone: rawPhone,
+                        errorType: 'OTHER',
+                        errorMessage: 'CNPJ/identificador inválido ou ausente.',
+                        rawData: item
+                    });
+                    return;
+                }
+
                 if (hasLetters || cleanPhone.length < 10) {
                     importLogs.push({
                         campaignId: campaign.id,
@@ -359,6 +448,21 @@ export default function Campaigns() {
                         errorMessage: hasLetters 
                             ? 'Telefone contém caracteres inválidos (letras não permitidas).' 
                             : 'Telefone inválido (mínimo 10 dígitos com DDD).',
+                        rawData: item
+                    });
+                    return;
+                }
+
+                const linkCnpj = getLinkCnpj(sanitizedLink);
+                if (sanitizedLink && linkCnpj && linkCnpj !== cleanIdentifier) {
+                    importLogs.push({
+                        campaignId: campaign.id,
+                        tenantId: currentTenant.id,
+                        rowNumber: item.rowNumber,
+                        contactName: item.name,
+                        contactPhone: rawPhone,
+                        errorType: 'OTHER',
+                        errorMessage: `O LINK da linha pertence ao CNPJ ${linkCnpj} e não ao CNPJ ${cleanIdentifier}.`,
                         rawData: item
                     });
                     return;
@@ -387,12 +491,32 @@ export default function Campaigns() {
 
                 validContactsMap[phone] = {
                     ...item,
-                    phone
+                    phone,
+                    identifier: cleanIdentifier,
+                    ctaLink: sanitizedLink
+                };
+
+                validLeadsByIdentifier[cleanIdentifier] = {
+                    tenantId: currentTenant.id,
+                    campaignId: campaign.id,
+                    identifier: cleanIdentifier,
+                    identifierType: 'cnpj',
+                    name: item.name,
+                    whatsapp: phone,
+                    ctaLink: sanitizedLink || null,
+                    status: 'pending',
+                    metadata: {
+                        source: 'campaign_import',
+                        campaign_id: campaign.id,
+                        cnpj: cleanIdentifier,
+                        razao_social: item.name,
+                        cta_link: sanitizedLink || null,
+                    }
                 };
             });
 
             const finalContactsToInsert = Object.values(validContactsMap).map(item => {
-                const baseMessage = campaign.initialMessage || "";
+                const baseMessage = normalizeMessagingText(campaign.initialMessage || "");
                 const personalizedMessage = baseMessage.replace(/{{nome}}/gi, item.name || "Cliente");
 
                 return {
@@ -403,7 +527,11 @@ export default function Campaigns() {
                     contactPhone: item.phone,
                     status: 'pending' as const,
                     metadata: {
-                        content: personalizedMessage
+                        content: personalizedMessage,
+                        cnpj: item.identifier,
+                        identifier: item.identifier,
+                        razao_social: item.name,
+                        cta_link: item.ctaLink || null,
                     }
                 };
             });
@@ -426,6 +554,12 @@ export default function Campaigns() {
                 await api.addToOutboundQueue(chunk);
             }
 
+            const leadsToUpsert = Object.values(validLeadsByIdentifier);
+            for (let i = 0; i < leadsToUpsert.length; i += chunkSize) {
+                const chunk = leadsToUpsert.slice(i, i + chunkSize);
+                await api.upsertAgentLeads(chunk);
+            }
+
             // Sincronização de Contador Real
             const allContacts = await api.getOutboundQueue(currentTenant.id, undefined, campaign.id);
             const realTotal = allContacts.length;
@@ -439,23 +573,40 @@ export default function Campaigns() {
 
             toast({
                 title: "Importação concluída!",
-                description: `${added} contatos adicionados. ${errors > 0 ? `${errors} inconsistências registradas.` : ''}`,
+                description: `${added} contatos adicionados e sincronizados em agent_leads. ${errors > 0 ? `${errors} inconsistências registradas.` : ''}`,
             });
             setIsImportOpen(false);
             setImportData([]);
             if (fileInputRef.current) fileInputRef.current.value = "";
             await loadData();
             await handleViewContacts(campaign.id);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Import error:", error);
             toast({
                 title: "Erro na importação",
-                description: "Houve um problema ao processar a base de dados.",
+                description: getImportErrorMessage(error),
                 variant: "destructive",
             });
         } finally {
             setIsImporting(false);
         }
+    };
+
+    const getImportErrorMessage = (error: any) => {
+        const rawMessage = String(error?.message || '');
+        const isAgentLeadsRls =
+            error?.code === '42501' &&
+            rawMessage.includes('agent_leads');
+
+        if (isAgentLeadsRls) {
+            return 'O banco bloqueou a gravação em agent_leads por política de segurança. Aplique a migration de RLS de agent_leads e tente novamente.';
+        }
+
+        if (error?.code === '42501') {
+            return 'Seu usuário não tem permissão para concluir esta importação. Verifique as políticas de acesso do tenant.';
+        }
+
+        return 'Houve um problema ao processar a base de dados.';
     };
 
     const handleTogglePause = async (campaign: Campaign) => {
@@ -511,7 +662,7 @@ export default function Campaigns() {
                 endDate: editingCampaign.endDate,
                 startTime: editingCampaign.startTime,
                 endTime: editingCampaign.endTime,
-                initialMessage: editingCampaign.initialMessage,
+                initialMessage: normalizeMessagingText(editingCampaign.initialMessage),
                 agentId: editingCampaign.agentId,
                 successCriteria: editingCampaign.successCriteria,
                 successLinkFilter: editingCampaign.successLinkFilter,
@@ -539,7 +690,7 @@ export default function Campaigns() {
         setIsLoadingContacts(true);
         setIsContactsViewOpen(true);
         try {
-            const contacts = await api.getOutboundQueue(currentTenant.id, undefined, campaignId);
+            const contacts = await api.getEnrichedOutboundQueue(currentTenant.id, campaignId);
             console.log("DEBUG - Contatos recebidos da API:", contacts.length, contacts);
             setViewContacts(contacts);
         } catch (error) {
@@ -610,9 +761,9 @@ export default function Campaigns() {
     const processedContacts = viewContacts.filter(contact => {
         if (!contactSearch) return true;
         const searchLower = contactSearch.toLowerCase();
-        // Verifica nome
         if (contact.contactName && contact.contactName.toLowerCase().includes(searchLower)) return true;
-        // Verifica telefone
+        if (contact.establishmentName && contact.establishmentName.toLowerCase().includes(searchLower)) return true;
+        if (contact.cnpj && String(contact.cnpj).toLowerCase().includes(searchLower)) return true;
         if (contact.contactPhone && contact.contactPhone.includes(searchLower)) return true;
         return false;
     }).sort((a, b) => {
@@ -888,10 +1039,7 @@ export default function Campaigns() {
                                     <span className="text-sm font-medium text-muted-foreground">Leads Carregados</span>
                                     <Clock className="h-4 w-4 text-blue-500" />
                                 </div>
-                                <div className="flex items-end gap-2">
-                                    <div className="text-2xl font-bold text-blue-600">{totalLoadedLeads}</div>
-                                    <div className="pb-0.5 text-xs font-bold text-blue-500">{totalLoadedPct.toFixed(1)}%</div>
-                                </div>
+                                <div className="text-2xl font-bold text-blue-600">{totalLoadedLeads}</div>
                                 <div className="text-xs text-muted-foreground mt-1">Leads importados na operação</div>
                             </CardContent>
                         </Card>
@@ -1168,7 +1316,10 @@ export default function Campaigns() {
                                         <div className="space-y-2">
                                             {importData.slice(0, 3).map((item, i) => (
                                                 <div key={i} className="flex items-center justify-between text-[11px] bg-background/80 p-2 rounded border border-border/20 shadow-sm">
-                                                    <span className="font-medium truncate max-w-[150px]">{item.name}</span>
+                                                    <div className="min-w-0">
+                                                        <div className="font-medium truncate max-w-[180px]">{item.name}</div>
+                                                        <div className="text-[10px] text-muted-foreground truncate max-w-[180px]">{item.identifier}</div>
+                                                    </div>
                                                     <span className="font-mono text-accent font-bold">{item.phone}</span>
                                                 </div>
                                             ))}
@@ -1189,7 +1340,7 @@ export default function Campaigns() {
                             <ul className="text-[10px] text-slate-600 space-y-1.5 list-none pl-1">
                                 <li className="flex gap-2"><span>•</span> <span>O sistema remove automaticamente parênteses, traços e espaços.</span></li>
                                 <li className="flex gap-2"><span>•</span> <span>Certifique-se de incluir o código do país (DDI 55 para Brasil).</span></li>
-                                <li className="flex gap-2"><span>•</span> <span>O cabeçalho deve conter as palavras 'Nome' e 'Telefone'.</span></li>
+                                <li className="flex gap-2"><span>•</span> <span>Para este tenant, a planilha deve seguir o padrão: CNPJ, Whatsapp, Razão Social e LINK.</span></li>
                             </ul>
                         </div>
                     </div>
@@ -1385,7 +1536,7 @@ export default function Campaigns() {
                             <div className="relative">
                                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
-                                    placeholder="Buscar por nome ou telefone..."
+                                    placeholder="Buscar por razão social, nome, CNPJ ou telefone..."
                                     className="pl-8 bg-accent/5 border-accent/20"
                                     value={contactSearch}
                                     onChange={(e) => setContactSearch(e.target.value)}
@@ -1414,6 +1565,22 @@ export default function Campaigns() {
                             <Table>
                                 <TableHeader>
                                     <TableRow>
+                                        <TableHead
+                                            className="cursor-pointer hover:text-accent select-none"
+                                            onClick={() => requestSort('establishmentName')}
+                                        >
+                                            <div className="flex items-center">
+                                                Razão Social {getSortIcon('establishmentName')}
+                                            </div>
+                                        </TableHead>
+                                        <TableHead
+                                            className="cursor-pointer hover:text-accent select-none"
+                                            onClick={() => requestSort('cnpj')}
+                                        >
+                                            <div className="flex items-center">
+                                                CNPJ {getSortIcon('cnpj')}
+                                            </div>
+                                        </TableHead>
                                         <TableHead
                                             className="cursor-pointer hover:text-accent select-none"
                                             onClick={() => requestSort('contactName')}
@@ -1446,6 +1613,8 @@ export default function Campaigns() {
                                 <TableBody>
                                     {processedContacts.map((contact, index) => (
                                         <TableRow key={`${contact.id}-${index}`} className={`hover:bg-accent/5 ${contact.status === 'failed' ? 'bg-red-500/5' : ''}`}>
+                                            <TableCell className="font-medium text-xs">{contact.establishmentName || contact.metadata?.razao_social || "Sem Razão Social"}</TableCell>
+                                            <TableCell className="text-xs font-mono">{contact.cnpj || contact.metadata?.cnpj || "-"}</TableCell>
                                             <TableCell className="font-medium text-xs">{contact.contactName || "Sem Nome"}</TableCell>
                                             <TableCell className="text-xs">{contact.contactPhone}</TableCell>
                                             <TableCell>

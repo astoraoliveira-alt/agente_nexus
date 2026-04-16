@@ -6,6 +6,7 @@ import { Check, CheckCheck, Phone, Video, MoreVertical, ArrowLeft, Camera, Mic, 
 import { cn } from "@/lib/utils";
 import { useApp } from "@/contexts/AppContext";
 import { maskSensitiveData } from "@/lib/masking";
+import { normalizeMessagingText } from "@/lib/message-formatting";
 
 // Helper to format time like WhatsApp (HH:mm)
 const formatWaTime = (dateStr: string) => {
@@ -45,7 +46,7 @@ export const parseMessageContent = (rawText: string) => {
             // ignore, fall through
         }
     }
-    return rawText;
+    return normalizeMessagingText(rawText);
 };
 
 interface WhatsAppViewProps {
