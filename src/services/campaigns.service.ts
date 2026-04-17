@@ -554,7 +554,7 @@ async deleteCampaign(id: string): Promise<void> {
 
         if (error) {
             console.error('Error fetching import logs:', error);
-            return [];
+            throw error;
         }
 
         return data.map((l: any) => ({

@@ -25,6 +25,7 @@ import {
     Pencil,
     Eye,
     X,
+    Download,
     ArrowUpDown,
     ArrowUp,
     ArrowDown,
@@ -146,6 +147,16 @@ export default function Campaigns() {
         }
     };
 
+    const defaultInitialMessage =
+        "Olá! Sou a Sofia, assistente virtual da Ticket.\n\n" +
+        "*Essa é a oportunidade perfeita para você garantir crédito com as melhores condições do mercado!*\n\n" +
+        "A nova parceria entre Ticket e Fiserv Capital, líder global em tecnologia de pagamentos, oferece aos clientes Ticket *Capital de Giro facilitado* para pagar despesas fixas, garantir mais previsibilidade financeira e investir no crescimento do seu negócio. Tudo isso garantindo *condições exclusivas*:\n\n" +
+        "✅ Taxas a partir de *1,89% a.m*\n" +
+        "✅ Crédito disponível entre *10 mil e 500 mil reais*\n" +
+        "✅ Recebimento do dinheiro em até *24h*\n" +
+        "✅ O único bem que você usa como garantia são *seus recebíveis* (débito, crédito e voucher Ticket)!\n\n" +
+        "*Posso enviar o link para análise?*";
+
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
         name: "",
@@ -156,10 +167,17 @@ export default function Campaigns() {
         endDate: "",
         startTime: "09:00",
         endTime: "18:00",
-        initialMessage: "",
+        initialMessage: defaultInitialMessage,
         successCriteria: ['LINK_SENT'] as string[],
-        successLinkFilter: "",
+        successLinkFilter: "fiservcapital",
     });
+
+    useEffect(() => {
+        // If there's only one agent available for this tenant, preselect it to reduce friction.
+        if (agents.length === 1 && !newCampaign.agentId) {
+            setNewCampaign((prev) => ({ ...prev, agentId: agents[0].id }));
+        }
+    }, [agents, newCampaign.agentId]);
 
     useEffect(() => {
         if (currentTenant) {
@@ -257,15 +275,15 @@ export default function Campaigns() {
             setNewCampaign({
                 name: "",
                 description: "",
-                agentId: "",
+                agentId: agents.length === 1 ? agents[0].id : "",
                 dailyLimit: 1000,
                 startDate: format(new Date(), "yyyy-MM-dd"),
                 endDate: "",
                 startTime: "09:00",
                 endTime: "18:00",
-                initialMessage: "",
+                initialMessage: defaultInitialMessage,
                 successCriteria: ['LINK_SENT'],
-                successLinkFilter: "",
+                successLinkFilter: "fiservcapital",
             });
             await loadData();
             setIsImportOpen(true);
@@ -609,6 +627,44 @@ export default function Campaigns() {
         return 'Houve um problema ao processar a base de dados.';
     };
 
+    const getImportLogsErrorMessage = (error: any) => {
+        if (error?.code === '42501') {
+            return 'Seu usuário não tem permissão para visualizar os logs de inconsistência desta campanha.';
+        }
+
+        return 'Não foi possível buscar os erros de importação.';
+    };
+
+    const handleDownloadImportErrors = () => {
+        if (!importErrors.length) return;
+
+        const rows = importErrors.map((log) => ({
+            Linha: log.rowNumber,
+            "Razão Social / Nome": log.rawData?.name || log.contactName || '',
+            CNPJ: log.rawData?.identifier || '',
+            Telefone: log.rawData?.phone || log.contactPhone || '',
+            Motivo: log.errorMessage || '',
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Inconsistencias');
+
+        const campaignName = (selectedCampaignForErrors?.name || 'campanha')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .toLowerCase();
+
+        XLSX.writeFile(workbook, `inconsistencias-${campaignName || 'campanha'}.xlsx`);
+
+        toast({
+            title: "Planilha gerada",
+            description: "O download das inconsistências foi iniciado."
+        });
+    };
+
     const handleTogglePause = async (campaign: Campaign) => {
         try {
             const newStatus = campaign.status === 'active' ? 'paused' : 'active';
@@ -711,10 +767,11 @@ export default function Campaigns() {
         try {
             const logs = await api.getImportLogs(campaign.id);
             setImportErrors(logs);
-        } catch (error) {
+        } catch (error: any) {
+            setImportErrors([]);
             toast({
                 title: "Erro ao carregar logs",
-                description: "Não foi possível buscar os erros de importação.",
+                description: getImportLogsErrorMessage(error),
                 variant: "destructive",
             });
         } finally {
@@ -869,7 +926,7 @@ export default function Campaigns() {
                                             
                                             <div className="grid gap-2">
                                                 <Label htmlFor="agent" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Agente de IA Executor</Label>
-                                                <Select onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
+                                                <Select value={newCampaign.agentId} onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
                                                     <SelectTrigger className="bg-accent/5 h-10">
                                                         <SelectValue placeholder="Selecione o cérebro da campanha..." />
                                                     </SelectTrigger>
@@ -1669,16 +1726,37 @@ export default function Campaigns() {
                         </div>
                     ) : importErrors.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-64 text-center p-8 bg-green-500/5 rounded-xl border border-green-500/10 hover:bg-green-500/10 transition-all">
-                            <ShieldCheck className="h-12 w-12 text-green-500 mb-4 opacity-50" />
-                            <h3 className="text-lg font-bold text-green-700">Tudo limpo!</h3>
-                            <p className="text-sm text-green-600/80">Nenhuma inconsistência foi registrada para esta campanha até o momento.</p>
+                            {selectedCampaignForErrors?.importErrorCount ? (
+                                <>
+                                    <AlertCircle className="h-12 w-12 text-amber-500 mb-4 opacity-70" />
+                                    <h3 className="text-lg font-bold text-amber-700">Logs indisponíveis</h3>
+                                    <p className="text-sm text-amber-700/80">
+                                        Esta campanha possui inconsistências registradas, mas os detalhes não puderam ser carregados para o usuário atual.
+                                    </p>
+                                </>
+                            ) : (
+                                <>
+                                    <ShieldCheck className="h-12 w-12 text-green-500 mb-4 opacity-50" />
+                                    <h3 className="text-lg font-bold text-green-700">Tudo limpo!</h3>
+                                    <p className="text-sm text-green-600/80">Nenhuma inconsistência foi registrada para esta campanha até o momento.</p>
+                                </>
+                            )}
                         </div>
                     ) : (
                         <div className="space-y-4 overflow-y-auto max-h-[calc(100vh-200px)] pr-2 scrollbar-thin scrollbar-thumb-accent/20 scrollbar-track-transparent">
-                            <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 py-1 mb-2">
+                            <div className="sticky top-0 bg-background/80 backdrop-blur-sm z-10 py-1 mb-2 flex items-center justify-between gap-3">
                                 <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
                                     <Clock className="w-3 h-3" /> Registros de Auditoria ({importErrors.length})
                                 </p>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 border-accent/20 text-accent hover:bg-accent/5"
+                                    onClick={handleDownloadImportErrors}
+                                >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Baixar Excel
+                                </Button>
                             </div>
                             {importErrors.map((log) => (
                                 <div key={log.id} className="p-4 bg-muted/30 border border-border/50 rounded-xl hover:border-red-500/30 hover:bg-red-500/5 transition-all group relative overflow-hidden">
