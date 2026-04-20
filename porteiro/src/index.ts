@@ -788,7 +788,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 let tenantId = originalMsg?.tenant_id;
 
                 if (!agentId) {
-                    const channelId = body.from || body.channel || body.messageStatus?.channel || body.to;
+                    // Fallback 1: ID do Canal (amenable-sweatpants)
+                    const channelId = body.message?.from || body.from || body.channel || body.messageStatus?.channel;
                     console.log(`[ZENVIA] 🔍 Fallback 1 (Canal): ${channelId}`);
                     
                     const { data: agent } = await supabaseAdmin
@@ -800,9 +801,10 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     if (agent) {
                         agentId = agent.id;
                         tenantId = agent.tenant_id;
+                        console.log(`[ZENVIA] 🎯 Fallback 1 Sucedido! Agente: ${agentId}`);
                     } else {
                         // Fallback 2: Tentar pelo telefone do destinatário
-                        const rawTo = body.to || body.messageStatus?.to || body.contact?.id;
+                        const rawTo = body.message?.to || body.to || body.messageStatus?.to || body.contact?.id;
                         const phone = rawTo?.replace(/\D/g, '');
                         console.log(`[ZENVIA] 🔍 Fallback 2 (Telefone): ${phone} (Original: ${rawTo})`);
 
