@@ -133,6 +133,16 @@ BEGIN
     );
 
 EXCEPTION WHEN OTHERS THEN
+    -- [EXTRA] Se der erro, tenta ao menos marcar como falha na fila para não travar em processing
+    IF p_queue_id IS NOT NULL THEN
+        UPDATE public.outbound_queue
+        SET 
+            status = 'failed',
+            error_message = SQLERRM,
+            updated_at = NOW()
+        WHERE id = p_queue_id;
+    END IF;
+
     RETURN jsonb_build_object(
         'success', false,
         'error', SQLERRM,

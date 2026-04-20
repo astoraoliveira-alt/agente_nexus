@@ -38,12 +38,13 @@ DECLARE
     v_actual_limit int;
 BEGIN
     -- 0. Auto-Recuperação: Limpa as mensagens presas que falharam no n8n (> 30 mins)
+    -- Ajustado para olhar last_attempt_at em vez de created_at
     UPDATE public.outbound_queue oq_recover
     SET status = 'pending'
     WHERE oq_recover.tenant_id = p_tenant_id
       AND oq_recover.campaign_id = p_campaign_id
       AND oq_recover.status = 'processing'
-      AND oq_recover.created_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
+      AND oq_recover.last_attempt_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
 
     -- 1. Buscar configurações da campanha e janela de horário
     SELECT 
@@ -81,8 +82,9 @@ BEGIN
     RETURN QUERY
     WITH selected_leads AS (
         UPDATE public.outbound_queue oq_update
-        SET status = 'processing'
-        FROM (
+        SET status = 'processing',
+            last_attempt_at = NOW() -- IMPORTANTE: Marcar quando começou o processo
+        WHERE oq_update.id IN (
             SELECT oq.id 
             FROM public.outbound_queue oq
             WHERE oq.tenant_id = p_tenant_id
@@ -96,14 +98,13 @@ BEGIN
                     AND oq_check.contact_phone = oq.contact_phone
                     AND (oq_check.status = 'sent' OR oq_check.status = 'processing')
                     AND (oq_check.id <> oq.id)
-                    AND (oq_check.sent_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '2 hours' OR (oq_check.status = 'processing' AND oq_check.created_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes'))
+                    AND (oq_check.sent_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '2 hours' OR (oq_check.status = 'processing' AND oq_check.last_attempt_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes'))
               )
               */
             ORDER BY oq.created_at ASC
             LIMIT v_actual_limit
             FOR UPDATE SKIP LOCKED 
-        ) subquery
-        WHERE oq_update.id = subquery.id
+        )
         RETURNING oq_update.id, oq_update.contact_phone, oq_update.contact_name, oq_update.campaign_id, oq_update.agent_id, oq_update.tenant_id
     )
     SELECT 
