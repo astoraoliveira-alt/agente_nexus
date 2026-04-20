@@ -1,31 +1,14 @@
--- =============================================
--- PERFORMANCE OPTIMIZATION: Database & RAG
--- Purpose: Resolve 11s latency in WhatsApp flows.
--- =============================================
+-- [OPTIMIZATION] Índices para acelerar o Porteiro e evitar retentativas do Zenvia
 
--- 1. CHAT MEMORY OPTIMIZATION
--- n8n Postgres Chat Memory uses session_id. Without an index, it performs a sequential scan.
-CREATE INDEX IF NOT EXISTS idx_chat_histories_session_id ON public.chat_histories_memory(session_id);
+-- 1. Acelera busca de Agente pelo canal do Zenvia
+CREATE INDEX IF NOT EXISTS idx_agents_zenvia_channel_id ON public.agents(zenvia_channel_id) WHERE zenvia_channel_id IS NOT NULL;
 
--- 2. VECTOR SEARCH OPTIMIZATION (RAG)
--- Enable HNSW index for fast approximate nearest neighbor search.
--- requires pgvector 0.5.0+
-CREATE INDEX IF NOT EXISTS idx_agent_knowledge_embedding_hnsw 
-ON public.agent_knowledge 
-USING hnsw (embedding vector_cosine_ops)
-WITH (m = 16, ef_construction = 64);
+-- 2. Acelera busca de Conversas ativas
+CREATE INDEX IF NOT EXISTS idx_conversations_lookup_zenvia ON public.conversations(tenant_id, user_identifier, agent_id, status) WHERE status != 'closed';
 
--- 3. CONSUMPTION METRICS OPTIMIZATION
--- record_usage RPC filters by tenant, metric_type and date.
-DROP INDEX IF EXISTS idx_consumption_tenant_date; -- Replaced by more specific one
-CREATE INDEX IF NOT EXISTS idx_consumption_metrics_query 
-ON public.consumption_metrics(tenant_id, metric_type, recorded_at);
+-- 3. Acelera busca de mensagens por remote_id (usado nos status updates)
+CREATE INDEX IF NOT EXISTS idx_messages_remote_id ON public.messages(remote_id) WHERE remote_id IS NOT NULL;
 
--- 4. MESSAGES & CONVERSATIONS (Safety check)
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON public.messages(conversation_id);
-CREATE INDEX IF NOT EXISTS idx_conversations_user_identifier ON public.conversations(user_identifier, tenant_id);
-
-DO $$
-BEGIN
-  RAISE NOTICE 'Performance optimization indexes applied successfully.';
-END $$;
+-- 4. Acelera a fila de entrada para evitar processar a mesma mensagem duas vezes
+CREATE INDEX IF NOT EXISTS idx_inbound_queue_external_id ON public.inbound_queue(external_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_queue_status_pending ON public.inbound_queue(status) WHERE status = 'pending';

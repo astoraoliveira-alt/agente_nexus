@@ -754,347 +754,156 @@ app.post('/v1/evolution/webhook', async (c) => {
  * Normaliza e enfileira o mesmo fluxo da Evolution.
  */
 app.post('/v1/zenvia/webhook', async (c) => {
-    console.log(`[ZENVIA] 🔔 Webhook recebido da Zenvia`);
-    let zenviaBody: any = null;
-    let initialTraceId = `ZNV-GEN-${Math.random().toString(36).substring(7).toUpperCase()}`;
     const startTime_znv = Date.now();
-    try {
-        const rawInput = await c.req.json();
-        zenviaBody = rawInput;
+    const rawInput = await c.req.json();
+    const arrayItem = Array.isArray(rawInput) ? rawInput[0] : rawInput;
+    const body = arrayItem.body || arrayItem;
+    const msg = body.message || body;
+    const externalId = body.id || body.messageId;
 
-        // 🛡️ Resiliência V53: Trata se for um array ou se estiver dentro de um "body" (ex: n8n wrapper)
-        const arrayItem = Array.isArray(rawInput) ? rawInput[0] : rawInput;
-        const body = arrayItem.body || arrayItem; 
-        
-        // 🛡️ Normalização Zenvia: Alguns payloads trazem os dados dentro de "message"
-        const msg = body.message || body;
+    console.log(`[ZENVIA] 🔔 Webhook recebido: ${externalId} (Iniciando Processamento Async)`);
 
-        // --- NOVO: Tratamento de Status de Mensagem (DLR) ---
-        if (body.type === 'MESSAGE_STATUS') {
-            const remoteId = body.messageId;
-            const statusCode = body.messageStatus?.code;
-            console.log(`[ZENVIA] 📊 Status recebido: ${statusCode} para msg ${remoteId}`);
+    // RESPOSTA IMEDIATA: O Zenvia tem timeout de 5 segundos.
+    // Respondemos em milissegundos e liberamos o processamento pesado.
+    const response = c.json({ ok: true, received_at: new Date().toISOString() }, 200);
 
-            // 1. Localizar Tenant/Agente (Busca simplificada para máxima compatibilidade)
-            let agentId_st: string | null = null;
-            let tenantId_st: string | null = null;
-
-            // Busca os dados básicos da mensagem original
-            const { data: msgData } = await supabaseAdmin
-                .from('messages')
-                .select('tenant_id, conversation_id')
-                .eq('remote_id', remoteId)
-                .maybeSingle();
-
-            if (msgData) {
-                tenantId_st = msgData.tenant_id;
+    // PROCESSAMENTO ASSÍNCRONO (Background Task)
+    (async () => {
+        try {
+            // 📊 TRATAMENTO DE STATUS (DLR)
+            if (body.type === 'MESSAGE_STATUS') {
+                const remoteId = body.messageId;
+                const statusCode = body.messageStatus?.code;
                 
-                // Busca o agente vinculado à conversa
-                const { data: convData } = await supabaseAdmin
-                    .from('conversations')
-                    .select('agent_id')
-                    .eq('id', msgData.conversation_id)
+                // Busca rápida indexada
+                const { data: originalMsg } = await supabaseAdmin
+                    .from('messages')
+                    .select('agent_id, tenant_id')
+                    .eq('remote_id', remoteId)
+                    .limit(1)
                     .maybeSingle();
-                
-                agentId_st = convData?.agent_id;
-            } else {
-                console.warn(`[ZENVIA] ⚠️ Mensagem original ${remoteId} não encontrada no banco.`);
-                // Fallback pelo canal (útil se o status chegar antes da gravação da mensagem)
-                const channelId_status = body.channel || body.to || (body.messageStatus?.channel);
-                if (channelId_status) {
-                    const { data: altAgent } = await supabaseAdmin
+
+                let agentId = originalMsg?.agent_id;
+                let tenantId = originalMsg?.tenant_id;
+
+                if (!agentId) {
+                    const channelId = body.channel || body.to || body.messageStatus?.channel;
+                    const { data: agent } = await supabaseAdmin
                         .from('agents')
                         .select('id, tenant_id')
-                        .eq('zenvia_channel_id', channelId_status)
-                        .limit(1)
+                        .eq('zenvia_channel_id', channelId)
                         .maybeSingle();
-                    if (altAgent) {
-                        agentId_st = altAgent.id;
-                        tenantId_st = altAgent.tenant_id;
+                    agentId = agent?.id;
+                    tenantId = agent?.tenant_id;
+                }
+
+                if (agentId && tenantId) {
+                    const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
+                    await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                        p_tenant_id: tenantId,
+                        p_agent_id: agentId,
+                        p_external_id: remoteId,
+                        p_payload: body,
+                        p_message_type: 'outbound_status',
+                        p_trace_id: traceStat
+                    });
+
+                    const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+                    if (n8nUrl) {
+                        fetch(n8nUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ trace_id: traceStat, tenant_id: tenantId, is_status: true })
+                        }).catch(() => {});
                     }
+                    console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado [${remoteId}]`);
                 }
+                return;
             }
 
-            if (agentId_st && tenantId_st) {
-                const traceId_st = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
+            // 💬 TRATAMENTO DE MENSAGEM (INBOUND)
+            if (body.direction === 'IN' && body.type === 'MESSAGE') {
+                const phone = (msg.from || body.from)?.replace(/\D/g, '');
+                const channelId = msg.to || body.to;
                 
-                const { error: qError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
-                    p_tenant_id: tenantId_st,
-                    p_agent_id: agentId_st,
-                    p_external_id: remoteId,
-                    p_payload: body,
-                    p_message_type: 'outbound_status',
-                    p_trace_id: traceId_st
-                });
+                const { data: agents } = await supabaseAdmin
+                    .from('agents')
+                    .select('id, tenant_id')
+                    .eq('zenvia_channel_id', channelId)
+                    .eq('status', 'active')
+                    .limit(1);
 
-                if (qError) {
-                    console.error(`[ZENVIA] ❌ Erro ao enfileirar status:`, qError.message);
-                } else {
-                    console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado para msg ${remoteId} [Trace: ${traceId_st}]`);
-                }
+                if (!agents?.length) return;
+                const agent = agents[0];
 
-                // Dispara N8N para processamento imediato
-                const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
-                if (n8nUrl) {
-                    await fetch(n8nUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ trace_id: traceId_st, tenant_id: tenantId_st })
-                    }).catch(e => console.error(`[ZENVIA] ⚠️ N8N Status Trigger failed:`, e.message));
-                }
-            } else {
-                console.error(`[ZENVIA] ❌ Não foi possível determinar Tenant/Agente para o status da msg: ${remoteId}`);
-            }
-
-            return c.json({ ok: true, status_processed: !!agentId_st });
-        }
-
-        // Ignora eventos de saída (loop) e outros tipos não suportados
-        if (body.direction === 'OUT' || body.type !== 'MESSAGE') {
-            console.log(`[ZENVIA] ⏭️ Ignorando evento: type=${body.type}, direction=${body.direction}`);
-            return c.json({ ok: true, ignored: true });
-        }
-
-        initialTraceId = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
-        
-        // Busca os campos preferencialmente no objeto aninhado 'message', com fallback para a raiz
-        const phone = (msg.from || body.from)?.replace(/\D/g, '');
-        const channelId = msg.to || body.to; // número Zenvia do agente
-        const visitor = msg.visitor || body.visitor;
-        const pushName = visitor?.name || visitor?.firstName || phone;
-        const externalId = body.id;
-
-        // Extrai conteúdo com busca profunda
-        const content = (msg.contents || body.contents)?.[0];
-        let textContent = '';
-        let detectedMessageType = 'conversation';
-        let mediaUrl = '';
-        let mimetype = '';
-
-        if (content) {
-            if (content.type === 'text') {
-                textContent = content.text;
-            } else if (content.type === 'file' || content.type === 'image') {
-                mediaUrl = content.fileUrl;
-                mimetype = content.fileMimeType;
-                textContent = content.fileCaption || '';
-                detectedMessageType = content.type === 'image' ? 'image' : 'document';
-            }
-        }
-
-        if (!phone || (!textContent && !mediaUrl)) {
-            console.error(`[ZENVIA] ❌ Dados incompletos: phone=${phone}, content=${!!textContent}, media=${!!mediaUrl}`);
-            await logIntegration({
-                provider: 'zenvia',
-                external_id: externalId,
-                payload: body,
-                status: 'ignored',
-                path: '/v1/zenvia/webhook',
-                error_details: `Missing phone or content (Phone: ${phone}, HasContent: ${!!textContent})`,
-                latency_ms: Date.now() - startTime_znv
-            });
-            return c.json({ ok: true, ignored: true, reason: 'missing_content' });
-        }
-
-        // --- 0. PRE-VALIDATION LOG (Zenvia) ---
-        
-        // Busca o agente pelo zenvia_channel_id (tentativa rápida para o log)
-        const { data: earlyAgents } = await supabaseAdmin
-            .from('agents')
-            .select('id, tenant_id')
-            .eq('zenvia_channel_id', channelId)
-            .limit(1);
-        
-        const earlyAgent = earlyAgents?.[0];
-
-        await logIntegration({
-            provider: 'zenvia',
-            external_id: externalId,
-            payload: body,
-            tenant_id: earlyAgent?.tenant_id,
-            agent_id: earlyAgent?.id,
-            trace_id: initialTraceId,
-            phone_number: phone,
-            path: '/v1/zenvia/webhook',
-            status: 'received',
-            latency_ms: Date.now() - startTime_znv,
-            validation_results: { received_at: new Date().toISOString() }
-        });
-
-        // Busca o agente pelo zenvia_channel_id
-        const { data: agentRows } = await supabaseAdmin
-            .from('agents')
-            .select('id, tenant_id')
-            .eq('zenvia_channel_id', channelId)
-            .eq('status', 'active')
-            .limit(1);
-
-        if (!agentRows?.length) {
-            console.error(`[ZENVIA] ❌ Agente não encontrado para channel: ${channelId}`);
-            await logIntegration({
-                provider: 'zenvia',
-                external_id: externalId,
-                payload: body,
-                trace_id: initialTraceId,
-                phone_number: phone,
-                path: '/v1/zenvia/webhook',
-                status: 'error',
-                latency_ms: Date.now() - startTime_znv,
-                error_details: 'Agent not found for channel: ' + channelId
-            });
-            return c.json({ error: 'Agent not found' }, 404);
-        }
-
-        const agent = agentRows[0];
-
-        // Upsert contato
-        await supabaseAdmin.from('contacts').upsert({
-            tenant_id: agent.tenant_id,
-            identifier: phone,
-            phone,
-            name: pushName,
-            channel: 'whatsapp'
-        }, { onConflict: 'tenant_id,identifier' });
-
-        // Localiza ou cria conversa (Lógica Ultra Resiliente)
-        let { data: conv } = await supabaseAdmin
-            .from('conversations')
-            .select('id')
-            .eq('tenant_id', agent.tenant_id)
-            .eq('user_identifier', phone)
-            .eq('agent_id', agent.id)
-            .neq('status', 'closed')
-            .order('last_message_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-        let conversationId = conv?.id;
-
-        if (!conversationId) {
-            console.log(`[ZENVIA] 📝 Tentando criar conversa para ${phone}`);
-            const { data: newConv, error: insertError } = await supabaseAdmin
-                .from('conversations')
-                .insert({
+                // Upsert Contato & Conversa
+                await supabaseAdmin.from('contacts').upsert({
                     tenant_id: agent.tenant_id,
-                    agent_id: agent.id,
-                    user_identifier: phone,
-                    user_name: pushName || 'Cliente Zenvia',
-                    channel: 'whatsapp',
-                    status: 'ai_active'
-                })
-                .select('id')
-                .maybeSingle();
+                    identifier: phone,
+                    phone,
+                    name: msg.visitor?.name || phone,
+                    channel: 'whatsapp'
+                }, { onConflict: 'tenant_id,identifier' });
 
-            if (!insertError && newConv) {
-                conversationId = newConv.id;
-            } else {
-                // FALLBACK: Se deu erro de duplicidade, busca qualquer conversa deste usuário
-                const { data: fallbackConv } = await supabaseAdmin
+                let { data: conv } = await supabaseAdmin
                     .from('conversations')
                     .select('id')
                     .eq('tenant_id', agent.tenant_id)
                     .eq('user_identifier', phone)
                     .eq('agent_id', agent.id)
-                    .order('created_at', { ascending: false })
+                    .neq('status', 'closed')
+                    .order('last_message_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
-                
-                conversationId = fallbackConv?.id || null;
-                if (conversationId) {
-                    console.log(`[ZENVIA] 🔄 Recuperada conversa via fallback para ${phone}: ${conversationId}`);
-                    // Garante que a conversa recuperada seja marcada como ativa
-                    await supabaseAdmin
-                        .from('conversations')
-                        .update({ 
-                            status: 'ai_active',
-                            last_message_at: new Date().toISOString()
-                        })
-                        .eq('id', conversationId);
+
+                let convId = conv?.id;
+                if (!convId) {
+                    const { data: newConv } = await supabaseAdmin.from('conversations').insert({
+                        tenant_id: agent.tenant_id,
+                        agent_id: agent.id,
+                        user_identifier: phone,
+                        user_name: msg.visitor?.name || 'Cliente Zenvia',
+                        channel: 'whatsapp',
+                        status: 'ai_active'
+                    }).select('id').maybeSingle();
+                    convId = newConv?.id;
+                }
+
+                if (convId) {
+                    const content = (msg.contents || body.contents)?.[0];
+                    const text = content?.text || content?.fileCaption || '';
+                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'conversation');
+                    const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
+
+                    await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                        p_tenant_id: agent.tenant_id,
+                        p_agent_id: agent.id,
+                        p_conversation_id: convId,
+                        p_external_id: externalId,
+                        p_payload: { content: text, phone, platform: 'zenvia', mediaUrl: content?.fileUrl },
+                        p_trace_id: trace,
+                        p_message_type: type
+                    });
+
+                    const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+                    if (n8nUrl) {
+                        fetch(n8nUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ trace_id: trace, conversation_id: convId, tenant_id: agent.tenant_id })
+                        }).catch(() => {});
+                    }
+                    console.log(`[ZENVIA] ✅ Mensagem enfileirada: ${phone} [Trace: ${trace}]`);
                 }
             }
+        } catch (err: any) {
+            console.error('[ZENVIA] ❌ Background Error:', err.message);
         }
+    })();
 
-        await supabaseAdmin
-            .from('conversations')
-            .update({ last_message_at: new Date().toISOString() })
-            .eq('id', conversationId);
-
-        // Enfileira — mesmo RPC da Evolution
-        const traceId = `ZNV-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-        const { error: queueError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
-            p_tenant_id: agent.tenant_id,
-            p_agent_id: agent.id,
-            p_conversation_id: conversationId,
-            p_external_id: externalId,
-            p_payload: {
-                content: textContent,
-                phone,
-                name: pushName,
-                instance: channelId,
-                timestamp: new Date().toISOString(),
-                messageType: detectedMessageType,
-                platform: 'zenvia',
-                mediaUrl,
-                mimetype
-            },
-            p_trace_id: traceId,
-            p_message_type: detectedMessageType,
-            p_latency_ms: Date.now() - startTime_znv
-        });
-
-        if (queueError) {
-            console.error(`[ZENVIA] ❌ Erro ao enfileirar:`, queueError);
-            return c.json({ error: 'Queue error' }, 500);
-        }
-
-        // Dispara N8N (mesmo padrão da Evolution)
-        const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
-        if (n8nWebhookUrl) {
-            await fetch(n8nWebhookUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ trace_id: traceId, conversation_id: conversationId, tenant_id: agent.tenant_id, agent_id: agent.id })
-            }).catch(err => console.error(`[ZENVIA] ⚠️ N8N trigger failed:`, err.message));
-        }
-
-        console.log(`[ZENVIA] ✅ Mensagem de ${phone} enfileirada [Trace: ${traceId}]`);
-
-        // --- FINAL LOG UPDATE (Zenvia Processed) ---
-        await logIntegration({
-            provider: 'zenvia',
-            external_id: externalId,
-            trace_id: initialTraceId,
-            phone_number: phone,
-            conversation_id: conversationId,
-            path: '/v1/zenvia/webhook',
-            status: 'processed',
-            tenant_id: agent.tenant_id,
-            agent_id: agent.id,
-            latency_ms: Date.now() - startTime_znv,
-            payload: body,
-            validation_results: { 
-                queue_trace_id: traceId,
-                conversation_id: conversationId,
-                processed: true
-            }
-        });
-
-        return c.json({ ok: true, trace_id: traceId });
-
-    } catch (err: any) {
-        console.error('[ZENVIA] ❌ Webhook Error:', err);
-        await logIntegration({
-            provider: 'zenvia',
-            status: 'error',
-            trace_id: initialTraceId,
-            path: '/v1/zenvia/webhook',
-            latency_ms: Date.now() - startTime_znv,
-            error_details: err.message,
-            payload: zenviaBody
-        });
-        return c.json({ error: 'Internal error', details: err.message }, 500);
-    }
+    return response;
 });
+
 
 /**
  * Zenvia Status Webhook
