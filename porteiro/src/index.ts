@@ -808,15 +808,21 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_trace_id: traceStat
                     });
 
-                    const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
-                    if (n8nUrl) {
-                        fetch(n8nUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ trace_id: traceStat, tenant_id: tenantId, is_status: true })
-                        }).catch(() => {});
+                    if (rpcError) {
+                        console.error(`[ZENVIA] ❌ Erro RPC no Status:`, rpcError.message);
+                    } else {
+                        const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+                        if (n8nUrl) {
+                            fetch(n8nUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ trace_id: traceStat, tenant_id: tenantId, is_status: true })
+                            }).catch(() => {});
+                        }
+                        console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado [${remoteId}] (Trace: ${traceStat})`);
                     }
-                    console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado [${remoteId}]`);
+                } else {
+                    console.warn(`[ZENVIA] ⚠️ Status ignorado: Não foi possível mapear msg ${remoteId} a um agente.`);
                 }
                 return;
             }
