@@ -794,8 +794,31 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         .select('id, tenant_id')
                         .eq('zenvia_channel_id', channelId)
                         .maybeSingle();
-                    agentId = agent?.id;
-                    tenantId = agent?.tenant_id;
+                    
+                    if (agent) {
+                        agentId = agent.id;
+                        tenantId = agent.tenant_id;
+                    } else {
+                        // Fallback 3: Tentar pelo telefone do destinatário (body.to)
+                        console.log(`[ZENVIA] 🔍 Canal genérico. Tentando fallback pela última conversa do telefone: ${body.to}`);
+                        const phone = body.to?.replace(/\D/g, '');
+                        if (phone && phone.length > 8) {
+                            const { data: lastConv } = await supabaseAdmin
+                                .from('conversations')
+                                .select('agent_id, tenant_id')
+                                .eq('user_identifier', phone)
+                                .neq('status', 'closed')
+                                .order('last_message_at', { ascending: false })
+                                .limit(1)
+                                .maybeSingle();
+                            
+                            if (lastConv) {
+                                agentId = lastConv.agent_id;
+                                tenantId = lastConv.tenant_id;
+                                console.log(`[ZENVIA] 🎯 Fallback bem sucedido! Mapeado para Agente: ${agentId}`);
+                            }
+                        }
+                    }
                 }
 
                 if (agentId && tenantId) {
