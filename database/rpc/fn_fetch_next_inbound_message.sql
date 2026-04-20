@@ -65,6 +65,16 @@ BEGIN
     FROM public.conversations
     WHERE id = v_record.conversation_id;
 
+    -- [FIX] Se a conversa estiver fechada, reabre automaticamente
+    IF v_conv.status = 'closed' THEN
+        UPDATE public.conversations
+        SET status = 'ai_active',
+            reopened_at = NOW(),
+            updated_at = NOW()
+        WHERE id = v_conv.id
+        RETURNING * INTO v_conv;
+    END IF;
+
     -- [PROD] Lead Search (DDD+Num)
     SELECT *
     INTO v_lead

@@ -920,7 +920,17 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     .maybeSingle();
                 
                 conversationId = fallbackConv?.id || null;
-                if (conversationId) console.log(`[ZENVIA] 🔄 Recuperada conversa via fallback para ${phone}: ${conversationId}`);
+                if (conversationId) {
+                    console.log(`[ZENVIA] 🔄 Recuperada conversa via fallback para ${phone}: ${conversationId}`);
+                    // Garante que a conversa recuperada seja marcada como ativa
+                    await supabaseAdmin
+                        .from('conversations')
+                        .update({ 
+                            status: 'ai_active',
+                            last_message_at: new Date().toISOString()
+                        })
+                        .eq('id', conversationId);
+                }
             }
         }
 
