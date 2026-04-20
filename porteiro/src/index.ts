@@ -1279,7 +1279,8 @@ async function startQueueWorker() {
                         responseOk = metaRes.ok;
                     } else if (apiType === 'zenvia') {
                         const zenviaToken = process.env.ZENVIA_API_TOKEN;
-                        const channelId = agent?.zenvia_channel_id;
+                        const rawChannelId = agent?.zenvia_channel_id || '';
+                        const channelId = rawChannelId.split(',')[0].trim();
                         
                         const znvRes = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
                             method: 'POST',
