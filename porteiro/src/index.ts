@@ -889,25 +889,11 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     .eq('status', 'active')
                     .limit(1);
 
-                let agent = agents?.[0];
-                
-                // Hardcoded fallback for Zenvia Robot Number (551152398510)
-                if (!agent && channelId === '551152398510') {
-                    console.log(`[ZENVIA] 🤖 Detectado número do Robô Sandbox. Buscando agente padrão Fiserv...`);
-                    const { data: fallbackAgent } = await supabaseAdmin
-                        .from('agents')
-                        .select('id, name, tenant_id')
-                        .ilike('name', '%Fiserv%')
-                        .limit(1)
-                        .maybeSingle();
-                    console.log(`[ZENVIA] 🔍 Busca fallbackAgent concluída`);
-                    if (fallbackAgent) agent = fallbackAgent;
-                }
-
-                if (!agent) {
+                if (!agents?.length) {
                     console.warn(`[ZENVIA] ❌ Agente não encontrado para o canal ${channelId}. Abortando.`);
                     return;
                 }
+                const agent = agents[0];
                 console.log(`[ZENVIA] 👤 Agente mapeado: ${agent.name || agent.id}`);
 
                 // Upsert Contato & Conversa
