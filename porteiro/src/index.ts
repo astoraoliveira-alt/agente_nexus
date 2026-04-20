@@ -1230,7 +1230,8 @@ async function startQueueWorker() {
                         evolution_instance,
                         whatsapp_api_type,
                         meta_phone_number_id,
-                        meta_api_token
+                        meta_api_token,
+                        zenvia_channel_id
                     )
                 `)
                 .eq('status', 'pending')
