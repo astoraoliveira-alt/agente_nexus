@@ -775,28 +775,60 @@ app.post('/v1/zenvia/webhook', async (c) => {
             const statusCode = body.messageStatus?.code;
             console.log(`[ZENVIA] 📊 Status recebido: ${statusCode} para msg ${remoteId}`);
 
-            // Busca rápida do agente pelo ID da mensagem (Zenvia não manda o canal no status às vezes)
-            // Ou tentamos pelo channelId se disponível
-            const channelId_status = body.channel || msg.to || body.to;
+            // 1. Localizar Tenant/Agente (Zenvia não manda canal no status, busca reversa na 'messages')
+            let agentId_st: string | null = null;
+            let tenantId_st: string | null = null;
 
-            const { data: agentRows_st } = await supabaseAdmin
-                .from('agents')
-                .select('id, tenant_id')
-                .eq('zenvia_channel_id', channelId_status)
-                .limit(1);
+            // Busca rápida pelo remote_id da mensagem original
+            const { data: msgData, error: msgError } = await supabaseAdmin
+                .from('messages')
+                .select(`
+                    tenant_id,
+                    conversations (
+                        agent_id
+                    )
+                `)
+                .eq('remote_id', remoteId)
+                .maybeSingle();
 
-            const agent_st = agentRows_st?.[0];
+            if (msgData) {
+                tenantId_st = msgData.tenant_id;
+                agentId_st = (msgData.conversations as any)?.agent_id;
+            } else {
+                console.warn(`[ZENVIA] ⚠️ Mensagem original não encontrada para vincular status: ${remoteId}`);
+                // Tentativa de fallback pelo channelId se disponível (raro em status)
+                const channelId_status = body.channel || msg.to || body.to;
+                if (channelId_status) {
+                    const { data: altAgent } = await supabaseAdmin
+                        .from('agents')
+                        .select('id, tenant_id')
+                        .eq('zenvia_channel_id', channelId_status)
+                        .limit(1)
+                        .maybeSingle();
+                    if (altAgent) {
+                        agentId_st = altAgent.id;
+                        tenantId_st = altAgent.tenant_id;
+                    }
+                }
+            }
 
-            if (agent_st) {
+            if (agentId_st && tenantId_st) {
                 const traceId_st = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
-                await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
-                    p_tenant_id: agent_st.tenant_id,
-                    p_agent_id: agent_st.id,
+                
+                const { error: qError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                    p_tenant_id: tenantId_st,
+                    p_agent_id: agentId_st,
                     p_external_id: remoteId,
                     p_payload: body,
                     p_message_type: 'outbound_status',
                     p_trace_id: traceId_st
                 });
+
+                if (qError) {
+                    console.error(`[ZENVIA] ❌ Erro ao enfileirar status:`, qError.message);
+                } else {
+                    console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado para msg ${remoteId} [Trace: ${traceId_st}]`);
+                }
 
                 // Dispara N8N para processamento imediato
                 const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
@@ -804,12 +836,14 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     await fetch(n8nUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ trace_id: traceId_st, tenant_id: agent_st.tenant_id })
+                        body: JSON.stringify({ trace_id: traceId_st, tenant_id: tenantId_st })
                     }).catch(e => console.error(`[ZENVIA] ⚠️ N8N Status Trigger failed:`, e.message));
                 }
+            } else {
+                console.error(`[ZENVIA] ❌ Não foi possível determinar Tenant/Agente para o status da msg: ${remoteId}`);
             }
 
-            return c.json({ ok: true, status_processed: true });
+            return c.json({ ok: true, status_processed: !!agentId_st });
         }
 
         // Ignora eventos de saída (loop) e outros tipos não suportados
