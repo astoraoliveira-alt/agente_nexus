@@ -94,12 +94,13 @@ export const dashboardService = {
                 stt_minutes: 0,
                 tts_minutes: 0,
                 total_messages: 0,
+                total_whatsapp_windows: 0,
                 active_agents: 0
             };
         }
 
         // Single row return
-        return data && data.length > 0 ? data[0] : { total_tokens: 0, stt_minutes: 0, tts_minutes: 0, total_messages: 0, active_agents: 0 };
+        return data && data.length > 0 ? data[0] : { total_tokens: 0, stt_minutes: 0, tts_minutes: 0, total_messages: 0, total_whatsapp_windows: 0, active_agents: 0 };
     },
 
     async getDashMaster(tenantId: string): Promise<any> {

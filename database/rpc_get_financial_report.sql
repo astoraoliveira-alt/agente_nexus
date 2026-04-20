@@ -39,7 +39,8 @@ BEGIN
             COALESCE(SUM(CASE WHEN cm.metric_type = 'tokens' THEN cm.value ELSE 0 END), 0) as val_llm,
             COALESCE(SUM(CASE WHEN cm.metric_type = 'stt_minutes' THEN cm.value ELSE 0 END), 0) as val_stt,
             COALESCE(SUM(CASE WHEN cm.metric_type = 'tts_minutes' THEN cm.value ELSE 0 END), 0) as val_tts,
-            COALESCE(SUM(CASE WHEN cm.metric_type = 'messages' THEN cm.value ELSE 0 END), 0) as val_msgs_recorded
+            COALESCE(SUM(CASE WHEN cm.metric_type = 'messages' THEN cm.value ELSE 0 END), 0) as val_msgs_recorded,
+            COALESCE(SUM(CASE WHEN cm.metric_type = 'whatsapp_window_24h' THEN cm.value ELSE 0 END), 0) as val_wa_windows
         FROM consumption_metrics cm
         WHERE cm.recorded_at >= v_start_date AND cm.recorded_at < v_end_date
         GROUP BY cm.tenant_id
@@ -49,7 +50,17 @@ BEGIN
             m.tenant_id,
             COUNT(*) as total_msgs
         FROM messages m
+        LEFT JOIN conversations conv ON m.conversation_id = conv.id
         WHERE m.created_at >= v_start_date AND m.created_at < v_end_date
+          AND NOT (
+            conv.channel = 'whatsapp'::public.conversation_channel
+            AND COALESCE(conv.metadata->>'whatsapp_billing_mode', '') = 'window_24h'
+            AND m.created_at >= COALESCE(
+              NULLIF(conv.metadata->>'whatsapp_billing_mode_applied_at', '')::timestamptz,
+              conv.created_at,
+              v_start_date
+            )
+          )
         GROUP BY m.tenant_id
     ),
     tenant_fixed_costs AS (
@@ -81,13 +92,21 @@ BEGIN
                 (COALESCE(rm.val_stt, 0) * COALESCE(p.stt_minute_price, 0)) + 
                 (COALESCE(rm.val_tts, 0) * COALESCE(p.tts_minute_price, 0)) +
                 (COALESCE(rm.val_msgs_recorded, 0) * COALESCE(p.message_price, 0)) +
-                (COALESCE(mc.total_msgs, 0) * COALESCE(p.message_price, 0))
+                (COALESCE(mc.total_msgs, 0) * COALESCE(p.message_price, 0)) +
+                (
+                  COALESCE(rm.val_wa_windows, 0) * COALESCE(
+                    NULLIF(c.plan_prices->>'whatsappWindowPrice', '')::NUMERIC,
+                    NULLIF(c.plan_prices->>'whatsapp_window_price', '')::NUMERIC,
+                    p.whatsapp_window_price,
+                    0
+                  )
+                )
             ) as raw_revenue_variable,
             COALESCE(tfc.total_fixed_cost, 0) as raw_cost_fixed,
             ((COALESCE(rm.val_llm, 0) / 1000.0) * COALESCE(tr.llm_rate, 0.05)) as raw_cost_variable_llm,
             ((COALESCE(rm.val_stt, 0) + COALESCE(rm.val_tts, 0)) * COALESCE(tr.voice_rate, 0.15)) as raw_cost_variable_voice,
             ((COALESCE(rm.val_stt, 0) + COALESCE(rm.val_tts, 0)) * COALESCE(tr.twilio_var_rate, 0)) as raw_cost_variable_other,
-            ((COALESCE(rm.val_msgs_recorded, 0) + COALESCE(mc.total_msgs, 0)) * COALESCE(tr.whatsapp_rate, 0.05)) as raw_cost_variable_whatsapp
+            ((COALESCE(rm.val_msgs_recorded, 0) + COALESCE(mc.total_msgs, 0) + COALESCE(rm.val_wa_windows, 0)) * COALESCE(tr.whatsapp_rate, 0.05)) as raw_cost_variable_whatsapp
         FROM companies c
         LEFT JOIN plans p ON c.plan_tier = p.id
         LEFT JOIN revenue_metrics rm ON c.id = rm.tenant_id

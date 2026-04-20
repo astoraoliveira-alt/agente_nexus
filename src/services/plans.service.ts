@@ -24,6 +24,9 @@ async getPlans(): Promise<PlanCatalog[]> {
             messagePrice: Number(p.message_price),
             sttMinutePrice: Number(p.stt_minute_price),
             ttsMinutePrice: Number(p.tts_minute_price),
+            whatsappOfficialBillingMode: p.whatsapp_official_billing_mode || 'per_message',
+            whatsappWindowPrice: Number(p.whatsapp_window_price || 0),
+            whatsappOfficialProviders: Array.isArray(p.whatsapp_official_providers) ? p.whatsapp_official_providers : ['meta', 'zenvia'],
             defaultLimits: p.default_limits
         }));
     },
@@ -40,6 +43,9 @@ async createPlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
             message_price: plan.messagePrice,
             stt_minute_price: plan.sttMinutePrice,
             tts_minute_price: plan.ttsMinutePrice,
+            whatsapp_official_billing_mode: plan.whatsappOfficialBillingMode || 'per_message',
+            whatsapp_window_price: plan.whatsappWindowPrice || 0,
+            whatsapp_official_providers: plan.whatsappOfficialProviders || ['meta', 'zenvia'],
             default_limits: plan.defaultLimits,
             updated_at: new Date()
         };
@@ -69,6 +75,9 @@ async updatePlan(plan: PlanCatalog): Promise<PlanCatalog | null> {
             message_price: plan.messagePrice,
             stt_minute_price: plan.sttMinutePrice,
             tts_minute_price: plan.ttsMinutePrice,
+            whatsapp_official_billing_mode: plan.whatsappOfficialBillingMode || 'per_message',
+            whatsapp_window_price: plan.whatsappWindowPrice || 0,
+            whatsapp_official_providers: plan.whatsappOfficialProviders || ['meta', 'zenvia'],
             default_limits: plan.defaultLimits,
             updated_at: new Date()
         };

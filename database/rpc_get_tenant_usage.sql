@@ -14,6 +14,7 @@ RETURNS TABLE (
     stt_minutes NUMERIC,
     tts_minutes NUMERIC,
     total_messages BIGINT,
+    total_whatsapp_windows BIGINT,
     active_agents BIGINT
 )
 LANGUAGE plpgsql
@@ -31,7 +32,8 @@ BEGIN
         SELECT 
             COALESCE(SUM(CASE WHEN metric_type = 'tokens' THEN value ELSE 0 END), 0) as tokens,
             COALESCE(SUM(CASE WHEN metric_type = 'stt_minutes' THEN value ELSE 0 END), 0) as stt,
-            COALESCE(SUM(CASE WHEN metric_type = 'tts_minutes' THEN value ELSE 0 END), 0) as tts
+            COALESCE(SUM(CASE WHEN metric_type = 'tts_minutes' THEN value ELSE 0 END), 0) as tts,
+            COALESCE(SUM(CASE WHEN metric_type = 'whatsapp_window_24h' THEN value ELSE 0 END), 0) as wa_windows
         FROM consumption_metrics
         WHERE tenant_id = p_tenant_id
           AND recorded_at >= v_start_date 
@@ -39,10 +41,20 @@ BEGIN
     ),
     message_count AS (
         SELECT COUNT(*) as count
-        FROM messages
+        FROM messages m
+        LEFT JOIN conversations conv ON m.conversation_id = conv.id
         WHERE tenant_id = p_tenant_id
-          AND created_at >= v_start_date
-          AND created_at < v_end_date
+          AND m.created_at >= v_start_date
+          AND m.created_at < v_end_date
+          AND NOT (
+            conv.channel = 'whatsapp'::public.conversation_channel
+            AND COALESCE(conv.metadata->>'whatsapp_billing_mode', '') = 'window_24h'
+            AND m.created_at >= COALESCE(
+              NULLIF(conv.metadata->>'whatsapp_billing_mode_applied_at', '')::timestamptz,
+              conv.created_at,
+              v_start_date
+            )
+          )
     ),
     agent_count AS (
         SELECT COUNT(*) as count
@@ -55,6 +67,7 @@ BEGIN
         m.stt,
         m.tts,
         mc.count,
+        m.wa_windows::BIGINT,
         ac.count
     FROM metrics m
     CROSS JOIN message_count mc

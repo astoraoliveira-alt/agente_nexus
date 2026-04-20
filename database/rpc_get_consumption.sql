@@ -32,7 +32,7 @@ AS $$
         WHERE c.id = p_tenant_id;
 
         RETURN QUERY
-        -- 1. Real billable metrics (Tokens, STT, TTS)
+        -- 1. Real billable metrics (Tokens, STT, TTS, WhatsApp Official 24h windows)
         SELECT 
             cm.id,
             cm.agent_id,
@@ -65,6 +65,15 @@ AS $$
         LEFT JOIN agents a ON conv.agent_id = a.id
         WHERE m.tenant_id = p_tenant_id
           AND m.created_at >= NOW() - (p_days || ' days')::INTERVAL
+          AND NOT (
+            conv.channel = 'whatsapp'::public.conversation_channel
+            AND COALESCE(conv.metadata->>'whatsapp_billing_mode', '') = 'window_24h'
+            AND m.created_at >= COALESCE(
+              NULLIF(conv.metadata->>'whatsapp_billing_mode_applied_at', '')::timestamptz,
+              conv.created_at,
+              NOW() - (p_days || ' days')::INTERVAL
+            )
+          )
         GROUP BY conv.agent_id, a.name, conv.channel, date_trunc('hour', m.created_at)
         
         ORDER BY recorded_at DESC;

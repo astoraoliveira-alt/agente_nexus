@@ -286,7 +286,10 @@ async getTenant(tenantId: string): Promise<Company | null> {
                 llmTokenPrice: Number(company.plan_prices?.tokens_per_1k ?? plan.llm_token_price),
                 messagePrice: Number(company.plan_prices?.message_flat ?? plan.message_price),
                 sttMinutePrice: Number(company.plan_prices?.stt_minute ?? plan.stt_minute_price),
-                ttsMinutePrice: Number(company.plan_prices?.tts_minute ?? plan.tts_minute_price)
+                ttsMinutePrice: Number(company.plan_prices?.tts_minute ?? plan.tts_minute_price),
+                whatsappOfficialBillingMode: company.plan_prices?.whatsappOfficialBillingMode ?? company.plan_prices?.whatsapp_official_billing_mode ?? plan.whatsapp_official_billing_mode,
+                whatsappWindowPrice: Number(company.plan_prices?.whatsappWindowPrice ?? company.plan_prices?.whatsapp_window_price ?? plan.whatsapp_window_price ?? 0),
+                whatsappOfficialProviders: company.plan_prices?.whatsappOfficialProviders ?? company.plan_prices?.whatsapp_official_providers ?? plan.whatsapp_official_providers ?? ['meta', 'zenvia']
             } : undefined
         } as unknown as Company;
     }

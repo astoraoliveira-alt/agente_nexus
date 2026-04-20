@@ -759,22 +759,33 @@ app.post('/v1/zenvia/webhook', async (c) => {
     let initialTraceId = `ZNV-GEN-${Math.random().toString(36).substring(7).toUpperCase()}`;
     const startTime_znv = Date.now();
     try {
-        zenviaBody = await c.req.json();
-        const body = zenviaBody;
+        const rawInput = await c.req.json();
+        zenviaBody = rawInput;
+
+        // 🛡️ Resiliência V53: Trata se for um array ou se estiver dentro de um "body" (ex: n8n wrapper)
+        const arrayItem = Array.isArray(rawInput) ? rawInput[0] : rawInput;
+        const body = arrayItem.body || arrayItem; 
+        
+        // 🛡️ Normalização Zenvia: Alguns payloads trazem os dados dentro de "message"
+        const msg = body.message || body;
 
         // Ignora eventos de saída (loop) e não-MESSAGE
         if (body.direction === 'OUT' || body.type !== 'MESSAGE') {
+            console.log(`[ZENVIA] ⏭️ Ignorando evento: type=${body.type}, direction=${body.direction}`);
             return c.json({ ok: true, ignored: true });
         }
 
         initialTraceId = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
-        const phone = body.from?.replace(/\D/g, '');
-        const channelId = body.to; // número Zenvia do agente
-        const pushName = body.visitor?.name || body.visitor?.firstName || phone;
+        
+        // Busca os campos preferencialmente no objeto aninhado 'message', com fallback para a raiz
+        const phone = (msg.from || body.from)?.replace(/\D/g, '');
+        const channelId = msg.to || body.to; // número Zenvia do agente
+        const visitor = msg.visitor || body.visitor;
+        const pushName = visitor?.name || visitor?.firstName || phone;
         const externalId = body.id;
 
         // Extrai conteúdo
-        const content = body.contents?.[0];
+        const content = (msg.contents || body.contents)?.[0];
         let textContent = '';
         let detectedMessageType = 'conversation';
         let mediaUrl = '';

@@ -35,6 +35,9 @@ export function PlanDetailsTab() {
     const plan = currentTenant.planDetails || {};
     const limits = currentTenant.limits || {};
     const prices = currentTenant.planPrices || {};
+    const totalWhatsappWindows = Number(usage?.total_whatsapp_windows || 0);
+    const totalMessageUnits = Number(usage?.total_messages || 0) + totalWhatsappWindows;
+    const whatsappWindowPrice = Number(prices.whatsappWindowPrice || 0);
 
     // Calculate percentages
     const tokenLimit = limits.llmTokens || 1000000;
@@ -117,7 +120,8 @@ export function PlanDetailsTab() {
                                 (usage?.total_tokens / 1000 * (prices.llmTokenPrice || 0)) +
                                 (usage?.stt_minutes * (prices.sttMinutePrice || 0)) +
                                 (usage?.tts_minutes * (prices.ttsMinutePrice || 0)) +
-                                (usage?.total_messages * (prices.messagePrice || 0))
+                                (Number(usage?.total_messages || 0) * (prices.messagePrice || 0)) +
+                                (totalWhatsappWindows * whatsappWindowPrice)
                             )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-2">
@@ -227,17 +231,26 @@ export function PlanDetailsTab() {
                             <div className="p-1.5 rounded-md bg-emerald-500/10 text-emerald-500">
                                 <Zap className="w-4 h-4" />
                             </div>
-                            <span className="font-medium text-sm">Mensagens Trocadas</span>
+                            <span className="font-medium text-sm">Unidades de Mensageria</span>
                         </div>
                         <span className="text-xs font-mono text-muted-foreground">
-                            {Number(usage?.total_messages || 0).toLocaleString()}
+                            {totalMessageUnits.toLocaleString()}
                         </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs py-1">
                         <span className="text-muted-foreground">Custo Unitário</span>
-                        <Badge variant="outline" className="font-mono">{formatCurrency(prices.messagePrice || 0)}</Badge>
+                        <Badge variant="outline" className="font-mono">
+                            {totalWhatsappWindows > 0 && prices.whatsappOfficialBillingMode === 'window_24h'
+                                ? `${formatCurrency(prices.messagePrice || 0)} / msg | ${formatCurrency(whatsappWindowPrice)} / janela`
+                                : formatCurrency(prices.messagePrice || 0)}
+                        </Badge>
                     </div>
+                    {totalWhatsappWindows > 0 && (
+                        <p className="text-xs text-muted-foreground text-right">
+                            {Number(usage?.total_messages || 0).toLocaleString()} mensagens + {totalWhatsappWindows.toLocaleString()} janelas oficiais.
+                        </p>
+                    )}
                     <p className="text-xs text-muted-foreground text-right">Sem limite (Pay-as-you-go)</p>
                 </div>
 

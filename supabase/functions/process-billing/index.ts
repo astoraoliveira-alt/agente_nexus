@@ -65,6 +65,7 @@ serve(async (req) => {
         
         let totalCost = 0;
         let totalMessages = 0;
+        let totalWhatsAppWindows = 0;
         let totalTokens = 0;
         let totalSTT = 0;
         let totalTTS = 0;
@@ -77,6 +78,9 @@ serve(async (req) => {
             if (m.metric_type === 'messages') {
                 if (actualCost === 0) actualCost = Number(m.value || 0) * messagePrice;
                 totalMessages += Number(m.value || 0);
+            } else if (m.metric_type === 'whatsapp_window_24h') {
+                totalMessages += Number(m.value || 0);
+                totalWhatsAppWindows += Number(m.value || 0);
             } else if (m.metric_type === 'tokens') {
                 totalTokens += Number(m.value || 0);
             } else if (m.metric_type === 'stt_minutes') {
@@ -103,6 +107,7 @@ serve(async (req) => {
             summary: {
                 totalCost,
                 totalMessages,
+                totalWhatsAppWindows,
                 totalTokens,
                 totalSTT,
                 totalTTS,

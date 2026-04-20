@@ -88,6 +88,9 @@ export interface Tenant {
     sttMinutePrice: number;
     ttsMinutePrice: number;
     messagePrice: number;
+    whatsappOfficialBillingMode?: 'per_message' | 'window_24h';
+    whatsappWindowPrice?: number;
+    whatsappOfficialProviders?: ('meta' | 'zenvia')[];
   };
   isoStatus?: ISOStatus;
   roi_config?: {
@@ -173,6 +176,9 @@ export interface PlanCatalog {
   messagePrice: number; // Price per message
   sttMinutePrice: number; // Price per STT minute
   ttsMinutePrice: number; // Price per TTS minute
+  whatsappOfficialBillingMode?: 'per_message' | 'window_24h';
+  whatsappWindowPrice?: number;
+  whatsappOfficialProviders?: ('meta' | 'zenvia')[];
 
   // Default Provisioning Limits
   defaultLimits: {
@@ -281,6 +287,9 @@ export interface Company {
     messagePrice: number;
     sttMinutePrice: number;
     ttsMinutePrice: number;
+    whatsappOfficialBillingMode?: 'per_message' | 'window_24h';
+    whatsappWindowPrice?: number;
+    whatsappOfficialProviders?: ('meta' | 'zenvia')[];
   };
   _count?: {
     agents: number;
@@ -592,7 +601,7 @@ export interface ConversationalFlow {
  * This interface represents the source of truth for all consumption data.
  * Every record is traceable to a specific tenant, agent, and channel.
  */
-export type MetricType = 'tokens' | 'messages' | 'stt_minutes' | 'tts_minutes';
+export type MetricType = 'tokens' | 'messages' | 'stt_minutes' | 'tts_minutes' | 'whatsapp_window_24h';
 export type ConsumptionChannel = 'text' | 'voice' | 'whatsapp';
 
 export interface ConsumptionMetrics {

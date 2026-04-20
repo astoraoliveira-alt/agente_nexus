@@ -90,6 +90,7 @@ export default function Consumption() {
     const totals = {
       tokens: 0,
       messages: 0,
+      whatsappWindows: 0,
       stt: 0,
       tts: 0,
       costSTT: 0,
@@ -112,6 +113,10 @@ export default function Consumption() {
         }
         
         totals.messages += m.value;
+        totals.messageCost += cost;
+      } else if (m.metricType === 'whatsapp_window_24h') {
+        totals.messages += m.value;
+        totals.whatsappWindows += m.value;
         totals.messageCost += cost;
       } else if (m.metricType === 'tokens') {
         totals.tokens += m.value;
@@ -157,7 +162,7 @@ export default function Consumption() {
     filteredMetrics.forEach(m => {
       const dateStr = m.timestamp.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
       if (!days[dateStr]) days[dateStr] = { date: dateStr, messages: 0, cost: 0 };
-      if (m.metricType === 'messages') days[dateStr].messages += m.value;
+      if (m.metricType === 'messages' || m.metricType === 'whatsapp_window_24h') days[dateStr].messages += m.value;
       days[dateStr].cost += m.cost || 0;
     });
     return Object.values(days).reverse();
@@ -201,6 +206,10 @@ export default function Consumption() {
         agents[agentId].messages += m.value;
         agents[agentId].messageCost += costToUse;
         agents[agentId].cost += costToUse;
+      } else if (m.metricType === 'whatsapp_window_24h') {
+        agents[agentId].messages += m.value;
+        agents[agentId].messageCost += cost;
+        agents[agentId].cost += cost;
       } else {
         agents[agentId].cost += cost;
       }
@@ -232,6 +241,10 @@ export default function Consumption() {
         entry.messages += m.value;
         entry.messageCost += costToUse;
         entry.cost += costToUse;
+      } else if (m.metricType === 'whatsapp_window_24h') {
+        entry.messages += m.value;
+        entry.messageCost += cost;
+        entry.cost += cost;
       } else {
         if (m.metricType === 'stt_minutes') entry.stt = (entry.stt || 0) + m.value;
         if (m.metricType === 'tts_minutes') entry.tts = (entry.tts || 0) + m.value;
@@ -310,18 +323,23 @@ export default function Consumption() {
                     <TooltipTrigger>
                       <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-primary transition-colors" />
                     </TooltipTrigger>
-                    <TooltipContent className="max-w-[200px] text-[11px]">
-                      Volume total de mensagens enviadas. Seu plano cobra por resposta da IA ou humano.
+                    <TooltipContent className="max-w-[220px] text-[11px]">
+                      Volume faturável agregado. Para WhatsApp oficial com janela de 24h, o sistema consolida o consumo em janelas em vez de contar cada mensagem separadamente.
                     </TooltipContent>
                   </Tooltip>
                 </div>
                 <div className="flex items-end justify-between mb-2">
                   <div className="flex items-end gap-2">
                     <p className="text-2xl font-bold leading-none">{summary.messages.toLocaleString()}</p>
-                    <span className="text-[10px] text-muted-foreground pb-0.5">mensagens</span>
+                    <span className="text-[10px] text-muted-foreground pb-0.5">unidades</span>
                   </div>
                   <p className="text-lg font-black text-primary font-mono pb-0.5">R$ {summary.messageCost.toFixed(2)}</p>
                 </div>
+                {summary.whatsappWindows > 0 && (
+                  <div className="text-[10px] text-muted-foreground">
+                    Inclui {summary.whatsappWindows.toLocaleString()} janela(s) oficiais de 24h.
+                  </div>
+                )}
                 <div className="mt-4 flex items-center gap-2 text-[10px] text-green-600 font-medium font-bold">
                   <Zap className="h-3 w-3" />
                   <span>{roiStats.display} humanas economizadas</span>
