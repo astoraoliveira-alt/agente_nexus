@@ -775,29 +775,32 @@ app.post('/v1/zenvia/webhook', async (c) => {
             const statusCode = body.messageStatus?.code;
             console.log(`[ZENVIA] 📊 Status recebido: ${statusCode} para msg ${remoteId}`);
 
-            // 1. Localizar Tenant/Agente (Zenvia não manda canal no status, busca reversa na 'messages')
+            // 1. Localizar Tenant/Agente (Busca simplificada para máxima compatibilidade)
             let agentId_st: string | null = null;
             let tenantId_st: string | null = null;
 
-            // Busca rápida pelo remote_id da mensagem original
-            const { data: msgData, error: msgError } = await supabaseAdmin
+            // Busca os dados básicos da mensagem original
+            const { data: msgData } = await supabaseAdmin
                 .from('messages')
-                .select(`
-                    tenant_id,
-                    conversations (
-                        agent_id
-                    )
-                `)
+                .select('tenant_id, conversation_id')
                 .eq('remote_id', remoteId)
                 .maybeSingle();
 
             if (msgData) {
                 tenantId_st = msgData.tenant_id;
-                agentId_st = (msgData.conversations as any)?.agent_id;
+                
+                // Busca o agente vinculado à conversa
+                const { data: convData } = await supabaseAdmin
+                    .from('conversations')
+                    .select('agent_id')
+                    .eq('id', msgData.conversation_id)
+                    .maybeSingle();
+                
+                agentId_st = convData?.agent_id;
             } else {
-                console.warn(`[ZENVIA] ⚠️ Mensagem original não encontrada para vincular status: ${remoteId}`);
-                // Tentativa de fallback pelo channelId se disponível (raro em status)
-                const channelId_status = body.channel || msg.to || body.to;
+                console.warn(`[ZENVIA] ⚠️ Mensagem original ${remoteId} não encontrada no banco.`);
+                // Fallback pelo canal (útil se o status chegar antes da gravação da mensagem)
+                const channelId_status = body.channel || body.to || (body.messageStatus?.channel);
                 if (channelId_status) {
                     const { data: altAgent } = await supabaseAdmin
                         .from('agents')
