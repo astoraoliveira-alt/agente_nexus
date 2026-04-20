@@ -246,6 +246,8 @@ BEGIN
         'is_ai', true,
         'atendimento_tipo', 'IA',
         'is_status_update', (v_record.message_type LIKE 'outbound_%'),
+        'external_id', v_record.external_id,
+        'raw_payload', v_record.payload,
 
         'agent', jsonb_build_object(
             'id', v_agent.id,

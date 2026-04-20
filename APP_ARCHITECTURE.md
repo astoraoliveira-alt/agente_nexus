@@ -1,9 +1,18 @@
 # Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
 
-> **Última Atualização:** 16/Abr/2026
-> **Versão:** 56.7 (Auth Onboarding, Persisted RBAC & Approval Alignment)
-> **Status:** Mestre — Produção Edenred (1.750 estabelecimentos) + Dashboard Executivo Unificado + Onboarding por Convite
-> **Fontes Primárias:** `src/components/dashboard/CampaignExecutiveView.tsx` · `src/contexts/AppContext.tsx` · `src/services/auth.ts` · `src/lib/permissions.ts` · `database/migrations/20260416_profiles_rbac_persistence.sql`
+> **Última Atualização:** 20/Abr/2026
+> **Versão:** 57.0 (Zenvia Stability & Multi-Identifier Mapping)
+> **Status:** Mestre — Produção Edenred (Sofia Vendas) + Pipeline Zenvia Estabilizado
+> **Fontes Primárias:** `porteiro/src/index.ts` · `database/record_message_rpc.sql` · `database/rpc/handle_message_status_update.sql`
+
+---
+
+## [V57.0] - Zenvia Stability & Multi-Identifier Mapping
+### Resiliência do Pipeline de Mensageria
+- **Multi-Identifier Agent Mapping (Alias System)**: Implementação do campo `zenvia_aliases` na tabela `agents`. O Porteiro agora utiliza o canal primário (`zenvia_channel_id`) para envios e uma lista de aliases para identificar mensagens de entrada de números de Sandbox/Robôs, evitando rejeições da API por ID inválido.
+- **Auto-Reopen Logic (V5.4)**: O RPC de recepção (`fn_enqueue_inbound_message`) agora detecta conversas com status `closed` e as reabre automaticamente como `ai_active` ao receber uma nova mensagem, eliminando erros de Unique Constraint (23505) e garantindo continuidade do atendimento.
+- **Traceabilidade de Status (Remote ID Mapping)**: Correção crítica no fluxo de gravação de mensagens da IA (n8n). O sistema agora mapeia obrigatoriamente o ID gerado pelo Zenvia no ato do envio para a coluna `remote_id` do banco, permitindo que os webhooks de status (`SENT`, `DELIVERED`, `READ`) funcionem com 100% de precisão.
+- **Sentinel Logging & Audit Logs**: Implementação de sistema de logs timestampados com `traceId` unificado para todo o ciclo de vida da mensagem Zenvia, facilitando o debug em tempo real via logs do container.
 
 ---
 
