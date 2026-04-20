@@ -759,6 +759,7 @@ CREATE TABLE IF NOT EXISTS consumption_metrics (
     metric_type metric_type NOT NULL,
     
     value NUMERIC NOT NULL, 
+    unit VARCHAR(50), -- Added to support WhatsApp billing windows and other units
     cost NUMERIC NOT NULL, 
     currency VARCHAR(255) DEFAULT 'BRL',
     
