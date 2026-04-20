@@ -142,7 +142,12 @@ BEGIN
             'outbound_sent'
         );
 
-    -- [6] RETORNO ATÔMICO
+        -- [7] SINCRONIZAÇÃO DE ESTATÍSTICAS (Novo: Garante dashboard em tempo real)
+        IF p_campaign_id IS NOT NULL THEN
+            PERFORM public.fn_sync_campaign_stats(p_campaign_id);
+        END IF;
+
+    -- [8] RETORNO ATÔMICO
     RETURN jsonb_build_object(
         'success', true,
         'conversation_id', v_conversation_id,

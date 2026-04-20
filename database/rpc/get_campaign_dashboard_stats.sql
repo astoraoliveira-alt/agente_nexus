@@ -52,14 +52,14 @@ BEGIN
   FROM outbound_queue
   WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
     AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    AND (status = 'sent' OR status = 'delivered');
+    AND (status IN ('sent', 'delivered', 'read'));
 
   -- Entregues (DLR real)
   SELECT COUNT(*) INTO v_delivered_count
   FROM outbound_queue
   WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
     AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    AND status = 'delivered';
+    AND (status IN ('delivered', 'read'));
 
   -- Respostas detectadas
   SELECT COUNT(*) INTO v_response_count
@@ -87,7 +87,7 @@ BEGIN
              JOIN conversations c ON c.id = m.conversation_id
              WHERE c.user_identifier = oq.contact_phone
                AND c.tenant_id = oq.tenant_id
-               AND m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system')
+               AND m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system', 'agent')
                AND (v_link_filter IS NULL OR m.content ILIKE '%' || v_link_filter || '%')
           ))
         );

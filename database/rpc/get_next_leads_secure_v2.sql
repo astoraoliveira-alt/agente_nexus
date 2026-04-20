@@ -58,12 +58,13 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 2. Calcular quanto ainda pode ser enviado hoje
+    -- 2. Calcular quanto ainda pode ser enviado hoje (Otimizado para índices e novos status)
     SELECT COUNT(*)::int INTO v_sent_today
     FROM public.outbound_queue oq_sent
     WHERE oq_sent.campaign_id = p_campaign_id 
-      AND oq_sent.status = 'sent' 
-      AND (oq_sent.sent_at AT TIME ZONE 'UTC-3')::DATE = (CURRENT_TIMESTAMP AT TIME ZONE 'UTC-3')::DATE;
+      AND oq_sent.status IN ('sent', 'delivered', 'read') 
+      AND oq_sent.sent_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC-3')::DATE 
+      AND oq_sent.sent_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC-3')::DATE + INTERVAL '1 day');
 
     v_actual_limit := LEAST(p_limit, GREATEST(0, v_daily_limit - v_sent_today));
 

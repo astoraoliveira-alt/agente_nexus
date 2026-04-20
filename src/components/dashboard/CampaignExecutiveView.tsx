@@ -43,6 +43,7 @@ interface CampaignStats {
     total_contacts: number;
     import_errors: number;
     sent_count: number;
+    delivered_count: number;
     response_count: number;
     conversion_count: number;
     conversion_rate: number;
@@ -151,6 +152,7 @@ export function CampaignExecutiveView() {
           ...campaign,
           totalContacts: liveStats.total_contacts,
           sentCount: liveStats.sent_count,
+          deliveredCount: liveStats.delivered_count || 0,
           responseCount: liveStats.response_count,
           totalMessages: liveStats.total_messages,
           conversionCount: liveStats.conversion_count,
@@ -320,13 +322,13 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                       {((c.totalContacts || 0) + (c.importErrorCount || 0)).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      {c.totalContacts.toLocaleString('pt-BR')}
+                      {(c.totalContacts || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      {c.sentCount.toLocaleString('pt-BR')}
+                      {(c.sentCount || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      {c.responseCount.toLocaleString('pt-BR')}
+                      {(c.deliveredCount || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {Math.max((c.sentCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
@@ -334,7 +336,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     <td className="px-4 py-5 text-xs font-bold text-indigo-600 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         <Zap className="w-3 h-3" />
-                        {c.conversionCount.toLocaleString('pt-BR')}
+                        {(c.conversionCount || 0).toLocaleString('pt-BR')}
                       </div>
                     </td>
                     <td className="px-4 py-5 text-center">
@@ -432,6 +434,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                  c.status === 'pending' ? 'Pendente' : 
                  c.status === 'processing' ? 'Processando' :
                  c.status === 'responded' ? 'Respondida' :
+                 c.status === 'delivered' ? 'Entregue' :
+                 c.status === 'read' ? 'Lida' :
                  c.status === 'converted' ? 'Convertida' : c.status
       }));
       setLeads(mappedLeads);
@@ -588,14 +592,19 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
   const renderStatusBadge = (status?: string | null) => {
     const normalized = String(status || '').toLowerCase();
-    const classes = normalized === 'enviada' || normalized === 'concluída' || normalized === 'concluida' || normalized === 'convertida'
+    const isSuccess = ['enviada', 'concluída', 'concluida', 'convertida', 'entregue', 'lida'].includes(normalized);
+    const isError = normalized === 'erro';
+    const isProcessing = normalized === 'processando';
+
+    const classes = isSuccess
       ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
-      : normalized === 'erro'
+      : isError
         ? 'bg-rose-50 text-rose-600 border border-rose-100'
         : 'bg-amber-50 text-amber-600 border border-amber-100';
-    const Icon = normalized === 'enviada' || normalized === 'concluída' || normalized === 'concluida' || normalized === 'convertida'
+    
+    const Icon = isSuccess
       ? CheckCircle2
-      : normalized === 'erro'
+      : isError
         ? AlertTriangle
         : Clock;
 
@@ -711,8 +720,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
               <KPISquare label="Enviados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
-              <KPISquare label="Entregues" value={stats.response_count} percentage={stats.total_contacts > 0 ? (stats.response_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
-              <KPISquare label="Não Entregues" value={Math.max(stats.sent_count - stats.response_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.response_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
+              <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
+              <KPISquare label="Não Entregues" value={Math.max(stats.sent_count - stats.delivered_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.delivered_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
             </OperationCluster>
 
             <OperationCluster title="Resultado de Interações" subtitle="Baseados nos leads válidos" icon={Zap}>

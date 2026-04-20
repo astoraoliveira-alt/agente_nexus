@@ -33,7 +33,7 @@ console.warn = (...args) => originalWarn(getTimestamp(), ...args);
 const DEBOUNCE_TIME_MS = 1500; // Tempo de espera para agrupar mensagens
 
 // Ajuste 4: Limite de jobs simultâneos (anti-colapso)
-const MAX_CONCURRENT_JOBS = 10;
+const MAX_CONCURRENT_JOBS = 50;
 let activeJobs = 0;
 
 // Ajuste 5: Backoff exponencial para retries

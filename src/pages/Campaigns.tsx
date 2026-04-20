@@ -1682,13 +1682,15 @@ export default function Campaigns() {
                                             <TableCell className="font-medium text-xs">{contact.contactName || "Sem Nome"}</TableCell>
                                             <TableCell className="text-xs">{contact.contactPhone}</TableCell>
                                             <TableCell>
-                                                <Badge variant="outline" className={`text-[10px] ${contact.status === 'sent' ? 'border-green-500 text-green-500' :
+                                                <Badge variant="outline" className={`text-[10px] ${['sent', 'delivered', 'read'].includes(contact.status) ? 'border-green-500 text-green-500' :
                                                     contact.status === 'failed' ? 'border-red-500 text-red-500' :
                                                         'border-amber-500 text-amber-500'
                                                     }`}>
                                                     {contact.status === 'pending' ? 'Pendente' :
                                                         contact.status === 'sent' ? 'Enviado' :
-                                                            contact.status === 'failed' ? 'Falhou' : contact.status}
+                                                            contact.status === 'delivered' ? 'Entregue' :
+                                                                contact.status === 'read' ? 'Lida' :
+                                                                    contact.status === 'failed' ? 'Falhou' : contact.status}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-xs text-muted-foreground max-w-[250px] truncate" title={contact.errorMessage || ""}>
