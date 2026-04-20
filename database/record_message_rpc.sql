@@ -1,76 +1,63 @@
--- 1. Drop existing function to allow changing signature
-DROP FUNCTION IF EXISTS record_message(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB);
+-- 1. Drop existing functions to allow changing signature
+DROP FUNCTION IF EXISTS public.record_message(uuid, uuid, text, text, text, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.record_message(uuid, uuid, text, text, text, text, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.record_message(uuid, uuid, text, text, text, text, text, text, jsonb, text);
 
--- 2. Re-create with Full Multimedia & Transcription Support
-CREATE OR REPLACE FUNCTION record_message(
+-- 2. Re-create following your current logic + remote_id support
+CREATE OR REPLACE FUNCTION public.record_message(
     p_conversation_id UUID,
     p_tenant_id UUID,
     p_content TEXT DEFAULT NULL,
-    p_sender_type TEXT DEFAULT 'user', -- 'user', 'ai', 'human'
+    p_sender_type TEXT DEFAULT 'user',
     p_sender_name TEXT DEFAULT NULL,
-    p_message_type TEXT DEFAULT 'text', -- 'text', 'audio', 'image', 'video', 'document'
-    p_file_url TEXT DEFAULT NULL,
-    p_transcription TEXT DEFAULT NULL,
-    p_metadata JSONB DEFAULT '{}'::jsonb
+    p_message_type TEXT DEFAULT 'text',
+    p_trace_id TEXT DEFAULT NULL,
+    p_metadata JSONB DEFAULT '{}'::jsonb,
+    p_remote_id TEXT DEFAULT NULL  -- O campo que faltava
 )
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
 AS $$
-DECLARE
-    v_message_id UUID;
-    v_audio_url TEXT := NULL;
-    v_image_url TEXT := NULL;
-    v_video_url TEXT := NULL;
 BEGIN
-    -- Map file_url based on type for specific columns
-    CASE p_message_type
-        WHEN 'audio' THEN v_audio_url := p_file_url;
-        WHEN 'image' THEN v_image_url := p_file_url;
-        WHEN 'video' THEN v_video_url := p_file_url;
-        ELSE NULL;
-    END CASE;
+    -- Lógica de Reset
+    IF p_content IS NOT NULL AND trim(p_content) = '#reset' THEN
+        PERFORM public.fn_reset_conversation(p_conversation_id);
+    END IF;
 
-    -- 1. Insert the message
-    INSERT INTO messages (
-        conversation_id,
-        tenant_id,
-        content,
-        sender_type,
-        sender_name,
-        message_type,
-        audio_url,
-        image_url,
-        transcription,
-        metadata
-    )
-    VALUES (
-        p_conversation_id,
-        p_tenant_id,
-        public.clean_message_content(p_content),
-        p_sender_type,
-        p_sender_name,
-        p_message_type,
-        v_audio_url,
-        v_image_url,
-        p_transcription,
-        p_metadata || jsonb_build_object('video_url', v_video_url)
-    )
-    RETURNING id INTO v_message_id;
+    -- Inserção na Tabela Messages
+    INSERT INTO public.messages (
+        conversation_id, 
+        tenant_id, 
+        content, 
+        sender_type, 
+        sender_name, 
+        message_type, 
+        trace_id, 
+        metadata,
+        remote_id
+    ) VALUES (
+        p_conversation_id, 
+        p_tenant_id, 
+        public.clean_message_content(p_content), 
+        p_sender_type, 
+        p_sender_name, 
+        p_message_type, 
+        p_trace_id, 
+        p_metadata,
+        p_remote_id
+    );
 
-    -- 2. Update conversation activity
-    UPDATE conversations
-    SET last_message_at = NOW()
+    -- Atualização da Conversa
+    UPDATE public.conversations 
+    SET updated_at = NOW(), 
+        last_message_at = NOW() 
     WHERE id = p_conversation_id;
 
-    RETURN jsonb_build_object(
-        'id', v_message_id, 
-        'conversation_id', p_conversation_id, 
-        'status', 'success'
-    );
+    RETURN jsonb_build_object('status', 'success');
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION record_message(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB) TO authenticated;
-GRANT EXECUTE ON FUNCTION record_message(UUID, UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, JSONB) TO service_role;
+-- Permissões
+GRANT EXECUTE ON FUNCTION public.record_message(uuid, uuid, text, text, text, text, text, jsonb, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_message(uuid, uuid, text, text, text, text, text, jsonb, text) TO service_role;
