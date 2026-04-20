@@ -930,7 +930,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
             },
             p_trace_id: traceId,
             p_message_type: detectedMessageType,
-            p_priority: 100, // Mensagem humana = máxima prioridade
             p_latency_ms: Date.now() - startTime_znv
         });
 
