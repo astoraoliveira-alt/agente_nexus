@@ -890,19 +890,24 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
         let conversationId = conv?.id;
         if (!conversationId) {
-            const { data: newConv } = await supabaseAdmin
+            console.log(`[ZENVIA] 📝 Criando nova conversa para ${phone}`);
+            const { data: newConv, error: convError } = await supabaseAdmin
                 .from('conversations')
                 .insert({
                     tenant_id: agent.tenant_id,
                     agent_id: agent.id,
                     user_identifier: phone,
-                    user_name: pushName,
+                    user_name: pushName || 'Cliente Zenvia',
                     channel: 'whatsapp',
                     status: 'ai_active'
                 })
                 .select()
-                .single();
-            conversationId = newConv?.id;
+                .maybeSingle();
+
+            if (convError) {
+                console.error(`[ZENVIA] ❌ Erro ao criar conversa:`, convError);
+            }
+            conversationId = newConv?.id || null;
         }
 
         await supabaseAdmin
