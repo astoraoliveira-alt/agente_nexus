@@ -1147,7 +1147,10 @@ export default function Campaigns() {
                     {/* Campaigns Table */}
                     <Card className="border-accent/10">
                         <CardHeader>
-                            <CardTitle>Histórico de Estratégias</CardTitle>
+                            <CardTitle className="flex items-center gap-2">
+                                Histórico de Estratégias
+                                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                            </CardTitle>
                             <CardDescription>Acompanhe a performance de cada campanha cadastrada.</CardDescription>
                         </CardHeader>
                         <CardContent>
