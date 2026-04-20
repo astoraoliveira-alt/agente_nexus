@@ -783,6 +783,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
     // PROCESSAMENTO ASSÍNCRONO (Background Task)
     (async () => {
         try {
+            console.log(`[ZENVIA] 📥 [${traceId}] Payload Bruto:`, JSON.stringify(body, null, 2));
+
             // 📊 TRATAMENTO DE STATUS (DLR)
             if (body.type === 'MESSAGE_STATUS') {
                 const remoteId = body.messageId || body.id || body.messageStatus?.id || body.remoteId;
