@@ -18,6 +18,17 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey);
 // Use Service Role for backend operations (Webhooks, etc.) if available
 const supabaseAdmin = supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : supabase;
 
+// --- 🛡️ GLOBAL TIMESTAMP LOGGING ---
+const originalLog = console.log;
+const originalError = console.error;
+const originalWarn = console.warn;
+
+const getTimestamp = () => `[${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}]`;
+
+console.log = (...args) => originalLog(getTimestamp(), ...args);
+console.error = (...args) => originalError(getTimestamp(), ...args);
+console.warn = (...args) => originalWarn(getTimestamp(), ...args);
+
 // --- CONFIGURAÇÕES DE FILA (V50 - Scale Guardian) ---
 const DEBOUNCE_TIME_MS = 1500; // Tempo de espera para agrupar mensagens
 
@@ -760,12 +771,14 @@ app.post('/v1/zenvia/webhook', async (c) => {
     const body = arrayItem.body || arrayItem;
     const msg = body.message || body;
     const externalId = body.id || body.messageId;
+    const traceId = `ZNV-TRC-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
-    console.log(`[ZENVIA] 🔔 Webhook recebido: ${externalId} (Iniciando Processamento Async)`);
+    console.log(`[ZENVIA] 🔔 Webhook Recebido: ${externalId || 'N/A'} (Lote: ${traceId})`);
+    console.log(`[ZENVIA] 📊 Tipo: ${body.type}, Direção: ${body.direction}, Prov: ${body.channel || 'whatsapp'}`);
 
     // RESPOSTA IMEDIATA: O Zenvia tem timeout de 5 segundos.
     // Respondemos em milissegundos e liberamos o processamento pesado.
-    const response = c.json({ ok: true, received_at: new Date().toISOString() }, 200);
+    const response = c.json({ ok: true, trace_id: traceId }, 200);
 
     // PROCESSAMENTO ASSÍNCRONO (Background Task)
     (async () => {
@@ -865,6 +878,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
             if (body.direction === 'IN' && body.type === 'MESSAGE') {
                 const phone = (msg.from || body.from)?.replace(/\D/g, '');
                 const channelId = msg.to || body.to;
+                console.log(`[ZENVIA] 📥 Inbound Message detectada de ${phone} para canal ${channelId}`);
                 
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
@@ -873,8 +887,12 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     .eq('status', 'active')
                     .limit(1);
 
-                if (!agents?.length) return;
+                if (!agents?.length) {
+                    console.warn(`[ZENVIA] ❌ Agente não encontrado para o canal ${channelId}. Abortando.`);
+                    return;
+                }
                 const agent = agents[0];
+                console.log(`[ZENVIA] 👤 Agente mapeado: ${agent.name || agent.id}`);
 
                 // Upsert Contato & Conversa
                 await supabaseAdmin.from('contacts').upsert({
