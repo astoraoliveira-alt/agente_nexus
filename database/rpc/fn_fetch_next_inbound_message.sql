@@ -48,11 +48,7 @@ BEGIN
     RETURNING * INTO v_record;
 
     IF v_record.id IS NULL THEN
-        RETURN jsonb_build_object(
-            'success', false,
-            'status', 'empty',
-            'message', 'No pending messages'
-        );
+        RETURN NULL;
     END IF;
 
     -- [PROD] Contexto
