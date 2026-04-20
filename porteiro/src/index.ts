@@ -797,6 +797,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         .from('agents')
                         .select('id, tenant_id')
                         .or(`zenvia_channel_id.eq.${channelId},zenvia_channel_id.ilike.%${channelId}%`)
+                        .eq('status', 'active')
                         .maybeSingle();
                     
                     if (agent) {
@@ -868,7 +869,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
                     .select('id, tenant_id, zenvia_channel_id')
-                    .eq('zenvia_channel_id', channelId)
+                    .or(`zenvia_channel_id.eq.${channelId},zenvia_channel_id.ilike.%${channelId}%`)
                     .eq('status', 'active')
                     .limit(1);
 
