@@ -832,10 +832,12 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                         p_tenant_id: tenantId,
                         p_agent_id: agentId,
+                        p_conversation_id: null,
                         p_external_id: remoteId,
                         p_payload: body,
+                        p_trace_id: traceStat,
                         p_message_type: 'outbound_status',
-                        p_trace_id: traceStat
+                        p_latency_ms: 0
                     });
 
                     if (rpcError) {
@@ -926,7 +928,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
                             messageType: type
                         },
                         p_trace_id: trace,
-                        p_message_type: type
+                        p_message_type: type,
+                        p_latency_ms: 0
                     });
 
                     const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
