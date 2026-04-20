@@ -30,6 +30,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 DECLARE
     v_daily_limit int;
     v_allowed_now boolean;
@@ -37,12 +38,12 @@ DECLARE
     v_actual_limit int;
 BEGIN
     -- 0. Auto-Recuperação: Limpa as mensagens presas que falharam no n8n (> 30 mins)
-    UPDATE public.outbound_queue
+    UPDATE public.outbound_queue oq_recover
     SET status = 'pending'
-    WHERE tenant_id = p_tenant_id
-      AND campaign_id = p_campaign_id
-      AND status = 'processing'
-      AND created_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
+    WHERE oq_recover.tenant_id = p_tenant_id
+      AND oq_recover.campaign_id = p_campaign_id
+      AND oq_recover.status = 'processing'
+      AND oq_recover.created_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
 
     -- 1. Buscar configurações da campanha e janela de horário
     SELECT 
@@ -64,11 +65,11 @@ BEGIN
 
     -- 2. Calcular Quota Diária Restante (Limite - Enviados Hoje)
     SELECT COUNT(*)::int INTO v_sent_today
-    FROM public.consumption_metrics
-    WHERE tenant_id = p_tenant_id
-      AND metric_type = 'messages'
-      AND metadata->>'campaign_id' = p_campaign_id::text
-      AND (recorded_at AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date;
+    FROM public.consumption_metrics cm
+    WHERE cm.tenant_id = p_tenant_id
+      AND cm.metric_type = 'messages'
+      AND cm.metadata->>'campaign_id' = p_campaign_id::text
+      AND (cm.recorded_at AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date;
 
     v_actual_limit := LEAST(p_limit, GREATEST(0, COALESCE(v_daily_limit, 999999) - v_sent_today));
 
