@@ -788,6 +788,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (!agentId) {
                     const channelId = body.channel || body.to || body.messageStatus?.channel;
+                    console.log(`[ZENVIA] 🔍 Msg ${remoteId} não achada. Tentando fallback pelo canal: ${channelId}`);
                     const { data: agent } = await supabaseAdmin
                         .from('agents')
                         .select('id, tenant_id')
@@ -799,7 +800,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (agentId && tenantId) {
                     const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
-                    await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                    const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                         p_tenant_id: tenantId,
                         p_agent_id: agentId,
                         p_external_id: remoteId,
