@@ -1207,9 +1207,11 @@ export default function Campaigns() {
                                                                 <Bot className="h-3 w-3" />
                                                                 {agents.find(a => a.id === campaign.agentId)?.name || 'Agente'}
                                                             </span>
-                                                            <span className="text-[8px] text-muted-foreground/30 font-mono mt-0.5 select-all hover:text-muted-foreground/60 transition-colors">
-                                                                ID: {campaign.id}
-                                                            </span>
+                                                            <div className="mt-1">
+                                                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 text-[9px] font-mono rounded-sm select-all hover:bg-slate-200 transition-colors cursor-help" title="ID da Campanha">
+                                                                    {campaign.id}
+                                                                </span>
+                                                            </div>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4">
