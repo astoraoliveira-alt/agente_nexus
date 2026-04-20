@@ -773,6 +773,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
             // 📊 TRATAMENTO DE STATUS (DLR)
             if (body.type === 'MESSAGE_STATUS') {
                 const remoteId = body.messageId || body.id || body.messageStatus?.id || body.remoteId;
+                const statusCode = body.messageStatus?.code;
                 
                 // 🧪 LOG RAIO-X PEDIDO PELO USUÁRIO
                 console.log(`[ZENVIA] 🧪 STATUS WEBHOOK [${remoteId}]:`, JSON.stringify(body, null, 2));
