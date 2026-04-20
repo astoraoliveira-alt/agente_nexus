@@ -25,6 +25,7 @@ DECLARE
     v_session_identifier TEXT := NULL;
     v_history JSONB;
     v_retorno JSONB;
+    v_was_closed BOOLEAN DEFAULT FALSE;
 
     v_mod_brain_config JSONB;
     v_temp_sys_prompt TEXT;
@@ -67,6 +68,7 @@ BEGIN
 
     -- [FIX] Se a conversa estiver fechada, reabre automaticamente
     IF v_conv.status = 'closed' THEN
+        v_was_closed := TRUE;
         UPDATE public.conversations
         SET status = 'ai_active',
             reopened_at = NOW(),
@@ -279,7 +281,7 @@ BEGIN
             'id', v_record.conversation_id,
             'status', COALESCE(v_conv.status, 'ai_active'),
             'context_state', COALESCE(v_conv.context_state, '{}'::jsonb),
-            'reopened', COALESCE(v_conv.status = 'closed', FALSE)
+            'reopened', v_was_closed
         ),
 
         'governance', jsonb_build_object(
