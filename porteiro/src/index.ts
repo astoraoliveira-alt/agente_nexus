@@ -907,14 +907,13 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 }, { onConflict: 'tenant_id,identifier' });
                 if (contactError) console.error(`[ZENVIA] ❌ Erro no Upsert Contato:`, contactError);
 
-                console.log(`[ZENVIA] 🔍 [${traceId}] Buscando conversa ativa...`);
+                console.log(`[ZENVIA] 🔍 [${traceId}] Buscando conversa (aberta ou fechada)...`);
                 let { data: conv, error: convFetchError } = await supabaseAdmin
                     .from('conversations')
-                    .select('id')
+                    .select('id, status')
                     .eq('tenant_id', agent.tenant_id)
                     .eq('user_identifier', phone)
                     .eq('agent_id', agent.id)
-                    .neq('status', 'closed')
                     .order('last_message_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
@@ -922,8 +921,16 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (convFetchError) console.error(`[ZENVIA] ❌ Erro ao buscar conversa:`, convFetchError);
 
                 let convId = conv?.id;
-                if (!convId) {
-                    console.log(`[ZENVIA] ✨ [${traceId}] Criando nova conversa...`);
+                
+                if (convId) {
+                    if (conv.status === 'closed') {
+                        console.log(`[ZENVIA] 🔓 [${traceId}] Reabrindo conversa fechada (${convId})...`);
+                        await supabaseAdmin.from('conversations')
+                            .update({ status: 'ai_active', updated_at: new Date().toISOString() })
+                            .eq('id', convId);
+                    }
+                } else {
+                    console.log(`[ZENVIA] ✨ [${traceId}] Nenhuma conversa encontrada. Criando nova...`);
                     const { data: newConv, error: convCreateError } = await supabaseAdmin.from('conversations').insert({
                         tenant_id: agent.tenant_id,
                         agent_id: agent.id,
