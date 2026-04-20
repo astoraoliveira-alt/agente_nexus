@@ -787,7 +787,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 let tenantId = originalMsg?.tenant_id;
 
                 if (!agentId) {
-                    const channelId = body.channel || body.to || body.messageStatus?.channel;
+                    const channelId = body.from || body.channel || body.messageStatus?.channel || body.to;
                     console.log(`[ZENVIA] 🔍 Msg ${remoteId} não achada. Tentando fallback pelo canal: ${channelId}`);
                     const { data: agent } = await supabaseAdmin
                         .from('agents')
