@@ -1338,6 +1338,24 @@ async function startQueueWorker() {
                         });
                         result = await metaRes.json();
                         responseOk = metaRes.ok;
+                    } else if (apiType === 'zenvia') {
+                        const zenviaToken = process.env.ZENVIA_API_TOKEN;
+                        const channelId = agent?.zenvia_channel_id;
+                        
+                        const znvRes = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
+                            method: 'POST',
+                            headers: { 
+                                'X-API-TOKEN': zenviaToken || '',
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                from: channelId,
+                                to: contactPhone,
+                                contents: [{ type: 'text', text: message }]
+                            })
+                        });
+                        result = await znvRes.json();
+                        responseOk = znvRes.ok;
                     } else {
                         const instance = agent?.evolution_instance;
                         const evolutionUrl = process.env.EVOLUTION_API_URL;
@@ -1353,13 +1371,9 @@ async function startQueueWorker() {
                     }
 
                     if (responseOk) {
-                        console.log(`[WORKER] ✅ Sent! Syncing identity for ${item.id}...`);
+                        const remoteId = result?.id || result?.messageId || (result?.key?.id);
+                        console.log(`[WORKER] ✅ Sent! Syncing identity for ${item.id}... Remote: ${remoteId}`);
 
-                        // Use the unified RPC to handle everything:
-                        // 1. Create/Update Contact
-                        // 2. Create/Get Conversation
-                        // 3. Log the Message
-                        // 4. Mark Queue as 'sent'
                         const { data: rpcData, error: rpcError } = await supabaseAdmin.rpc('handle_outbound_sent', {
                             p_tenant_id: item.tenant_id,
                             p_agent_id: item.agent_id,
@@ -1368,7 +1382,8 @@ async function startQueueWorker() {
                             p_queue_id: item.id,
                             p_campaign_id: item.campaign_id,
                             p_contact_name: item.contact_name,
-                            p_message_type: 'text'
+                            p_message_type: 'text',
+                            p_remote_id: remoteId // <--- AGORA SALVAMOS O ID!
                         });
 
                         if (rpcError) {
