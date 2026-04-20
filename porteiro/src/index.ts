@@ -784,31 +784,34 @@ app.post('/v1/zenvia/webhook', async (c) => {
         const pushName = visitor?.name || visitor?.firstName || phone;
         const externalId = body.id;
 
-        // Extrai conteúdo
+        // Extrai conteúdo com busca profunda
         const content = (msg.contents || body.contents)?.[0];
         let textContent = '';
         let detectedMessageType = 'conversation';
         let mediaUrl = '';
         let mimetype = '';
 
-        if (content?.type === 'text') {
-            textContent = content.text || '';
-        } else if (content?.type === 'file') {
-            textContent = content.fileCaption || '';
-            mimetype = content.fileMimeType || '';
-            mediaUrl = content.fileUrl || '';
-            detectedMessageType = mimetype.startsWith('audio') ? 'audioMessage' : 'imageMessage';
+        if (content) {
+            if (content.type === 'text') {
+                textContent = content.text;
+            } else if (content.type === 'file' || content.type === 'image') {
+                mediaUrl = content.fileUrl;
+                mimetype = content.fileMimeType;
+                textContent = content.fileCaption || '';
+                detectedMessageType = content.type === 'image' ? 'image' : 'document';
+            }
         }
 
         if (!phone || (!textContent && !mediaUrl)) {
+            console.error(`[ZENVIA] ❌ Dados incompletos: phone=${phone}, content=${!!textContent}, media=${!!mediaUrl}`);
             await logIntegration({
                 provider: 'zenvia',
                 external_id: externalId,
                 payload: body,
-                phone_number: phone,
-                path: '/v1/zenvia/webhook',
                 status: 'ignored',
-                error_details: 'Missing phone or content'
+                path: '/v1/zenvia/webhook',
+                error_details: `Missing phone or content (Phone: ${phone}, HasContent: ${!!textContent})`,
+                latency_ms: Date.now() - startTime_znv
             });
             return c.json({ ok: true, ignored: true, reason: 'missing_content' });
         }
