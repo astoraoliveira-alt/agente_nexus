@@ -772,10 +772,11 @@ app.post('/v1/zenvia/webhook', async (c) => {
         try {
             // 📊 TRATAMENTO DE STATUS (DLR)
             if (body.type === 'MESSAGE_STATUS') {
-                const remoteId = body.messageId;
-                const statusCode = body.messageStatus?.code;
+                const remoteId = body.messageId || body.id || body.messageStatus?.id || body.remoteId;
                 
-                // Busca rápida indexada
+                // 🧪 LOG RAIO-X PEDIDO PELO USUÁRIO
+                console.log(`[ZENVIA] 🧪 STATUS WEBHOOK [${remoteId}]:`, JSON.stringify(body, null, 2));
+
                 const { data: originalMsg } = await supabaseAdmin
                     .from('messages')
                     .select('agent_id, tenant_id')
@@ -788,7 +789,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (!agentId) {
                     const channelId = body.from || body.channel || body.messageStatus?.channel || body.to;
-                    console.log(`[ZENVIA] 🔍 Msg ${remoteId} não achada. Tentando fallback pelo canal: ${channelId}`);
+                    console.log(`[ZENVIA] 🔍 Fallback 1 (Canal): ${channelId}`);
+                    
                     const { data: agent } = await supabaseAdmin
                         .from('agents')
                         .select('id, tenant_id')
@@ -799,9 +801,11 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         agentId = agent.id;
                         tenantId = agent.tenant_id;
                     } else {
-                        // Fallback 3: Tentar pelo telefone do destinatário (body.to)
-                        console.log(`[ZENVIA] 🔍 Canal genérico. Tentando fallback pela última conversa do telefone: ${body.to}`);
-                        const phone = body.to?.replace(/\D/g, '');
+                        // Fallback 2: Tentar pelo telefone do destinatário
+                        const rawTo = body.to || body.messageStatus?.to || body.contact?.id;
+                        const phone = rawTo?.replace(/\D/g, '');
+                        console.log(`[ZENVIA] 🔍 Fallback 2 (Telefone): ${phone} (Original: ${rawTo})`);
+
                         if (phone && phone.length > 8) {
                             const { data: lastConv } = await supabaseAdmin
                                 .from('conversations')
@@ -815,7 +819,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                             if (lastConv) {
                                 agentId = lastConv.agent_id;
                                 tenantId = lastConv.tenant_id;
-                                console.log(`[ZENVIA] 🎯 Fallback bem sucedido! Mapeado para Agente: ${agentId}`);
+                                console.log(`[ZENVIA] 🎯 Fallback 2 Sucedido! Agente: ${agentId}`);
                             }
                         }
                     }
