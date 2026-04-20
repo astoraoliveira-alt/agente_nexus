@@ -884,28 +884,45 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
-                    .select('id, tenant_id, zenvia_channel_id')
+                    .select('id, name, tenant_id, zenvia_channel_id')
                     .or(`zenvia_channel_id.eq.${channelId},zenvia_channel_id.ilike.%${channelId}%`)
                     .eq('status', 'active')
                     .limit(1);
 
-                if (!agents?.length) {
+                let agent = agents?.[0];
+                
+                // Hardcoded fallback for Zenvia Robot Number (551152398510)
+                if (!agent && channelId === '551152398510') {
+                    console.log(`[ZENVIA] 🤖 Detectado número do Robô Sandbox. Buscando agente padrão Fiserv...`);
+                    const { data: fallbackAgent } = await supabaseAdmin
+                        .from('agents')
+                        .select('id, name, tenant_id')
+                        .ilike('name', '%Fiserv%')
+                        .limit(1)
+                        .maybeSingle();
+                    console.log(`[ZENVIA] 🔍 Busca fallbackAgent concluída`);
+                    if (fallbackAgent) agent = fallbackAgent;
+                }
+
+                if (!agent) {
                     console.warn(`[ZENVIA] ❌ Agente não encontrado para o canal ${channelId}. Abortando.`);
                     return;
                 }
-                const agent = agents[0];
                 console.log(`[ZENVIA] 👤 Agente mapeado: ${agent.name || agent.id}`);
 
                 // Upsert Contato & Conversa
-                await supabaseAdmin.from('contacts').upsert({
+                console.log(`[ZENVIA] 🔄 [${traceId}] Iniciando Upsert de Contato para ${phone}...`);
+                const { error: contactError } = await supabaseAdmin.from('contacts').upsert({
                     tenant_id: agent.tenant_id,
                     identifier: phone,
                     phone,
                     name: msg.visitor?.name || phone,
                     channel: 'whatsapp'
                 }, { onConflict: 'tenant_id,identifier' });
+                if (contactError) console.error(`[ZENVIA] ❌ Erro no Upsert Contato:`, contactError);
 
-                let { data: conv } = await supabaseAdmin
+                console.log(`[ZENVIA] 🔍 [${traceId}] Buscando conversa ativa...`);
+                let { data: conv, error: convFetchError } = await supabaseAdmin
                     .from('conversations')
                     .select('id')
                     .eq('tenant_id', agent.tenant_id)
@@ -915,10 +932,13 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     .order('last_message_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
+                
+                if (convFetchError) console.error(`[ZENVIA] ❌ Erro ao buscar conversa:`, convFetchError);
 
                 let convId = conv?.id;
                 if (!convId) {
-                    const { data: newConv } = await supabaseAdmin.from('conversations').insert({
+                    console.log(`[ZENVIA] ✨ [${traceId}] Criando nova conversa...`);
+                    const { data: newConv, error: convCreateError } = await supabaseAdmin.from('conversations').insert({
                         tenant_id: agent.tenant_id,
                         agent_id: agent.id,
                         user_identifier: phone,
@@ -926,16 +946,20 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         channel: 'whatsapp',
                         status: 'ai_active'
                     }).select('id').maybeSingle();
+                    
+                    if (convCreateError) console.error(`[ZENVIA] ❌ Erro ao criar conversa:`, convCreateError);
                     convId = newConv?.id;
                 }
 
                 if (convId) {
+                    console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Preparando enfileiramento...`);
                     const content = (msg.contents || body.contents)?.[0];
                     const text = content?.text || content?.fileCaption || '';
                     const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'conversation');
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
-                    await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                    console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message...`);
+                    const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                         p_tenant_id: agent.tenant_id,
                         p_agent_id: agent.id,
                         p_conversation_id: convId,
@@ -954,15 +978,22 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_latency_ms: 0
                     });
 
+                    if (rpcError) {
+                        console.error(`[ZENVIA] ❌ Erro RPC enfileiramento:`, rpcError);
+                    } else {
+                        console.log(`[ZENVIA] ✅ Mensagem enfileirada: ${phone} [Trace: ${trace}] [Original: ${traceId}]`);
+                    }
+
                     const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
                     if (n8nUrl) {
                         fetch(n8nUrl, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ trace_id: trace, conversation_id: convId, tenant_id: agent.tenant_id })
-                        }).catch(() => {});
+                        }).catch((e) => console.error(`[ZENVIA] ❌ Erro ao avisar n8n:`, e));
                     }
-                    console.log(`[ZENVIA] ✅ Mensagem enfileirada: ${phone} [Trace: ${trace}]`);
+                } else {
+                    console.warn(`[ZENVIA] ⚠️ [${traceId}] Abortando: Não foi possível obter ID de conversa.`);
                 }
             }
         } catch (err: any) {
