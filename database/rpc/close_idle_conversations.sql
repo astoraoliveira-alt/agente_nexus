@@ -22,7 +22,7 @@ BEGIN
           AND last_message_at < (NOW() - (p_idle_minutes || ' minutes')::interval)
         RETURNING id, user_identifier, agent_id, tenant_id
     )
-    -- 2. Enrich with Agent/Provider details
+    -- 2. Enrich with Agent/Provider details (FLATTENED for UTIL - Send WhatsApp Message)
     SELECT jsonb_agg(
         jsonb_build_object(
             'conversation_id', u.id,
@@ -30,14 +30,15 @@ BEGIN
             'provider', COALESCE(a.whatsapp_provider, 'evolution'),
             'agent_id', u.agent_id,
             'tenant_id', u.tenant_id,
-            'evolution', jsonb_build_object(
-                'instance', a.evolution_instance,
-                'token', a.evolution_token
-            ),
-            'zenvia', jsonb_build_object(
-                'token', a.zenvia_api_token,
-                'channelId', a.zenvia_channel_id
-            )
+            -- Evolution Fields (Root level)
+            'instance', a.evolution_instance,
+            'evolution_token', a.evolution_token,
+            -- Meta Fields (Root level)
+            'meta_api_token', a.meta_api_token,
+            'meta_phone_number_id', a.meta_phone_number_id,
+            -- Zenvia Fields (Root level)
+            'zenvia_api_token', a.zenvia_api_token,
+            'zenvia_channel_id', a.zenvia_channel_id
         )
     ) INTO v_closed_list
     FROM updated u
