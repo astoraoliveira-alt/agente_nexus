@@ -876,8 +876,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
             channel: 'whatsapp'
         }, { onConflict: 'tenant_id,identifier' });
 
-        // Localiza ou cria conversa
-        const { data: conv } = await supabaseAdmin
+        // Localiza ou cria conversa (Lógica Ultra Resiliente)
+        let { data: conv } = await supabaseAdmin
             .from('conversations')
             .select('id')
             .eq('tenant_id', agent.tenant_id)
@@ -889,9 +889,10 @@ app.post('/v1/zenvia/webhook', async (c) => {
             .maybeSingle();
 
         let conversationId = conv?.id;
+
         if (!conversationId) {
-            console.log(`[ZENVIA] 📝 Criando nova conversa para ${phone}`);
-            const { data: newConv, error: convError } = await supabaseAdmin
+            console.log(`[ZENVIA] 📝 Tentando criar conversa para ${phone}`);
+            const { data: newConv, error: insertError } = await supabaseAdmin
                 .from('conversations')
                 .insert({
                     tenant_id: agent.tenant_id,
@@ -901,13 +902,26 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     channel: 'whatsapp',
                     status: 'ai_active'
                 })
-                .select()
+                .select('id')
                 .maybeSingle();
 
-            if (convError) {
-                console.error(`[ZENVIA] ❌ Erro ao criar conversa:`, convError);
+            if (!insertError && newConv) {
+                conversationId = newConv.id;
+            } else {
+                // FALLBACK: Se deu erro de duplicidade, busca qualquer conversa deste usuário
+                const { data: fallbackConv } = await supabaseAdmin
+                    .from('conversations')
+                    .select('id')
+                    .eq('tenant_id', agent.tenant_id)
+                    .eq('user_identifier', phone)
+                    .eq('agent_id', agent.id)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+                
+                conversationId = fallbackConv?.id || null;
+                if (conversationId) console.log(`[ZENVIA] 🔄 Recuperada conversa via fallback para ${phone}: ${conversationId}`);
             }
-            conversationId = newConv?.id || null;
         }
 
         await supabaseAdmin
