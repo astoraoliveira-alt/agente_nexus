@@ -808,6 +808,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const channelId = body.message?.from || body.from || body.channel || body.messageStatus?.channel;
                     console.log(`[ZENVIA] 🔍 Fallback 1 (Canal): ${channelId}`);
                     
+                    const { data: agent } = await supabaseAdmin
                         .from('agents')
                         .select('id, tenant_id')
                         .or(`zenvia_channel_id.eq.${channelId},zenvia_aliases.cs.{${channelId}}`)
