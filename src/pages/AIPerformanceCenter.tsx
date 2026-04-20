@@ -18,10 +18,11 @@ import {
 } from '@/components/ui/select';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { coreService } from '@/services/core.service';
+import { dashboardService } from '@/services/dashboard.service';
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 
-type TabId = 'executive' | 'economics' | 'security' | 'optimization' | 'knowledge';
+type TabId = 'executive' | 'economics' | 'security' | 'optimization' | 'knowledge' | 'stress';
 type Period = 'today' | 'yesterday' | 'week' | 'month';
 
 interface CardTooltip { what: string; how: string; source: string; why: string }
@@ -683,7 +684,350 @@ function TabKnowledge({ data, loading }: { data: any; loading: boolean }) {
   );
 }
 
-// ─── TABS CONFIG ──────────────────────────────────────────────────────────────
+// ─── TAB: STRESS TEST LAB ───────────────────────────────────────────────────
+
+function TabStressLab({ tenantId }: { tenantId?: string }) {
+  const [count, setCount] = useState(10);
+  const [agentId, setAgentId] = useState<string>('');
+  const [agents, setAgents] = useState<any[]>([]);
+  const [isStressRunning, setIsStressRunning] = useState(false);
+  const [currentTraceId, setCurrentTraceId] = useState<string | null>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [monitorLoading, setMonitorLoading] = useState(false);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [systemLogs, setSystemLogs] = useState<{msg: string, type: 'sys' | 'db' | 'ai', time: string}[]>([]);
+
+  const addSysLog = (msg: string, type: 'sys' | 'db' | 'ai' = 'sys') => {
+    setSystemLogs(prev => [{ msg, type, time: new Date().toLocaleTimeString('pt-BR') }, ...prev].slice(0, 50));
+  };
+
+  // Load agents on mount
+  useEffect(() => {
+    const loadAgents = async () => {
+      try {
+        const { agents: agentsList } = await dashboardService.getDashboardSummary(tenantId || '');
+        setAgents(agentsList || []);
+        if (agentsList?.length > 0) setAgentId(agentsList[0].id);
+      } catch (err) {
+        console.error('Error loading agents for Stress Lab:', err);
+      }
+    };
+    loadAgents();
+  }, [tenantId]);
+
+  // Poll for logs when a trace is active
+  useEffect(() => {
+    let interval: any;
+    if (currentTraceId) {
+      const fetchLogs = async () => {
+        setMonitorLoading(true);
+        try {
+          const result = await coreService.getFailedMessages(tenantId, undefined, undefined, currentTraceId);
+          
+          // --- LOGGING EVOLUTION (Ponto 5 e 6 da crítica do usuário) ---
+          
+          // 1. Mensagens Pendentes/Enfileiradas
+          const pending = result.filter(r => ['pending', 'queued'].includes(r.out_status)).length;
+          const processing = result.filter(r => ['processing'].includes(r.out_status)).length;
+          const done = result.filter(r => ['done', 'completed', 'processed'].includes(r.out_status)).length;
+          const failed = result.filter(r => ['error', 'failed'].includes(r.out_status)).length;
+
+          // Só loga a detecção inicial ou se houver mudança significativa no total
+          if (result.length > logs.length && logs.length === 0) {
+            addSysLog(`Sincronizado! Identificadas ${result.length} mensagens vinculadas ao lote ${currentTraceId}.`, 'db');
+          }
+          
+          // Log de progresso inteligente (não repetitivo)
+          if (processing > 0 && logs.filter(l => l.out_status === 'processing').length !== processing) {
+            addSysLog(`Porteiro liberou fluxo: ${processing} mensagens entraram em processamento ativo.`, 'sys');
+          }
+
+          const newlyDone = done - logs.filter(r => ['done', 'completed', 'processed'].includes(r.out_status)).length;
+          if (newlyDone > 0) {
+            addSysLog(`Sucesso: +${newlyDone} respostas geradas pela Sofia e enviadas.`, 'ai');
+          }
+
+          const newlyFailed = failed - logs.filter(r => ['error', 'failed'].includes(r.out_status)).length;
+          if (newlyFailed > 0) {
+            addSysLog(`Alerta: ${newlyFailed} mensagens encontraram erros no fluxo do n8n.`, 'ai');
+          }
+
+          // Se estiver parado há muito tempo em processing
+          if (processing > 0 && processing === result.length - done - failed) {
+            // Apenas loga de vez em quando para não spammar
+            if (Math.random() > 0.8) {
+              addSysLog(`Aguardando orquestração do n8n para ${processing} itens remanescentes...`, 'sys');
+            }
+          }
+
+          setLogs(result || []);
+          
+          // Stop polling if everything is 'done' or 'error'
+          const stillRunning = result.some((r: any) => ['pending', 'processing', 'queued'].includes(r.out_status));
+          if (result.length > 0 && !stillRunning) {
+            addSysLog(`🏁 Lote ${currentTraceId} finalizado completamente.`, 'sys');
+            setIsStressRunning(false);
+          }
+        } finally {
+          setMonitorLoading(false);
+        }
+      };
+      fetchLogs();
+      interval = setInterval(fetchLogs, 3000);
+    }
+    return () => clearInterval(interval);
+  }, [currentTraceId, tenantId, logs.length]);
+
+  const handleStartStress = async () => {
+    if (!tenantId || !agentId) return;
+    setIsStressRunning(true);
+    setLogs([]);
+    setSystemLogs([]);
+    addSysLog(`Iniciando simulação de carga: ${count} mensagens.`, 'sys');
+    addSysLog(`Agente alvo carregado: ${agents.find(a => a.id === agentId)?.name}`, 'sys');
+    
+    try {
+      addSysLog(`Solicitando geração de payloads no banco de dados...`, 'db');
+      const traceId = await coreService.triggerStressTest(tenantId, agentId, count);
+      setCurrentTraceId(traceId);
+      addSysLog(`Massa injetada com sucesso! Trace ID: ${traceId}`, 'db');
+      addSysLog(`Iniciando monitoramento da inbound_queue...`, 'sys');
+    } catch (err: any) {
+      console.error('Error starting stress test:', err);
+      const errorMsg = err?.message || err?.details || 'Erro de permissão ou função não encontrada';
+      addSysLog(`FALHA CRÍTICA: ${errorMsg}`, 'ai');
+      setIsStressRunning(false);
+    }
+  };
+
+  const handleCleanup = async () => {
+    if (!currentTraceId) return;
+    setIsCleaning(true);
+    addSysLog(`Iniciando limpeza cirúrgica do Batch: ${currentTraceId}...`, 'sys');
+    try {
+      await coreService.cleanupStressTest(currentTraceId);
+      setLogs([]);
+      setCurrentTraceId(null);
+      addSysLog(`Dados de teste removidos com sucesso! Ambiente limpo.`, 'db');
+    } catch (err: any) {
+      addSysLog(`Erro ao limpar dados: ${err.message}`, 'ai');
+    } finally {
+      setIsCleaning(false);
+    }
+  };
+
+  const stats = useMemo(() => {
+    const done = logs.filter(l => ['done', 'completed', 'processed'].includes(l.out_status)).length;
+    const error = logs.filter(l => ['error', 'failed'].includes(l.out_status)).length;
+    const pending = logs.length - done - error;
+    const progress = logs.length > 0 ? (done / logs.length) * 100 : 0;
+    return { done, error, pending, progress };
+  }, [logs]);
+
+  return (
+    <section className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Painel de Configuração */}
+        <div className="bg-card border border-border rounded-sm p-4 space-y-5">
+          <SectionHeader icon={Zap} title="Configuração de Estresse" sub="Simule carga de mensagens na Sofia" />
+          
+          <div className="space-y-2">
+            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Selecionar Agente</label>
+            <Select value={agentId} onValueChange={setAgentId} disabled={isStressRunning}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Escolha um agente" />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map(a => (
+                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Volume de Mensagens</label>
+              <span className="text-sm font-black text-emerald-500">{count}</span>
+            </div>
+            <input 
+              type="range" min="1" max="1000" step="10" value={count} 
+              onChange={(e) => setCount(parseInt(e.target.value))}
+              disabled={isStressRunning}
+              className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-emerald-500"
+            />
+          </div>
+
+          <Button 
+            className={cn("w-full h-11 text-xs font-bold gap-2 uppercase tracking-widest", 
+              isStressRunning ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+            )}
+            onClick={handleStartStress}
+            disabled={isStressRunning || !agentId}
+          >
+            {isStressRunning ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                Estressando Sofia...
+              </>
+            ) : (
+              <>
+                <Zap className="h-4 w-4 fill-current" />
+                Iniciar Estresse de IA
+              </>
+            )}
+          </Button>
+
+          {currentTraceId && (
+            <Button 
+                variant="outline"
+                className="w-full h-9 text-[10px] font-bold gap-2 uppercase border-rose-500/20 text-rose-400 hover:bg-rose-500/10"
+                onClick={handleCleanup}
+                disabled={isStressRunning || isCleaning}
+            >
+                <RefreshCw className={cn("h-3 w-3", isCleaning && "animate-spin")} />
+                Limpar Dados deste Teste
+            </Button>
+          )}
+
+          <div className="p-3 bg-muted/30 border border-border/50 rounded-sm space-y-2">
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              <span className="font-bold text-foreground">Atenção:</span> Este teste enviará mensagens reais para a `inbound_queue`. O n8n e a Sofia irão processar cada item como se fosse um cliente real.
+            </p>
+          </div>
+
+          {/* Console Under the Hood */}
+          {/* System Console Emulator (SLA ELITE UI) */}
+          <div className="mt-4 bg-[#050505] rounded-sm border border-emerald-500/20 overflow-hidden flex flex-col h-[300px] shadow-2xl relative">
+            <div className="bg-[#0a0a0a] px-3 py-1.5 border-b border-emerald-500/10 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-bold text-emerald-500/80 tracking-widest uppercase">Nexus System Console</span>
+              </div>
+              <span className="text-[8px] font-mono text-emerald-500/40 uppercase">v1.3-STRESS-SLA</span>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-1 selection:bg-emerald-500 selection:text-black custom-scrollbar bg-[radial-gradient(circle_at_center,_#001a0a_0%,_#050505_100%)]">
+              {systemLogs.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-emerald-500/10 italic text-[9px] uppercase tracking-tighter">
+                  Aguardando comando do operador...
+                </div>
+              ) : (
+                systemLogs.map((log, i) => (
+                  <div key={i} className={cn(
+                    "flex gap-3 animate-in fade-in slide-in-from-left-1 duration-300",
+                    log.type === 'ai' ? "text-amber-400" : log.type === 'db' ? "text-blue-400" : "text-emerald-400"
+                  )}>
+                    <span className="opacity-30 shrink-0 text-zinc-500">[{log.time}]</span>
+                    <span className="break-all">{log.msg}</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {monitorLoading && (
+              <div className="absolute bottom-2 right-4 flex items-center gap-2 px-2 py-1 bg-black/80 rounded border border-emerald-500/20 animate-pulse">
+                 <div className="h-1 w-1 rounded-full bg-emerald-500" />
+                 <span className="text-[8px] text-emerald-500 uppercase font-bold tracking-tighter">Syncing...</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Painel de Progresso */}
+        <div className="lg:col-span-2 bg-card border border-border rounded-sm overflow-hidden flex flex-col">
+          <div className="px-4 py-4 border-b border-border flex items-center justify-between">
+            <SectionHeader icon={Activity} title="Monitor de Carga Live" sub={currentTraceId ?? 'Aguardando início...'} />
+            {currentTraceId && (
+              <Badge variant="outline" className="text-[9px] font-mono animate-pulse border-emerald-500/40 text-emerald-400">
+                LIVE: {currentTraceId}
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex-1 min-h-[300px]">
+             {logs.length === 0 ? (
+               <EmptyState icon={Brain} msg="Clique em Iniciar para começar a monitorar o fluxo ponta-a-ponta." />
+             ) : (
+               <div className="flex flex-col h-full">
+                 {/* Progress Bar Area */}
+                 <div className="px-6 py-6 border-b border-border/50 bg-muted/10 space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="text-center">
+                        <p className="text-2xl font-black tabular-nums">{logs.length}</p>
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Total</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-black tabular-nums text-emerald-500">{stats.done}</p>
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Sucesso</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-black tabular-nums text-rose-500">{stats.error}</p>
+                        <p className="text-[9px] font-bold uppercase text-muted-foreground">Falhas</p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
+                       <div 
+                         className="h-full bg-emerald-500 transition-all duration-500 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]" 
+                         style={{ width: `${stats.progress}%` }}
+                       />
+                    </div>
+                 </div>
+
+                 {/* Logs Table */}
+                 <div className="flex-1 overflow-y-auto max-h-[400px]">
+                   <table className="w-full text-[10px]">
+                     <thead className="bg-muted/30 sticky top-0 border-b border-border/50 text-muted-foreground uppercase font-bold tracking-tighter">
+                       <tr>
+                         <th className="px-4 py-2 text-left w-16">Status</th>
+                         <th className="px-4 py-2 text-left">Mensagem (Inbound)</th>
+                         <th className="px-4 py-2 text-right">Ação</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-border/30">
+                       {logs.map((log: any, i: number) => (
+                         <tr key={i} className="hover:bg-muted/20 transition-colors">
+                           <td className="px-4 py-3">
+                             <Badge 
+                               variant="outline" 
+                               className={cn("text-[8.5px] h-5 min-w-[70px] justify-center uppercase", 
+                                 log.out_status === 'done' && "bg-emerald-500/10 text-emerald-500 border-emerald-500/20",
+                                 log.out_status === 'processing' && "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                                 ['error', 'failed'].includes(log.out_status) && "bg-rose-500/10 text-rose-500 border-rose-500/20",
+                                 log.out_status === 'pending' && "bg-muted text-muted-foreground"
+                               )}
+                             >
+                               {log.out_status}
+                             </Badge>
+                           </td>
+                           <td className="px-4 py-3">
+                             <p className="font-medium text-foreground truncate max-w-[250px]">
+                               {log.out_payload?.text || 'Sem payload'}
+                             </p>
+                             <p className="text-[9px] text-muted-foreground font-mono">{log.out_external_id}</p>
+                           </td>
+                           <td className="px-4 py-3 text-right">
+                             {log.out_error_message ? (
+                               <span className="text-rose-400 font-bold whitespace-nowrap">{log.out_error_message.slice(0, 20)}...</span>
+                             ) : (
+                               <span className="text-muted-foreground tabular-nums">
+                                 {new Date(log.out_created_at).toLocaleTimeString('pt-BR')}
+                               </span>
+                             )}
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+                 </div>
+               </div>
+             )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'executive',     label: 'Resumo Executivo',  icon: Activity    },
@@ -691,6 +1035,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'security',     label: 'Segurança',          icon: ShieldAlert },
   { id: 'optimization', label: 'Otimização IA',      icon: Zap         },
   { id: 'knowledge',    label: 'Conhecimento RAG',   icon: BookOpen    },
+  { id: 'stress',       label: 'Stress Lab',         icon: Zap         },
 ];
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
@@ -797,6 +1142,7 @@ export default function AIPerformanceCenter() {
           {activeTab === 'security'     && <TabSecurity     data={data} loading={loading} />}
           {activeTab === 'optimization' && <TabOptimization data={data} loading={loading} />}
           {activeTab === 'knowledge'    && <TabKnowledge    data={data} loading={loading} />}
+          {activeTab === 'stress'       && <TabStressLab    tenantId={currentTenant?.id} />}
         </main>
       </div>
     </MainLayout>

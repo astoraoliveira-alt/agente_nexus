@@ -1153,6 +1153,44 @@ async function startHeartbeatWorker() {
     pulse(); // Primeiro pulso imediato
 }
 
+async function startOutboundRecoveryWorker() {
+    console.log('🛡️ [RECOVERY] Starting Outbound Recovery Worker (SLA Guardian)...');
+    
+    const recover = async () => {
+        try {
+            // Buscamos mensagens presas em 'processing' ou 'pending' há mais de 10 minutos
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60000).toISOString();
+            
+            const { data: stuckItems, error } = await supabaseAdmin
+                .from('outbound_queue')
+                .select('*')
+                .in('status', ['pending', 'processing'])
+                .lt('updated_at', tenMinutesAgo)
+                .limit(20);
+
+            if (error || !stuckItems || stuckItems.length === 0) return;
+
+            console.log(`[RECOVERY] 🔄 Found ${stuckItems.length} STUCK OUTBOUND messages. Re-queueing...`);
+
+            for (const item of stuckItems) {
+                // Reiniciamos o status para pending e zeramos o lock
+                await supabaseAdmin
+                    .from('outbound_queue')
+                    .update({ 
+                        status: 'pending', 
+                        updated_at: new Date().toISOString(),
+                        error_message: 'Recovered by Watchdog (Timeout SLA)' 
+                    })
+                    .eq('id', item.id);
+            }
+        } catch (err: any) {
+            console.error('[RECOVERY] Outbound Watchdog Error:', err.message);
+        }
+    };
+
+    setInterval(recover, 300000); // Roda a cada 5 minutos
+}
+
 async function startInboundRecoveryWorker() {
     console.log('⏳ [RECOVERY] Starting Inbound Recovery Worker (Auto-Retry Protocol)...');
     
@@ -1344,23 +1382,39 @@ async function startQueueWorker() {
                 } catch (err: any) {
                     console.error(`[WORKER] ❌ Error processing ${item.id} [Trace: ${item.trace_id}]:`, err.message);
                     
-                    // 1. Mark as failed in queue
-                    await supabaseAdmin.from('outbound_queue').update({ 
-                        status: 'failed', 
-                        error_message: err.message 
-                    }).eq('id', item.id);
+                    // 1. Mark as failed or schedule retry (SLA ELITE - Ponto 3.1)
+                    const currentRetries = (item as any).retry_count || 0;
+                    if (currentRetries < 3) {
+                        const backoff = (currentRetries + 1) * 2; // 2min, 4min, 6min
+                        const nextTry = new Date(Date.now() + backoff * 60000).toISOString();
+                        
+                        console.log(`[WORKER] 🔄 Scheduling retry #${currentRetries + 1} for ${item.id} at ${nextTry}`);
+                        
+                        await supabaseAdmin.from('outbound_queue').update({ 
+                            status: 'pending', 
+                            retry_count: currentRetries + 1,
+                            scheduled_at: nextTry,
+                            error_message: `Retry #${currentRetries + 1}: ${err.message}` 
+                        }).eq('id', item.id);
+                    } else {
+                        // Max retries reached - move to failure (DLQ)
+                        await supabaseAdmin.from('outbound_queue').update({ 
+                            status: 'failed', 
+                            error_message: `FATAL: Max retries exceeded. Last error: ${err.message}` 
+                        }).eq('id', item.id);
+                    }
 
                     // 2. LOG ERROR TO CENTRAL SYSTEM_LOGS
                     await supabaseAdmin.rpc('fn_log_event', {
                         p_tenant_id: item.tenant_id,
                         p_trace_id: item.trace_id,
                         p_component: 'PORTEIRO_WORKER',
-                        p_severity: 'ERROR',
+                        p_severity: currentRetries < 3 ? 'WARNING' : 'ERROR',
                         p_message: `Outbound delivery failed: ${err.message}`,
                         p_metadata: { 
                             queue_id: item.id,
                             agent_id: item.agent_id,
-                            conversation_id: item.conversation_id
+                            retry_count: currentRetries
                         }
                     });
                 }
@@ -1417,6 +1471,7 @@ setTimeout(() => {
     console.log(`[SYS] ⏳ Starting Backend Services...`);
     startQueueWorker(); // Captura mensagens que vêm do Supabase (Outbound)
     startInboundRecoveryWorker(); // Recupera mensagens presas (Inbound)
+    startOutboundRecoveryWorker(); // NOVO: Watchdog de mensagens presas no Outbound (Ponto 3.1 & 3.4)
     startHeartbeatWorker(); // Inicia pulso de saúde (Observabilidade)
 }, 2000);
 

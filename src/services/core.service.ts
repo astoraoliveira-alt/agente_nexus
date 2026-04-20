@@ -1039,4 +1039,22 @@ export const coreService = {
         if (error) throw error;
         return data;
     },
+
+    /** AI Performance Center - Stress Test Lab */
+    async triggerStressTest(tenantId: string, agentId: string, count: number): Promise<string> {
+        const { data, error } = await supabase.rpc('fn_create_stress_test_payloads', {
+            p_tenant_id: tenantId,
+            p_agent_id: agentId,
+            p_count: count
+        });
+        if (error) throw error;
+        return data as string; // Returns the batch_id
+    },
+
+    async cleanupStressTest(batchId: string): Promise<void> {
+        const { error } = await supabase.rpc('fn_cleanup_stress_test', {
+            p_batch_id: batchId
+        });
+        if (error) throw error;
+    },
 };
