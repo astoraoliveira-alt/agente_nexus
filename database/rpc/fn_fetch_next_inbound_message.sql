@@ -245,6 +245,7 @@ BEGIN
         'message_type', COALESCE(v_record.message_type, 'conversation'),
         'is_ai', true,
         'atendimento_tipo', 'IA',
+        'is_status_update', (v_record.message_type LIKE 'outbound_%'),
 
         'agent', jsonb_build_object(
             'id', v_agent.id,

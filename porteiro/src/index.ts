@@ -769,7 +769,50 @@ app.post('/v1/zenvia/webhook', async (c) => {
         // 🛡️ Normalização Zenvia: Alguns payloads trazem os dados dentro de "message"
         const msg = body.message || body;
 
-        // Ignora eventos de saída (loop) e não-MESSAGE
+        // --- NOVO: Tratamento de Status de Mensagem (DLR) ---
+        if (body.type === 'MESSAGE_STATUS') {
+            const remoteId = body.messageId;
+            const statusCode = body.messageStatus?.code;
+            console.log(`[ZENVIA] 📊 Status recebido: ${statusCode} para msg ${remoteId}`);
+
+            // Busca rápida do agente pelo ID da mensagem (Zenvia não manda o canal no status às vezes)
+            // Ou tentamos pelo channelId se disponível
+            const channelId_status = body.channel || msg.to || body.to;
+
+            const { data: agentRows_st } = await supabaseAdmin
+                .from('agents')
+                .select('id, tenant_id')
+                .eq('zenvia_channel_id', channelId_status)
+                .limit(1);
+
+            const agent_st = agentRows_st?.[0];
+
+            if (agent_st) {
+                const traceId_st = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
+                await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
+                    p_tenant_id: agent_st.tenant_id,
+                    p_agent_id: agent_st.id,
+                    p_external_id: remoteId,
+                    p_payload: body,
+                    p_message_type: 'outbound_status',
+                    p_trace_id: traceId_st
+                });
+
+                // Dispara N8N para processamento imediato
+                const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+                if (n8nUrl) {
+                    await fetch(n8nUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ trace_id: traceId_st, tenant_id: agent_st.tenant_id })
+                    }).catch(e => console.error(`[ZENVIA] ⚠️ N8N Status Trigger failed:`, e.message));
+                }
+            }
+
+            return c.json({ ok: true, status_processed: true });
+        }
+
+        // Ignora eventos de saída (loop) e outros tipos não suportados
         if (body.direction === 'OUT' || body.type !== 'MESSAGE') {
             console.log(`[ZENVIA] ⏭️ Ignorando evento: type=${body.type}, direction=${body.direction}`);
             return c.json({ ok: true, ignored: true });

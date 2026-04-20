@@ -215,6 +215,7 @@ export default function Campaigns() {
                 return {
                     ...campaign,
                     sentCount: liveStats.sent_count,
+                    deliveredCount: liveStats.delivered_count || 0,
                     responseCount: liveStats.response_count,
                     conversionCount: liveStats.conversion_count,
                     conversionRate: liveStats.conversion_rate,
@@ -1187,18 +1188,16 @@ export default function Campaigns() {
                                     </TableHeader>
                                     <TableBody>
                                         {filteredCampaigns.map((campaign) => {
-                                            const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0 };
+                                            const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0, delivered: 0 };
+                                            const totalLoaded = (campaign.totalContacts || 0) + (campaign.importErrorCount || 0);
                                             const validRecords = queueMetrics.total;
-                                            const totalLoaded = validRecords + (campaign.importErrorCount || 0);
-                                            const sent = campaign.sentCount || 0;
-                                            const queuedMessages = queueMetrics.total;
-                                            const delivered = queueMetrics.sent;
+                                            const sentMessages = campaign.sentCount || queueMetrics.sent;
+                                            const deliveredMessages = campaign.deliveredCount || queueMetrics.delivered || 0;
                                             const linksSent = campaign.conversionCount || 0;
                                             
-                                            const validPct = validRecords > 0 ? 100 : 0;
-                                            const sentPct = validRecords > 0 ? (sent / validRecords) * 100 : 0;
-                                            const queuedPct = validRecords > 0 ? (queuedMessages / validRecords) * 100 : 0;
-                                            const deliveredPct = validRecords > 0 ? (delivered / validRecords) * 100 : 0;
+                                            const validPct = totalLoaded > 0 ? (validRecords / totalLoaded) * 100 : 0;
+                                            const sentPct = validRecords > 0 ? (sentMessages / validRecords) * 100 : 0;
+                                            const deliveredPct = validRecords > 0 ? (deliveredMessages / validRecords) * 100 : 0;
                                             const linksPct = validRecords > 0 ? (linksSent / validRecords) * 100 : 0;
 
                                             return (
@@ -1246,13 +1245,13 @@ export default function Campaigns() {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold">{queuedMessages}</span>
-                                                            <span className="text-[11px] text-muted-foreground">{queuedPct.toFixed(0)}%</span>
+                                                            <span className="font-semibold text-blue-600">{sentMessages}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{sentPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-emerald-600">{delivered}</span>
+                                                            <span className="font-semibold text-emerald-600">{deliveredMessages}</span>
                                                             <span className="text-[11px] text-muted-foreground">{deliveredPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>

@@ -52,7 +52,8 @@ CREATE OR REPLACE FUNCTION public.fn_enqueue_inbound_message(
     p_conversation_id uuid,
     p_external_id varchar,
     p_payload jsonb,
-    p_trace_id varchar DEFAULT NULL
+    p_trace_id varchar DEFAULT NULL,
+    p_message_type varchar DEFAULT 'conversation'
 )
 RETURNS void
 LANGUAGE plpgsql
@@ -61,13 +62,15 @@ AS $$
 DECLARE
     v_next_seq int;
 BEGIN
-    -- 1. Calcula o próximo sequence_number para ESTA conversa (Item 2.1 Elite)
-    SELECT COALESCE(MAX(sequence_number), 0) + 1 
-    INTO v_next_seq
-    FROM public.inbound_queue
-    WHERE conversation_id = p_conversation_id;
+    -- 1. Calcula o próximo sequence_number se for conversa
+    IF p_message_type = 'conversation' THEN
+        SELECT COALESCE(MAX(sequence_number), 0) + 1 
+        INTO v_next_seq
+        FROM public.inbound_queue
+        WHERE conversation_id = p_conversation_id;
+    END IF;
 
-    -- 2. Insere na fila
+    -- 2. Insere na fila com lógica de UPSERT para atualizações de status
     INSERT INTO public.inbound_queue (
         tenant_id, 
         agent_id, 
@@ -76,7 +79,8 @@ BEGIN
         sequence_number, 
         payload, 
         status,
-        trace_id
+        trace_id,
+        message_type
     )
     VALUES (
         p_tenant_id, 
@@ -86,9 +90,14 @@ BEGIN
         v_next_seq, 
         p_payload, 
         'pending',
-        p_trace_id
+        p_trace_id,
+        p_message_type
     )
-    ON CONFLICT (tenant_id, external_id) DO NOTHING;
+    ON CONFLICT (tenant_id, external_id) DO UPDATE SET
+        payload = EXCLUDED.payload,
+        status = 'pending', -- Re-queue for processing if it was already processed
+        message_type = EXCLUDED.message_type,
+        created_at = NOW(); -- Reset timer for the status update
 END;
 $$;
 

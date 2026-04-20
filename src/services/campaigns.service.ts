@@ -55,7 +55,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }));
     },
 
-    async getOutboundQueueMetricsByCampaign(tenantId: string): Promise<Record<string, { total: number; sent: number }>> {
+    async getOutboundQueueMetricsByCampaign(tenantId: string): Promise<Record<string, { total: number; sent: number; delivered: number }>> {
         const { data, error } = await supabase
             .from('outbound_queue')
             .select('campaign_id,status')
@@ -67,17 +67,20 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             return {};
         }
 
-        return (data || []).reduce((acc: Record<string, { total: number; sent: number }>, row: any) => {
+        return (data || []).reduce((acc: Record<string, { total: number; sent: number; delivered: number }>, row: any) => {
             const campaignId = row.campaign_id;
             if (!campaignId) return acc;
 
             if (!acc[campaignId]) {
-                acc[campaignId] = { total: 0, sent: 0 };
+                acc[campaignId] = { total: 0, sent: 0, delivered: 0 };
             }
 
             acc[campaignId].total += 1;
             if (row.status === 'sent') {
                 acc[campaignId].sent += 1;
+            } else if (row.status === 'delivered') {
+                acc[campaignId].sent += 1; // Delivered also means it was sent
+                acc[campaignId].delivered += 1;
             }
 
             return acc;

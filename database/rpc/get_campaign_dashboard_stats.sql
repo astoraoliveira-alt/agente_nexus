@@ -18,6 +18,7 @@ DECLARE
   v_import_errors     BIGINT := 0;
   v_sent_count        BIGINT := 0;
   v_response_count    BIGINT := 0;
+  v_delivered_count  BIGINT := 0;
   v_conversion_count  BIGINT := 0;
   v_conversion_rate   NUMERIC := 0;
   
@@ -51,7 +52,14 @@ BEGIN
   FROM outbound_queue
   WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
     AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    AND status = 'sent';
+    AND (status = 'sent' OR status = 'delivered');
+
+  -- Entregues (DLR real)
+  SELECT COUNT(*) INTO v_delivered_count
+  FROM outbound_queue
+  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
+    AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
+    AND status = 'delivered';
 
   -- Respostas detectadas
   SELECT COUNT(*) INTO v_response_count
@@ -98,6 +106,7 @@ BEGIN
     'total_contacts',    v_total_contacts,
     'import_errors',     v_import_errors,
     'sent_count',        v_sent_count,
+    'delivered_count',   v_delivered_count,
     'response_count',    v_response_count,
     'conversion_count',  v_conversion_count,
     'conversion_rate',   v_conversion_rate

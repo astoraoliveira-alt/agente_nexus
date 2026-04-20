@@ -112,16 +112,35 @@ BEGIN
     )
     RETURNING id INTO v_message_id;
 
-    -- [5] STATUS DA FILA (Marca como enviado)
-    IF p_queue_id IS NOT NULL THEN
-        UPDATE public.outbound_queue
-        SET 
-            status = 'sent',
-            sent_at = NOW(),
-            conversation_id = v_conversation_id,
-            metadata = metadata || jsonb_build_object('message_id', v_message_id)
-        WHERE id = p_queue_id;
-    END IF;
+        -- [5] STATUS DA FILA (Marca como enviado)
+        IF p_queue_id IS NOT NULL THEN
+            UPDATE public.outbound_queue
+            SET 
+                status = 'sent',
+                sent_at = NOW(),
+                conversation_id = v_conversation_id,
+                metadata = metadata || jsonb_build_object('message_id', v_message_id)
+            WHERE id = p_queue_id;
+        END IF;
+
+        -- [6] REGISTRO DE FILA DE ENTRADA (Controle Centralizado solicitado pelo usuário)
+        -- Cria um registro na inbound_queue com o ID do provedor para rastreio unificado
+        PERFORM public.fn_enqueue_inbound_message(
+            p_tenant_id,
+            p_agent_id,
+            v_conversation_id,
+            p_remote_id, -- ID da Zenvia
+            jsonb_build_object(
+                'type', 'outbound_status',
+                'status', 'sent',
+                'queue_id', p_queue_id,
+                'campaign_id', p_campaign_id,
+                'message_id', v_message_id,
+                'phone', v_clean_phone
+            ),
+            p_trace_id::varchar,
+            'outbound_sent'
+        );
 
     -- [6] RETORNO ATÔMICO
     RETURN jsonb_build_object(

@@ -957,6 +957,7 @@ export interface Campaign {
   dailyLimit: number;
   totalContacts: number;
   sentCount: number;
+  deliveredCount?: number;
   responseCount: number;
   totalMessages: number;
   conversionCount: number;
