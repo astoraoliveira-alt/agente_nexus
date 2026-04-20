@@ -835,7 +835,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
-                    .select('id, tenant_id')
+                    .select('id, tenant_id, zenvia_channel_id')
                     .eq('zenvia_channel_id', channelId)
                     .eq('status', 'active')
                     .limit(1);
@@ -887,7 +887,15 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_agent_id: agent.id,
                         p_conversation_id: convId,
                         p_external_id: externalId,
-                        p_payload: { content: text, phone, platform: 'zenvia', mediaUrl: content?.fileUrl },
+                        p_payload: { 
+                            name: msg.visitor?.name || phone,
+                            phone, 
+                            instance: agent.zenvia_channel_id,
+                            content: text, 
+                            platform: 'zenvia', 
+                            mediaUrl: content?.fileUrl,
+                            messageType: type
+                        },
                         p_trace_id: trace,
                         p_message_type: type
                     });
