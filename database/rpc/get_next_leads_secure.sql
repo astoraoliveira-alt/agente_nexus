@@ -1,7 +1,6 @@
 -- ======================================================== --
--- DAVOS NEXUS - SECURE LEAD FETCH (V50.17)               --
--- Protege contra disparos duplicados e flood de contatos  --
--- Agora com recuperação de mensagens presas e SECURITY DEFINER --
+-- DAVOS NEXUS - SECURE LEAD FETCH (V50.20 - Multi-Provider) --
+-- Refatorado para compatibilidade com UTIL - Send WhatsApp   --
 -- ======================================================== --
 
 DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
@@ -13,13 +12,19 @@ CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
 )
 RETURNS TABLE (
     id uuid,
-    contact_phone text,
+    phone text,
     contact_name text,
     campaign_id uuid,
     agent_id uuid,
     tenant_id uuid,
-    initial_message text,
-    evolution_instance text
+    message text,
+    provider text,
+    instance text,
+    evolution_token text,
+    meta_api_token text,
+    meta_phone_number_id text,
+    zenvia_api_token text,
+    zenvia_channel_id text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -29,8 +34,9 @@ DECLARE
     v_daily_limit int;
     v_allowed_now boolean;
     v_sent_today int;
+    v_actual_limit int;
 BEGIN
-    -- 0. Auto-Recuperação: Limpa as presas que falharam no n8n a mais de 30 mins
+    -- 0. Auto-Recuperação: Limpa as mensagens presas que falharam no n8n (> 30 mins)
     UPDATE public.outbound_queue
     SET status = 'pending'
     WHERE tenant_id = p_tenant_id
@@ -38,7 +44,7 @@ BEGIN
       AND status = 'processing'
       AND created_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
 
-    -- 1. Buscar configurações da campanha e verificar se está no horário/data
+    -- 1. Buscar configurações da campanha e janela de horário
     SELECT 
         camp.daily_limit,
         (
@@ -51,27 +57,28 @@ BEGIN
     FROM public.campaigns camp
     WHERE camp.id = p_campaign_id AND camp.status = 'active';
 
-    -- Se fora da janela de horário ou data, não retorna nada
+    -- Se fora da janela, encerra
     IF NOT v_allowed_now OR v_allowed_now IS NULL THEN
         RETURN;
     END IF;
 
-    -- 2. Limite Diário (Respeitando Fuso Horário de SP)
-    SELECT COUNT(*) INTO v_sent_today
+    -- 2. Calcular Quota Diária Restante (Limite - Enviados Hoje)
+    SELECT COUNT(*)::int INTO v_sent_today
     FROM public.consumption_metrics
     WHERE tenant_id = p_tenant_id
       AND metric_type = 'messages'
       AND metadata->>'campaign_id' = p_campaign_id::text
       AND (recorded_at AT TIME ZONE 'America/Sao_Paulo')::date = (NOW() AT TIME ZONE 'America/Sao_Paulo')::date;
 
-    IF v_daily_limit IS NOT NULL AND v_sent_today >= v_daily_limit THEN
+    v_actual_limit := LEAST(p_limit, GREATEST(0, COALESCE(v_daily_limit, 999999) - v_sent_today));
+
+    IF v_actual_limit <= 0 THEN
         RETURN;
     END IF;
 
-    -- 3. Início da busca
+    -- 3. Buscar, TRAVAR e RETORNAR os leads enriquecidos
     RETURN QUERY
     WITH selected_leads AS (
-        -- [1] Busca e TRAVA os leads imediatamente (Atomic Lock)
         UPDATE public.outbound_queue oq_update
         SET status = 'processing'
         FROM (
@@ -80,7 +87,7 @@ BEGIN
             WHERE oq.tenant_id = p_tenant_id
               AND oq.campaign_id = p_campaign_id
               AND oq.status = 'pending'
-              -- [2] Anti-Flood: Evita mensagens duplicadas para o mesmo contato em 2h
+              -- Anti-Flood: 2 horas de respiro para o mesmo contato
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
                   WHERE oq_check.tenant_id = p_tenant_id
@@ -90,7 +97,7 @@ BEGIN
                     AND (oq_check.sent_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '2 hours' OR (oq_check.status = 'processing' AND oq_check.created_at > (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes'))
               )
             ORDER BY oq.created_at ASC
-            LIMIT p_limit
+            LIMIT v_actual_limit
             FOR UPDATE SKIP LOCKED 
         ) subquery
         WHERE oq_update.id = subquery.id
@@ -98,13 +105,19 @@ BEGIN
     )
     SELECT 
         sl.id,
-        sl.contact_phone::text,
+        sl.contact_phone::text as phone,
         sl.contact_name::text,
         sl.campaign_id,
         sl.agent_id,
         sl.tenant_id,
-        camp.initial_message::text,
-        ag.evolution_instance::text
+        camp.initial_message::text as message,
+        COALESCE(ag.whatsapp_provider, 'evolution')::text as provider,
+        ag.evolution_instance::text as instance,
+        ag.evolution_token::text as evolution_token,
+        ag.meta_api_token::text as meta_api_token,
+        ag.meta_phone_number_id::text as meta_phone_number_id,
+        ag.zenvia_api_token::text as zenvia_api_token,
+        ag.zenvia_channel_id::text as zenvia_channel_id
     FROM selected_leads sl
     JOIN public.campaigns camp ON camp.id = sl.campaign_id
     JOIN public.agents ag ON ag.id = sl.agent_id;
@@ -113,4 +126,3 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO service_role;
-GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO anon;
