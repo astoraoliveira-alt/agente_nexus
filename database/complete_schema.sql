@@ -753,25 +753,29 @@ FOR INSERT WITH CHECK (
 CREATE TABLE IF NOT EXISTS consumption_metrics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     tenant_id UUID NOT NULL REFERENCES companies(id),
-    agent_id UUID REFERENCES agents(id),
+    agent_id UUID REFERENCES agents(id), -- Nullable references agents
     
     channel conversation_channel NOT NULL,
     metric_type metric_type NOT NULL,
+    value NUMERIC NOT NULL,
+    cost NUMERIC(10, 4) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'BRL',
     
-    value NUMERIC NOT NULL, 
-    unit VARCHAR(50), -- Added to support WhatsApp billing windows and other units
-    cost NUMERIC NOT NULL, 
-    currency VARCHAR(255) DEFAULT 'BRL',
-    
-    metadata JSONB, 
-    
+    metadata JSONB DEFAULT '{}'::jsonb,
+    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     department_id TEXT,
     cost_center TEXT,
-    
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    trace_id VARCHAR(255),
+    idempotency_key VARCHAR(255),
+    unit VARCHAR(50)
 );
 
-CREATE INDEX IF NOT EXISTS idx_consumption_tenant_date ON consumption_metrics(tenant_id, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_consumption_metrics_query ON public.consumption_metrics(tenant_id, metric_type, recorded_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_consumption_idempotency ON public.consumption_metrics(idempotency_key)
+WHERE (idempotency_key IS NOT NULL);
+
+CREATE INDEX IF NOT EXISTS idx_consumption_metrics_tenant_recorded ON public.consumption_metrics(tenant_id, recorded_at DESC);
 
 ALTER TABLE consumption_metrics ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Tenant Read Consumption" ON consumption_metrics;
