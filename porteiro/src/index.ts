@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V63.0-THROTTLED';
+const VERSION = 'V65.0-SLOW-BURN';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1189,7 +1189,43 @@ async function startHeartbeatWorker() {
 
     // Pulso a cada 60 segundos
     setInterval(pulse, 60000);
-    pulse(); // Primeiro pulso imediato
+    // --- PORTARIA WATCHDOG V65.0 (SLOW BURN MODE) ---
+    const RECOVERY_ENABLED = true; 
+    const BATCH_SIZE = 2; // Apenas 2 por vez para estabilidade total
+    const PUSH_DELAY = 1500; // 1.5s entre mensagens
+    const POLLING_INTERVAL = 10000; // A cada 10 segundos
+
+    if (!RECOVERY_ENABLED) {
+      console.log(`[SYS] 🛑 [V65.0] Recovery Workers are DISABLED.`);
+    } else {
+      console.log(`[SYS] 🔥 [V65.0-SLOW-BURN] Engine ONLINE. Throttling: ${BATCH_SIZE} msg / ${POLLING_INTERVAL/1000}s`);
+      
+      // 1. RESGATE DE PENDING
+      setInterval(async () => {
+        try {
+          const { data: pendingItems } = await supabaseAdmin
+            .from('inbound_queue')
+            .select('*')
+            .eq('status', 'pending')
+            .limit(BATCH_SIZE)
+            .order('created_at', { ascending: true });
+
+          if (pendingItems && pendingItems.length > 0) {
+            console.log(`[RECOVERY] 📉 [SLOW-BURN] Processing ${pendingItems.length} items...`);
+            for (const item of pendingItems) {
+              await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
+              fetch(`http://localhost:3001/v1/projects/${item.tenant_id}/zenvia/webhook`, { // Ajustado para porta interna
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(item.payload)
+              }).catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
+            }
+          }
+        } catch (err) {
+          console.error('[RECOVERY] ❌ Watchdog Error:', err);
+        }
+      }, POLLING_INTERVAL);
+    }
 }
 
 async function startOutboundRecoveryWorker() {
@@ -1231,81 +1267,29 @@ async function startOutboundRecoveryWorker() {
 }
 
 async function startInboundRecoveryWorker() {
-    console.log(`⏳ [RECOVERY] [V64.0-STOPPED] RECOVERY IS DISABLED FOR CLEANUP...`);
-    
-    const RECOVERY_ENABLED = false;
-    if (!RECOVERY_ENABLED) return;
-
+    // Este worker agora serve apenas para destravar itens em 'processing' há muito tempo
     const recover = async () => {
         try {
-            const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
-            const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
-
-            // Consulta 1: Pendentes (Urgente) - Reduzido para 5 para evitar estouro de TPM
-            const { data: pendingItems, error: errorP } = await supabaseAdmin
-                .from('inbound_queue')
-                .select('*')
-                .eq('status', 'pending')
-                .lt('created_at', fiveSecondsAgo)
-                .limit(5);
-
-            // Consulta 2: Presos (Recuperação) - Reduzido para 5
-            const { data: stuckItems, error: errorS } = await supabaseAdmin
+            const fiveMinutesAgo = new Date(Date.now() - 300000).toISOString();
+            
+            const { data: stuckItems } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .in('status', ['processing', 'assigned'])
-                .lt('created_at', twoMinutesAgo)
+                .lt('updated_at', fiveMinutesAgo)
                 .limit(5);
 
-            const allItems = [...(pendingItems || []), ...(stuckItems || [])];
-
-            if (errorP || errorS) {
-                console.error('[RECOVERY] ❌ Erro na busca:', errorP?.message || errorS?.message);
-                return;
+            if (stuckItems && stuckItems.length > 0) {
+                console.log(`[RECOVERY] 🚑 [V65.0] Rescuing ${stuckItems.length} stagnant items...`);
+                await supabaseAdmin
+                    .from('inbound_queue')
+                    .update({ status: 'pending', updated_at: new Date().toISOString() })
+                    .in('id', stuckItems.map(i => i.id));
             }
-
-            if (allItems.length === 0) return;
-
-            console.log(`[RECOVERY] ⚡ [${VERSION}] THROTTLED RESCUE: ${allItems.length} items found. Pushing with backoff...`);
-            
-            for (const item of allItems) {
-                // Pequeno delay de 500ms entre pushes para não atropelar a OpenAI/n8n
-                await new Promise(resolve => setTimeout(resolve, 500));
-                // Ao resetar, atualizamos o created_at para agora para dar mais tempo ao n8n
-                await supabaseAdmin.from('inbound_queue').update({ 
-                    status: 'pending',
-                    created_at: new Date().toISOString(),
-                    error_message: `Recovered by Flash Watchdog ${VERSION}` 
-                }).eq('id', item.id);
-
-                const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
-                if (!n8nWebhookUrl) continue;
-
-                try {
-                    await fetch(n8nWebhookUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            trace_id: item.trace_id,
-                            conversation_id: item.conversation_id,
-                            tenant_id: item.tenant_id,
-                            agent_id: item.agent_id,
-                            payload: item.payload
-                        })
-                    });
-                } catch (e: any) {
-                    console.error(`[RECOVERY] ❌ Push failed:`, e.message);
-                }
-            }
-        } catch (globalError: any) {
-            console.error('[RECOVERY] Global Error:', globalError.message);
-        }
+        } catch (err) { }
     };
-
-    // MODO TURBO: Roda a cada 5 segundos para testes de carga e tempo real
-    setInterval(recover, 5000);
+    setInterval(recover, 60000);
 }
-
 async function startQueueWorker() {
     console.log('⏳ [WORKER] Starting Outbound Queue Processor (V2.1 - Realtime Optimized)...');
     
