@@ -844,6 +844,26 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     }
                 }
 
+                if (statusCode === 'REJECTED' || statusCode === 'FAILED') {
+                    const errorDescription = body.messageStatus?.description || 'Rejected by provider';
+                    console.log(`[ZENVIA] ❌ Rejeição detectada para ${remoteId}: ${errorDescription}. Atualizando banco...`);
+
+                    // 1. Atualiza a tabela principal de mensagens
+                    await supabaseAdmin
+                        .from('messages')
+                        .update({ 
+                            status: 'rejected', 
+                            metadata: { ...(originalMsg?.metadata || {}), prov_error: errorDescription } 
+                        })
+                        .eq('remote_id', remoteId);
+
+                    // 2. Atualiza a fila de saída (se for um disparo de campanha)
+                    await supabaseAdmin
+                        .from('outbound_queue')
+                        .update({ status: 'failed', error_message: errorDescription })
+                        .eq('external_message_id', remoteId);
+                }
+
                 if (agentId && tenantId) {
                     const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
                     const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
@@ -868,7 +888,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                                 body: JSON.stringify({ trace_id: traceStat, tenant_id: tenantId, is_status: true })
                             }).catch(() => {});
                         }
-                        console.log(`[ZENVIA] ✅ Status ${statusCode} enfileirado [${remoteId}] (Trace: ${traceStat})`);
+                        console.log(`[ZENVIA] ✅ Status ${statusCode} processado e sincronizado [${remoteId}] (Trace: ${traceStat})`);
                     }
                 } else {
                     console.warn(`[ZENVIA] ⚠️ Status ignorado: Não foi possível mapear msg ${remoteId} a um agente.`);
