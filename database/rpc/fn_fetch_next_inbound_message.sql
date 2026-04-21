@@ -62,11 +62,12 @@ BEGIN
     FROM public.conversations
     WHERE id = v_record.conversation_id;
 
-    -- [FIX] Se a conversa estiver fechada, reabre automaticamente
+    -- [FIX] Se a conversa estiver fechada, reabre automaticamente e LIMPA o contexto de estado antigo
     IF v_conv.status = 'closed' THEN
         v_was_closed := TRUE;
         UPDATE public.conversations
         SET status = 'ai_active',
+            context_state = '{}'::jsonb, -- Limpa memória de estado antigo (Fresh Start)
             reopened_at = NOW(),
             updated_at = NOW()
         WHERE id = v_conv.id

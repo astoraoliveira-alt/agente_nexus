@@ -50,8 +50,7 @@ BEGIN
     -- Otimizado para usar o índice funcional no metadata->>'message_id'
     UPDATE public.outbound_queue
     SET status = v_mapped_status,
-        error_message = CASE WHEN v_mapped_status = 'failed' THEN p_status_description ELSE error_message END,
-        updated_at = NOW()
+        error_message = CASE WHEN v_mapped_status = 'failed' THEN p_status_description ELSE error_message END
     WHERE (metadata->>'message_id') = v_message_id::text
       AND status NOT IN ('delivered', 'read', 'failed') -- Proteção contra updates atrasados que sobrescrevem estados finais
     RETURNING id INTO v_queue_id;

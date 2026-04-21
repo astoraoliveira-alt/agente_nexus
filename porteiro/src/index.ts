@@ -1196,26 +1196,31 @@ async function startInboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos itens pendentes há mais de 2 minutos (que por algum motivo não deram OK no n8n)
-            const twoMinutesAgo = new Date(Date.now() - 2 * 60000).toISOString();
+            // Buscamos itens presos há mais de 1 minuto (Ultra-fast recovery para testes de estresse)
+            const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
-                .eq('status', 'pending')
-                .lt('created_at', twoMinutesAgo)
-                .limit(10);
+                .in('status', ['pending', 'processing', 'assigned'])
+                .lt('created_at', oneMinuteAgo)
+                .limit(50); // Aumentado para 50 para limpar o limbo instantaneamente
 
             if (error || !stuckItems || stuckItems.length === 0) return;
 
-            console.log(`[RECOVERY] 🔄 Attempting to recover ${stuckItems.length} stuck messages...`);
+            console.log(`[RECOVERY] ⚡ FLASH RESCUE: ${stuckItems.length} messages found in limbo. Resetting to Pending...`);
 
             for (const item of stuckItems) {
+                await supabaseAdmin.from('inbound_queue').update({ 
+                    status: 'pending',
+                    error_message: 'Recovered by Flash Watchdog (1min Timeout)' 
+                }).eq('id', item.id);
+
                 const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
                 if (!n8nWebhookUrl) continue;
 
                 try {
-                    const res = await fetch(n8nWebhookUrl, {
+                    await fetch(n8nWebhookUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1226,13 +1231,8 @@ async function startInboundRecoveryWorker() {
                             payload: item.payload
                         })
                     });
-
-                    if (res.ok) {
-                        await supabaseAdmin.from('inbound_queue').update({ status: 'done' }).eq('id', item.id);
-                        console.log(`[RECOVERY] ✅ Recovered stuck message [Trace: ${item.trace_id}]`);
-                    }
                 } catch (e: any) {
-                    console.error(`[RECOVERY] ❌ Failed recovery attempt for [Trace: ${item.trace_id}]:`, e.message);
+                    console.error(`[RECOVERY] ❌ Push failed:`, e.message);
                 }
             }
         } catch (globalError: any) {
@@ -1240,8 +1240,8 @@ async function startInboundRecoveryWorker() {
         }
     };
 
-    // Roda a cada 2 minutos
-    setInterval(recover, 120000);
+    // Roda a cada 1 minuto
+    setInterval(recover, 60000);
 }
 
 async function startQueueWorker() {

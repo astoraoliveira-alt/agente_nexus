@@ -1,18 +1,19 @@
-# Agent Nexus Hub — Documentação da Arquitetura (Completa & Detalhada)
+## [V58.5] - AI Persona Shield & Anti-Hallucination (ELITE SLA)
+### Blindagem Extrema e Resiliência de Contexto
+- **Nexus Stress Lab**: Laboratório de testes de carga para até 1000 mensagens simultâneas (`fn_create_stress_test_payloads`) com telemetria em tempo real.
+- **AI Persona Shield (Blindagem)**: Implementação de guardrails rígidos no System Prompt que proíbem a IA de discutir lógica interna, transições de estado ou vazar metadados técnicos para o usuário.
+- **Protocolo de Amnésia (Context Reset)**: A função `fn_fetch_next_inbound_message.sql` agora limpa obrigatoriamente o `context_state` ao detectar o encerramento ou reabertura de uma conversa, eliminando alucinações sobre estados passados.
+- **Porteiro SLA Recovery (Watchdog)**: Monitor de mensagens travadas (>10 min) com re-enfileiramento automático e Retry com Backoff Progressivo (2m, 4m, 6m).
+- **Scale Guardian (50-Job Limit)**: Controle de concorrência por hardware para proteger o n8n contra rajadas de webhooks.
 
-> **Última Atualização:** 20/Abr/2026
-> **Versão:** 57.0 (Zenvia Stability & Multi-Identifier Mapping)
-> **Status:** Mestre — Produção Edenred (Sofia Vendas) + Pipeline Zenvia Estabilizado
-> **Fontes Primárias:** `porteiro/src/index.ts` · `database/record_message_rpc.sql` · `database/rpc/handle_message_status_update.sql`
+---
+
+## [V58.0] - Scale & Performance Optimization (1000+ Leads Readiness)
+[...]
 
 ---
 
 ## [V57.0] - Zenvia Stability & Multi-Identifier Mapping
-### Resiliência do Pipeline de Mensageria
-- **Multi-Identifier Agent Mapping (Alias System)**: Implementação do campo `zenvia_aliases` na tabela `agents`. O Porteiro agora utiliza o canal primário (`zenvia_channel_id`) para envios e uma lista de aliases para identificar mensagens de entrada de números de Sandbox/Robôs, evitando rejeições da API por ID inválido.
-- **Auto-Reopen Logic (V5.4)**: O RPC de recepção (`fn_enqueue_inbound_message`) agora detecta conversas com status `closed` e as reabre automaticamente como `ai_active` ao receber uma nova mensagem, eliminando erros de Unique Constraint (23505) e garantindo continuidade do atendimento.
-- **Traceabilidade de Status (Remote ID Mapping)**: Correção crítica no fluxo de gravação de mensagens da IA (n8n). O sistema agora mapeia obrigatoriamente o ID gerado pelo Zenvia no ato do envio para a coluna `remote_id` do banco, permitindo que os webhooks de status (`SENT`, `DELIVERED`, `READ`) funcionem com 100% de precisão.
-- **Sentinel Logging & Audit Logs**: Implementação de sistema de logs timestampados com `traceId` unificado para todo o ciclo de vida da mensagem Zenvia, facilitando o debug em tempo real via logs do container.
 
 ---
 

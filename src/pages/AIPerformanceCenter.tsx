@@ -1,10 +1,10 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Brain, BookOpen, HelpCircle, RefreshCw,
   DollarSign, Activity, AlertTriangle, Zap,
   ShieldAlert, CheckCircle2, Clock, AlertCircle,
   FileText, Users, TrendingUp, MessageSquare,
-  BarChart2, Layers, ShieldCheck, Info,
+  BarChart2, Layers, ShieldCheck, Info, XCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/contexts/AppContext';
@@ -696,6 +696,11 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
   const [monitorLoading, setMonitorLoading] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [systemLogs, setSystemLogs] = useState<{msg: string, type: 'sys' | 'db' | 'ai', time: string}[]>([]);
+  
+  const lastScanRef = useRef<number>(Date.now());
+  const lastProcessingCountRef = useRef<number>(-1);
+  const lastDoneCountRef = useRef<number>(-1);
+  const lastFailedCountRef = useRef<number>(-1);
 
   const addSysLog = (msg: string, type: 'sys' | 'db' | 'ai' = 'sys') => {
     setSystemLogs(prev => [{ msg, type, time: new Date().toLocaleTimeString('pt-BR') }, ...prev].slice(0, 50));
@@ -716,6 +721,8 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
   }, [tenantId]);
 
   // Poll for logs when a trace is active
+  // lastScanRef was moved up
+
   useEffect(() => {
     let interval: any;
     if (currentTraceId) {
@@ -724,48 +731,46 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
         try {
           const result = await coreService.getFailedMessages(tenantId, undefined, undefined, currentTraceId);
           
-          // --- LOGGING EVOLUTION (Ponto 5 e 6 da crítica do usuário) ---
-          
-          // 1. Mensagens Pendentes/Enfileiradas
           const pending = result.filter(r => ['pending', 'queued'].includes(r.out_status)).length;
           const processing = result.filter(r => ['processing'].includes(r.out_status)).length;
           const done = result.filter(r => ['done', 'completed', 'processed'].includes(r.out_status)).length;
           const failed = result.filter(r => ['error', 'failed'].includes(r.out_status)).length;
 
-          // Só loga a detecção inicial ou se houver mudança significativa no total
-          if (result.length > logs.length && logs.length === 0) {
-            addSysLog(`Sincronizado! Identificadas ${result.length} mensagens vinculadas ao lote ${currentTraceId}.`, 'db');
-          }
+          // Heartbeat Monitor Inteligente
+          const now = Date.now();
           
-          // Log de progresso inteligente (não repetitivo)
-          if (processing > 0 && logs.filter(l => l.out_status === 'processing').length !== processing) {
-            addSysLog(`Porteiro liberou fluxo: ${processing} mensagens entraram em processamento ativo.`, 'sys');
+          if (processing > 0 && processing !== lastProcessingCountRef.current) {
+            addSysLog(`🚀 Porteiro liberou fluxo: ${processing} mensagens em processamento ativo.`, 'ai');
+            lastProcessingCountRef.current = processing;
+            lastScanRef.current = now;
+          } else if (pending > 0 && (now - lastScanRef.current > 30000)) {
+            addSysLog(`🔍 Varredura ativa: ${pending} mensagens aguardando no banco...`, 'db');
+            lastScanRef.current = now;
           }
 
-          const newlyDone = done - logs.filter(r => ['done', 'completed', 'processed'].includes(r.out_status)).length;
+          // Registro Inteligente de Sucessos
+          const previousDone = lastDoneCountRef.current === -1 ? 0 : lastDoneCountRef.current;
+          const newlyDone = done - previousDone;
           if (newlyDone > 0) {
-            addSysLog(`Sucesso: +${newlyDone} respostas geradas pela Sofia e enviadas.`, 'ai');
+            addSysLog(`✅ Sucesso: +${newlyDone} respostas geradas pela Sofia.`, 'ai');
+            lastScanRef.current = now;
           }
+          lastDoneCountRef.current = done;
 
-          const newlyFailed = failed - logs.filter(r => ['error', 'failed'].includes(r.out_status)).length;
+          // Registro Inteligente de Falhas
+          const previousFailed = lastFailedCountRef.current === -1 ? 0 : lastFailedCountRef.current;
+          const newlyFailed = failed - previousFailed;
           if (newlyFailed > 0) {
-            addSysLog(`Alerta: ${newlyFailed} mensagens encontraram erros no fluxo do n8n.`, 'ai');
+            addSysLog(`❌ Alerta: ${newlyFailed} mensagens falharam no n8n.`, 'ai');
+            lastScanRef.current = now;
           }
-
-          // Se estiver parado há muito tempo em processing
-          if (processing > 0 && processing === result.length - done - failed) {
-            // Apenas loga de vez em quando para não spammar
-            if (Math.random() > 0.8) {
-              addSysLog(`Aguardando orquestração do n8n para ${processing} itens remanescentes...`, 'sys');
-            }
-          }
+          lastFailedCountRef.current = failed;
 
           setLogs(result || []);
           
-          // Stop polling if everything is 'done' or 'error'
           const stillRunning = result.some((r: any) => ['pending', 'processing', 'queued'].includes(r.out_status));
           if (result.length > 0 && !stillRunning) {
-            addSysLog(`🏁 Lote ${currentTraceId} finalizado completamente.`, 'sys');
+            addSysLog(`🏁 Lote ${currentTraceId} finalizado completamente em ${new Date().toLocaleTimeString()}.`, 'sys');
             setIsStressRunning(false);
           }
         } finally {
@@ -783,6 +788,12 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
     setIsStressRunning(true);
     setLogs([]);
     setSystemLogs([]);
+    
+    // Reset de contadores para o novo lote
+    lastProcessingCountRef.current = -1;
+    lastDoneCountRef.current = -1;
+    lastFailedCountRef.current = -1;
+    lastScanRef.current = Date.now();
     addSysLog(`Iniciando simulação de carga: ${count} mensagens.`, 'sys');
     addSysLog(`Agente alvo carregado: ${agents.find(a => a.id === agentId)?.name}`, 'sys');
     
@@ -814,6 +825,12 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
     } finally {
       setIsCleaning(false);
     }
+  };
+
+  const handleStopStress = () => {
+    addSysLog(`🛑 Interrupção manual solicitada. Parando monitoramento...`, 'sys');
+    setCurrentTraceId(null);
+    setIsStressRunning(false);
   };
 
   const stats = useMemo(() => {
@@ -858,25 +875,38 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
             />
           </div>
 
-          <Button 
-            className={cn("w-full h-11 text-xs font-bold gap-2 uppercase tracking-widest", 
-              isStressRunning ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+          <div className="flex gap-2">
+            <Button 
+              className={cn("flex-1 h-11 text-xs font-bold gap-2 uppercase tracking-widest", 
+                isStressRunning ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-emerald-600 hover:bg-emerald-500 text-white"
+              )}
+              onClick={handleStartStress}
+              disabled={isStressRunning || !agentId}
+            >
+              {isStressRunning ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Estressando...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 fill-current" />
+                  Iniciar Carga
+                </>
+              )}
+            </Button>
+
+            {isStressRunning && (
+              <Button 
+                variant="destructive"
+                className="h-11 px-3"
+                onClick={handleStopStress}
+                title="Parar monitoramento"
+              >
+                <XCircle className="h-5 w-5" />
+              </Button>
             )}
-            onClick={handleStartStress}
-            disabled={isStressRunning || !agentId}
-          >
-            {isStressRunning ? (
-              <>
-                <RefreshCw className="h-4 w-4 animate-spin" />
-                Estressando Sofia...
-              </>
-            ) : (
-              <>
-                <Zap className="h-4 w-4 fill-current" />
-                Iniciar Estresse de IA
-              </>
-            )}
-          </Button>
+          </div>
 
           {currentTraceId && (
             <Button 
@@ -898,37 +928,42 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
 
           {/* Console Under the Hood */}
           {/* System Console Emulator (SLA ELITE UI) */}
-          <div className="mt-4 bg-[#050505] rounded-sm border border-emerald-500/20 overflow-hidden flex flex-col h-[300px] shadow-2xl relative">
-            <div className="bg-[#0a0a0a] px-3 py-1.5 border-b border-emerald-500/10 flex justify-between items-center shrink-0">
+          <div className="mt-4 bg-[#020202] rounded-sm border border-emerald-500/30 overflow-hidden flex flex-col h-[300px] shadow-2xl relative ring-1 ring-emerald-500/10">
+            <div className="bg-[#0a0a0a] px-3 py-2 border-b border-emerald-500/20 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-2">
-                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[9px] font-bold text-emerald-500/80 tracking-widest uppercase">Nexus System Console</span>
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping" />
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 absolute" />
+                <span className="text-[10px] font-black text-emerald-500 tracking-[0.2em] uppercase">Nexus Live Monitor</span>
               </div>
-              <span className="text-[8px] font-mono text-emerald-500/40 uppercase">v1.3-STRESS-SLA</span>
+              <div className="flex items-center gap-3">
+                <span className="text-[9px] font-mono text-emerald-500/40 uppercase">SLA-SHIELD-V58</span>
+              </div>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-1 selection:bg-emerald-500 selection:text-black custom-scrollbar bg-[radial-gradient(circle_at_center,_#001a0a_0%,_#050505_100%)]">
+            <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] space-y-1.5 selection:bg-emerald-500/30 custom-scrollbar bg-[radial-gradient(circle_at_top_left,_#001a0a_0%,_#020202_100%)]">
               {systemLogs.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-emerald-500/10 italic text-[9px] uppercase tracking-tighter">
-                  Aguardando comando do operador...
+                <div className="h-full flex flex-col items-center justify-center gap-2 opacity-20">
+                  <Activity className="h-5 w-5 text-emerald-500 animate-pulse" />
+                  <span className="text-[9px] uppercase tracking-widest font-bold">Aguardando Sequência de Estresse...</span>
                 </div>
               ) : (
                 systemLogs.map((log, i) => (
                   <div key={i} className={cn(
-                    "flex gap-3 animate-in fade-in slide-in-from-left-1 duration-300",
-                    log.type === 'ai' ? "text-amber-400" : log.type === 'db' ? "text-blue-400" : "text-emerald-400"
+                    "flex gap-3 animate-in fade-in slide-in-from-left-2 duration-500 py-0.5 border-b border-white/5",
+                    log.type === 'ai' ? "text-amber-300" : log.type === 'db' ? "text-sky-300" : "text-emerald-300"
                   )}>
-                    <span className="opacity-30 shrink-0 text-zinc-500">[{log.time}]</span>
-                    <span className="break-all">{log.msg}</span>
+                    <span className="text-slate-400 font-bold shrink-0 tabular-nums">[{log.time}]</span>
+                    <span className="break-all opacity-90">{log.msg}</span>
                   </div>
                 ))
               )}
+              <div className="h-4 w-1.5 bg-emerald-500/50 animate-pulse inline-block ml-1 mt-1" />
             </div>
 
             {monitorLoading && (
-              <div className="absolute bottom-2 right-4 flex items-center gap-2 px-2 py-1 bg-black/80 rounded border border-emerald-500/20 animate-pulse">
-                 <div className="h-1 w-1 rounded-full bg-emerald-500" />
-                 <span className="text-[8px] text-emerald-500 uppercase font-bold tracking-tighter">Syncing...</span>
+              <div className="absolute bottom-3 right-4 flex items-center gap-2 px-3 py-1 bg-black/90 rounded-full border border-emerald-500/30 backdrop-blur-md shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+                 <RefreshCw className="h-2 w-2 text-emerald-500 animate-spin" />
+                 <span className="text-[8px] text-emerald-500 uppercase font-black tracking-tighter">Syncing DB...</span>
               </div>
             )}
           </div>
@@ -1008,10 +1043,12 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
                            </td>
                            <td className="px-4 py-3 text-right">
                              {log.out_error_message ? (
-                               <span className="text-rose-400 font-bold whitespace-nowrap">{log.out_error_message.slice(0, 20)}...</span>
+                               <span className="text-rose-500 font-black tabular-nums border border-rose-500/20 px-1.5 py-0.5 rounded bg-rose-500/5 antialiased">
+                                 {log.out_error_message.slice(0, 30)}
+                               </span>
                              ) : (
-                               <span className="text-muted-foreground tabular-nums">
-                                 {new Date(log.out_created_at).toLocaleTimeString('pt-BR')}
+                               <span className="text-zinc-400 font-bold tabular-nums tracking-tighter">
+                                 {new Date(log.out_created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                </span>
                              )}
                            </td>
