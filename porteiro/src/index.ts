@@ -889,7 +889,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     // Chama o RPC que atualiza o status e LIMPA a inbound_queue para evitar que mensagens fiquem presas
                     const { error: rpcError } = await supabaseAdmin.rpc('handle_message_status_update', {
                         p_remote_id: remoteId,
-                        p_status: statusCode,
+                        p_status_code: statusCode,
                         p_payload: body
                     });
 
