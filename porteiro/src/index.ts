@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V65.0-SLOW-BURN';
+const VERSION = 'V66.0-NO-CLONE';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1211,13 +1211,13 @@ async function startHeartbeatWorker() {
             .order('created_at', { ascending: true });
 
           if (pendingItems && pendingItems.length > 0) {
-            console.log(`[RECOVERY] 📉 [SLOW-BURN] Processing ${pendingItems.length} items...`);
+            console.log(`[RECOVERY] 📉 [V66.0] Sending ${pendingItems.length} items to n8n...`);
             for (const item of pendingItems) {
               await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
               
               const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
               if (n8nUrl) {
-                // Envia direto para o n8n para evitar 401 interno do Porteiro
+                // PUSH DIRETO NO N8N - Bypassa o Porteiro para não clonar a mensagem
                 fetch(n8nUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1228,9 +1228,12 @@ async function startHeartbeatWorker() {
                     agent_id: item.agent_id,
                     payload: item.payload
                   })
-                }).catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
-              } else {
-                console.warn('[RECOVERY] ⚠️ N8N_INBOUND_WEBHOOK não configurado!');
+                })
+                .then(() => {
+                  // Marca como assigned imediatamente para não repetir enquanto o n8n trabalha
+                  supabaseAdmin.from('inbound_queue').update({ status: 'assigned' }).eq('id', item.id).then();
+                })
+                .catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
               }
             }
           }
