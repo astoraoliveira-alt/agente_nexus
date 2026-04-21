@@ -1235,15 +1235,17 @@ async function startInboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos itens quase instantaneamente (5 segundos de carência)
-            const gracePeriod = new Date(Date.now() - 5000).toISOString();
+            // 🛡️ LÓGICA REFINADA: 
+            // 1. Pega 'pending' quase instantaneamente (5s) - Novo estímulo
+            // 2. Pega 'processing'/'assigned' só após 2 min (120s) - Recuperação de falha
+            const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
+            const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
-                .in('status', ['pending', 'processing', 'assigned'])
-                .lt('created_at', gracePeriod)
-                .limit(50); // Aumentado para 50 para limpar o limbo instantaneamente
+                .or(`and(status.eq.pending,created_at.lt.${fiveSecondsAgo}),and(status.in.("(processing,assigned)"),created_at.lt.${twoMinutesAgo})`)
+                .limit(50); 
 
             if (error || !stuckItems || stuckItems.length === 0) return;
 
