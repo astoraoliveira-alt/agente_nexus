@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.1-STABLE-FLOW';
+const VERSION = 'V66.2-FINAL-SYNC';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -885,34 +885,19 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (agentId && tenantId) {
                     const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
-                    /* 
-                    // DESATIVADO V66.1: Avisos de status não devem poluir a inbound_queue para evitar loops e fantasmas
-                    const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
-                        p_tenant_id: tenantId,
-                        p_agent_id: agentId,
-                        p_conversation_id: null,
-                        p_external_id: remoteId,
-                        p_payload: body,
-                        p_trace_id: traceStat,
-                        p_message_type: 'outbound_status',
-                        p_latency_ms: 0
+                    // 🚀 SINCRONIZAÇÃO FINAL V66.2: 
+                    // Chama o RPC que atualiza o status e LIMPA a inbound_queue para evitar que mensagens fiquem presas
+                    const { error: rpcError } = await supabaseAdmin.rpc('handle_message_status_update', {
+                        p_remote_id: remoteId,
+                        p_status: statusCode,
+                        p_payload: body
                     });
 
                     if (rpcError) {
-                        console.error(`[ZENVIA] ❌ Erro RPC no Status:`, rpcError.message);
+                        console.error(`[ZENVIA] ❌ Erro RPC handle_message_status_update:`, rpcError.message);
                     } else {
-                        const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
-                        if (n8nUrl) {
-                            fetch(n8nUrl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ trace_id: traceStat, tenant_id: tenantId, is_status: true })
-                            }).catch(() => {});
-                        }
-                        console.log(`[ZENVIA] ✅ Status ${statusCode} processado e sincronizado [${remoteId}] (Trace: ${traceStat})`);
+                        console.log(`[ZENVIA] ✅ Status ${statusCode} sincronizado via RPC [${remoteId}] (Trace: ${traceStat})`);
                     }
-                    */
-                    console.log(`[ZENVIA] ✅ Status ${statusCode} atualizado direto no DB [${remoteId}] (Trace: ${traceStat})`);
                 } else {
                     console.warn(`[ZENVIA] ⚠️ Status ignorado: Não foi possível mapear msg ${remoteId} a um agente.`);
                 }
