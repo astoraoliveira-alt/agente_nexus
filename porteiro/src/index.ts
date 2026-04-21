@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
+const VERSION = 'V58.7-FLASH';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1212,28 +1213,30 @@ async function startOutboundRecoveryWorker() {
 }
 
 async function startInboundRecoveryWorker() {
-    console.log('⏳ [RECOVERY] Starting Inbound Recovery Worker (Auto-Retry Protocol)...');
+    console.log(`⏳ [RECOVERY] Starting Inbound Recovery Worker (${VERSION})...`);
     
     const recover = async () => {
         try {
-            // Buscamos itens presos há mais de 1 minuto (Ultra-fast recovery para testes de estresse)
-            const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+            // Buscamos itens presos há mais de 2 minutos (Aumentado para evitar loops com Rate Limits do n8n)
+            const gracePeriod = new Date(Date.now() - 120000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .in('status', ['pending', 'processing', 'assigned'])
-                .lt('created_at', oneMinuteAgo)
+                .lt('created_at', gracePeriod)
                 .limit(50); // Aumentado para 50 para limpar o limbo instantaneamente
 
             if (error || !stuckItems || stuckItems.length === 0) return;
 
-            console.log(`[RECOVERY] ⚡ FLASH RESCUE: ${stuckItems.length} messages found in limbo. Resetting to Pending...`);
+            console.log(`[RECOVERY] ⚡ [${VERSION}] FLASH RESCUE: ${stuckItems.length} messages found. Resetting timestamps...`);
 
             for (const item of stuckItems) {
+                // Ao resetar, atualizamos o created_at para agora para dar mais tempo ao n8n
                 await supabaseAdmin.from('inbound_queue').update({ 
                     status: 'pending',
-                    error_message: 'Recovered by Flash Watchdog (1min Timeout)' 
+                    created_at: new Date().toISOString(),
+                    error_message: `Recovered by Flash Watchdog ${VERSION}` 
                 }).eq('id', item.id);
 
                 const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
@@ -1503,7 +1506,7 @@ try {
         port,
         hostname: '0.0.0.0', // CRÍTICO: Permite que o Docker receba as chamadas
     }, (info) => {
-        console.log(`[SYS] ✅ Porteiro Davos ELITE Online!`);
+        console.log(`[SYS] ✅ Porteiro Davos ELITE Online! [Version: ${VERSION}]`);
         console.log(`[SYS] 🔗 URL Interna: http://${info.address}:${info.port}`);
         console.log(`[SYS] 🔍 Teste agora: https://api.davosconsulting.com.br/`);
     });
