@@ -794,12 +794,27 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 // 🧪 LOG RAIO-X PEDIDO PELO USUÁRIO
                 console.log(`[ZENVIA] 🧪 STATUS WEBHOOK [${remoteId}]:`, JSON.stringify(body, null, 2));
 
-                const { data: originalMsg } = await supabaseAdmin
+                let { data: originalMsg } = await supabaseAdmin
                     .from('messages')
-                    .select('agent_id, tenant_id')
+                    .select('id, agent_id, tenant_id, metadata, remote_id')
                     .eq('remote_id', remoteId)
                     .limit(1)
                     .maybeSingle();
+
+                // 🔄 FALLBACK: Se não achar pelo remote_id, tenta pelo correlationId no metadata (Crucial para Stress Lab)
+                if (!originalMsg) {
+                    const { data: fallbackMsg } = await supabaseAdmin
+                        .from('messages')
+                        .select('id, agent_id, tenant_id, metadata, remote_id')
+                        .filter('metadata->>correlationId', 'eq', remoteId)
+                        .limit(1)
+                        .maybeSingle();
+                    
+                    if (fallbackMsg) {
+                        originalMsg = fallbackMsg;
+                        console.log(`[ZENVIA] 🔄 Mensagem encontrada via Fallback CorrelationId: ${originalMsg.id}`);
+                    }
+                }
 
                 let agentId = originalMsg?.agent_id;
                 let tenantId = originalMsg?.tenant_id;
@@ -847,22 +862,25 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (statusCode === 'REJECTED' || statusCode === 'FAILED') {
                     const errorDescription = body.messageStatus?.description || 'Rejected by provider';
-                    console.log(`[ZENVIA] ❌ Rejeição detectada para ${remoteId}: ${errorDescription}. Atualizando banco...`);
+                    const targetRemoteId = originalMsg?.remote_id || remoteId;
+                    console.log(`[ZENVIA] ❌ Rejeição detectada para ${targetRemoteId}: ${errorDescription}. Atualizando banco...`);
 
                     // 1. Atualiza a tabela principal de mensagens
-                    await supabaseAdmin
-                        .from('messages')
-                        .update({ 
-                            status: 'rejected', 
-                            metadata: { ...(originalMsg?.metadata || {}), prov_error: errorDescription } 
-                        })
-                        .eq('remote_id', remoteId);
+                    if (originalMsg?.id) {
+                        await supabaseAdmin
+                            .from('messages')
+                            .update({ 
+                                status: 'rejected', 
+                                metadata: { ...(originalMsg?.metadata || {}), prov_error: errorDescription } 
+                            })
+                            .eq('id', originalMsg.id);
 
-                    // 2. Atualiza a fila de saída (se for um disparo de campanha)
-                    await supabaseAdmin
-                        .from('outbound_queue')
-                        .update({ status: 'failed', error_message: errorDescription })
-                        .eq('external_message_id', remoteId);
+                        // 2. Atualiza a fila de saída (se for um disparo de campanha)
+                        await supabaseAdmin
+                            .from('outbound_queue')
+                            .update({ status: 'failed', error_message: errorDescription })
+                            .eq('external_message_id', targetRemoteId);
+                    }
                 }
 
                 if (agentId && tenantId) {
