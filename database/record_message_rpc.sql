@@ -48,11 +48,13 @@ BEGIN
         p_remote_id
     );
 
-    -- Atualização da Conversa
-    UPDATE public.conversations 
-    SET updated_at = NOW(), 
-        last_message_at = NOW() 
-    WHERE id = p_conversation_id;
+    -- 🛡️ LOOP BREAKER: Finaliza o item na fila de entrada se houver trace_id
+    IF p_trace_id IS NOT NULL THEN
+        UPDATE public.inbound_queue
+        SET status = 'done',
+            error_message = COALESCE(error_message, '') || ' [Auto-Cleanup: Response Recorded]'
+        WHERE trace_id = p_trace_id;
+    END IF;
 
     RETURN jsonb_build_object('status', 'success');
 END;

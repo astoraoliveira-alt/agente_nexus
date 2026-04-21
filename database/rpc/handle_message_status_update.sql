@@ -1,6 +1,5 @@
--- RPC: handle_message_status_update
--- Description: Unified handler for message delivery status updates (DLR)
--- Updates both the message history and campaign metrics if applicable.
+-- RPC: handle_message_status_update (V5.1 - Loop Breaker)
+-- Description: Unified handler for status updates and queue cleanup.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION public.handle_message_status_update(
@@ -42,36 +41,38 @@ BEGIN
     WHERE remote_id = p_remote_id
     RETURNING id INTO v_message_id;
 
-    IF v_message_id IS NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Mensagem não encontrada com remote_id: ' || p_remote_id);
-    END IF;
-
     -- [3] ATUALIZAR FILA DE CAMPANHAS (Se aplicável)
-    -- Otimizado para usar o índice funcional no metadata->>'message_id'
-    UPDATE public.outbound_queue
-    SET status = v_mapped_status,
-        error_message = CASE WHEN v_mapped_status = 'failed' THEN p_status_description ELSE error_message END
-    WHERE (metadata->>'message_id') = v_message_id::text
-      AND status NOT IN ('delivered', 'read', 'failed') -- Proteção contra updates atrasados que sobrescrevem estados finais
-    RETURNING id INTO v_queue_id;
+    IF v_message_id IS NOT NULL THEN
+        UPDATE public.outbound_queue
+        SET status = v_mapped_status,
+            error_message = CASE WHEN v_mapped_status = 'failed' THEN p_status_description ELSE error_message END
+        WHERE (metadata->>'message_id') = v_message_id::text
+          AND status NOT IN ('delivered', 'read', 'failed')
+        RETURNING id INTO v_queue_id;
 
-    -- [4] SINCRONIZAÇÃO DE ESTATÍSTICAS (Novo: Garante dashboard em tempo real para entregas)
-    IF v_queue_id IS NOT NULL THEN
-        PERFORM public.fn_sync_campaign_stats(
-            (SELECT campaign_id FROM public.outbound_queue WHERE id = v_queue_id)
-        );
+        -- Sincronização de estatísticas
+        IF v_queue_id IS NOT NULL THEN
+            PERFORM public.fn_sync_campaign_stats(
+                (SELECT campaign_id FROM public.outbound_queue WHERE id = v_queue_id)
+            );
+        END IF;
     END IF;
+
+    -- [4] 🛡️ LOOP BREAKER: LIMPAR FILA DE ENTRADA (Ação Crítica)
+    -- Se o n8n está reportando um status, significa que o processamento do item de fila terminou.
+    UPDATE public.inbound_queue
+    SET status = 'done', -- O item da fila de processamento está concluído
+        error_message = COALESCE(error_message, '') || ' [Status Update Received: ' || v_mapped_status || ']'
+    WHERE external_id = p_remote_id 
+       OR trace_id = p_remote_id;
 
     RETURN jsonb_build_object(
         'success', true,
         'message_id', v_message_id,
         'new_status', v_mapped_status,
-        'linked_to_campaign', (v_queue_id IS NOT NULL),
         'queue_id', v_queue_id
     );
 END;
 $$;
 
--- Permissões
-GRANT EXECUTE ON FUNCTION public.handle_message_status_update(text, text, text, timestamp with time zone, jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.handle_message_status_update(text, text, text, timestamp with time zone, jsonb) TO service_role;
+GRANT EXECUTE ON FUNCTION public.handle_message_status_update TO authenticated, service_role;
