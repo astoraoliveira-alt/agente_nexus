@@ -1214,11 +1214,24 @@ async function startHeartbeatWorker() {
             console.log(`[RECOVERY] 📉 [SLOW-BURN] Processing ${pendingItems.length} items...`);
             for (const item of pendingItems) {
               await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
-              fetch(`http://localhost:3001/v1/projects/${item.tenant_id}/zenvia/webhook`, { // Ajustado para porta interna
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item.payload)
-              }).catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
+              
+              const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+              if (n8nUrl) {
+                // Envia direto para o n8n para evitar 401 interno do Porteiro
+                fetch(n8nUrl, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    trace_id: item.trace_id,
+                    conversation_id: item.conversation_id,
+                    tenant_id: item.tenant_id,
+                    agent_id: item.agent_id,
+                    payload: item.payload
+                  })
+                }).catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
+              } else {
+                console.warn('[RECOVERY] ⚠️ N8N_INBOUND_WEBHOOK não configurado!');
+              }
             }
           }
         } catch (err) {
