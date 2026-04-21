@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V61.0-STRESS-READY';
+const VERSION = 'V62.0-ENGINE-FIX';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1235,23 +1235,37 @@ async function startInboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // 🛡️ LÓGICA REFINADA: 
-            // 1. Pega 'pending' quase instantaneamente (5s) - Novo estímulo
-            // 2. Pega 'processing'/'assigned' só após 2 min (120s) - Recuperação de falha
             const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
             const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
-            
-            const { data: stuckItems, error } = await supabaseAdmin
+
+            // Consulta 1: Pendentes (Urgente)
+            const { data: pendingItems, error: errorP } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
-                .or(`and(status.eq.pending,created_at.lt.${fiveSecondsAgo}),and(status.in.("(processing,assigned)"),created_at.lt.${twoMinutesAgo})`)
-                .limit(50); 
+                .eq('status', 'pending')
+                .lt('created_at', fiveSecondsAgo)
+                .limit(25);
 
-            if (error || !stuckItems || stuckItems.length === 0) return;
+            // Consulta 2: Presos (Recuperação)
+            const { data: stuckItems, error: errorS } = await supabaseAdmin
+                .from('inbound_queue')
+                .select('*')
+                .in('status', ['processing', 'assigned'])
+                .lt('created_at', twoMinutesAgo)
+                .limit(25);
 
-            console.log(`[RECOVERY] ⚡ [${VERSION}] FLASH RESCUE: ${stuckItems.length} messages found. Resetting timestamps...`);
+            const allItems = [...(pendingItems || []), ...(stuckItems || [])];
 
-            for (const item of stuckItems) {
+            if (errorP || errorS) {
+                console.error('[RECOVERY] ❌ Erro na busca:', errorP?.message || errorS?.message);
+                return;
+            }
+
+            if (allItems.length === 0) return;
+
+            console.log(`[RECOVERY] ⚡ [${VERSION}] REDESIGN RESCUE: ${allItems.length} items found (${pendingItems?.length || 0} P / ${stuckItems?.length || 0} S).`);
+            
+            for (const item of allItems) {
                 // Ao resetar, atualizamos o created_at para agora para dar mais tempo ao n8n
                 await supabaseAdmin.from('inbound_queue').update({ 
                     status: 'pending',
