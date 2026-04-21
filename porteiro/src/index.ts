@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.0-NO-CLONE';
+const VERSION = 'V66.1-STABLE-FLOW';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -885,6 +885,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 if (agentId && tenantId) {
                     const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
+                    /* 
+                    // DESATIVADO V66.1: Avisos de status não devem poluir a inbound_queue para evitar loops e fantasmas
                     const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                         p_tenant_id: tenantId,
                         p_agent_id: agentId,
@@ -909,6 +911,8 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         }
                         console.log(`[ZENVIA] ✅ Status ${statusCode} processado e sincronizado [${remoteId}] (Trace: ${traceStat})`);
                     }
+                    */
+                    console.log(`[ZENVIA] ✅ Status ${statusCode} atualizado direto no DB [${remoteId}] (Trace: ${traceStat})`);
                 } else {
                     console.warn(`[ZENVIA] ⚠️ Status ignorado: Não foi possível mapear msg ${remoteId} a um agente.`);
                 }
