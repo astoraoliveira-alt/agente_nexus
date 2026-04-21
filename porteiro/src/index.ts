@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V62.0-ENGINE-FIX';
+const VERSION = 'V63.0-THROTTLED';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1238,21 +1238,21 @@ async function startInboundRecoveryWorker() {
             const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
             const twoMinutesAgo = new Date(Date.now() - 120000).toISOString();
 
-            // Consulta 1: Pendentes (Urgente)
+            // Consulta 1: Pendentes (Urgente) - Reduzido para 5 para evitar estouro de TPM
             const { data: pendingItems, error: errorP } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .eq('status', 'pending')
                 .lt('created_at', fiveSecondsAgo)
-                .limit(25);
+                .limit(5);
 
-            // Consulta 2: Presos (Recuperação)
+            // Consulta 2: Presos (Recuperação) - Reduzido para 5
             const { data: stuckItems, error: errorS } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .in('status', ['processing', 'assigned'])
                 .lt('created_at', twoMinutesAgo)
-                .limit(25);
+                .limit(5);
 
             const allItems = [...(pendingItems || []), ...(stuckItems || [])];
 
@@ -1263,9 +1263,11 @@ async function startInboundRecoveryWorker() {
 
             if (allItems.length === 0) return;
 
-            console.log(`[RECOVERY] ⚡ [${VERSION}] REDESIGN RESCUE: ${allItems.length} items found (${pendingItems?.length || 0} P / ${stuckItems?.length || 0} S).`);
+            console.log(`[RECOVERY] ⚡ [${VERSION}] THROTTLED RESCUE: ${allItems.length} items found. Pushing with backoff...`);
             
             for (const item of allItems) {
+                // Pequeno delay de 500ms entre pushes para não atropelar a OpenAI/n8n
+                await new Promise(resolve => setTimeout(resolve, 500));
                 // Ao resetar, atualizamos o created_at para agora para dar mais tempo ao n8n
                 await supabaseAdmin.from('inbound_queue').update({ 
                     status: 'pending',
