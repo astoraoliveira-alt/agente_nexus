@@ -1231,8 +1231,11 @@ async function startOutboundRecoveryWorker() {
 }
 
 async function startInboundRecoveryWorker() {
-    console.log(`⏳ [RECOVERY] Starting Inbound Recovery Worker (${VERSION})...`);
+    console.log(`⏳ [RECOVERY] [V64.0-STOPPED] RECOVERY IS DISABLED FOR CLEANUP...`);
     
+    const RECOVERY_ENABLED = false;
+    if (!RECOVERY_ENABLED) return;
+
     const recover = async () => {
         try {
             const fiveSecondsAgo = new Date(Date.now() - 5000).toISOString();
