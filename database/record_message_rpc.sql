@@ -13,7 +13,9 @@ CREATE OR REPLACE FUNCTION public.record_message(
     p_message_type TEXT DEFAULT 'text',
     p_trace_id TEXT DEFAULT NULL,
     p_metadata JSONB DEFAULT '{}'::jsonb,
-    p_remote_id TEXT DEFAULT NULL  -- O campo que faltava
+    p_remote_id TEXT DEFAULT NULL,
+    p_file_url TEXT DEFAULT NULL,      -- Adicionado para compatibilidade v14
+    p_transcription TEXT DEFAULT NULL  -- Adicionado para compatibilidade v14
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -44,7 +46,10 @@ BEGIN
         p_sender_name, 
         p_message_type, 
         p_trace_id, 
-        p_metadata,
+        p_metadata || jsonb_build_object(
+            'file_url', p_file_url,
+            'transcription', p_transcription
+        ),
         p_remote_id
     );
 

@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V60.0-LOOP-BREAKER-ULTIMATE';
+const VERSION = 'V61.0-STRESS-READY';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1235,8 +1235,8 @@ async function startInboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos itens presos há mais de 2 minutos (Aumentado para evitar loops com Rate Limits do n8n)
-            const gracePeriod = new Date(Date.now() - 120000).toISOString();
+            // Buscamos itens quase instantaneamente (5 segundos de carência)
+            const gracePeriod = new Date(Date.now() - 5000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
@@ -1281,8 +1281,8 @@ async function startInboundRecoveryWorker() {
         }
     };
 
-    // Roda a cada 1 minuto
-    setInterval(recover, 60000);
+    // MODO TURBO: Roda a cada 5 segundos para testes de carga e tempo real
+    setInterval(recover, 5000);
 }
 
 async function startQueueWorker() {
