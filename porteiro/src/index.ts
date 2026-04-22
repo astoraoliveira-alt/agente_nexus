@@ -884,19 +884,22 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 }
 
                 if (agentId && tenantId) {
-                    const traceStat = `ZNV-STAT-${Math.random().toString(36).substring(7).toUpperCase()}`;
-                    // 🚀 SINCRONIZAÇÃO FINAL V66.2: 
-                    // Chama o RPC que atualiza o status e LIMPA a inbound_queue para evitar que mensagens fiquem presas
+                    const statusDescription = body.messageStatus?.description || 'No description';
+                    const providerDNA = body.message?.externalId || body.externalId; // DNA que enviamos no V66.5
+
+                    // 🚀 SINCRONIZAÇÃO FINAL V66.5: 
+                    // Chama o RPC corrigido que usa o DNA para limpar a fila instantaneamente.
                     const { error: rpcError } = await supabaseAdmin.rpc('handle_message_status_update', {
                         p_remote_id: remoteId,
                         p_status_code: statusCode,
-                        p_payload: body
+                        p_status_description: statusDescription,
+                        p_trace_id: providerDNA
                     });
 
                     if (rpcError) {
                         console.error(`[ZENVIA] ❌ Erro RPC handle_message_status_update:`, rpcError.message);
                     } else {
-                        console.log(`[ZENVIA] ✅ Status ${statusCode} sincronizado via RPC [${remoteId}] (Trace: ${traceStat})`);
+                        console.log(`[ZENVIA] ✅ Status ${statusCode} sincronizado via RPC [${remoteId}] (DNA: ${providerDNA || 'N/A'})`);
                     }
                 } else {
                     console.warn(`[ZENVIA] ⚠️ Status ignorado: Não foi possível mapear msg ${remoteId} a um agente.`);
@@ -1381,7 +1384,8 @@ async function startQueueWorker() {
                             body: JSON.stringify({
                                 from: channelId,
                                 to: contactPhone,
-                                contents: [{ type: 'text', text: message }]
+                                contents: [{ type: 'text', text: message }],
+                                externalId: item.trace_id // [V66.5] DNA Tracker
                             })
                         });
                         result = await znvRes.json();
