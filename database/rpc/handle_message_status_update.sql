@@ -1,4 +1,4 @@
--- RPC: handle_message_status_update (V5.1 - Loop Breaker)
+-- RPC: handle_message_status_update (V5.2 - Smart Cleanup)
 -- Description: Unified handler for status updates and queue cleanup.
 -- ============================================================
 
@@ -15,6 +15,7 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_message_id uuid;
+    v_trace_id text;
     v_mapped_status text;
     v_queue_id uuid;
 BEGIN
@@ -39,7 +40,7 @@ BEGIN
             'dlr_error', p_status_description
         )
     WHERE remote_id = p_remote_id
-    RETURNING id INTO v_message_id;
+    RETURNING id, trace_id INTO v_message_id, v_trace_id;
 
     -- [3] ATUALIZAR FILA DE CAMPANHAS (Se aplicável)
     IF v_message_id IS NOT NULL THEN
@@ -59,18 +60,21 @@ BEGIN
     END IF;
 
     -- [4] 🛡️ LOOP BREAKER: LIMPAR FILA DE ENTRADA (Ação Crítica)
-    -- Se o n8n está reportando um status, significa que o processamento do item de fila terminou.
+    -- Se o status vier como 'failed', forçamos a limpeza da inbound_queue usando o trace_id original.
     UPDATE public.inbound_queue
-    SET status = 'done', -- O item da fila de processamento está concluído
-        error_message = COALESCE(error_message, '') || ' [Status Update Received: ' || v_mapped_status || ']'
+    SET status = 'done',
+        processed_at = now(),
+        error_message = COALESCE(error_message, '') || ' [Smart-Cleanup via Status: ' || v_mapped_status || ']'
     WHERE external_id = p_remote_id 
-       OR trace_id = p_remote_id;
+       OR trace_id = p_remote_id
+       OR (v_trace_id IS NOT NULL AND trace_id = v_trace_id);
 
     RETURN jsonb_build_object(
         'success', true,
         'message_id', v_message_id,
         'new_status', v_mapped_status,
-        'queue_id', v_queue_id
+        'queue_id', v_queue_id,
+        'trace_id', v_trace_id
     );
 END;
 $$;

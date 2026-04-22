@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.2-FINAL-SYNC';
+const VERSION = 'V66.4-DNA-SYNC';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1413,7 +1413,8 @@ async function startQueueWorker() {
                             p_campaign_id: item.campaign_id,
                             p_contact_name: item.contact_name,
                             p_message_type: 'text',
-                            p_remote_id: remoteId // <--- AGORA SALVAMOS O ID!
+                            p_remote_id: remoteId,
+                            p_trace_id: (item as any).trace_id // 🔥 DNA DA CONVERSA REPASSADO AO BANCO
                         });
 
                         if (rpcError) {
