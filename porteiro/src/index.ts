@@ -824,17 +824,23 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const channelId = body.message?.from || body.from || body.channel || body.messageStatus?.channel;
                     console.log(`[ZENVIA] 🔍 Fallback 1 (Canal): ${channelId}`);
                     
-                    const { data: agent } = await supabaseAdmin
+                    const { data: agents } = await supabaseAdmin
                         .from('agents')
-                        .select('id, tenant_id')
+                        .select('id, tenant_id, zenvia_aliases, zenvia_channel_id')
                         .or(`zenvia_channel_id.eq.${channelId},zenvia_aliases.cs.{${channelId}}`)
-                        .eq('status', 'active')
-                        .maybeSingle();
+                        .eq('status', 'active');
+                    
+                    const agent = agents?.find(a => {
+                        if (a.zenvia_aliases && a.zenvia_aliases.length > 0) {
+                            return a.zenvia_aliases.includes(channelId);
+                        }
+                        return a.zenvia_channel_id === channelId;
+                    });
                     
                     if (agent) {
                         agentId = agent.id;
                         tenantId = agent.tenant_id;
-                        console.log(`[ZENVIA] 🎯 Fallback 1 Sucedido! Agente: ${agentId}`);
+                        console.log(`[ZENVIA] 🎯 Fallback 1 Sucedido (Strict)! Agente: ${agentId}`);
                     } else {
                         // Fallback 2: Tentar pelo telefone do destinatário
                         const rawTo = body.message?.to || body.to || body.messageStatus?.to || body.contact?.id;
@@ -913,8 +919,15 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     .or(`zenvia_channel_id.eq.${destination},zenvia_aliases.cs.{${destination}}`)
                     .eq('status', 'active');
 
-                if (!agents?.length) {
-                    console.warn(`[ZENVIA] 🛡️ GATEKEEPER REJECTED: No active agent found for destination ${destination}. Message from ${phone} ignored.`);
+                const agent = agents?.find(a => {
+                    if (a.zenvia_aliases && a.zenvia_aliases.length > 0) {
+                        return a.zenvia_aliases.includes(destination);
+                    }
+                    return a.zenvia_channel_id === destination;
+                });
+
+                if (!agent) {
+                    console.warn(`[ZENVIA] 🛡️ GATEKEEPER REJECTED: No strictly matched active agent found for destination ${destination}. Message from ${phone} ignored.`);
                     // Logamos a rejeição para auditoria
                     await logIntegration({
                         provider: 'zenvia',
@@ -931,7 +944,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     return;
                 }
 
-                const agent = agents[0];
                 console.log(`[ZENVIA] 👤 Agente identificado: ${agent.name} (ID: ${agent.id})`);
 
                 // Upsert Contato & Conversa
