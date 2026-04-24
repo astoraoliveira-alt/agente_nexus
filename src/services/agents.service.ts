@@ -41,6 +41,7 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             meta_verify_token: agent.meta_verify_token,
             zenvia_channel_id: agent.zenvia_channel_id,
             zenvia_api_token: agent.zenvia_api_token,
+            zenvia_aliases: agent.zenvia_aliases || [],
             is_gatekeeper: agent.is_gatekeeper || false,
             gatekeeper_scope: agent.gatekeeper_scope || null,
             requires_security: agent.requires_security || false,
@@ -121,6 +122,7 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.meta_verify_token !== undefined) dbPayload.meta_verify_token = updates.meta_verify_token;
         if (updates.zenvia_channel_id !== undefined) dbPayload.zenvia_channel_id = updates.zenvia_channel_id;
         if (updates.zenvia_api_token !== undefined) dbPayload.zenvia_api_token = updates.zenvia_api_token;
+        if (updates.zenvia_aliases !== undefined) dbPayload.zenvia_aliases = updates.zenvia_aliases;
         // Explicit boolean — must use !== undefined to capture false values
         if (updates.requires_security !== undefined) dbPayload.requires_security = updates.requires_security;
         if (updates.is_gatekeeper !== undefined) dbPayload.is_gatekeeper = updates.is_gatekeeper;

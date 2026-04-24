@@ -65,16 +65,43 @@ AS $$
         LEFT JOIN agents a ON conv.agent_id = a.id
         WHERE m.tenant_id = p_tenant_id
           AND m.created_at >= NOW() - (p_days || ' days')::INTERVAL
+          -- Do NOT count messages as units if the conversation/tenant uses 24h window billing
           AND NOT (
-            conv.channel = 'whatsapp'::public.conversation_channel
-            AND COALESCE(conv.metadata->>'whatsapp_billing_mode', '') = 'window_24h'
-            AND m.created_at >= COALESCE(
-              NULLIF(conv.metadata->>'whatsapp_billing_mode_applied_at', '')::timestamptz,
-              conv.created_at,
-              NOW() - (p_days || ' days')::INTERVAL
+            COALESCE(conv.channel, 'whatsapp')::text = 'whatsapp'
+            AND (
+                COALESCE(conv.metadata->>'whatsapp_billing_mode', '') = 'window_24h'
+                OR
+                EXISTS (
+                    SELECT 1 
+                    FROM companies c 
+                    JOIN plans p ON c.plan_tier = p.id
+                    WHERE c.id = p_tenant_id 
+                    AND (
+                        c.plan_prices->>'whatsappOfficialBillingMode' = 'window_24h' 
+                        OR c.plan_prices->>'whatsapp_official_billing_mode' = 'window_24h'
+                        OR p.whatsapp_official_billing_mode = 'window_24h'
+                    )
+                )
             )
           )
         GROUP BY conv.agent_id, a.name, conv.channel, date_trunc('hour', m.created_at)
+        
+        UNION ALL
+
+        -- 3. WhatsApp Official Windows (24h) - The source of truth for conversational billing
+        SELECT 
+            w.id,
+            w.agent_id,
+            COALESCE(a.name, 'Agente')::VARCHAR as agent_name,
+            'whatsapp'::VARCHAR as channel,
+            'messages'::VARCHAR as metric_type,
+            1::NUMERIC as value,
+            v_msg_price::NUMERIC as cost, -- Using the plan price (1.10)
+            w.window_started_at as recorded_at
+        FROM whatsapp_billing_windows w
+        LEFT JOIN agents a ON w.agent_id = a.id
+        WHERE w.tenant_id = p_tenant_id
+          AND w.window_started_at >= NOW() - (p_days || ' days')::INTERVAL
         
         ORDER BY recorded_at DESC;
     END;

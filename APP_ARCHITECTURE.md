@@ -1,3 +1,12 @@
+## [V59.0] - WhatsApp Official Billing Optimization (Enterprise SLA)
+### Faturamento Conversacional & Janelas 24h
+- **Unified Billing Logic**: Unificação do gatilho de faturamento na tabela `messages`. Agora, tanto disparos de Campanhas quanto conversas orgânicas da **Sofia** abrem janelas de 24h (R$ 1,10) automaticamente.
+- **Race Condition Protection**: Implementação de `FOR UPDATE SKIP LOCKED` no processamento de janelas, evitando duplicidade de cobrança em mensagens enviadas em alta frequência.
+- **Hybrid Consumption RPC**: O RPC `get_detailed_consumption` foi otimizado para excluir mensagens individuais de WhatsApp quando o plano for oficial, priorizando a tabela `whatsapp_billing_windows` para garantir 100% de precisão financeira.
+- **Backfill Integration**: Inclusão de script de recuperação automática para conversas que ocorreram antes da ativação do gatilho unificado, corrigindo o dashboard retroativamente.
+
+---
+
 ## [V58.5] - AI Persona Shield & Anti-Hallucination (ELITE SLA)
 ### Blindagem Extrema e Resiliência de Contexto
 - **Nexus Stress Lab**: Laboratório de testes de carga para até 1000 mensagens simultâneas (`fn_create_stress_test_payloads`) com telemetria em tempo real.

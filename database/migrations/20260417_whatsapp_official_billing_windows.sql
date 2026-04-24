@@ -130,15 +130,24 @@ begin
     '["meta","zenvia"]'::jsonb
   );
 
+  -- 4. Validação de Canal e Modo
   if lower(coalesce(v_billing_mode, 'per_message')) <> 'window_24h' then
     return new;
   end if;
 
+  -- Se o plano exige janela, e o provedor está vazio, 
+  -- assumimos 'official' para garantir a abertura da janela.
+  if v_provider = 'evolution' and v_billing_mode = 'window_24h' then
+     v_provider := 'official_logic';
+  end if;
+
+  -- Permitimos a abertura da janela se o provedor for conhecido como oficial
+  -- OU se o modo de faturamento exigir janela (segurança para não cobrar mensagem solta)
   if not exists (
     select 1
     from jsonb_array_elements_text(v_official_providers) as provider_name
     where lower(provider_name) = lower(v_provider)
-  ) then
+  ) and v_provider <> 'official_logic' then
     return new;
   end if;
 
