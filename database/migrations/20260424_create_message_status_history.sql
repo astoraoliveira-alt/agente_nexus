@@ -1,15 +1,6 @@
--- 1. Garante que a tabela messages tenha uma Primary Key (necessário para a FK abaixo)
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conrelid = 'public.messages'::regclass AND contype = 'p'
-    ) THEN
-        ALTER TABLE public.messages ADD PRIMARY KEY (id);
-    END IF;
-END $$;
+-- DAVOS NEXUS - Migration: message_status_history
+-- Descrição: Tabela para histórico detalhado de entrega de mensagens (Zenvia, Meta, etc.)
 
--- 2. Criação da tabela de histórico de status
 CREATE TABLE IF NOT EXISTS public.message_status_history (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     message_id uuid REFERENCES public.messages(id) ON DELETE CASCADE,
