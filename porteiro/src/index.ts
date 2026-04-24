@@ -995,6 +995,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_agent_id: agent.id,
                         p_conversation_id: convId,
                         p_external_id: externalId,
+                        p_payload: {
                             name: msg.visitor?.name || phone,
                             phone, 
                             instance: destination, // Use the actual number/channel that received the message
