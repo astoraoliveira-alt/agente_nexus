@@ -615,7 +615,7 @@ FOR ALL USING (
 
 -- 7. MESSAGING & CONVERSATIONS
 CREATE TABLE IF NOT EXISTS public.messages (
-  id uuid NOT NULL DEFAULT extensions.uuid_generate_v4 (),
+  id uuid PRIMARY KEY DEFAULT extensions.uuid_generate_v4 (),
   conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   tenant_id uuid NOT NULL REFERENCES companies(id),
   content text NULL,
