@@ -239,6 +239,8 @@ export default function Agents() {
         integrationConfig: {
           response_mode: 'match_input'
         },
+        zendesk_api_token: '',
+        zenvia_aliases: [],
         workflow_blueprint: undefined
       });
       setBlueprintRaw('');
@@ -1208,11 +1210,27 @@ export default function Agents() {
                                   </Label>
                                   <Input
                                     className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
-                                    placeholder="Ex: 5511888880000"
+                                    placeholder="Ex: amenable-sweatpants"
                                     value={formData.zenvia_channel_id || ''}
                                     onChange={(e) => setFormData({ ...formData, zenvia_channel_id: e.target.value })}
                                   />
-                                  <p className="text-[9px] text-muted-foreground">Número WhatsApp Business registrado na Zenvia (com DDI, sem +)</p>
+                                  <p className="text-[9px] text-muted-foreground">O identificador principal do canal Zenvia (Ex: amenable-sweatpants ou número DDI)</p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Telefones Oficiais (Aliases)
+                                  </Label>
+                                  <Input
+                                    className="h-9 font-mono text-xs bg-muted/30 border-accent/20 focus:border-accent"
+                                    placeholder="Ex: 5541988506403, 5511999998888"
+                                    value={formData.zenvia_aliases?.join(', ') || ''}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      const aliases = val.split(',').map(s => s.trim()).filter(s => s !== '');
+                                      setFormData({ ...formData, zenvia_aliases: aliases });
+                                    }}
+                                  />
+                                  <p className="text-[9px] text-muted-foreground">Números que este agente está autorizado a responder (separados por vírgula)</p>
                                 </div>
                                 <div className="space-y-2">
                                   <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">

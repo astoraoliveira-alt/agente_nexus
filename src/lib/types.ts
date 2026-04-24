@@ -434,6 +434,7 @@ export interface Agent {
   evolution_instance?: string; // Evolution API instance name for dynamic lookup
   evolution_token?: string;
   zenvia_channel_id?: string;  // Número Zenvia associado ao agente ("from" nos payloads)
+  zenvia_aliases?: string[];   // Lista de números oficiais que este agente pode responder
   zenvia_api_token?: string;   // API Token Zenvia (armazenado criptografado)
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
@@ -686,6 +687,8 @@ export interface Message {
   audioUrl?: string; // Phase 3: Audio Player Support
   imageUrl?: string;
   transcription?: string;
+  status?: 'pending' | 'processing' | 'sent' | 'delivered' | 'read' | 'failed' | 'rejected';
+  statusDescription?: string;
   isSimulation?: boolean; // Phase 2: Playground Logic
 }
 

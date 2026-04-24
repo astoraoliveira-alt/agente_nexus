@@ -14,31 +14,38 @@ DECLARE
     v_message_id uuid;
     v_trace_id text;
 BEGIN
-    -- 1. Tenta encontrar a mensagem original pelo remote_id (ID da Zenvia)
+    -- 1. Tenta encontrar a mensagem original pelo remote_id (ID da Zenvia) ou trace_id
     SELECT id, trace_id INTO v_message_id, v_trace_id
     FROM public.messages
-    WHERE remote_id = p_remote_id;
+    WHERE remote_id = p_remote_id OR trace_id = p_trace_id OR trace_id = p_remote_id
+    ORDER BY created_at DESC LIMIT 1;
 
     -- 2. SMART CLEANUP: Se a mensagem deu erro fatal, limpa a fila de entrada!
     IF p_status_code = 'REJECTED' OR p_status_code = 'FAILED' THEN
         UPDATE public.inbound_queue
         SET status = 'done', 
             processed_at = NOW(),
-            context = COALESCE(context, '{}'::jsonb) || jsonb_build_object('cleanup_reason', 'provider_rejection', 'status_code', p_status_code) -- 🔥 CORREÇÃO: ERA metadata
+            context = COALESCE(context, '{}'::jsonb) || jsonb_build_object('cleanup_reason', 'provider_rejection', 'status_code', p_status_code, 'error', p_status_description)
         WHERE external_id = p_remote_id 
            OR trace_id = p_remote_id
-           OR (v_trace_id IS NOT NULL AND trace_id = v_trace_id);
+           OR (v_trace_id IS NOT NULL AND trace_id = v_trace_id)
+           OR (p_trace_id IS NOT NULL AND trace_id = p_trace_id);
     END IF;
 
-    -- 3. Histórico de Status (Este continua normal pois a tabela messages tem metadata)
+    -- 3. Registro do Erro nos Metadados (Multi-Key para compatibilidade com o Chat)
     IF v_message_id IS NOT NULL THEN
         UPDATE public.messages
         SET status = p_status_code,
-            metadata = metadata || jsonb_build_object('last_status_description', p_status_description)
+            metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
+                'status_description', p_status_description,
+                'last_status_description', p_status_description,
+                'prov_error', p_status_description,
+                'error_at', NOW()
+            )
         WHERE id = v_message_id;
 
         INSERT INTO public.message_status_history (message_id, status, description, raw_payload)
-        VALUES (v_message_id, p_status_code, p_status_description, jsonb_build_object('trace_id', p_trace_id));
+        VALUES (v_message_id, p_status_code, p_status_description, jsonb_build_object('trace_id', p_trace_id, 'remote_id', p_remote_id));
     END IF;
 
     RETURN jsonb_build_object('success', true, 'trace_id_cleaned', v_trace_id);

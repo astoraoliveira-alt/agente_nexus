@@ -613,32 +613,47 @@ FOR ALL USING (
     (SELECT role FROM users WHERE id = auth.uid()) = 'super_admin'
 );
 
-CREATE TABLE IF NOT EXISTS messages (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-    tenant_id UUID NOT NULL REFERENCES companies(id),
-    
-    content TEXT,
-    message_type VARCHAR(20) DEFAULT 'text', 
-    sender_type VARCHAR(20) NOT NULL, 
-    sender_name VARCHAR(255),
-    
-    audio_url TEXT,
-    transcription TEXT,
-    image_url TEXT,
-    
-    -- VAPI Integ & Metadata
-    external_id VARCHAR(255),
-    external_order INT,
-    metadata JSONB DEFAULT '{}'::jsonb,
-
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+-- 7. MESSAGING & CONVERSATIONS
+CREATE TABLE IF NOT EXISTS public.messages (
+  id uuid NOT NULL DEFAULT extensions.uuid_generate_v4 (),
+  conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  tenant_id uuid NOT NULL REFERENCES companies(id),
+  content text NULL,
+  message_type character varying(20) NULL DEFAULT 'text'::character varying,
+  sender_type character varying(20) NOT NULL,
+  sender_name character varying(255) NULL,
+  audio_url text NULL,
+  transcription text NULL,
+  image_url text NULL,
+  created_at timestamp with time zone NULL DEFAULT now(),
+  external_id character varying(255) NULL,
+  external_order integer NULL,
+  metadata jsonb NULL DEFAULT '{}'::jsonb,
+  trace_id character varying(255) NULL,
+  direction character varying(20) NULL DEFAULT 'outbound'::character varying,
+  remote_id text NULL,
+  status character varying(20) NULL DEFAULT 'sent'::character varying,
+  CONSTRAINT uq_messages_tenant_external_id UNIQUE (tenant_id, external_id)
 );
 
-ALTER TABLE messages DROP CONSTRAINT IF EXISTS uq_messages_tenant_external_id;
-ALTER TABLE messages ADD CONSTRAINT uq_messages_tenant_external_id UNIQUE (tenant_id, external_id);
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_messages_conversation ON public.messages USING btree (conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_ordered ON public.messages USING btree (conversation_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON public.messages USING btree (conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_id ON public.messages USING btree (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_messages_tenant_created ON public.messages USING btree (tenant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_messages_trace_id ON public.messages USING btree (trace_id) WHERE (trace_id IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_messages_direction ON public.messages USING btree (direction);
+CREATE INDEX IF NOT EXISTS idx_messages_remote_id ON public.messages USING btree (remote_id);
 
-CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
+-- Automation Triggers
+CREATE OR REPLACE TRIGGER trg_calculate_message_cost
+AFTER INSERT ON messages FOR EACH ROW
+EXECUTE FUNCTION calculate_message_cost ();
+
+CREATE OR REPLACE TRIGGER trg_track_campaign_response
+AFTER INSERT ON messages FOR EACH ROW
+EXECUTE FUNCTION track_campaign_response ();
 
 -- =============================================
 -- 8. AGENT RESPONSES QUEUE (Idempotency & Reliability)
@@ -1251,3 +1266,84 @@ BEGIN
     END IF;
 END;
 $$;
+-- =============================================
+-- 11. CORE EXTENSIONS (Added Modules)
+-- =============================================
+
+-- CHAT HISTORIES MEMORY (AI Persistent Memory)
+CREATE TABLE IF NOT EXISTS public.chat_histories_memory (
+  id SERIAL PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL, -- UUID string matching conversation_id
+  message JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_histories_session_id ON public.chat_histories_memory(session_id);
+
+-- CONVERSATION SECURITY SESSIONS (Protection Layers)
+CREATE TABLE IF NOT EXISTS public.conversation_security_sessions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  agent_id UUID NOT NULL REFERENCES agents(id),
+  status VARCHAR(50) NOT NULL DEFAULT 'unauthenticated',
+  validated_identifier TEXT,
+  failed_attempts INTEGER DEFAULT 0,
+  locked_until TIMESTAMP WITH TIME ZONE,
+  expires_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT unique_conversation_agent UNIQUE (conversation_id, agent_id)
+);
+CREATE INDEX IF NOT EXISTS idx_security_sessions_conv ON public.conversation_security_sessions(conversation_id, agent_id);
+
+-- INTEGRATION LOGS (Webhook & Provider Activity)
+CREATE TABLE IF NOT EXISTS public.integration_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id UUID REFERENCES companies(id) ON DELETE CASCADE,
+  provider VARCHAR(50) DEFAULT 'vapi',
+  external_id VARCHAR(255),
+  payload JSONB NOT NULL,
+  processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  status VARCHAR(20) DEFAULT 'success',
+  error_details TEXT,
+  agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
+  trace_id TEXT,
+  method TEXT DEFAULT 'POST',
+  path TEXT,
+  validation_results JSONB DEFAULT '{}'::jsonb,
+  campaign_id UUID REFERENCES campaigns(id) ON DELETE SET NULL,
+  conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL,
+  phone_number TEXT,
+  latency_ms INTEGER DEFAULT 0,
+  CONSTRAINT uq_integration_logs_provider_external_id UNIQUE (provider, external_id)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_tenant ON public.integration_logs(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_trace_id ON public.integration_logs(trace_id);
+CREATE INDEX IF NOT EXISTS idx_integration_logs_conversation_id ON public.integration_logs(conversation_id);
+
+-- SECURITY LOGS (Action Logging)
+CREATE TABLE IF NOT EXISTS public.security_logs (
+  id SERIAL PRIMARY KEY,
+  event_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  function_name TEXT,
+  conversation_id UUID, -- References conversation
+  result JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_security_logs_conv ON public.security_logs(conversation_id);
+
+-- AGENT LEADS (Legacy/Stage Leads)
+CREATE TABLE IF NOT EXISTS public.agent_leads (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  campaign_id UUID REFERENCES campaigns(id) ON DELETE SET NULL,
+  identifier VARCHAR(50) NOT NULL,
+  identifier_type VARCHAR(20) DEFAULT 'cnpj',
+  name TEXT,
+  whatsapp VARCHAR(20),
+  cta_link TEXT,
+  status VARCHAR(20) DEFAULT 'pending',
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT agent_leads_tenant_id_identifier_campaign_id_key UNIQUE (tenant_id, identifier, campaign_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant ON public.agent_leads(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_campaign ON public.agent_leads(campaign_id);

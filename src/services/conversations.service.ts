@@ -50,7 +50,9 @@ export const conversationsService = {
                 timestamp: new Date(m.created_at),
                 audioUrl: m.audio_url,
                 imageUrl: m.image_url,
-                transcription: m.transcription
+                transcription: m.transcription,
+                status: m.status,
+                statusDescription: m.metadata?.status_description || m.metadata?.last_status_description || m.metadata?.prov_error
             };
         }) as import('@/lib/types').Message[];
     },

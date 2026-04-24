@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown, Check, CheckCheck, AlertCircle } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -12,6 +12,12 @@ import { useApp } from '@/contexts/AppContext';
 import { EmojiPicker } from '@/components/chat/EmojiPicker';
 import { AttachmentPicker } from '@/components/chat/AttachmentPicker';
 import { toast } from 'sonner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -600,12 +606,39 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                       )}
                     </div>
 
-                    <p className={cn(
-                      "text-[10px] text-muted-foreground/60 mt-1",
-                      message.sender !== 'user' ? "text-right" : "text-left"
+                    <div className={cn(
+                      "flex items-center gap-1 mt-1",
+                      message.sender !== 'user' ? "justify-end" : "justify-start"
                     )}>
-                      {format(message.timestamp, 'HH:mm', { locale: ptBR })}
-                    </p>
+                      <p className="text-[10px] text-muted-foreground/60">
+                        {format(message.timestamp, 'HH:mm', { locale: ptBR })}
+                      </p>
+
+                      {message.sender !== 'user' && (
+                        <div className="flex items-center">
+                          {message.status === 'failed' || message.status === 'rejected' ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <AlertCircle className="h-3 w-3 text-destructive animate-pulse cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[200px] text-[10px]">
+                                  {message.statusDescription || 'Erro no envio da mensagem pela Zenvia.'}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : message.status === 'read' ? (
+                            <CheckCheck className="h-3 w-3 text-info" />
+                          ) : message.status === 'delivered' ? (
+                            <CheckCheck className="h-3 w-3 text-muted-foreground/40" />
+                          ) : message.status === 'sent' ? (
+                            <Check className="h-3 w-3 text-muted-foreground/40" />
+                          ) : message.status === 'processing' || message.status === 'pending' ? (
+                            <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title="Processando..." />
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

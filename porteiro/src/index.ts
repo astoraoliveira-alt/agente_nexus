@@ -863,19 +863,10 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (statusCode === 'REJECTED' || statusCode === 'FAILED') {
                     const errorDescription = body.messageStatus?.description || 'Rejected by provider';
                     const targetRemoteId = originalMsg?.remote_id || remoteId;
-                    console.log(`[ZENVIA] ❌ Rejeição detectada para ${targetRemoteId}: ${errorDescription}. Atualizando banco...`);
+                    console.log(`[ZENVIA] ❌ Rejeição detectada para ${targetRemoteId}: ${errorDescription}. Sincronizando via RPC...`);
 
-                    // 1. Atualiza a tabela principal de mensagens
-                    if (originalMsg?.id) {
-                        await supabaseAdmin
-                            .from('messages')
-                            .update({ 
-                                status: 'rejected', 
-                                metadata: { ...(originalMsg?.metadata || {}), prov_error: errorDescription } 
-                            })
-                            .eq('id', originalMsg.id);
-
-                        // 2. Atualiza a fila de saída (se for um disparo de campanha)
+                    // 1. Atualizamos a fila de saída se necessário
+                    if (targetRemoteId) {
                         await supabaseAdmin
                             .from('outbound_queue')
                             .update({ status: 'failed', error_message: errorDescription })
@@ -910,22 +901,38 @@ app.post('/v1/zenvia/webhook', async (c) => {
             // 💬 TRATAMENTO DE MENSAGEM (INBOUND)
             if (body.direction === 'IN' && body.type === 'MESSAGE') {
                 const phone = (msg.from || body.from)?.replace(/\D/g, '');
-                const channelId = msg.to || body.to;
-                console.log(`[ZENVIA] 📥 Inbound Message detectada de ${phone} para canal ${channelId}`);
+                const destination = (msg.to || body.to); // O canal ou número que recebeu a mensagem
                 
+                console.log(`[ZENVIA] 🛡️ GATEKEEPER [${traceId}]: Inbound from ${phone} to ${destination}`);
+                
+                // 🔍 BUSCA RIGOROSA DE AGENTE (V66.8 - Security Gate)
+                // O Agente deve bater EXATAMENTE com o zenvia_channel_id ou estar nos aliases.
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
-                    .select('id, name, tenant_id, zenvia_channel_id')
-                    .or(`zenvia_channel_id.eq.${channelId},zenvia_aliases.cs.{${channelId}}`)
-                    .eq('status', 'active')
-                    .limit(1);
+                    .select('id, name, tenant_id, zenvia_channel_id, zenvia_aliases')
+                    .or(`zenvia_channel_id.eq.${destination},zenvia_aliases.cs.{${destination}}`)
+                    .eq('status', 'active');
 
                 if (!agents?.length) {
-                    console.warn(`[ZENVIA] ❌ Agente não encontrado para o canal ${channelId}. Abortando.`);
+                    console.warn(`[ZENVIA] 🛡️ GATEKEEPER REJECTED: No active agent found for destination ${destination}. Message from ${phone} ignored.`);
+                    // Logamos a rejeição para auditoria
+                    await logIntegration({
+                        provider: 'zenvia',
+                        external_id: externalId || traceId,
+                        payload: body,
+                        status: 'ignored',
+                        path: '/v1/zenvia/webhook',
+                        validation_results: { 
+                            reason: 'channel_not_mapped', 
+                            destination: destination,
+                            phone: phone 
+                        }
+                    });
                     return;
                 }
+
                 const agent = agents[0];
-                console.log(`[ZENVIA] 👤 Agente mapeado: ${agent.name || agent.id}`);
+                console.log(`[ZENVIA] 👤 Agente identificado: ${agent.name} (ID: ${agent.id})`);
 
                 // Upsert Contato & Conversa
                 console.log(`[ZENVIA] 🔄 [${traceId}] Iniciando Upsert de Contato para ${phone}...`);
@@ -988,10 +995,9 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_agent_id: agent.id,
                         p_conversation_id: convId,
                         p_external_id: externalId,
-                        p_payload: { 
                             name: msg.visitor?.name || phone,
                             phone, 
-                            instance: agent.zenvia_channel_id,
+                            instance: destination, // Use the actual number/channel that received the message
                             content: text, 
                             platform: 'zenvia', 
                             mediaUrl: content?.fileUrl,
@@ -1371,9 +1377,14 @@ async function startQueueWorker() {
                         result = await metaRes.json();
                         responseOk = metaRes.ok;
                     } else if (apiType === 'zenvia') {
-                        const zenviaToken = process.env.ZENVIA_API_TOKEN;
+                        // [V66.9] Dynamic Multi-Number Support
+                        const zenviaToken = agent?.zenvia_api_token || process.env.ZENVIA_API_TOKEN;
                         const rawChannelId = agent?.zenvia_channel_id || '';
-                        const channelId = rawChannelId.split(',')[0].trim();
+                        
+                        // Determina qual número usar como remetente
+                        // Prioridade: metadata.origin_number > metadata.instance > zenvia_channel_id
+                        let fromNumber = item.metadata?.origin_number || item.metadata?.instance || rawChannelId;
+                        if (fromNumber.includes(',')) fromNumber = fromNumber.split(',')[0].trim();
                         
                         const znvRes = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
                             method: 'POST',
@@ -1382,7 +1393,7 @@ async function startQueueWorker() {
                                 'Content-Type': 'application/json'
                             },
                             body: JSON.stringify({
-                                from: channelId,
+                                from: fromNumber.trim(),
                                 to: contactPhone,
                                 contents: [{ type: 'text', text: message }],
                                 externalId: item.trace_id // [V66.5] DNA Tracker
