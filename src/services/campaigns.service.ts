@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const campaignsService = {
@@ -55,8 +55,9 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }));
     },
 
-    async getOutboundQueueMetricsByCampaign(tenantId: string): Promise<Record<string, { total: number; sent: number; delivered: number }>> {
-        const { data, error } = await supabase
+    async getOutboundQueueMetricsByCampaign(tenantId: string, useReplica: boolean = false): Promise<Record<string, { total: number; sent: number; delivered: number }>> {
+        const client = useReplica ? supabaseReader : supabase;
+        const { data, error } = await client
             .from('outbound_queue')
             .select('campaign_id,status')
             .eq('tenant_id', tenantId)
@@ -88,7 +89,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
     },
 
     async getEnrichedOutboundQueue(tenantId: string, campaignId?: string): Promise<any[]> {
-        const { data, error } = await supabase.rpc('get_campaign_leads_enriched', {
+        const { data, error } = await supabaseReader.rpc('get_campaign_leads_enriched', {
             p_campaign_id: campaignId || null,
             p_tenant_id: tenantId
         });
@@ -193,7 +194,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         let conversation: any | null = null;
 
         if (params.conversationId) {
-            const { data: conversationById, error: conversationByIdError } = await supabase
+            const { data: conversationById, error: conversationByIdError } = await supabaseReader
                 .from('conversations')
                 .select('id, user_name, user_identifier, last_message_at, created_at, duration_seconds, sentiment, agent_id, channel, status, campaign_id, agents!conversations_agent_id_fkey(name)')
                 .eq('tenant_id', tenantId)
@@ -208,7 +209,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }
 
         if (!conversation && variants.length > 0) {
-            const baseQuery = supabase
+            const baseQuery = supabaseReader
                 .from('conversations')
                 .select('id, user_name, user_identifier, last_message_at, created_at, duration_seconds, sentiment, agent_id, channel, status, campaign_id, agents!conversations_agent_id_fkey(name)')
                 .eq('tenant_id', tenantId)
@@ -246,25 +247,25 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         if (!conversation) return null;
 
         const [{ data: messagesData, error: messagesError }, { data: evaluationsData, error: evaluationsError }, { data: contactsData, error: contactsError }, { data: queueRows, error: queueError }] = await Promise.all([
-            supabase
+            supabaseReader
                 .from('messages')
                 .select('id, created_at, sender_type, direction, content, message_type')
                 .eq('conversation_id', conversation.id)
                 .order('created_at', { ascending: true }),
-            supabase
+            supabaseReader
                 .from('evaluations')
                 .select('score, summary, tags, criteria_results, ai_model, created_at')
                 .eq('conversation_id', conversation.id)
                 .order('created_at', { ascending: false }),
             variants.length > 0
-                ? supabase
+                ? supabaseReader
                     .from('contacts')
                     .select('id, name, identifier, phone, lifecycle_status, sentiment, tags, status')
                     .eq('tenant_id', tenantId)
                     .or(`identifier.in.(${variants.join(',')}),phone.in.(${variants.join(',')})`)
                     .limit(5)
                 : Promise.resolve({ data: [], error: null } as any),
-            supabase
+            supabaseReader
                 .from('outbound_queue')
                 .select('*')
                 .eq('tenant_id', tenantId)
@@ -402,8 +403,9 @@ async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact
         }
     },
 
-async getCampaigns(tenantId: string): Promise<import('@/lib/types').Campaign[]> {
-        const { data, error } = await supabase
+async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<import('@/lib/types').Campaign[]> {
+        const client = useReplica ? supabaseReader : supabase;
+        const { data, error } = await client
             .from('campaigns')
             .select('*')
             .eq('tenant_id', tenantId)
@@ -549,7 +551,7 @@ async deleteCampaign(id: string): Promise<void> {
     },
 
     async getImportLogs(campaignId: string): Promise<import('@/lib/types').CampaignImportLog[]> {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseReader
             .from('campaign_import_logs')
             .select('*')
             .eq('campaign_id', campaignId)
@@ -574,8 +576,8 @@ async deleteCampaign(id: string): Promise<void> {
         }));
     },
 
-    async getCampaignStats(campaignId: string, tenantId?: string) {
-        const { data, error } = await supabase.rpc('get_campaign_dashboard_stats', {
+    async getCampaignStats(campaignId: string | null, tenantId: string): Promise<any> {
+        const { data, error } = await supabaseReader.rpc('get_campaign_dashboard_stats', {
             p_campaign_id: campaignId === "" ? null : campaignId,
             p_tenant_id: campaignId === "" ? tenantId : null
         });

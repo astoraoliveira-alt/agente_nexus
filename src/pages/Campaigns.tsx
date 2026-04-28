@@ -347,24 +347,37 @@ export default function Campaigns() {
                 .trim()
                 .toLowerCase();
 
-        const firstRow = Array.from(rows[0] || [], normalizeHeader);
-        const hasHeader = firstRow.some(c =>
-            c.includes('cnpj') ||
-            c.includes('whatsapp') ||
-            c.includes('telefone') ||
-            c.includes('phone') ||
-            c.includes('razao social') ||
-            c.includes('nome') ||
-            c === 'link' ||
-            c.includes('cta')
-        );
+        let bestHeaderRowIdx = -1;
+        let maxMatches = 0;
 
-        if (hasHeader) {
-            identifierIdx = firstRow.findIndex(c => c.includes('cnpj') || c.includes('cpf') || c.includes('documento') || c.includes('identifier'));
-            phoneIdx = firstRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
-            nameIdx = firstRow.findIndex(c => c.includes('razao social') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
-            ctaLinkIdx = firstRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
-            startRow = 1; // Pula o cabeçalho
+        // Escaneia as primeiras 15 linhas em busca do melhor cabeçalho (o que tiver mais colunas correspondentes)
+        for (let i = 0; i < Math.min(rows.length, 15); i++) {
+            const row = Array.from(rows[i] || [], normalizeHeader);
+            const matchesCount = row.filter(c =>
+                c.includes('cnpj') ||
+                c.includes('whatsapp') ||
+                c.includes('telefone') ||
+                c.includes('phone') ||
+                c.includes('razao social') ||
+                c.includes('nome') ||
+                c === 'link' ||
+                c.includes('cta')
+            ).length;
+
+            if (matchesCount > maxMatches) {
+                maxMatches = matchesCount;
+                bestHeaderRowIdx = i;
+            }
+        }
+
+        // Só consideramos cabeçalho se houver pelo menos 2 colunas identificadas
+        if (bestHeaderRowIdx !== -1 && maxMatches >= 2) {
+            const headerRow = Array.from(rows[bestHeaderRowIdx] || [], normalizeHeader);
+            identifierIdx = headerRow.findIndex(c => c.includes('cnpj') || c.includes('cpf') || c.includes('documento') || c.includes('identifier'));
+            phoneIdx = headerRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
+            nameIdx = headerRow.findIndex(c => c.includes('razao social') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
+            ctaLinkIdx = headerRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
+            startRow = bestHeaderRowIdx + 1;
 
             if (identifierIdx === -1) identifierIdx = 0;
             if (phoneIdx === -1) phoneIdx = 1;
@@ -373,7 +386,13 @@ export default function Campaigns() {
         }
 
         const processed = rows.slice(startRow).map((row, idx) => {
-            const identifier = row[identifierIdx] ? String(row[identifierIdx]).trim() : "";
+            let identifier = row[identifierIdx] ? String(row[identifierIdx]).trim() : "";
+            
+            // Auto-pad para a amostra também
+            const cleanIdDigits = identifier.replace(/\D/g, '');
+            if (cleanIdDigits && cleanIdDigits.length > 0 && cleanIdDigits.length < 14) {
+                identifier = cleanIdDigits.padStart(14, '0');
+            }
             const phone = row[phoneIdx] ? String(row[phoneIdx]).trim() : "";
             const name = row[nameIdx] ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome";
             const ctaLink = row[ctaLinkIdx] ? sanitizeUrlValue(row[ctaLinkIdx]) : "";
@@ -440,7 +459,12 @@ export default function Campaigns() {
                 // 1. Validação de Telefone (Verifica se contém caracteres inválidos e se tem tamanho mínimo)
                 const hasLetters = /[a-zA-Z]/.test(rawPhone);
                 const cleanPhone = rawPhone.replace(/\D/g, '');
-                const cleanIdentifier = rawIdentifier.replace(/\D/g, '');
+                let cleanIdentifier = rawIdentifier.replace(/\D/g, '');
+                
+                // Auto-pad com zeros à esquerda se for menor que 14 (correção para Excel que remove zeros)
+                if (cleanIdentifier && cleanIdentifier.length > 0 && cleanIdentifier.length < 14) {
+                    cleanIdentifier = cleanIdentifier.padStart(14, '0');
+                }
                 
                 if (!cleanIdentifier || cleanIdentifier.length < 14) {
                     importLogs.push({
@@ -472,20 +496,7 @@ export default function Campaigns() {
                     return;
                 }
 
-                const linkCnpj = getLinkCnpj(sanitizedLink);
-                if (sanitizedLink && linkCnpj && linkCnpj !== cleanIdentifier) {
-                    importLogs.push({
-                        campaignId: campaign.id,
-                        tenantId: currentTenant.id,
-                        rowNumber: item.rowNumber,
-                        contactName: item.name,
-                        contactPhone: rawPhone,
-                        errorType: 'OTHER',
-                        errorMessage: `O LINK da linha pertence ao CNPJ ${linkCnpj} e não ao CNPJ ${cleanIdentifier}.`,
-                        rawData: item
-                    });
-                    return;
-                }
+
 
                 // 2. Normalização
                 let phone = cleanPhone;
@@ -1396,17 +1407,7 @@ export default function Campaigns() {
                             )}
                         </div>
 
-                        <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl space-y-2">
-                            <h4 className="text-[10px] font-bold uppercase text-amber-700 flex items-center gap-2">
-                                <AlertCircle className="h-3 w-3" /> 
-                                Segurança de Formato
-                            </h4>
-                            <ul className="text-[10px] text-slate-600 space-y-1.5 list-none pl-1">
-                                <li className="flex gap-2"><span>•</span> <span>O sistema remove automaticamente parênteses, traços e espaços.</span></li>
-                                <li className="flex gap-2"><span>•</span> <span>Certifique-se de incluir o código do país (DDI 55 para Brasil).</span></li>
-                                <li className="flex gap-2"><span>•</span> <span>Para este tenant, a planilha deve seguir o padrão: CNPJ, Whatsapp, Razão Social e LINK.</span></li>
-                            </ul>
-                        </div>
+
                     </div>
 
                     <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">

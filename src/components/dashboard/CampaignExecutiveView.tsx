@@ -123,7 +123,7 @@ export function CampaignExecutiveView() {
     setIsLoading(true);
     try {
       const [campaignsData, agentsData] = await Promise.all([
-        api.getCampaigns(currentTenant.id),
+        api.getCampaigns(currentTenant.id, true),
         api.getAgents(currentTenant.id)
       ]);
 

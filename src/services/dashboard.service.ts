@@ -1,10 +1,10 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const dashboardService = {
     async getDashboardSummary(tenantId: string): Promise<{ agents: Agent[], tenant: Company }> {
         // Use the consolidated Dashboard Summary RPC
-        const { data, error } = await supabase.rpc('get_dashboard_summary', {
+        const { data, error } = await supabaseReader.rpc('get_dashboard_summary', {
             p_tenant_id: tenantId
         });
 
@@ -79,7 +79,7 @@ export const dashboardService = {
 
     async getTenantUsage(tenantId: string): Promise<any> {
         const now = new Date();
-        const { data, error } = await supabase
+        const { data, error } = await supabaseReader
             .rpc('get_tenant_usage_summary', {
                 p_tenant_id: tenantId,
                 p_month: now.getMonth() + 1, // JS months are 0-indexed
@@ -104,7 +104,7 @@ export const dashboardService = {
     },
 
     async getDashMaster(tenantId: string): Promise<any> {
-        const { data, error } = await supabase.rpc('get_dashmaster_v1', {
+        const { data, error } = await supabaseReader.rpc('get_dashmaster_v1', {
             p_tenant_id: tenantId
         });
 
@@ -125,7 +125,7 @@ export const dashboardService = {
         link_sent_contacts: number;
         conversion_rate: number;
     }> {
-        const { data, error } = await supabase.rpc('get_edenred_conversion_funnel', {
+        const { data, error } = await supabaseReader.rpc('get_edenred_conversion_funnel', {
             p_tenant_id: tenantId
         });
 
@@ -138,7 +138,7 @@ export const dashboardService = {
     },
 
     async getExecutiveInsights(tenantId: string, days: number): Promise<any> {
-        const { data, error } = await supabase.rpc('get_executive_insights', {
+        const { data, error } = await supabaseReader.rpc('get_executive_insights', {
             p_tenant_id: tenantId,
             p_days: days
         });

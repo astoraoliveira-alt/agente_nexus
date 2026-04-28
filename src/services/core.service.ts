@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const coreService = {
@@ -579,7 +579,7 @@ export const coreService = {
 
     async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any> {
         // 1. Fetch Company to get Plan Prices
-        const { data: company, error: companyError } = await supabase
+        const { data: company, error: companyError } = await supabaseReader
             .from('companies')
             .select('plan_prices, roi_config')
             .eq('id', tenantId)
@@ -593,7 +593,7 @@ export const coreService = {
         const roiConfig = company?.roi_config || { operator_hourly_rate: 30.0 };
 
         // 2. Fetch Detailed Consumption from RPC
-        const { data, error } = await supabase.rpc('get_detailed_consumption', {
+        const { data, error } = await supabaseReader.rpc('get_detailed_consumption', {
             p_tenant_id: tenantId,
             p_days: days
         });
@@ -601,7 +601,7 @@ export const coreService = {
         if (error) {
             console.error('Failed to get detailed consumption:', error);
             // Fallback to table if RPC fails (some environments might not have it)
-            const { data: fbData, error: fbError } = await supabase
+            const { data: fbData, error: fbError } = await supabaseReader
                 .from('consumption_metrics')
                 .select('*, agents(name)')
                 .eq('tenant_id', tenantId)

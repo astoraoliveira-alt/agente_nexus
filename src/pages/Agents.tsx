@@ -775,7 +775,7 @@ export default function Agents() {
                       Base de Conhecimento
                     </TabsTrigger>
                   )}
-                  {!editingAgent?.parent_agent_id && formData.type === 'whatsapp' && (
+                  {!editingAgent?.parent_agent_id && formData.type === 'whatsapp' && formData.whatsapp_provider === 'evolution' && (
                     <TabsTrigger value="evolution" className="data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none bg-transparent shadow-none px-4 py-2 flex items-center gap-2 whitespace-nowrap">
                       <MessageCircle className="h-4 w-4 shrink-0" />
                       WhatsApp

@@ -1,9 +1,9 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
 export const financialService = {
 async getFinancialReport(month: number, year: number): Promise<import('@/lib/types').FinancialReportRecord[]> {
-        const { data, error } = await supabase
+        const { data, error } = await supabaseReader
             .rpc('get_financial_report', { p_month: month, p_year: year });
 
         if (error) {

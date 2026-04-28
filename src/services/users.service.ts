@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 import { getSetPasswordUrl } from '@/lib/app-url';
 
@@ -250,7 +250,7 @@ async deleteUser(userId: string): Promise<void> {
 
 async getTenant(tenantId: string): Promise<Company | null> {
         // 1. Fetch Company
-        const { data: company, error: companyError } = await supabase
+        const { data: company, error: companyError } = await supabaseReader
             .from('companies')
             .select('*')
             .eq('id', tenantId)

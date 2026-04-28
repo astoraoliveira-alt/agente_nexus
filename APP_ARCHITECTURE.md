@@ -258,6 +258,13 @@ Para garantir a precisão do dashboard comercial da Edenred (Fiserv), o motor de
 2.  **Whitelist de Remetentes (Broad AI Detection)**: Como o n8n pode orquestrar mensagens via diferentes nós (System, AI, Assistant, Lia), a query do funil aceita qualquer `sender_type` dentro de `('ai', 'bot', 'assistant', 'lia', 'system')`.
 3.  **UI Agnóstica (Branding Resilience)**: O componente de dashboard foi desvinculado de nomes fixos (como "Sofia"). Ele utiliza agora termos genéricos ("Interações registradas"), permitindo que o cliente altere o nome do agente sem quebrar a consistência visual do painel.
 
+### 2.12 Separação de Leitura e Escrita (CQRS / Replica)
+
+Para otimizar a performance do banco de dados e evitar que consultas analíticas pesadas (dashboards) impactem a operação em tempo real (envio de mensagens e orquestração n8n), o sistema implementa uma camada de separação de clientes de banco:
+
+1.  **Main DB (`EUA - West`)**: O cliente padrão (`supabase`) é utilizado estritamente para operações transacionais (CRUD). A tela de **Gestão de Campanhas**, por exemplo, utiliza o Main DB nativamente (`useReplica=false`) para garantir que dados recém-inseridos, editados ou excluídos reflitam imediatamente na UI, eliminando o *replication lag*.
+2.  **Replica Reader (`Brasil - SP`)**: O cliente secundário (`supabaseReader`) é utilizado exclusivamente para relatórios e consultas agregadas. Telas como **Campanha Executiva** e **Consumo Detalhado** passam o parâmetro `useReplica=true` nos serviços (`api.getCampaigns(id, true)`, `api.getConsumptionMetrics()`, etc.), desviando todo o custo computacional de `SELECTs` massivos para o nó de leitura (Read Replica).
+
 ---
 
 ## 3. Rotas da Aplicação (Frontend SPA)
