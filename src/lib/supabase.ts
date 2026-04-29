@@ -1,11 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { dataSourceTracker } from './data-source-tracker';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-const supabaseUrlReader = import.meta.env.VITE_SUPABASE_URL_READER;
-const supabaseAnonKeyReader = import.meta.env.VITE_SUPABASE_ANON_KEY_READER;
+const supabaseUrlReader = import.meta.env.VITE_SUPABASE_URL_READER || import.meta.env.NEXT_PUBLIC_SUPABASE_URL_READER;
+const supabaseAnonKeyReader = import.meta.env.VITE_SUPABASE_ANON_KEY_READER || import.meta.env.NEXT_PUBLIC_SUPABASE_ANON_KEY_READER;
 
 if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('❌ Supabase credentials not found. Check your .env setup.');
