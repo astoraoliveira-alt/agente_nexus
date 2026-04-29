@@ -1,6 +1,6 @@
 -- ======================================================== --
--- DAVOS NEXUS - SECURE LEAD FETCH (V50.20)               --
--- Correção de Timezone (America/Sao_Paulo) e Agendamento  --
+-- DAVOS NEXUS - SECURE LEAD FETCH (V50.21)               --
+-- Mantendo Colunas Originais + Correção de Timezone + Agendamento --
 -- ======================================================== --
 
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
@@ -10,13 +10,19 @@ CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
 )
 RETURNS TABLE (
     id uuid,
-    contact_phone text,
+    phone text,
     contact_name text,
     campaign_id uuid,
     agent_id uuid,
     tenant_id uuid,
-    initial_message text,
-    evolution_instance text
+    message text,
+    provider text,
+    instance text,
+    evolution_token text,
+    meta_api_token text,
+    meta_phone_number_id text,
+    zenvia_api_token text,
+    zenvia_channel_id text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -25,24 +31,24 @@ AS $$
 #variable_conflict use_column
 DECLARE
     v_daily_limit int;
-    v_sent_today int;
     v_allowed_now boolean;
+    v_sent_today int;
     v_actual_limit int;
 BEGIN
-    -- [A] AUTO-RECUPERAÇÃO: Limpa leads presos no "processing" por erro antigo no n8n (> 30 mins)
+    -- 0. Auto-Recuperação: Limpa as mensagens presas que falharam no n8n (> 30 mins)
     UPDATE public.outbound_queue oq_recover
     SET status = 'pending'
     WHERE oq_recover.tenant_id = p_tenant_id
       AND oq_recover.campaign_id = p_campaign_id
       AND oq_recover.status = 'processing'
-      AND oq_recover.created_at < NOW() - INTERVAL '30 minutes';
+      AND oq_recover.last_attempt_at < (NOW() AT TIME ZONE 'America/Sao_Paulo') - INTERVAL '30 minutes';
 
-    -- 1. Buscar configurações da campanha e verificar se está no horário/data (Timezone Brasil)
+    -- 1. Buscar configurações da campanha e janela de horário (Timezone Brasil)
     SELECT 
         camp.daily_limit,
         (
-            CURRENT_DATE >= COALESCE(camp.start_date, '2000-01-01'::date) AND 
-            CURRENT_DATE <= COALESCE(camp.end_date, '2099-12-31'::date) AND
+            (NOW() AT TIME ZONE 'America/Sao_Paulo')::date >= COALESCE(camp.start_date, '2000-01-01'::date) AND 
+            (NOW() AT TIME ZONE 'America/Sao_Paulo')::date <= COALESCE(camp.end_date, '2099-12-31'::date) AND
             (NOW() AT TIME ZONE 'America/Sao_Paulo')::time >= COALESCE(camp.start_time, '00:00:00')::time AND 
             (NOW() AT TIME ZONE 'America/Sao_Paulo')::time <= COALESCE(camp.end_time, '23:59:59')::time
         ) as in_window
@@ -50,62 +56,72 @@ BEGIN
     FROM public.campaigns camp
     WHERE camp.id = p_campaign_id AND camp.status = 'active';
 
-    -- Se fora da janela de horário ou data, não retorna nada
+    -- Se fora da janela, encerra
     IF NOT v_allowed_now OR v_allowed_now IS NULL THEN
         RETURN;
     END IF;
 
-    -- 2. Calcular quanto ainda pode ser enviado hoje (Baseado no fuso de São Paulo)
+    -- 2. Calcular Quota Diária Restante (Limite - Enviados Hoje base Sampa)
     SELECT COUNT(*)::int INTO v_sent_today
     FROM public.outbound_queue oq_sent
     WHERE oq_sent.campaign_id = p_campaign_id 
       AND oq_sent.status IN ('sent', 'delivered', 'read') 
       AND (oq_sent.sent_at AT TIME ZONE 'America/Sao_Paulo')::DATE = (NOW() AT TIME ZONE 'America/Sao_Paulo')::DATE;
 
-    v_actual_limit := LEAST(p_limit, GREATEST(0, v_daily_limit - v_sent_today));
+    v_actual_limit := LEAST(p_limit, GREATEST(0, COALESCE(v_daily_limit, 999999) - v_sent_today));
 
-    -- Se já atingiu o limite diário, retorna vazio
     IF v_actual_limit <= 0 THEN
         RETURN;
     END IF;
 
-    -- 3. Buscar e TRAVAR os leads (Respeitando scheduled_at <= NOW())
+    -- 3. Buscar, TRAVAR e RETORNAR os leads enriquecidos (Respeitando scheduled_at)
     RETURN QUERY
     WITH selected_leads AS (
-        UPDATE public.outbound_queue q
-        SET status = 'processing'
-        WHERE q.id IN (
+        UPDATE public.outbound_queue oq_update
+        SET status = 'processing',
+            last_attempt_at = NOW()
+        WHERE oq_update.id IN (
             SELECT oq.id 
             FROM public.outbound_queue oq
             WHERE oq.tenant_id = p_tenant_id
               AND oq.campaign_id = p_campaign_id
               AND oq.status = 'pending'
-              AND oq.scheduled_at <= NOW() -- Só pega se já chegou a hora de enviar
+              AND oq.scheduled_at <= NOW() -- Trava de agendamento
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
                   WHERE oq_check.tenant_id = p_tenant_id
                     AND oq_check.contact_phone = oq.contact_phone
                     AND (oq_check.status = 'sent' OR oq_check.status = 'processing')
                     AND (oq_check.id <> oq.id)
-                    AND (oq_check.sent_at > (NOW() - INTERVAL '2 hours') OR (oq_check.status = 'processing' AND oq_check.created_at > NOW() - INTERVAL '5 minutes'))
+                    AND (oq_check.sent_at > (NOW() - INTERVAL '2 hours') OR (oq_check.status = 'processing' AND oq_check.last_attempt_at > NOW() - INTERVAL '30 minutes'))
               )
             ORDER BY oq.created_at ASC
             LIMIT v_actual_limit
             FOR UPDATE SKIP LOCKED 
         )
-        RETURNING q.id, q.contact_phone, q.contact_name, q.campaign_id, q.agent_id, q.tenant_id
+        RETURNING oq_update.id, oq_update.contact_phone, oq_update.contact_name, oq_update.campaign_id, oq_update.agent_id, oq_update.tenant_id
     )
     SELECT 
         sl.id,
-        sl.contact_phone::text,
+        sl.contact_phone::text as phone,
         sl.contact_name::text,
         sl.campaign_id,
         sl.agent_id,
         sl.tenant_id,
-        c.initial_message::text,
-        ag.evolution_instance::text
+        camp.initial_message::text as message,
+        COALESCE(ag.whatsapp_provider, 'evolution')::text as provider,
+        ag.evolution_instance::text as instance,
+        ag.evolution_token::text as evolution_token,
+        ag.meta_api_token::text as meta_api_token,
+        ag.meta_phone_number_id::text as meta_phone_number_id,
+        ag.zenvia_api_token::text as zenvia_api_token,
+        ag.zenvia_channel_id::text as zenvia_channel_id
     FROM selected_leads sl
-    JOIN public.campaigns c ON c.id = sl.campaign_id
+    JOIN public.campaigns camp ON camp.id = sl.campaign_id
     JOIN public.agents ag ON ag.id = sl.agent_id;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO anon;
