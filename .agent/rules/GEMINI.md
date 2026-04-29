@@ -120,6 +120,12 @@ When user's prompt is NOT in English:
 2. Identify dependent files
 3. Update ALL affected files together
 
+### 🗄️ Database Changes (Mandatory)
+
+You must follow project rules defined in `AI_RULES.md` and `database/MIGRATION_RULES.md`.
+**NEVER** apply database changes directly. **ALWAYS** generate migration files in `database/migrations` and sequence them.
+
+
 ### 🗺️ System Map Read
 
 > 🔴 **MANDATORY:** Read `ARCHITECTURE.md` at session start to understand Agents, Skills, and Scripts.

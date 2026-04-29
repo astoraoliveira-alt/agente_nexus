@@ -105,7 +105,10 @@ export function AppSidebar() {
                 <div className="w-8 h-8 bg-black/20 flex items-center justify-center rounded-sm shrink-0">
                   <span className="text-white font-bold text-sm">DN</span>
                 </div>
-                <span className="font-semibold text-white truncate">Davos Nexus</span>
+                <div className="flex flex-col overflow-hidden">
+                  <span className="font-semibold text-white truncate leading-tight">Davos Nexus</span>
+                  <span className="text-[10px] text-white/50 font-medium tracking-wide">v59.0.1</span>
+                </div>
               </>
             )}
           </div>
