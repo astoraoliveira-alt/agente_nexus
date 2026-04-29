@@ -576,8 +576,9 @@ async deleteCampaign(id: string): Promise<void> {
         }));
     },
 
-    async getCampaignStats(campaignId: string | null, tenantId: string): Promise<any> {
-        const { data, error } = await supabaseReader.rpc('get_campaign_dashboard_stats', {
+    async getCampaignStats(campaignId: string | null, tenantId: string, useReplica: boolean = false): Promise<any> {
+        const client = useReplica ? supabaseReader : supabase;
+        const { data, error } = await client.rpc('get_campaign_dashboard_stats', {
             p_campaign_id: campaignId === "" ? null : campaignId,
             p_tenant_id: campaignId === "" ? tenantId : null
         });
@@ -587,6 +588,8 @@ async deleteCampaign(id: string): Promise<void> {
             total_contacts: number;
             import_errors: number;
             sent_count: number;
+            delivered_count: number;
+            read_count: number;
             response_count: number;
             conversion_count: number;
             conversion_rate: number;

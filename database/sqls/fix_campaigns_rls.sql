@@ -31,21 +31,21 @@ $$;
 -- Reading campaigns
 CREATE POLICY "Tenant Read Campaigns" ON public.campaigns
 FOR SELECT
-USING ( tenant_id = public.get_auth_tenant_id() );
+USING ( tenant_id = public.get_auth_tenant_id() OR public.is_super_admin() );
 
 -- Inserting campaigns
 CREATE POLICY "Tenant Insert Campaigns" ON public.campaigns
 FOR INSERT
-WITH CHECK ( tenant_id = public.get_auth_tenant_id() );
+WITH CHECK ( tenant_id = public.get_auth_tenant_id() OR public.is_super_admin() );
 
 -- Updating campaigns
 CREATE POLICY "Tenant Update Campaigns" ON public.campaigns
 FOR UPDATE
-USING ( tenant_id = public.get_auth_tenant_id() );
+USING ( tenant_id = public.get_auth_tenant_id() OR public.is_super_admin() );
 
 -- Deleting campaigns
 CREATE POLICY "Tenant Delete Campaigns" ON public.campaigns
 FOR DELETE
-USING ( tenant_id = public.get_auth_tenant_id() );
+USING ( tenant_id = public.get_auth_tenant_id() OR public.is_super_admin() );
 
 COMMIT;

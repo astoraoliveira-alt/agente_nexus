@@ -3,6 +3,9 @@
 -- Mantendo Colunas Originais + Correção de Timezone + Agendamento --
 -- ======================================================== --
 
+-- 🔴 CRITICAL: Drop existing function to change return type signature
+DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
+
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
     p_tenant_id uuid,
     p_campaign_id uuid,

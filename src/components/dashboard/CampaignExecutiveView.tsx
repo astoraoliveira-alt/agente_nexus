@@ -44,6 +44,7 @@ interface CampaignStats {
     import_errors: number;
     sent_count: number;
     delivered_count: number;
+    read_count: number;
     response_count: number;
     conversion_count: number;
     conversion_rate: number;
@@ -123,7 +124,7 @@ export function CampaignExecutiveView() {
     setIsLoading(true);
     try {
       const [campaignsData, agentsData] = await Promise.all([
-        api.getCampaigns(currentTenant.id, true),
+        api.getCampaigns(currentTenant.id, false),
         api.getAgents(currentTenant.id)
       ]);
 
@@ -153,6 +154,7 @@ export function CampaignExecutiveView() {
           totalContacts: liveStats.total_contacts,
           sentCount: liveStats.sent_count,
           deliveredCount: liveStats.delivered_count || 0,
+          readCount: liveStats.read_count || 0,
           responseCount: liveStats.response_count,
           totalMessages: liveStats.total_messages,
           conversionCount: liveStats.conversion_count,
@@ -246,7 +248,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
             </div>
             <div className="flex flex-col">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Visão Geral</span>
-              <span className="text-2xl font-black text-slate-900 italic tracking-tight">Painel Principal Outbound</span>
+              <span className="text-2xl font-black text-slate-900 italic tracking-tight">Painel Principal de Campanhas</span>
             </div>
           </div>
 
@@ -276,6 +278,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Válidos</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Enviados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Entregues</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Lidas</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Abandonados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Links Enviados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
@@ -308,10 +311,14 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                       <div className="flex items-center justify-center gap-2">
                         <span className={cn(
                           "h-2.5 w-2.5 rounded-full",
-                          c.status === 'active' ? "bg-emerald-500" : "bg-slate-300"
+                          c.status?.toLowerCase() === 'active' ? "bg-emerald-500" : 
+                          c.status?.toLowerCase() === 'paused' ? "bg-amber-500" :
+                          c.status?.toLowerCase() === 'completed' ? "bg-blue-500" : "bg-slate-300"
                         )} />
                         <span className="text-xs font-bold text-slate-600">
-                          {c.status === 'active' ? 'Ativa' : 'Inativa'}
+                          {c.status?.toLowerCase() === 'active' ? 'Ativa' : 
+                           c.status?.toLowerCase() === 'paused' ? 'Pausada' :
+                           c.status?.toLowerCase() === 'completed' ? 'Finalizada' : 'Inativa'}
                         </span>
                       </div>
                     </td>
@@ -329,6 +336,9 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {(c.deliveredCount || 0).toLocaleString('pt-BR')}
+                    </td>
+                    <td className="px-4 py-5 text-xs font-bold text-emerald-600 text-center">
+                      {(c.readCount || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
                       {Math.max((c.sentCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
@@ -721,7 +731,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
               <KPISquare label="Enviados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
               <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
-              <KPISquare label="Não Entregues" value={Math.max(stats.sent_count - stats.delivered_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.delivered_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
+              <KPISquare label="Lidos" value={stats.read_count} percentage={stats.total_contacts > 0 ? (stats.read_count / stats.total_contacts) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Base: leads válidos" />
             </OperationCluster>
 
             <OperationCluster title="Resultado de Interações" subtitle="Baseados nos leads válidos" icon={Zap}>

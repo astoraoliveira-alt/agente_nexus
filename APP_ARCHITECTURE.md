@@ -1,9 +1,16 @@
+## [V60.0] - Campaign Metrics Truth & UI Refinement (Executive SLA)
+### Precisão de Métricas & Dashboard de Campanhas
+- **Single Source of Truth (SSoT)**: O dashboard de campanhas agora utiliza exclusivamente a tabela `message_status_history` para métricas, eliminando discrepâncias causadas pelo estado volátil da `outbound_queue`.
+- **Read Metrics Integration**: Inclusão do contador de "Lidas" (`read_count`) no painel executivo, permitindo monitorar o engajamento real dos leads.
+- **Status Mapping Pro**: Otimização do display de status na tabela executiva com suporte a **"Pausada" (Âmbar)**, "Ativa" (Verde) e "Finalizada" (Azul), com tratamento de case-insensitivity.
+- **UI Cleanup & Alignment**: 
+  - Remoção dos indicadores estáticos de "UPTIME" e "Sincronizado" do header principal para reduzir ruído visual.
+  - Renomeação do painel para **"Painel Principal de Campanhas"**, alinhando a terminologia com a experiência do usuário final.
+  - Ajuste de cores e contraste nos cards de KPI para melhor legibilidade.
+
+---
+
 ## [V59.0] - WhatsApp Official Billing Optimization (Enterprise SLA)
-### Faturamento Conversacional & Janelas 24h
-- **Unified Billing Logic**: Unificação do gatilho de faturamento na tabela `messages`. Agora, tanto disparos de Campanhas quanto conversas orgânicas da **Sofia** abrem janelas de 24h (R$ 1,10) automaticamente.
-- **Race Condition Protection**: Implementação de `FOR UPDATE SKIP LOCKED` no processamento de janelas, evitando duplicidade de cobrança em mensagens enviadas em alta frequência.
-- **Hybrid Consumption RPC**: O RPC `get_detailed_consumption` foi otimizado para excluir mensagens individuais de WhatsApp quando o plano for oficial, priorizando a tabela `whatsapp_billing_windows` para garantir 100% de precisão financeira.
-- **Backfill Integration**: Inclusão de script de recuperação automática para conversas que ocorreram antes da ativação do gatilho unificado, corrigindo o dashboard retroativamente.
 
 ---
 

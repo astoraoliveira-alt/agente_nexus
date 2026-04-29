@@ -961,6 +961,7 @@ export interface Campaign {
   totalContacts: number;
   sentCount: number;
   deliveredCount?: number;
+  readCount?: number;
   responseCount: number;
   totalMessages: number;
   conversionCount: number;

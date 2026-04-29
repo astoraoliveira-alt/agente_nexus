@@ -1347,3 +1347,157 @@ CREATE TABLE IF NOT EXISTS public.agent_leads (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant ON public.agent_leads(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_agent_leads_campaign ON public.agent_leads(campaign_id);
+
+-- =============================================
+-- CAMPAIGN MODULE - OUTBOUND DISPATCH
+-- =============================================
+
+DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
+
+CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
+    p_tenant_id uuid,
+    p_campaign_id uuid,
+    p_limit int
+)
+RETURNS TABLE (
+    id uuid,
+    phone text,
+    contact_name text,
+    campaign_id uuid,
+    agent_id uuid,
+    tenant_id uuid,
+    message text,
+    provider text,
+    instance text,
+    evolution_token text,
+    meta_api_token text,
+    meta_phone_number_id text,
+    zenvia_api_token text,
+    zenvia_channel_id text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+#variable_conflict use_column
+DECLARE
+    v_daily_limit int;
+    v_allowed_now boolean;
+    v_campaign_agent_id uuid;
+BEGIN
+    -- 1. Check Campaign Window (Timezone America/Sao_Paulo)
+    SELECT 
+        agent_id,
+        daily_limit,
+        (
+            (CURRENT_TIME AT TIME ZONE 'America/Sao_Paulo')::time >= start_time::time AND 
+            (CURRENT_TIME AT TIME ZONE 'America/Sao_Paulo')::time <= end_time::time
+        ) INTO v_campaign_agent_id, v_daily_limit, v_allowed_now
+    FROM public.campaigns
+    WHERE id = p_campaign_id AND status = 'active';
+
+    IF NOT v_allowed_now THEN
+        RETURN;
+    END IF;
+
+    -- 2. Fetch and Lock Leads
+    RETURN QUERY
+    WITH selected_leads AS (
+        UPDATE public.outbound_queue
+        SET 
+            status = 'assigned',
+            last_attempt_at = NOW()
+        WHERE id IN (
+            SELECT q.id
+            FROM public.outbound_queue q
+            WHERE q.campaign_id = p_campaign_id
+              AND q.status = 'pending'
+              AND (q.scheduled_at IS NULL OR q.scheduled_at <= NOW())
+            ORDER BY q.created_at ASC
+            LIMIT p_limit
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING *
+    )
+    SELECT 
+        sl.id,
+        sl.contact_phone::text as phone,
+        sl.contact_name::text,
+        sl.campaign_id,
+        sl.agent_id,
+        sl.tenant_id,
+        camp.initial_message::text as message,
+        COALESCE(ag.whatsapp_provider, 'evolution')::text as provider,
+        ag.evolution_instance::text as instance,
+        ag.evolution_token::text as evolution_token,
+        ag.meta_api_token::text as meta_api_token,
+        ag.meta_phone_number_id::text as meta_phone_number_id,
+        ag.zenvia_api_token::text as zenvia_api_token,
+        ag.zenvia_channel_id::text as zenvia_channel_id
+    FROM selected_leads sl
+    JOIN public.campaigns camp ON camp.id = sl.campaign_id
+    JOIN public.agents ag ON ag.id = sl.agent_id;
+END;
+$$;
+
+-- =============================================
+-- CAMPAIGN MODULE - OUTBOUND HANDLER (SYNC)
+-- =============================================
+
+DO $$ 
+BEGIN
+    EXECUTE (
+        SELECT 'DROP FUNCTION ' || oid::regprocedure
+        FROM pg_proc 
+        WHERE proname = 'handle_outbound_sent' 
+          AND pronamespace = 'public'::regnamespace
+    );
+EXCEPTION WHEN OTHERS THEN 
+    NULL;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.handle_outbound_sent(
+    p_tenant_id uuid,
+    p_agent_id uuid,
+    p_contact_phone text,
+    p_contact_name text,
+    p_message_content text,
+    p_queue_id uuid,
+    p_campaign_id uuid,
+    p_message_type text DEFAULT 'text',
+    p_remote_id text DEFAULT NULL,
+    p_channel public.conversation_channel DEFAULT 'whatsapp'::public.conversation_channel,
+    p_trace_id text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_conversation_id uuid;
+    v_message_id uuid;
+    v_clean_phone text;
+BEGIN
+    v_clean_phone := regexp_replace(p_contact_phone, '\D', '', 'g');
+
+    INSERT INTO public.conversations (tenant_id, agent_id, user_identifier, user_name, channel, status, last_message_at)
+    VALUES (p_tenant_id, p_agent_id, v_clean_phone, p_contact_name, COALESCE(p_channel, 'whatsapp'::public.conversation_channel), 'ai_active', NOW())
+    ON CONFLICT (tenant_id, agent_id, user_identifier) 
+    DO UPDATE SET status = 'ai_active', last_message_at = NOW(), updated_at = NOW()
+    RETURNING id INTO v_conversation_id;
+
+    INSERT INTO public.messages (tenant_id, conversation_id, content, direction, message_type, sender_type, remote_id, trace_id, metadata)
+    VALUES (p_tenant_id, v_conversation_id, p_message_content, 'outbound', p_message_type, 'agent', p_remote_id, p_trace_id, jsonb_build_object('campaign_id', p_campaign_id, 'queue_id', p_queue_id))
+    RETURNING id INTO v_message_id;
+
+    IF p_queue_id IS NOT NULL THEN
+        UPDATE public.outbound_queue SET status = 'sent', sent_at = NOW(), conversation_id = v_conversation_id, metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('message_id', v_message_id) WHERE id = p_queue_id;
+    END IF;
+
+    IF p_campaign_id IS NOT NULL THEN PERFORM public.fn_sync_campaign_stats(p_campaign_id); END IF;
+
+    RETURN jsonb_build_object('success', true, 'conversation_id', v_conversation_id, 'message_id', v_message_id);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.handle_outbound_sent TO authenticated, service_role;

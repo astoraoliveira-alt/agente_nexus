@@ -32,12 +32,8 @@ BEGIN
     DELETE FROM public.outbound_queue WHERE tenant_id = v_tenant_id;
 
     -- 3. LIMPEZA DE MENSAGENS E CONVERSAS (Histórico)
-    -- Limpa dependências de mensagens primeiro
-    BEGIN
-        EXECUTE 'DELETE FROM public.message_status_history WHERE message_id IN (SELECT id FROM public.messages WHERE tenant_id = ' || quote_literal(v_tenant_id) || ')';
-    EXCEPTION WHEN undefined_table THEN 
-        NULL;
-    END;
+    DELETE FROM public.message_status_history 
+    WHERE message_id IN (SELECT id FROM public.messages WHERE tenant_id = v_tenant_id);
 
     DELETE FROM public.messages WHERE tenant_id = v_tenant_id;
     

@@ -93,15 +93,6 @@ export default function Index() {
                 </TabsTrigger>
               </TabsList>
 
-              <div className="hidden md:flex items-center gap-3">
-                <Badge variant="outline" className="font-mono text-[10px] px-3 py-1 bg-white border-border/50 text-muted-foreground">
-                  UPTIME: 99.9%
-                </Badge>
-                <div className="flex items-center gap-2 px-3 py-1 bg-white rounded-full border border-border/50 shadow-sm">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[10px] font-black text-slate-600 uppercase">Sincronizado</span>
-                </div>
-              </div>
             </div>
 
             <TabsContent value="geral" className="space-y-4 animate-in fade-in zoom-in duration-300 overflow-y-auto pr-2">
