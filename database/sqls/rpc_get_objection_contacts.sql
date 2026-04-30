@@ -31,7 +31,7 @@ BEGIN
         SELECT 
             c.id AS conv_id,
             c.user_identifier,
-            c.updated_at,
+            c.updated_at AS conv_updated_at,
             'Sentiment/Tag'::TEXT AS reason
         FROM conversations c
         WHERE c.tenant_id = p_tenant_id
@@ -71,7 +71,7 @@ BEGIN
         SELECT conv_id, reason
         FROM FlaggedConversations
         WHERE user_identifier = ct.identifier
-        ORDER BY updated_at DESC
+        ORDER BY conv_updated_at DESC
         LIMIT 1
     ) fc ON true
     WHERE ct.tenant_id = p_tenant_id
