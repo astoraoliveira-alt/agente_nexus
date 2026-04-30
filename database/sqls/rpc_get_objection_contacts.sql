@@ -35,7 +35,7 @@ BEGIN
                OR EXISTS (
                    SELECT 1 FROM messages m 
                    WHERE m.conversation_id = c.id 
-                     AND m.sender = 'user'
+                     AND m.sender_type = 'user'
                      AND m.content ILIKE ANY (ARRAY[
                          '%atendente%', '%humano%', '%falar com algu_m%', '%passar para um humano%', 
                          '%pessoas reais%', '%agressivo%', '%ruim%', '%p_ssimo%', '%cancela%', 
