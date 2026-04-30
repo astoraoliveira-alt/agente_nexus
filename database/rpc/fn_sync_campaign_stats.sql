@@ -33,11 +33,6 @@ BEGIN
     WHERE campaign_id = p_campaign_id;
 
     -- 2. Atualiza a tabela de Campanhas
-    -- Garante que a coluna existe antes (Segurança)
-    BEGIN
-        ALTER TABLE public.campaigns ADD COLUMN IF NOT EXISTS delivered_count INT DEFAULT 0;
-    EXCEPTION WHEN duplicate_column THEN NULL;
-    END;
 
     UPDATE public.campaigns
     SET 
