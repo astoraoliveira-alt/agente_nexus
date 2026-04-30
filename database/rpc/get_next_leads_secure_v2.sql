@@ -13,13 +13,20 @@ CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
 )
 RETURNS TABLE (
     id uuid,
-    contact_phone text,
+    phone text,
     contact_name text,
     campaign_id uuid,
     agent_id uuid,
     tenant_id uuid,
-    initial_message text,
-    evolution_instance text
+    message text,
+    provider text,
+    instance text,
+    evolution_token text,
+    meta_api_token text,
+    meta_phone_number_id text,
+    zenvia_api_token text,
+    zenvia_channel_id text,
+    template_id text
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -100,13 +107,20 @@ BEGIN
     )
     SELECT 
         sl.id,
-        sl.contact_phone::text,
+        sl.contact_phone::text as phone,
         sl.contact_name::text,
         sl.campaign_id,
         sl.agent_id,
         sl.tenant_id,
-        c.initial_message::text,
-        ag.evolution_instance::text
+        c.initial_message::text as message,
+        COALESCE(ag.whatsapp_provider, 'evolution')::text as provider,
+        ag.evolution_instance::text as instance,
+        ag.evolution_token::text as evolution_token,
+        ag.meta_api_token::text as meta_api_token,
+        ag.meta_phone_number_id::text as meta_phone_number_id,
+        ag.zenvia_api_token::text as zenvia_api_token,
+        ag.zenvia_channel_id::text as zenvia_channel_id,
+        (c.metadata->>'template_id')::text as template_id
     FROM selected_leads sl
     JOIN public.campaigns c ON c.id = sl.campaign_id
     JOIN public.agents ag ON ag.id = sl.agent_id;

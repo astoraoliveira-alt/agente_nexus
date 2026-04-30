@@ -157,14 +157,12 @@ export default function Campaigns() {
     };
 
     const defaultInitialMessage =
-        "Olá! Sou a Sofia, assistente virtual da Ticket.\n\n" +
-        "*Essa é a oportunidade perfeita para você garantir crédito com as melhores condições do mercado!*\n\n" +
-        "A nova parceria entre Ticket e Fiserv Capital, líder global em tecnologia de pagamentos, oferece aos clientes Ticket *Capital de Giro facilitado* para pagar despesas fixas, garantir mais previsibilidade financeira e investir no crescimento do seu negócio. Tudo isso garantindo *condições exclusivas*:\n\n" +
-        "✅ Taxas a partir de *1,89% a.m*\n" +
-        "✅ Crédito disponível entre *10 mil e 500 mil reais*\n" +
-        "✅ Recebimento do dinheiro em até *24h*\n" +
-        "✅ O único bem que você usa como garantia são *seus recebíveis* (débito, crédito e voucher Ticket)!\n\n" +
-        "*Posso enviar o link para análise?*";
+        "Já pensou em reforçar o caixa *sem burocracia*?\n\n" +
+        "Você pode ter *até R$500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é *rápida e sem compromisso*.\n\n" +
+        "✅Taxas a partir de *1,89% a.m*;\n" +
+        "✅Crédito disponível entre *10 mil a 500 mil reais*;\n" +
+        "✅Recebimento do dinheiro *em até 24h*;\n\n" +
+        "👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?";
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
@@ -177,6 +175,7 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
+        templateId: "",
         successCriteria: ['LINK_SENT'] as string[],
         successLinkFilter: "fiservcapital",
     });
@@ -268,6 +267,7 @@ export default function Campaigns() {
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
                 initialMessage: normalizeMessagingText(newCampaign.initialMessage),
+                metadata: newCampaign.templateId ? { template_id: newCampaign.templateId } : undefined,
                 dailyLimit: newCampaign.dailyLimit,
                 successCriteria: newCampaign.successCriteria,
                 successLinkFilter: newCampaign.successCriteria.includes('LINK_SENT') ? newCampaign.successLinkFilter : undefined,
@@ -292,6 +292,7 @@ export default function Campaigns() {
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
+                templateId: "",
                 successCriteria: ['LINK_SENT'],
                 successLinkFilter: "fiservcapital",
             });
@@ -740,6 +741,7 @@ export default function Campaigns() {
                 startTime: editingCampaign.startTime,
                 endTime: editingCampaign.endTime,
                 initialMessage: normalizeMessagingText(editingCampaign.initialMessage),
+                metadata: { ...(editingCampaign.metadata || {}), template_id: editingCampaign.metadata?.template_id || undefined },
                 agentId: editingCampaign.agentId,
                 successCriteria: editingCampaign.successCriteria,
                 successLinkFilter: editingCampaign.successLinkFilter,
@@ -1020,6 +1022,16 @@ export default function Campaigns() {
                                                     className="flex min-h-[80px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                                     value={newCampaign.initialMessage}
                                                     onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
+                                                />
+                                            </div>
+                                            <div className="grid gap-2 mt-4">
+                                                <Label htmlFor="templateId" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">ID do Template Zenvia (Opcional)</Label>
+                                                <Input
+                                                    id="templateId"
+                                                    placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                    className="bg-accent/5 h-10"
+                                                    value={newCampaign.templateId}
+                                                    onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
                                                 />
                                             </div>
                                         </div>
@@ -1522,6 +1534,16 @@ export default function Campaigns() {
                                         className="flex min-h-[100px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                                         value={editingCampaign.initialMessage || ""}
                                         onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="edit-templateId" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">ID do Template Zenvia (Opcional)</Label>
+                                    <Input
+                                        id="edit-templateId"
+                                        placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                        className="bg-accent/5 h-10"
+                                        value={editingCampaign.metadata?.template_id || ""}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
                                     />
                                 </div>
                                 <div className="grid gap-2">
