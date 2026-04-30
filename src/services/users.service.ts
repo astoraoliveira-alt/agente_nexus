@@ -250,7 +250,7 @@ async deleteUser(userId: string): Promise<void> {
 
 async getTenant(tenantId: string): Promise<Company | null> {
         // 1. Fetch Company
-        const { data: company, error: companyError } = await supabaseReader
+        const { data: company, error: companyError } = await supabase
             .from('companies')
             .select('*')
             .eq('id', tenantId)

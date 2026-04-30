@@ -42,8 +42,28 @@ export const supabase = withTracking(rawPrimary, 'primary');
 
 // 🔵 READER CLIENT: Strictly Read-Only (Dashboards & Metrics)
 const rawReader = supabaseUrlReader && supabaseAnonKeyReader 
-    ? createClient(supabaseUrlReader, supabaseAnonKeyReader)
+    ? createClient(supabaseUrlReader, supabaseAnonKeyReader, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+        }
+    })
     : rawPrimary;
+
+if (rawPrimary !== rawReader) {
+    // Sync the session from the primary client so that RLS works on the reader
+    rawPrimary.auth.onAuthStateChange((event, session) => {
+        if (session) {
+            rawReader.auth.setSession({
+                access_token: session.access_token,
+                refresh_token: session.refresh_token
+            });
+        } else {
+            rawReader.auth.signOut();
+        }
+    });
+}
 
 export const supabaseReader = withTracking(rawReader, supabaseUrlReader ? 'replica' : 'primary');
 
