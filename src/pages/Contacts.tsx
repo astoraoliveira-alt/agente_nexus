@@ -9,8 +9,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle } from 'lucide-react';
+import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -44,6 +45,8 @@ const Contacts = () => {
     const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
     const [editingContact, setEditingContact] = useState<Contact | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [objectionContacts, setObjectionContacts] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState('all');
 
     // Form State
     const [formData, setFormData] = useState({
@@ -65,8 +68,12 @@ const Contacts = () => {
         setIsLoading(true);
         try {
             if (currentTenant) {
-                const data = await api.getContacts(currentTenant.id);
+                const [data, objectionsData] = await Promise.all([
+                    api.getContacts(currentTenant.id),
+                    api.getObjectionContacts(currentTenant.id)
+                ]);
                 setContacts(data);
+                setObjectionContacts(objectionsData);
             }
         } catch (error) {
             toast({
@@ -185,6 +192,12 @@ const Contacts = () => {
         (c.email || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const filteredObjections = objectionContacts.filter(c =>
+        (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.identifier || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (c.email || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
     return (
         <MainLayout>
             <div className="p-8 space-y-8 animate-in fade-in duration-500 h-full overflow-y-auto">
@@ -200,9 +213,19 @@ const Contacts = () => {
 
                 <ContactStatsHeader contacts={contacts} />
 
-                <Card>
-                    <CardHeader>
-                        <div className="flex justify-between items-center">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 max-w-[400px] mb-4">
+                        <TabsTrigger value="all">Todos os Contatos</TabsTrigger>
+                        <TabsTrigger value="objections" className="data-[state=active]:bg-red-100 data-[state=active]:text-red-900 dark:data-[state=active]:bg-red-900/30 dark:data-[state=active]:text-red-300">
+                            <AlertTriangle className="w-4 h-4 mr-2" />
+                            Relatório de Objeções
+                        </TabsTrigger>
+                    </TabsList>
+
+                    <TabsContent value="all" className="mt-0">
+                        <Card>
+                            <CardHeader>
+                                <div className="flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 <CardTitle>Base de Contatos</CardTitle>
                                 <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
@@ -362,6 +385,106 @@ const Contacts = () => {
                         </Table>
                     </CardContent>
                 </Card>
+                </TabsContent>
+
+                <TabsContent value="objections" className="mt-0">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex justify-between items-center">
+                                <div className="flex items-center gap-4">
+                                    <CardTitle className="text-red-600 flex items-center gap-2">
+                                        <AlertTriangle className="h-5 w-5" />
+                                        Contatos com Objeções / Resistência
+                                    </CardTitle>
+                                    <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
+                                        {searchTerm ? (
+                                            <>Filtrados: <span className="text-foreground font-bold">{filteredObjections.length}</span> / {objectionContacts.length}</>
+                                        ) : (
+                                            <>Total: <span className="text-foreground font-bold">{objectionContacts.length}</span></>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="relative w-64">
+                                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Buscar objeções..."
+                                        className="pl-8"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <CardDescription>
+                                Leads e clientes que apresentaram resistência, sentimento negativo ou pediram para falar com um atendente.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-[300px]">Nome / Identificador</TableHead>
+                                        <TableHead>Motivo / Sentimento</TableHead>
+                                        <TableHead>Status / Lifecycle</TableHead>
+                                        <TableHead>Última Interação</TableHead>
+                                        <TableHead className="text-right">Ações</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {isLoading ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center py-8">Carregando...</TableCell>
+                                        </TableRow>
+                                    ) : filteredObjections.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                                                Nenhuma objeção encontrada. Ótimo trabalho!
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        filteredObjections.map((contact) => (
+                                            <TableRow key={contact.id} className="bg-red-50/30 dark:bg-red-950/10">
+                                                <TableCell>
+                                                    <div className="flex items-center gap-3">
+                                                        <Avatar>
+                                                            <AvatarImage src={contact.avatarUrl} />
+                                                            <AvatarFallback>{(contact.name || '??').substring(0, 2).toUpperCase()}</AvatarFallback>
+                                                        </Avatar>
+                                                        <div>
+                                                            <p className="font-medium">{contact.name}</p>
+                                                            <p className="text-xs text-muted-foreground flex gap-2">
+                                                                {contact.identifier}
+                                                                {contact.channel === 'whatsapp' && <Badge variant="outline" className="text-[9px] px-1 h-4">WhatsApp</Badge>}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant="destructive" className="bg-red-100 text-red-800 border-red-200 hover:bg-red-100">
+                                                        {contact.objection_reason === 'Sentiment/Tag' ? (contact.sentiment || 'Objeção') : contact.objection_reason}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant="outline" className="capitalize">
+                                                        {contact.lifecycleStatus || 'Lead'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-muted-foreground text-sm">
+                                                    {new Date(contact.updatedAt).toLocaleDateString()}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <Button variant="ghost" size="sm" onClick={() => handleOpenDialog(contact)}>
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+                </Tabs>
 
                 <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                     <DialogContent>
