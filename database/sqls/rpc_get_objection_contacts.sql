@@ -3,20 +3,20 @@ CREATE OR REPLACE FUNCTION public.get_objection_contacts(p_tenant_id UUID)
 RETURNS TABLE (
     id UUID,
     tenant_id UUID,
-    name VARCHAR,
-    identifier VARCHAR,
-    email VARCHAR,
-    phone VARCHAR,
-    avatar_url VARCHAR,
-    tags JSONB,
-    channel VARCHAR,
+    name TEXT,
+    identifier TEXT,
+    email TEXT,
+    phone TEXT,
+    avatar_url TEXT,
+    tags TEXT[],
+    channel TEXT,
     extra_info JSONB,
-    lifecycle_status VARCHAR,
-    status VARCHAR,
-    sentiment VARCHAR,
+    lifecycle_status TEXT,
+    status TEXT,
+    sentiment TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
-    objection_reason VARCHAR
+    objection_reason TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -28,7 +28,7 @@ BEGIN
         SELECT 
             c.id AS conversation_id,
             c.user_identifier,
-            'Sentiment/Tag'::VARCHAR AS reason
+            'Sentiment/Tag'::TEXT AS reason
         FROM conversations c
         WHERE c.tenant_id = p_tenant_id
           AND (c.sentiment IN ('resistente', 'negativo', 'preocupado', 'objection')
@@ -57,10 +57,10 @@ BEGIN
         ct.extra_info,
         ct.lifecycle_status,
         ct.status,
-        ct.sentiment,
+        ct.sentiment::TEXT,
         ct.created_at,
         ct.updated_at,
-        COALESCE(fc.reason, 'Message Pattern')::VARCHAR AS objection_reason
+        COALESCE(fc.reason, 'Message Pattern')::TEXT AS objection_reason
     FROM contacts ct
     LEFT JOIN FlaggedConversations fc ON ct.identifier = fc.user_identifier
     WHERE ct.tenant_id = p_tenant_id
