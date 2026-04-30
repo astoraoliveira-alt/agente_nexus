@@ -18,7 +18,8 @@ RETURNS TABLE (
     sentiment VARCHAR,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ,
-    objection_reason TEXT
+    objection_reason TEXT,
+    conversation_id UUID
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -28,8 +29,9 @@ BEGIN
     RETURN QUERY
     WITH FlaggedConversations AS (
         SELECT 
-            c.id AS conversation_id,
+            c.id AS conv_id,
             c.user_identifier,
+            c.updated_at,
             'Sentiment/Tag'::TEXT AS reason
         FROM conversations c
         WHERE c.tenant_id = p_tenant_id
@@ -46,7 +48,7 @@ BEGIN
                )
           )
     )
-    SELECT DISTINCT
+    SELECT 
         ct.id,
         ct.tenant_id,
         ct.name::VARCHAR,
@@ -62,13 +64,20 @@ BEGIN
         ct.sentiment::VARCHAR,
         ct.created_at,
         ct.updated_at,
-        COALESCE(fc.reason, 'Message Pattern')::TEXT AS objection_reason
+        COALESCE(fc.reason, 'Message Pattern')::TEXT AS objection_reason,
+        fc.conv_id
     FROM contacts ct
-    LEFT JOIN FlaggedConversations fc ON ct.identifier = fc.user_identifier
+    LEFT JOIN LATERAL (
+        SELECT conv_id, reason
+        FROM FlaggedConversations
+        WHERE user_identifier = ct.identifier
+        ORDER BY updated_at DESC
+        LIMIT 1
+    ) fc ON true
     WHERE ct.tenant_id = p_tenant_id
       AND (
           ct.sentiment IN ('resistente', 'negativo', 'preocupado', 'objection')
-          OR fc.conversation_id IS NOT NULL
+          OR fc.conv_id IS NOT NULL
       )
     ORDER BY ct.updated_at DESC;
 END;
