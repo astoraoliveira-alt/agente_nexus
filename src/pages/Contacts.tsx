@@ -451,10 +451,10 @@ const Contacts = () => {
                                                         </Avatar>
                                                         <div>
                                                             <p className="font-medium">{contact.name}</p>
-                                                            <p className="text-xs text-muted-foreground flex gap-2">
+                                                            <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
                                                                 {contact.identifier}
                                                                 {contact.channel === 'whatsapp' && <Badge variant="outline" className="text-[9px] px-1 h-4">WhatsApp</Badge>}
-                                                            </p>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </TableCell>
