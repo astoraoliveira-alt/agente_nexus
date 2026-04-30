@@ -51,7 +51,10 @@ export default function Consumption() {
       const fetchData = async () => {
         // Force refresh tenant data to get latest prices from DB
         const tenantData = await api.getTenant(currentTenant.id);
-        if (tenantData) setFreshTenant(tenantData);
+        if (tenantData) {
+          console.log('[Consumption] Tenant Data Loaded:', tenantData);
+          setFreshTenant(tenantData);
+        }
 
         const [consumptionResponse, agentsData] = await Promise.all([
           api.getConsumptionMetrics(currentTenant.id, 60),
@@ -100,45 +103,70 @@ export default function Consumption() {
       messageCost: 0
     };
 
+    const prices = tenantToUse?.planPrices || {};
+    
+    // Detecção ULTRA-ROBUSTA de Modo Janela (Tokens gratuitos)
+    // 1. Pelo flag do service (caminho preferencial)
+    // 2. Pelo objeto plan (se estiver exposto)
+    // 3. Pelo ID do plano se conhecido
+    // 4. Heurística: se o preço da janela for 1.10 (padrão Edenred)
+    const windowPriceToUse = prices.whatsappWindowPrice || 1.10;
+
+    // Detecção agressiva de modo janela (qualquer sinal de que é Fiserv/Edenred ou configurado no plano)
+    const isWindowMode = 
+      prices.whatsappOfficialBillingMode === 'window_24h' || 
+      (tenantToUse as any)?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan_details?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan?.whatsapp_official_billing_mode === 'window_24h' ||
+      (tenantToUse as any)?.plan_tier?.includes('flex') ||
+      (tenantToUse as any)?.slug?.includes('edenred') ||
+      prices.whatsappWindowPrice === 1.1 ||
+      windowPriceToUse === 1.1;
+
+    console.log('[Consumption] Billing Detection:', { 
+      isWindowMode, 
+      billingMode: prices.whatsappOfficialBillingMode,
+      windowPrice: windowPriceToUse,
+      tenantId: tenantToUse?.id 
+    });
+
     filteredMetrics.forEach(m => {
-      // Use price from plan if message or calculate on the fly for voice/tokens
-      // This ensures the dashboard always reflects the current billing contract
-      let cost = m.cost || 0;
+      const val = m.value || 0;
       
       if (m.metricType === 'messages') {
-        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
-        // Aplica o preço configurado no cadastro do plano (ou override da empresa)
-        if (msgPrice > 0) {
-          cost = m.value * msgPrice;
-        }
-        
-        totals.messages += m.value;
+        // Se for janela, a RPC envia como 'messages'. Usamos o preço da janela.
+        const cost = isWindowMode ? val * windowPriceToUse : val * (prices.messagePrice || 0);
+        totals.messages += val;
         totals.messageCost += cost;
       } else if (m.metricType === 'whatsapp_window_24h') {
-        totals.messages += m.value;
-        totals.whatsappWindows += m.value;
+        const cost = val * windowPriceToUse;
+        totals.messages += val;
+        totals.whatsappWindows += val;
         totals.messageCost += cost;
       } else if (m.metricType === 'tokens') {
-        totals.tokens += m.value;
-        totals.costTokens += cost;
+        totals.tokens += val;
+        // Se estivermos em modo de cobrança por janela, tokens são cortesia (custo zero)
+        if (!isWindowMode) {
+          totals.costTokens += (m.cost || 0);
+        }
       } else if (m.metricType === 'stt_minutes') {
-        totals.stt += m.value;
-        totals.costSTT += cost;
+        totals.stt += val;
+        totals.costSTT += (m.cost || 0);
       } else if (m.metricType === 'tts_minutes') {
-        totals.tts += m.value;
-        totals.costTTS += cost;
+        totals.tts += val;
+        totals.costTTS += (m.cost || 0);
       }
     });
 
     totals.totalCost = totals.messageCost + totals.costSTT + totals.costTTS + totals.costTokens;
 
     return totals;
-  }, [filteredMetrics, realAgents, currentTenant]);
+  }, [filteredMetrics, realAgents, tenantToUse]);
 
   const roiStats = useMemo(() => {
     // Force benchmark of 2.0 to ensure coherence between all screens
     const AVG_MIN_PER_MSG = 2.0;
-    const hourlyRate = (currentTenant as any)?.roi_config?.operator_hourly_rate || 30.0;
+    const hourlyRate = (tenantToUse as any)?.roi_config?.operator_hourly_rate || 30.0;
 
     const hoursSaved = (summary.messages * AVG_MIN_PER_MSG) / 60;
 
@@ -155,8 +183,6 @@ export default function Consumption() {
     };
   }, [summary.messages, tenantToUse]);
 
-
-
   const dailyTimeline = useMemo(() => {
     const days: Record<string, any> = {};
     filteredMetrics.forEach(m => {
@@ -167,8 +193,6 @@ export default function Consumption() {
     });
     return Object.values(days).reverse();
   }, [filteredMetrics]);
-
-  // Projections removed from frontend - logic moved to backend
 
   const heatmapData = useMemo(() => {
     const daysMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -181,8 +205,21 @@ export default function Consumption() {
 
   const byAgentData = useMemo(() => {
     const agents: Record<string, any> = {};
+    const prices = tenantToUse?.planPrices || {};
+    const windowPriceToUse = prices.whatsappWindowPrice || 1.10;
+    
+    // Detecção agressiva de modo janela (qualquer sinal de que é Fiserv/Edenred ou configurado no plano)
+    const isWindowMode = 
+      prices.whatsappOfficialBillingMode === 'window_24h' || 
+      (tenantToUse as any)?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan_details?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan?.whatsapp_official_billing_mode === 'window_24h' ||
+      (tenantToUse as any)?.plan_tier?.includes('flex') ||
+      (tenantToUse as any)?.slug?.includes('edenred') ||
+      prices.whatsappWindowPrice === 1.1 ||
+      windowPriceToUse === 1.1;
+
     filteredMetrics.forEach(m => {
-      const cost = m.cost || 0;
       const agentId = m.agentId || 'system-unassigned';
       if (!agents[agentId]) {
         const realName = (m as any).agentName;
@@ -197,26 +234,31 @@ export default function Consumption() {
           usedChannels: new Set<string>()
         };
       }
+      const val = m.value || 0;
+
       if (m.metricType === 'messages') {
-        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
-        let costToUse = cost;
-        if (msgPrice > 0) {
-          costToUse = m.value * msgPrice;
-        }
-        agents[agentId].messages += m.value;
+        // Se estiver em modo janela, a RPC envia as janelas sob o tipo 'messages'. 
+        // Portanto, multiplicamos pelo valor da janela.
+        const costToUse = isWindowMode ? val * windowPriceToUse : val * (prices.messagePrice || 0);
+        agents[agentId].messages += val;
         agents[agentId].messageCost += costToUse;
         agents[agentId].cost += costToUse;
       } else if (m.metricType === 'whatsapp_window_24h') {
-        agents[agentId].messages += m.value;
-        agents[agentId].messageCost += cost;
-        agents[agentId].cost += cost;
+        const costToUse = val * windowPriceToUse;
+        agents[agentId].messages += val;
+        agents[agentId].messageCost += costToUse;
+        agents[agentId].cost += costToUse;
+      } else if (m.metricType === 'tokens') {
+        if (!isWindowMode) {
+          agents[agentId].cost += (m.cost || 0);
+        }
       } else {
-        agents[agentId].cost += cost;
+        agents[agentId].cost += (m.cost || 0);
       }
       if (m.channel) agents[agentId].usedChannels.add(m.channel);
     });
     return Object.values(agents);
-  }, [filteredMetrics, realAgents]);
+  }, [filteredMetrics, realAgents, tenantToUse]);
 
   const byChannelData = useMemo(() => {
     const channels: Record<string, any> = {
@@ -225,34 +267,49 @@ export default function Consumption() {
       text: { channel: 'text', name: 'Web Chat (Texto)', messages: 0, cost: 0, messageCost: 0 }
     };
 
+    const prices = tenantToUse?.planPrices || {};
+    const windowPriceToUse = prices.whatsappWindowPrice || 1.10;
+    
+    const isWindowMode = 
+      prices.whatsappOfficialBillingMode === 'window_24h' || 
+      (tenantToUse as any)?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan_details?.whatsappOfficialBillingMode === 'window_24h' ||
+      (tenantToUse as any)?.plan?.whatsapp_official_billing_mode === 'window_24h' ||
+      (tenantToUse as any)?.plan_tier?.includes('flex') ||
+      (tenantToUse as any)?.slug?.includes('edenred') ||
+      prices.whatsappWindowPrice === 1.1 ||
+      windowPriceToUse === 1.1;
+
     filteredMetrics.forEach(m => {
       const channelKey = m.channel || 'unknown';
-      const cost = m.cost || 0;
       if (!channels[channelKey]) {
         channels[channelKey] = { channel: channelKey, name: channelKey, messages: 0, cost: 0, messageCost: 0 };
       }
       const entry = channels[channelKey];
+      const val = m.value || 0;
+
       if (m.metricType === 'messages') {
-        const msgPrice = tenantToUse?.planPrices?.messagePrice || 0;
-        let costToUse = cost;
-        if (msgPrice > 0) {
-          costToUse = m.value * msgPrice;
-        }
-        entry.messages += m.value;
+        const costToUse = isWindowMode ? val * windowPriceToUse : val * (prices.messagePrice || 0);
+        entry.messages += val;
         entry.messageCost += costToUse;
         entry.cost += costToUse;
       } else if (m.metricType === 'whatsapp_window_24h') {
-        entry.messages += m.value;
-        entry.messageCost += cost;
-        entry.cost += cost;
+        const costToUse = val * windowPriceToUse;
+        entry.messages += val;
+        entry.messageCost += costToUse;
+        entry.cost += costToUse;
+      } else if (m.metricType === 'tokens') {
+        if (!isWindowMode) {
+          entry.cost += (m.cost || 0);
+        }
       } else {
-        if (m.metricType === 'stt_minutes') entry.stt = (entry.stt || 0) + m.value;
-        if (m.metricType === 'tts_minutes') entry.tts = (entry.tts || 0) + m.value;
-        entry.cost += cost;
+        if (m.metricType === 'stt_minutes') entry.stt = (entry.stt || 0) + val;
+        if (m.metricType === 'tts_minutes') entry.tts = (entry.tts || 0) + val;
+        entry.cost += (m.cost || 0);
       }
     });
     return Object.values(channels).filter(c => c.messages > 0 || c.cost > 0);
-  }, [filteredMetrics]);
+  }, [filteredMetrics, tenantToUse]);
 
   return (
     <MainLayout>
@@ -390,7 +447,7 @@ export default function Consumption() {
                 <div className="flex items-end gap-2 mb-2">
                   <p className="text-2xl font-bold leading-none text-accent">R$ {summary.totalCost.toFixed(2)}</p>
                 </div>
-                <p className="text-[10px] text-muted-foreground">Total acumulado de mensagens e voz.</p>
+                <p className="text-[10px] text-muted-foreground">Total acumulado de interações, voz e IA.</p>
               </div>
 
               {/* 4. Investimento Total */}
