@@ -81,6 +81,15 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MainLayout } from "@/components/layout/MainLayout";
 
+const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    const parts = dateString.split('-');
+    if (parts.length === 3) {
+        return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+    }
+    return new Date(dateString);
+};
+
 type CampaignImportRow = {
     name: string;
     phone: string;
@@ -254,8 +263,8 @@ export default function Campaigns() {
                 agentId: newCampaign.agentId,
                 name: newCampaign.name,
                 description: newCampaign.description,
-                startDate: new Date(newCampaign.startDate),
-                endDate: newCampaign.endDate ? new Date(newCampaign.endDate) : undefined,
+                startDate: parseLocalDate(newCampaign.startDate),
+                endDate: newCampaign.endDate ? parseLocalDate(newCampaign.endDate) : undefined,
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
                 initialMessage: normalizeMessagingText(newCampaign.initialMessage),
@@ -1479,8 +1488,8 @@ export default function Campaigns() {
                                         id="edit-start"
                                         type="date"
                                         className="bg-accent/5 h-10"
-                                        value={format(new Date(editingCampaign.startDate), "yyyy-MM-dd")}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: new Date(e.target.value) })}
+                                        value={editingCampaign.startDate ? editingCampaign.startDate.toISOString().split('T')[0] : ''}
+                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: parseLocalDate(e.target.value) })}
                                     />
                                 </div>
                                 <div className="grid gap-2">

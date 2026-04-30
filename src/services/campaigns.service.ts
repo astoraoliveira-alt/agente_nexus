@@ -1,6 +1,22 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
+const parseLocalDate = (d: any): Date => {
+    if (!d) return new Date();
+    if (typeof d === 'string' && d.indexOf('T') === -1) {
+        const parts = d.split('-');
+        if (parts.length === 3) {
+            return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+        }
+    }
+    const dt = new Date(d);
+    // If it's a UTC midnight date, force it to noon local time to avoid previous day shifts
+    if (dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0) {
+        return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 12, 0, 0);
+    }
+    return dt;
+};
+
 export const campaignsService = {
     normalizePhone(phone?: string | null): string {
         return String(phone || '').replace(/\D/g, '');
@@ -423,8 +439,8 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             name: c.name,
             description: c.description,
             status: c.status,
-            startDate: new Date(c.start_date),
-            endDate: c.end_date ? new Date(c.end_date) : undefined,
+            startDate: parseLocalDate(c.start_date),
+            endDate: c.end_date ? parseLocalDate(c.end_date) : undefined,
             dailyLimit: c.daily_limit,
             totalContacts: c.total_contacts,
             sentCount: c.sent_count,
@@ -474,8 +490,8 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             ...data,
             tenantId: data.tenant_id,
             agentId: data.agent_id,
-            startDate: new Date(data.start_date),
-            endDate: data.end_date ? new Date(data.end_date) : undefined,
+            startDate: parseLocalDate(data.start_date),
+            endDate: data.end_date ? parseLocalDate(data.end_date) : undefined,
             dailyLimit: data.daily_limit,
             startTime: data.start_time,
             endTime: data.end_time,
