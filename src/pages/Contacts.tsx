@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { ChatArea } from "@/components/conversations/ChatArea";
 import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -34,10 +36,14 @@ import {
     AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ContactStatsHeader } from '@/components/crm/ContactStatsHeader';
+import { useQueryClient } from '@tanstack/react-query';
 
 const Contacts = () => {
-    const { currentTenant } = useApp();
+    const { currentTenant, conversations } = useApp();
     const { toast } = useToast();
+    const queryClient = useQueryClient();
+
+    // Data State
     const [contacts, setContacts] = useState<Contact[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -84,6 +90,15 @@ const Contacts = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const [isObjectionSheetOpen, setIsObjectionSheetOpen] = useState(false);
+    const [selectedObjectionConvId, setSelectedObjectionConvId] = useState<string | null>(null);
+
+    const handleOpenObjectionConversation = (conversationId: string | undefined) => {
+        if (!conversationId) return;
+        setSelectedObjectionConvId(conversationId);
+        setIsObjectionSheetOpen(true);
     };
 
     const handleOpenDialog = (contact?: Contact) => {
@@ -442,7 +457,15 @@ const Contacts = () => {
                                         </TableRow>
                                     ) : (
                                         filteredObjections.map((contact) => (
-                                            <TableRow key={contact.id} className="bg-red-50/30 dark:bg-red-950/10">
+                                            <TableRow 
+                                                key={contact.id} 
+                                                className="bg-red-50/30 dark:bg-red-950/10 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                                                onClick={(e) => {
+                                                    // Don't open drawer if clicking on the edit button
+                                                    if ((e.target as HTMLElement).closest('.edit-btn')) return;
+                                                    handleOpenObjectionConversation(contact.conversation_id);
+                                                }}
+                                            >
                                                 <TableCell>
                                                     <div className="flex items-center gap-3">
                                                         <Avatar>
@@ -472,7 +495,7 @@ const Contacts = () => {
                                                     {new Date(contact.updatedAt).toLocaleDateString()}
                                                 </TableCell>
                                                 <TableCell className="text-right">
-                                                    <Button variant="ghost" size="sm" onClick={() => handleOpenDialog(contact)}>
+                                                    <Button variant="ghost" size="sm" className="edit-btn" onClick={() => handleOpenDialog(contact)}>
                                                         <Edit className="h-4 w-4" />
                                                     </Button>
                                                 </TableCell>
@@ -589,6 +612,15 @@ const Contacts = () => {
                     </AlertDialogContent>
                 </AlertDialog>
             </div>
+
+            <Sheet open={isObjectionSheetOpen} onOpenChange={setIsObjectionSheetOpen}>
+                <SheetContent side="right" className="w-full sm:max-w-[500px] p-0 flex flex-col h-full border-l">
+                    <ChatArea 
+                        conversation={conversations.find(c => c.id === selectedObjectionConvId) || null} 
+                        highlightTerm="atendente|humano|ruim|p_ssimo|cancela|mentira|procon|lixo|reclama_ão"
+                    />
+                </SheetContent>
+            </Sheet>
         </MainLayout>
     );
 };

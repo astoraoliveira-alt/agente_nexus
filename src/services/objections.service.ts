@@ -3,6 +3,7 @@ import { Contact } from '@/lib/types';
 
 export interface ObjectionContact extends Contact {
     objection_reason: string;
+    conversation_id?: string;
 }
 
 export const objectionsService = {
@@ -33,7 +34,8 @@ export const objectionsService = {
             sentiment: c.sentiment,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at),
-            objection_reason: c.objection_reason
+            objection_reason: c.objection_reason,
+            conversation_id: c.conversation_id
         })) as ObjectionContact[];
     }
 };
