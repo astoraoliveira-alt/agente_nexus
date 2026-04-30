@@ -10,8 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { ChatArea } from "@/components/conversations/ChatArea";
-import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle, AlertTriangle, Bot } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -37,6 +37,38 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ContactStatsHeader } from '@/components/crm/ContactStatsHeader';
 import { useQueryClient } from '@tanstack/react-query';
+
+const HighlightText = ({ text, term }: { text: string; term?: string }) => {
+  if (!term || !text) return <>{text}</>;
+  
+  // Custom simple parser to strip markdown ```json fences if they are somehow passed
+  let cleanText = text;
+  const match = text.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (match) {
+      try {
+          const parsed = JSON.parse(match[1].trim());
+          if (parsed && typeof parsed.content === 'string') cleanText = parsed.content;
+      } catch (e) { /* ignore parser error */ }
+  } else if (text.startsWith('={')) {
+      try {
+          const parsed = JSON.parse(text.substring(1));
+          if (parsed && typeof parsed.content === 'string') cleanText = parsed.content;
+      } catch (e) { /* ignore parser error */ }
+  }
+
+  const parts = cleanText.split(new RegExp(`(${term})`, 'gi'));
+  return (
+    <span className="whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        i % 2 === 1 && part ? (
+          <span key={i} className="bg-yellow-300 text-black px-1 rounded-sm font-semibold">{part}</span>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+};
 
 const Contacts = () => {
     const { currentTenant, conversations } = useApp();
@@ -615,14 +647,56 @@ const Contacts = () => {
 
             <Sheet open={isObjectionSheetOpen} onOpenChange={setIsObjectionSheetOpen}>
                 <SheetContent side="right" className="w-full sm:max-w-[500px] p-0 flex flex-col h-full border-l" aria-describedby="objection-sheet-desc">
-                    <SheetTitle className="sr-only">Análise de Objeção</SheetTitle>
-                    <SheetDescription id="objection-sheet-desc" className="sr-only">
-                        Visualização da conversa que gerou a objeção.
-                    </SheetDescription>
-                    <ChatArea 
-                        conversation={conversations.find(c => c.id === selectedObjectionConvId) || null} 
-                        highlightTerm="atendente|humano|ruim|p_ssimo|cancela|mentira|procon|lixo|reclama_ão"
-                    />
+                    <div className="p-4 border-b bg-muted/30">
+                        <SheetTitle className="text-lg font-semibold flex items-center gap-2">
+                            <AlertTriangle className="h-5 w-5 text-red-500" />
+                            Conversa com Objeção
+                        </SheetTitle>
+                        <SheetDescription id="objection-sheet-desc" className="text-sm mt-1">
+                            Abaixo está a transcrição rápida da conversa que gerou o alerta.
+                        </SheetDescription>
+                    </div>
+                    
+                    <ScrollArea className="flex-1 p-4 bg-slate-50/50 dark:bg-slate-950/20">
+                        {conversations.find(c => c.id === selectedObjectionConvId) ? (
+                            <div className="space-y-6 pb-6">
+                                {(conversations.find(c => c.id === selectedObjectionConvId)?.messages || []).map((message: any) => (
+                                    <div key={message.id} className={`flex ${message.sender === 'user' ? 'justify-start' : 'justify-end'}`}>
+                                        <div className={`flex items-end gap-2 max-w-[85%] ${message.sender !== 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                                            <div className={`w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full ${message.sender === 'user' ? 'bg-muted' : 'bg-accent/10 border border-accent/20'}`}>
+                                                {message.sender === 'user' ? <User className="h-4 w-4 text-muted-foreground" /> : <Bot className="h-4 w-4 text-accent" />}
+                                            </div>
+                                            <div className={`flex flex-col ${message.sender !== 'user' ? 'items-end' : 'items-start'}`}>
+                                                <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mb-1 block px-1">
+                                                    {message.sender === 'user' ? 'Cliente' : 'IA / Atendente'}
+                                                </span>
+                                                <div className={`p-3 rounded-2xl text-sm shadow-sm border ${message.sender === 'user' ? 'bg-white dark:bg-slate-900 border-border text-foreground rounded-bl-sm' : 'bg-accent border-accent text-accent-foreground rounded-br-sm'}`}>
+                                                    {message.type === 'audio' && <div className="text-xs mb-2 opacity-70 flex items-center gap-1"><MessageSquare className="h-3 w-3"/> Mensagem de Áudio</div>}
+                                                    <HighlightText 
+                                                        text={message.content || message.transcription || ''} 
+                                                        term="atendente|humano|ruim|p_ssimo|cancela|mentira|procon|lixo|reclama_ão|vendedor" 
+                                                    />
+                                                </div>
+                                                <span className="text-[10px] text-muted-foreground/60 mt-1 block px-1">
+                                                    {new Date(message.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {(!conversations.find(c => c.id === selectedObjectionConvId)?.messages || conversations.find(c => c.id === selectedObjectionConvId)?.messages.length === 0) && (
+                                    <div className="text-center text-muted-foreground text-sm py-10">
+                                        Nenhuma mensagem carregada nesta sessão para esta conversa.
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-muted-foreground mt-20">
+                                <MessageSquare className="h-10 w-10 mb-4 opacity-20" />
+                                <p>Carregando conversa...</p>
+                            </div>
+                        )}
+                    </ScrollArea>
                 </SheetContent>
             </Sheet>
         </MainLayout>
