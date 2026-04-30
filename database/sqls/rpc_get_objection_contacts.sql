@@ -1,4 +1,6 @@
 -- RPC to fetch contacts with objections, resistance, or requests for human attendants
+DROP FUNCTION IF EXISTS public.get_objection_contacts(UUID);
+
 CREATE OR REPLACE FUNCTION public.get_objection_contacts(p_tenant_id UUID)
 RETURNS TABLE (
     id UUID,
