@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { ChatArea } from "@/components/conversations/ChatArea";
 import { Search, Plus, User, Phone, Mail, FileText, MoreHorizontal, Edit, Trash2, Globe, Smartphone, MessageSquare, Ban, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
@@ -614,7 +614,11 @@ const Contacts = () => {
             </div>
 
             <Sheet open={isObjectionSheetOpen} onOpenChange={setIsObjectionSheetOpen}>
-                <SheetContent side="right" className="w-full sm:max-w-[500px] p-0 flex flex-col h-full border-l">
+                <SheetContent side="right" className="w-full sm:max-w-[500px] p-0 flex flex-col h-full border-l" aria-describedby="objection-sheet-desc">
+                    <SheetTitle className="sr-only">Análise de Objeção</SheetTitle>
+                    <SheetDescription id="objection-sheet-desc" className="sr-only">
+                        Visualização da conversa que gerou a objeção.
+                    </SheetDescription>
                     <ChatArea 
                         conversation={conversations.find(c => c.id === selectedObjectionConvId) || null} 
                         highlightTerm="atendente|humano|ruim|p_ssimo|cancela|mentira|procon|lixo|reclama_ão"
