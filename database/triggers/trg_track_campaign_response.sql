@@ -22,13 +22,14 @@ BEGIN
             WHERE id = NEW.conversation_id;
 
             -- Find matching active outbound queue item
+            -- V62.0: Suporte a múltiplos status de envio (sent, delivered, read)
             SELECT id, campaign_id INTO v_queue_id, v_campaign_id
             FROM outbound_queue
             WHERE tenant_id = NEW.tenant_id
               AND contact_phone = v_user_phone
               AND campaign_id IS NOT NULL
               AND response_detected = FALSE
-              AND status = 'sent'
+              AND status IN ('sent', 'delivered', 'read', 'processing')
             ORDER BY created_at DESC
             LIMIT 1;
 
@@ -51,8 +52,6 @@ BEGIN
         EXCEPTION WHEN OTHERS THEN
             RAISE WARNING 'Error in track_campaign_response trigger: %', SQLERRM;
         END;
-
-
 
     END IF;
 
