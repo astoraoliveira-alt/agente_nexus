@@ -21,6 +21,7 @@ DECLARE
   v_read_count        BIGINT := 0;
   v_response_count    BIGINT := 0;
   v_conversion_count  BIGINT := 0;
+  v_failed_count      BIGINT := 0;
   v_conversion_rate   NUMERIC := 0;
   
   -- Filtros de Campanha
@@ -47,6 +48,13 @@ BEGIN
   FROM campaign_import_logs
   WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
     AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id);
+
+  -- Falhas de entrega (status = failed)
+  SELECT COUNT(*) INTO v_failed_count
+  FROM outbound_queue
+  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
+    AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
+    AND status = 'failed';
 
   -- 3. Métricas de Status (Fonte da Verdade: message_status_history)
   -- Enviados (SENT, DELIVERED, READ, FAILED, REJECTED)
@@ -79,12 +87,25 @@ BEGIN
           AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
     );
 
-  -- Respostas detectadas
-  SELECT COUNT(*) INTO v_response_count
-  FROM outbound_queue
-  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
-    AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    AND response_detected = true;
+  -- Respostas detectadas (Interagiram)
+  -- Contamos contatos únicos que enviaram ao menos uma mensagem de volta
+  SELECT COUNT(DISTINCT oq.id) INTO v_response_count
+  FROM outbound_queue oq
+  WHERE (p_campaign_id IS NULL OR oq.campaign_id = p_campaign_id)
+    AND (p_tenant_id IS NULL OR oq.tenant_id = p_tenant_id)
+    AND (
+      oq.response_detected = true
+      OR EXISTS (
+        SELECT 1 
+        FROM public.conversations conv
+        JOIN public.messages msg ON msg.conversation_id = conv.id
+        WHERE conv.tenant_id = oq.tenant_id
+          AND conv.user_identifier = oq.contact_phone
+          -- Garante que a conversa é recente ou ligada à campanha
+          AND (conv.campaign_id = oq.campaign_id OR conv.created_at >= oq.created_at)
+          AND (msg.direction = 'inbound' OR msg.sender_type = 'user')
+      )
+    );
 
   -- 4. Cálculo de Conversão (Sucesso)
   IF p_campaign_id IS NOT NULL AND v_success_criteria IS NOT NULL AND array_length(v_success_criteria, 1) > 0 THEN
@@ -125,6 +146,7 @@ BEGIN
     'read_count',        COALESCE(v_read_count, 0),
     'response_count',    COALESCE(v_response_count, 0),
     'conversion_count',  COALESCE(v_conversion_count, 0),
+    'failed_count',      COALESCE(v_failed_count, 0),
     'conversion_rate',   COALESCE(v_conversion_rate, 0)
   );
 END;

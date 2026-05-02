@@ -608,6 +608,7 @@ async deleteCampaign(id: string): Promise<void> {
             read_count: number;
             response_count: number;
             conversion_count: number;
+            failed_count: number;
             conversion_rate: number;
             success_criteria_used: string[];
         };

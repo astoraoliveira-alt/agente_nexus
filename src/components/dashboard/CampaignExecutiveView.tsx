@@ -47,6 +47,7 @@ interface CampaignStats {
     read_count: number;
     response_count: number;
     conversion_count: number;
+    failed_count: number;
     conversion_rate: number;
     total_messages: number;
 }
@@ -57,6 +58,7 @@ interface LeadResult {
     whatsapp: string;
     name: string;
     status: string;
+    errorMessage?: string | null;
     contactName?: string;
     establishmentName?: string;
     conversationId?: string | null;
@@ -218,6 +220,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
   const totalCampaigns = campaigns.length;
   const totalValidLeads = campaigns.reduce((sum, campaign) => sum + (campaign.totalContacts || 0), 0);
   const totalLinksSent = campaigns.reduce((sum, campaign) => sum + (campaign.conversionCount || 0), 0);
+  const totalAbandoned = campaigns.reduce((sum, campaign) => sum + Math.max((campaign.readCount || 0) - (campaign.conversionCount || 0), 0), 0);
   const overallConversionRate = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
 
   const calculateConversion = (campaign: Campaign) => {
@@ -252,9 +255,10 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:min-w-[42rem]">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:min-w-[50rem]">
             <BigNumberCard label="Total de Campanhas" value={totalCampaigns.toLocaleString('pt-BR')} />
             <BigNumberCard label="Válidos" value={totalValidLeads.toLocaleString('pt-BR')} />
+            <BigNumberCard label="Abandonados" value={totalAbandoned.toLocaleString('pt-BR')} />
             <BigNumberCard label="Links Enviados" value={totalLinksSent.toLocaleString('pt-BR')} />
             <BigNumberCard
               label="% Conversão"
@@ -340,8 +344,8 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     <td className="px-4 py-5 text-xs font-bold text-emerald-600 text-center">
                       {(c.readCount || 0).toLocaleString('pt-BR')}
                     </td>
-                    <td className="px-4 py-5 text-xs font-bold text-slate-900 text-center">
-                      {Math.max((c.sentCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
+                    <td className="px-4 py-5 text-xs font-bold text-rose-500 text-center">
+                      {Math.max((c.readCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-indigo-600 text-center">
                       <div className="flex items-center justify-center gap-1.5">
@@ -446,7 +450,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                  c.status === 'responded' ? 'Respondida' :
                  c.status === 'delivered' ? 'Entregue' :
                  c.status === 'read' ? 'Lida' :
-                 c.status === 'converted' ? 'Convertida' : c.status
+                 c.status === 'converted' ? 'Convertida' : c.status,
+          errorMessage: c.error_message || null
       }));
       setLeads(mappedLeads);
     } catch (error) {
@@ -600,16 +605,16 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       .replace(/_/g, ' ')
       .replace(/\b\w/g, (char) => char.toUpperCase());
 
-  const renderStatusBadge = (status?: string | null) => {
+  const renderStatusBadge = (status?: string | null, errorMessage?: string | null) => {
     const normalized = String(status || '').toLowerCase();
     const isSuccess = ['enviada', 'concluída', 'concluida', 'convertida', 'entregue', 'lida'].includes(normalized);
-    const isError = normalized === 'erro';
+    const isError = normalized === 'erro' || !!errorMessage;
     const isProcessing = normalized === 'processando';
 
     const classes = isSuccess
       ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
       : isError
-        ? 'bg-rose-50 text-rose-600 border border-rose-100'
+        ? 'bg-rose-50 text-rose-600 border border-rose-100 shadow-[0_0_10px_rgba(229,0,58,0.1)]'
         : 'bg-amber-50 text-amber-600 border border-amber-100';
     
     const Icon = isSuccess
@@ -619,15 +624,55 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         : Clock;
 
     return (
-      <span className={cn(
-        "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
-        classes
-      )}>
-        <Icon className="w-3 h-3" />
-        {status}
-      </span>
+      <div className="flex flex-col items-end gap-1">
+        <span className={cn(
+          "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest",
+          classes
+        )}>
+          <Icon className="w-3 h-3" />
+          {status}
+        </span>
+        {errorMessage && (
+          <span className="text-[8px] font-bold text-rose-500 uppercase tracking-tight max-w-[150px] truncate">
+            {errorMessage}
+          </span>
+        )}
+      </div>
     );
   };
+
+  const failureReasonStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    
+    leads.forEach(lead => {
+      const statusLower = lead.status.toLowerCase();
+      
+      // Consideramos "falha ou pendência" tudo que não foi entregue, lido ou convertido
+      const successStatuses = ['entregue', 'lida', 'respondida', 'convertida', 'delivered', 'read', 'responded', 'converted'];
+      
+      if (!successStatuses.includes(statusLower)) {
+        let reason = lead.errorMessage;
+        
+        if (!reason) {
+          if (statusLower === 'enviada') {
+            reason = 'Em trânsito / Aguardando recebimento';
+          } else if (statusLower === 'erro') {
+            reason = 'Erro sem mensagem detalhada (Zenvia)';
+          } else if (statusLower === 'pendente') {
+            reason = 'Pendente na fila de processamento';
+          } else {
+            reason = `Status: ${lead.status}`;
+          }
+        }
+        
+        stats[reason] = (stats[reason] || 0) + 1;
+      }
+    });
+
+    return Object.entries(stats)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8); // Aumentado para mostrar mais detalhes
+  }, [leads]);
 
   if (isLoading && !stats) {
     return (
@@ -640,80 +685,81 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row justify-between items-center gap-4">
-        <div className="bg-white border border-border/50 p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center relative overflow-hidden flex-1 w-full">
-          <div className="absolute top-0 left-0 w-2 h-full bg-[#E5003A]" />
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10 w-full">
-            <div className="flex items-center gap-12">
-              <div className="flex flex-col">
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Campanha</span>
-                  <span className="text-xl font-black text-slate-900 italic tracking-tight">
-                      {campaignId === 'all_consolidated' ? 'Consolidado Geral' : selectedCampaign?.name}
-                  </span>
-              </div>
-
-              <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden md:flex">
-                <Calendar className="w-5 h-5 text-blue-500" />
-                <div className="flex flex-col">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Início</span>
-                    <span className="text-sm font-bold text-slate-700 font-mono">
-                        {campaignId === 'all_consolidated' ? 'Todos os Períodos' : selectedCampaign ? format(new Date(selectedCampaign.startDate), "dd/MM/yyyy") : '-'}
-                    </span>
-                </div>
-              </div>
-
-                <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden xl:flex">
-                  <Target className="w-5 h-5 text-[#E5003A]" />
-                  <div className="flex flex-col max-w-[280px]">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Meta / Objetivo</span>
-                    <span className="text-sm font-bold text-slate-700 truncate">
-                      {campaignId === 'all_consolidated' ? 'Visão consolidada das campanhas' : selectedCampaign?.description || 'Nao informado'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4 border-l border-slate-100 pl-8 hidden xl:flex">
-                  <User className="w-5 h-5 text-slate-500" />
-                  <div className="flex flex-col max-w-[220px]">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Agente</span>
-                    <span className="text-sm font-bold text-slate-700 truncate">
-                      {campaignId === 'all_consolidated' ? 'Multiplos agentes' : selectedAgent?.name || 'Nao informado'}
-                    </span>
-                  </div>
-                </div>
+      <div className="w-full">
+        <div className="bg-white border border-border/50 p-4 lg:p-5 rounded-2xl shadow-sm relative overflow-hidden w-full">
+          <div className="absolute top-0 left-0 w-1.5 h-full bg-[#E5003A]" />
+          <div className="relative z-10 flex flex-col gap-5">
+            {/* LINHA 1: PRIORIDADE TOTAL AO NOME */}
+            <div className="w-full">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 block mb-1 px-1">Campanha em Execução</span>
+              <h1 className="text-2xl lg:text-3xl font-black text-slate-900 italic tracking-tight leading-tight px-1">
+                {campaignId === 'all_consolidated' ? 'Consolidado Geral' : selectedCampaign?.name}
+              </h1>
             </div>
-            
-            <div className="flex items-center gap-3 ml-auto">
-                <div className="flex flex-col items-end">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1.5 px-1">Alternar Visão</span>
-                    <div className="flex items-center gap-3">
-                        <select 
-                            value={campaignId === 'all_consolidated' ? 'all' : campaignId}
-                            onChange={(e) => {
-                                if (e.target.value === 'all') {
-                                    onSelect('all_consolidated' as any);
-                                } else {
-                                    onSelect(e.target.value);
-                                }
-                            }}
-                            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-900 outline-none cursor-pointer min-w-[200px]"
-                        >
-                            <option value="all">Consolidado (Todas)</option>
-                            <option disabled>--- Campanhas ---</option>
-                            {campaigns.map(c => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                            ))}
-                        </select>
-                        <Button 
-                            variant="ghost" 
-                            onClick={onBack}
-                            className="h-8 px-3 rounded-lg border border-slate-200 text-slate-600 hover:text-[#E5003A] hover:bg-slate-50 font-bold uppercase text-[9px] tracking-widest flex items-center gap-1.5 transition-all"
-                        >
-                            <ArrowRight className="w-3 h-3 rotate-180" />
-                            Sair
-                        </Button>
-                    </div>
+
+            {/* LINHA 2: METADADOS E AÇÕES ORGANIZADOS */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-t border-slate-100 pt-4 px-1">
+              <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+                <div className="flex items-center gap-3">
+                  <Calendar className="w-4 h-4 text-blue-500" />
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Início</span>
+                    <span className="text-sm font-bold text-slate-700 font-mono">
+                      {campaignId === 'all_consolidated' ? 'Todos os Períodos' : selectedCampaign ? format(new Date(selectedCampaign.startDate), "dd/MM/yyyy") : '-'}
+                    </span>
+                  </div>
                 </div>
+
+                <div className="flex items-center gap-3 border-l border-slate-100 pl-8 hidden md:flex">
+                  <Target className="w-4 h-4 text-[#E5003A]" />
+                  <div className="flex flex-col max-w-[320px]">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Meta / Objetivo</span>
+                    <span className="text-sm font-bold text-slate-700 truncate">
+                      {campaignId === 'all_consolidated' ? 'Visão consolidada' : selectedCampaign?.description || 'Não informado'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 border-l border-slate-100 pl-8 hidden xl:flex">
+                  <User className="w-4 h-4 text-slate-500" />
+                  <div className="flex flex-col max-w-[240px]">
+                    <span className="text-[9px] font-bold uppercase tracking-widest text-slate-400">Agente</span>
+                    <span className="text-sm font-bold text-slate-700 truncate">
+                      {campaignId === 'all_consolidated' ? 'Múltiplos agentes' : selectedAgent?.name || 'Não informado'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3 lg:ml-auto">
+                <div className="flex items-center gap-3">
+                  <select 
+                    value={campaignId === 'all_consolidated' ? 'all' : campaignId}
+                    onChange={(e) => {
+                      if (e.target.value === 'all') {
+                        onSelect('all_consolidated' as any);
+                      } else {
+                        onSelect(e.target.value);
+                      }
+                    }}
+                    className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-900 outline-none cursor-pointer min-w-[220px]"
+                  >
+                    <option value="all">Consolidado (Todas)</option>
+                    <option disabled>--- Campanhas ---</option>
+                    {campaigns.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <Button 
+                    variant="ghost" 
+                    onClick={onBack}
+                    className="h-8 px-4 rounded-lg border border-slate-200 text-slate-600 hover:text-[#E5003A] hover:bg-slate-50 font-bold uppercase text-[9px] tracking-widest flex items-center gap-2 transition-all shadow-sm"
+                  >
+                    <ArrowRight className="w-3 h-3 rotate-180" />
+                    Sair
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -729,17 +775,79 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             </OperationCluster>
 
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
-              <KPISquare label="Enviados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
-              <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
-              <KPISquare label="Lidos" value={stats.read_count} percentage={stats.total_contacts > 0 ? (stats.read_count / stats.total_contacts) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Base: leads válidos" />
+              <KPISquare label="Enviados" value={stats.total_contacts} percentage={100} subLabel="Base: leads válidos" />
+              <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
+              <KPISquare 
+                label="Não entregues" 
+                value={Math.max(stats.total_contacts - stats.delivered_count, 0)} 
+                percentage={stats.total_contacts > 0 ? (Math.max(stats.total_contacts - stats.delivered_count, 0) / stats.total_contacts) * 100 : 0} 
+                isNegative 
+                accentClass="text-slate-400 opacity-80"
+                subLabel="Não recebidas (Zenvia)" 
+              />
+              <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
             </OperationCluster>
 
-            <OperationCluster title="Resultado de Interações" subtitle="Baseados nos leads válidos" icon={Zap}>
-              <KPISquare label="Iniciados" value={stats.sent_count} percentage={stats.total_contacts > 0 ? (stats.sent_count / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" />
-              <KPISquare label="Insucessos" value={Math.max(stats.sent_count - stats.conversion_count, 0)} percentage={stats.total_contacts > 0 ? (Math.max(stats.sent_count - stats.conversion_count, 0) / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
-              <KPISquare label="Links Enviados" value={stats.conversion_count} percentage={stats.total_contacts > 0 ? (stats.conversion_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Base: leads válidos" />
+            <OperationCluster title="Resultado de Interações" subtitle="Funil Comportamental" icon={Zap}>
+              <div className="space-y-3">
+                {/* Linha 1: Topo do Funil Impactado */}
+                <div className="grid grid-cols-2 gap-3">
+                  <KPISquare 
+                    label="Base Impactada" 
+                    value={stats.delivered_count} 
+                    percentage={100} 
+                    subLabel="Mensagem entregue" 
+                  />
+                  <KPISquare 
+                    label="Lidos" 
+                    value={stats.read_count} 
+                    percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} 
+                    subLabel="Taxa Leitura" 
+                  />
+                </div>
+
+                {/* Linha 2: Engajamento Real (Destaque) */}
+                <div className="w-full">
+                  <KPISquare 
+                    label="Interagiram" 
+                    value={stats.response_count} 
+                    percentage={stats.read_count > 0 ? (stats.response_count / stats.read_count) * 100 : 0} 
+                    isPositive 
+                    accentClass="text-emerald-600 bg-emerald-50/50"
+                    subLabel="Taxa Interação: (Interagiram/Lidos)" 
+                  />
+                </div>
+
+                {/* Linha 3: Conversão e Eficiência */}
+                <div className="grid grid-cols-2 gap-3">
+                  <KPISquare 
+                    label="Links Enviados" 
+                    value={stats.conversion_count} 
+                    percentage={stats.read_count > 0 ? (stats.conversion_count / stats.read_count) * 100 : 0} 
+                    isPositive 
+                    accentClass="text-blue-600 bg-blue-50/50"
+                    subLabel="Conversão/Lidos" 
+                  />
+                  <KPISquare 
+                    label="Pos Interação" 
+                    value={`${stats.response_count > 0 ? Math.round((stats.conversion_count / stats.response_count) * 100) : 0}%`}
+                    percentage={stats.response_count > 0 ? (stats.conversion_count / stats.response_count) * 100 : 0}
+                    isPositive
+                    subLabel="Eficácia Resposta"
+                    hideValue={true}
+                  />
+                </div>
+
+                {/* Linha 4: Vazamento do Funil */}
+                <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
+                  <KPISquare label="Abandono Leitura" value={Math.max(stats.read_count - stats.response_count, 0)} percentage={stats.read_count > 0 ? (Math.max(stats.read_count - stats.response_count, 0) / stats.read_count) * 100 : 0} isNegative subLabel="Lidos s/ resposta" />
+                  <KPISquare label="Abandono Conv." value={Math.max(stats.response_count - stats.conversion_count, 0)} percentage={stats.response_count > 0 ? (Math.max(stats.response_count - stats.conversion_count, 0) / stats.response_count) * 100 : 0} isNegative subLabel="Respondeu s/ Link" />
+                </div>
+              </div>
             </OperationCluster>
           </div>
+
+
 
           <div className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-8 border-b border-border/50 flex items-center justify-between bg-slate-50/30">
@@ -840,7 +948,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                           <p className="text-sm font-bold text-slate-900">{lead.name}</p>
                         </td>
                         <td className="px-8 py-5 last:pr-10 text-right">
-                          {renderStatusBadge(lead.status)}
+                          {renderStatusBadge(lead.status, lead.errorMessage)}
                         </td>
                         <td className="px-8 py-5 last:pr-10 text-right">
                           <Button
@@ -913,7 +1021,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                             <div className="grid grid-cols-2 gap-3 text-sm">
                               <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fila</p>
-                                <div className="mt-2">{renderStatusBadge(analyticsData.queueStatus || selectedLead.status)}</div>
+                                <div className="mt-2">{renderStatusBadge(analyticsData.queueStatus || selectedLead.status, selectedLead.errorMessage)}</div>
                               </div>
                               <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conversão</p>
@@ -931,6 +1039,17 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                               </div>
                             </div>
                           </AnalyticsBlock>
+
+                          {(selectedLead.errorMessage || analyticsData.queueStatus === 'failed') && (
+                            <AnalyticsBlock title="Detalhes da Falha" icon={AlertTriangle}>
+                              <div className="rounded-xl border border-rose-100 bg-rose-50 p-4">
+                                <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-1">Motivo identificado:</p>
+                                <p className="text-sm text-rose-700 font-medium leading-relaxed">
+                                  {selectedLead.errorMessage || "Erro desconhecido durante o processamento da mensagem."}
+                                </p>
+                              </div>
+                            </AnalyticsBlock>
+                          )}
 
                           <AnalyticsBlock title="Participantes" icon={UserRound}>
                             <p><span className="font-semibold">Contato:</span> {analyticsData.participants.contactName}</p>

@@ -3,6 +3,8 @@
 -- Descrição: Retorna a lista de leads de uma campanha com enriquecimento de identificador (CNPJ/CPF)
 -- ============================================================
 
+DROP FUNCTION IF EXISTS get_campaign_leads_enriched(uuid,uuid);
+
 CREATE OR REPLACE FUNCTION get_campaign_leads_enriched(
   p_tenant_id UUID,
   p_campaign_id UUID DEFAULT NULL
@@ -14,7 +16,8 @@ RETURNS TABLE (
   status TEXT,
   metadata JSONB,
   cnpj TEXT,
-  establishment_name TEXT
+  establishment_name TEXT,
+  error_message TEXT
 ) 
 LANGUAGE plpgsql
 STABLE
@@ -27,7 +30,16 @@ BEGIN
     oq.id,
     oq.contact_phone::text,
     oq.contact_name::text,
-    oq.status::text,
+    COALESCE(
+      (
+        SELECT lower(msh.status)
+        FROM public.message_status_history msh
+        WHERE msh.message_id = (oq.metadata->>'message_id')::uuid
+        ORDER BY msh.created_at DESC
+        LIMIT 1
+      ),
+      oq.status::text
+    ) as status,
     oq.metadata,
     COALESCE(
       (oq.metadata->>'cnpj')::text, 
@@ -67,7 +79,8 @@ BEGIN
           )
         )
       LIMIT 1
-    ) as establishment_name
+    ) as establishment_name,
+    oq.error_message::text
   FROM public.outbound_queue oq
   WHERE oq.tenant_id = p_tenant_id
     AND (p_campaign_id IS NULL OR oq.campaign_id = p_campaign_id)

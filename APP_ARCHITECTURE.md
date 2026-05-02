@@ -1,3 +1,16 @@
+## [V61.0] - Executive Dashboard Overhaul & Funnel Transparency
+### Otimização de UI & Precisão de Funil (Executive SLA)
+- **Header Hierárquico (Two-Line Layout)**: Reorganização total do cabeçalho isolando o nome da campanha em uma linha de destaque (100% largura) e agrupando metadados (Início, Meta, Agente) e ações na linha inferior, eliminando compressão visual.
+- **Transparência no Funil Técnico (Middle Column)**: Adição do card **"Não entregues"** (Enviados - Entregues), garantindo 100% de visibilidade sobre o destino das mensagens disparadas.
+- **Funil Comportamental Pro (Right Column)**: 
+  - **Nova Base Impactada**: O funil agora utiliza **"Entregues"** como baseline 100%, tornando os indicadores de leitura, interação e conversão realistas.
+  - **KPI "Pos Interação"**: Introdução de métrica para medir a eficácia de fechamento especificamente sobre leads que já responderam à IA.
+  - **Compact Layout**: Ajuste de densidade visual para um formato de funil contínuo em 4 níveis, reduzindo scroll e melhorando a escaneabilidade.
+- **Detecção de Interação Dinâmica**: Migração da lógica de `response_count` na RPC para scan direto da tabela `messages` (direção `inbound` ou `sender=user`), garantindo contagem precisa mesmo para respostas simples ("oi", "ok").
+- **Maximização de Área Útil**: Remoção das abas superiores no `Index.tsx`, permitindo que o dashboard ocupe o topo da tela imediatamente.
+
+---
+
 ## [V60.0] - Campaign Metrics Truth & UI Refinement (Executive SLA)
 ### Precisão de Métricas & Dashboard de Campanhas
 - **Single Source of Truth (SSoT)**: O dashboard de campanhas agora utiliza exclusivamente a tabela `message_status_history` para métricas, eliminando discrepâncias causadas pelo estado volátil da `outbound_queue`.
@@ -1020,20 +1033,17 @@ Movimentação automática pela IA (baseada em score da auditoria) ou manual pel
 
 ### 13.4 Campanha Executiva (`CampaignExecutiveView`)
 
-- **Fonte Única de Métricas**: O resumo e o detalhe da Campanha Executiva consomem a mesma RPC `get_campaign_dashboard_stats`, evitando divergência entre cards e tabela.
-- **Filtro Operacional por Status**: O monitor de transações suporta seleção múltipla de status diretamente acima da tabela, atualizando a grade em tempo real sem roundtrip extra.
-- **Detalhamento por Linha**: A ação `Detalhar` abre um drawer lateral direito sem bloquear a tabela, preservando a leitura do grid em resoluções amplas.
-- **Estratégia de Match de Conversa**:
-  1. Prioriza `outbound_queue.conversation_id`
-  2. Cai para `conversations.campaign_id + user_identifier`
-  3. Aplica normalização de telefone como fallback final
-- **Blocos Analíticos do Drawer**:
-  - Visão executiva: status da fila, status da conversa, canal e conversão/interação
-  - Participantes: contato, agente e telefone
-  - Auditoria: sentimento, score, total de avaliações e modelo
-  - Tags e critérios: `tags[]` e `criteria_results`
-  - Perfil do contato: lifecycle, status e tags do CRM
-  - Resumo: síntese auditada ou última mensagem disponível
+O dashboard executivo é estruturado em três colunas de análise progressiva, focadas em identificar atritos em cada etapa da jornada do lead:
+
+1.  **Processamento de Leads (Esquerda)**: Validação da carga de dados (Arquivo → Válidos → Inconsistentes).
+2.  **Tráfego de Mensagens (Centro - Funil Técnico)**: Monitoramento da entrega técnica (Enviados → Entregues → **Não entregues** → Lidas).
+3.  **Resultado de Interações (Direita - Funil Comportamental)**: Análise de engajamento baseada no impacto real (**Base Impactada (Entregues)** → Lidos → Interagiram → Conversão).
+
+- **Layout Hierárquico**: Header de duas linhas que isola a identidade da campanha dos metadados de execução, garantindo legibilidade em nomes longos.
+- **KPI "Pos Interação"**: Mede o sucesso comercial especificamente sobre os leads que engajaram (Conversão / Interação).
+- **Fonte Única de Métricas**: Consumo direto da RPC `get_campaign_dashboard_stats` para Cards, Funis e Gráficos.
+- **Filtro Operacional por Status**: Seleção múltipla acima da tabela de transações para drill-down imediato.
+- **Detalhamento Analítico**: Drawer lateral direito com visão 360º do lead (Analytics, Auditoria, CRM e Histórico).
 
 ### 13.5 RPC `get_campaign_leads_enriched`
 
