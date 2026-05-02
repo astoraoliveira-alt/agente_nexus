@@ -220,7 +220,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
   const totalCampaigns = campaigns.length;
   const totalValidLeads = campaigns.reduce((sum, campaign) => sum + (campaign.totalContacts || 0), 0);
   const totalLinksSent = campaigns.reduce((sum, campaign) => sum + (campaign.conversionCount || 0), 0);
-  const totalAbandoned = campaigns.reduce((sum, campaign) => sum + Math.max((campaign.readCount || 0) - (campaign.conversionCount || 0), 0), 0);
+  const totalInteracted = campaigns.reduce((sum, campaign) => sum + (campaign.responseCount || 0), 0);
   const overallConversionRate = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
 
   const calculateConversion = (campaign: Campaign) => {
@@ -258,7 +258,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:min-w-[50rem]">
             <BigNumberCard label="Total de Campanhas" value={totalCampaigns.toLocaleString('pt-BR')} />
             <BigNumberCard label="Válidos" value={totalValidLeads.toLocaleString('pt-BR')} />
-            <BigNumberCard label="Abandonados" value={totalAbandoned.toLocaleString('pt-BR')} />
+            <BigNumberCard label="Interagiram" value={totalInteracted.toLocaleString('pt-BR')} />
             <BigNumberCard label="Links Enviados" value={totalLinksSent.toLocaleString('pt-BR')} />
             <BigNumberCard
               label="% Conversão"
@@ -283,7 +283,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Enviados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Entregues</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Lidas</th>
-                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Abandonados</th>
+                <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Interagiram</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Links Enviados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
                 <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-8">Agente</th>
@@ -344,8 +344,8 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                     <td className="px-4 py-5 text-xs font-bold text-emerald-600 text-center">
                       {(c.readCount || 0).toLocaleString('pt-BR')}
                     </td>
-                    <td className="px-4 py-5 text-xs font-bold text-rose-500 text-center">
-                      {Math.max((c.readCount || 0) - (c.conversionCount || 0), 0).toLocaleString('pt-BR')}
+                    <td className="px-4 py-5 text-xs font-bold text-emerald-600 text-center">
+                      {(c.responseCount || 0).toLocaleString('pt-BR')}
                     </td>
                     <td className="px-4 py-5 text-xs font-bold text-indigo-600 text-center">
                       <div className="flex items-center justify-center gap-1.5">
