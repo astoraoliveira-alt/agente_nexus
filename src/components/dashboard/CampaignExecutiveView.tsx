@@ -811,10 +811,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Interagiram" 
                     value={stats.response_count} 
-                    percentage={stats.read_count > 0 ? (stats.response_count / stats.read_count) * 100 : 0} 
+                    percentage={stats.delivered_count > 0 ? (stats.response_count / stats.delivered_count) * 100 : 0} 
                     isPositive 
                     accentClass="text-emerald-600 bg-emerald-50/50"
-                    subLabel="Taxa Interação: (Interagiram/Lidos)" 
+                    subLabel="Taxa Interação: (Interagiram/Entregues)" 
                   />
                 </div>
 
@@ -823,10 +823,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Links Enviados" 
                     value={stats.conversion_count} 
-                    percentage={stats.read_count > 0 ? (stats.conversion_count / stats.read_count) * 100 : 0} 
+                    percentage={stats.delivered_count > 0 ? (stats.conversion_count / stats.delivered_count) * 100 : 0} 
                     isPositive 
                     accentClass="text-blue-600 bg-blue-50/50"
-                    subLabel="Conversão/Lidos" 
+                    subLabel="Conversão/Entregues" 
                   />
                   <KPISquare 
                     label="Pos Interação" 
