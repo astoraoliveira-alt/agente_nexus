@@ -220,12 +220,12 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
   const totalCampaigns = campaigns.length;
   const totalValidLeads = campaigns.reduce((sum, campaign) => sum + (campaign.totalContacts || 0), 0);
   const totalLinksSent = campaigns.reduce((sum, campaign) => sum + (campaign.conversionCount || 0), 0);
-  const totalInteracted = campaigns.reduce((sum, campaign) => sum + (campaign.responseCount || 0), 0);
-  const overallConversionRate = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
+  const totalDelivered = campaigns.reduce((sum, campaign) => sum + (campaign.deliveredCount || 0), 0);
+  const overallConversionRate = totalDelivered > 0 ? (totalLinksSent / totalDelivered) * 100 : 0;
 
   const calculateConversion = (campaign: Campaign) => {
-    if (!campaign.totalContacts || campaign.totalContacts === 0) return 0;
-    return ((campaign.conversionCount || 0) / campaign.totalContacts) * 100;
+    if (!campaign.deliveredCount || campaign.deliveredCount === 0) return 0;
+    return ((campaign.conversionCount || 0) / campaign.deliveredCount) * 100;
   };
 
   const getConversionColor = (value: number) => {
@@ -258,7 +258,7 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5 lg:min-w-[50rem]">
             <BigNumberCard label="Total de Campanhas" value={totalCampaigns.toLocaleString('pt-BR')} />
             <BigNumberCard label="Válidos" value={totalValidLeads.toLocaleString('pt-BR')} />
-            <BigNumberCard label="Interagiram" value={totalInteracted.toLocaleString('pt-BR')} />
+            <BigNumberCard label="Entregues" value={totalDelivered.toLocaleString('pt-BR')} />
             <BigNumberCard label="Links Enviados" value={totalLinksSent.toLocaleString('pt-BR')} />
             <BigNumberCard
               label="% Conversão"
