@@ -461,7 +461,7 @@ export const coreService = {
         // Fetch contacts to get Ban Status and agent leads to enrich the establishment name
         const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
         let contactsMap = new Map<string, string>();
-        let establishmentMap = new Map<string, string>();
+        const establishmentMap = new Map<string, string>();
         if (userIdentifiers.length > 0) {
             const [contactsResult, rpcEstablishmentsResult, leadsResult] = await Promise.all([
                 supabase

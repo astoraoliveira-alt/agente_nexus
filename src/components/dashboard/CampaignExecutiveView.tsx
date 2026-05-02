@@ -543,7 +543,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
   }, [leads, selectedStatuses]);
 
   const sortedLeads = useMemo(() => {
-    let items = [...filteredLeads];
+    const items = [...filteredLeads];
     if (sortConfig.key) {
       items.sort((a, b) => {
         const aValue = String(a[sortConfig.key!] || '').toLowerCase();

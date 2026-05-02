@@ -4,7 +4,7 @@ import { getSetPasswordUrl } from '@/lib/app-url';
 
 export const usersService = {
 async getFunctionAuthHeaders(): Promise<Record<string, string>> {
-        let { data, error } = await supabase.auth.getSession();
+        const { data, error } = await supabase.auth.getSession();
         if (error) {
             console.error('Error getting Supabase session for function call:', error);
             throw error;

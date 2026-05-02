@@ -178,6 +178,10 @@ export default function Campaigns() {
         templateId: "",
         successCriteria: ['LINK_SENT'] as string[],
         successLinkFilter: "fiservcapital",
+        reengagementEnabled: false,
+        reengagementWaitHours: 24,
+        reengagementMaxAttempts: 1,
+        reengagementMessage: ""
     });
 
     useEffect(() => {
@@ -271,6 +275,10 @@ export default function Campaigns() {
                 dailyLimit: newCampaign.dailyLimit,
                 successCriteria: newCampaign.successCriteria,
                 successLinkFilter: newCampaign.successCriteria.includes('LINK_SENT') ? newCampaign.successLinkFilter : undefined,
+                reengagementEnabled: newCampaign.reengagementEnabled,
+                reengagementWaitHours: newCampaign.reengagementWaitHours,
+                reengagementMaxAttempts: newCampaign.reengagementMaxAttempts,
+                reengagementMessage: newCampaign.reengagementMessage,
                 status: "active" as CampaignStatus,
             });
 
@@ -295,6 +303,10 @@ export default function Campaigns() {
                 templateId: "",
                 successCriteria: ['LINK_SENT'],
                 successLinkFilter: "fiservcapital",
+                reengagementEnabled: false,
+                reengagementWaitHours: 24,
+                reengagementMaxAttempts: 1,
+                reengagementMessage: ""
             });
             await loadData();
             setIsImportOpen(true);
@@ -745,6 +757,10 @@ export default function Campaigns() {
                 agentId: editingCampaign.agentId,
                 successCriteria: editingCampaign.successCriteria,
                 successLinkFilter: editingCampaign.successLinkFilter,
+                reengagementEnabled: editingCampaign.reengagementEnabled,
+                reengagementWaitHours: editingCampaign.reengagementWaitHours,
+                reengagementMaxAttempts: editingCampaign.reengagementMaxAttempts,
+                reengagementMessage: editingCampaign.reengagementMessage,
             });
 
             toast({
@@ -925,183 +941,224 @@ export default function Campaigns() {
                                     </Button>
                                 </DialogTrigger>
                                 )}
-                                <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
-                                    <DialogHeader className="p-6 pb-2">
-                                        <DialogTitle className="text-2xl font-bold text-accent">Criar Campanha</DialogTitle>
-                                        <DialogDescription className="text-xs">
-                                            Configure os parâmetros operacionais da sua campanha de automação inteligente.
+                                <DialogContent className="sm:max-w-[850px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
+                                    <DialogHeader className="p-5 pb-2">
+                                        <DialogTitle className="text-xl font-bold text-accent">Criar Nova Campanha Outbound</DialogTitle>
+                                        <DialogDescription className="text-[11px]">
+                                            Defina o agente, a audiência e a estratégia de reengajamento em um único lugar.
                                         </DialogDescription>
                                     </DialogHeader>
                                     
-                                    <div className="flex-1 overflow-y-auto px-6 py-2 space-y-5 custom-scrollbar">
-                                        {/* Seção 1: Identificação */}
-                                        <div className="space-y-4">
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="name" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Nome da Campanha</Label>
-                                                <Input
-                                                    id="name"
-                                                    placeholder="Ex: Reengajamento - Leads Janeiro"
-                                                    className="bg-accent/5 h-10"
-                                                    value={newCampaign.name}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
-                                                />
-                                            </div>
-                                            
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="agent" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Agente de IA Executor</Label>
-                                                <Select value={newCampaign.agentId} onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
-                                                    <SelectTrigger className="bg-accent/5 h-10">
-                                                        <SelectValue placeholder="Selecione o cérebro da campanha..." />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {agents.map(agent => (
-                                                            <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                    <div className="flex-1 overflow-y-auto px-5 py-2 space-y-4 custom-scrollbar pb-6">
+                                        {/* Seção 1: Identidade e Agente */}
+                                        <div className="grid grid-cols-12 gap-4 items-start">
+                                            <Card className="col-span-12 lg:col-span-8 border-accent/5 shadow-none bg-slate-50/50">
+                                                <CardContent className="p-3 space-y-3">
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor="name" className="text-[10px] uppercase font-bold text-slate-400">Nome da Campanha</Label>
+                                                            <Input
+                                                                id="name"
+                                                                placeholder="Ex: Reengajamento Janeiro"
+                                                                className="bg-white h-9 border-slate-200 text-sm"
+                                                                value={newCampaign.name}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
+                                                            />
+                                                        </div>
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor="agent" className="text-[10px] uppercase font-bold text-slate-400">Agente IA Executor</Label>
+                                                            <Select value={newCampaign.agentId} onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
+                                                                <SelectTrigger className="bg-white h-9 border-slate-200 text-sm">
+                                                                    <SelectValue placeholder="Selecione..." />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {agents.map(agent => (
+                                                                        <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid gap-1.5">
+                                                        <Label htmlFor="description" className="text-[10px] uppercase font-bold text-slate-400">Objetivo Estratégico</Label>
+                                                        <Input
+                                                            id="description"
+                                                            placeholder="Ex: Converter leads inativos de Jan"
+                                                            className="bg-white h-9 border-slate-200 text-sm"
+                                                            value={newCampaign.description}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+
+                                            {/* Seção 2: Execução (Compacta) */}
+                                            <Card className="col-span-12 lg:col-span-4 border-accent/5 shadow-none bg-slate-50/50">
+                                                <CardContent className="p-3">
+                                                    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                                                        <div className="grid gap-1">
+                                                            <Label htmlFor="start" className="text-[10px] uppercase font-bold text-slate-400">Início</Label>
+                                                            <Input id="start" type="date" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.startDate} onChange={(e) => setNewCampaign({ ...newCampaign, startDate: e.target.value })} />
+                                                        </div>
+                                                        <div className="grid gap-1">
+                                                            <Label htmlFor="limit" className="text-[10px] uppercase font-bold text-slate-400">Lmt Diário</Label>
+                                                            <Input id="limit" type="number" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.dailyLimit} onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })} />
+                                                        </div>
+                                                        <div className="grid gap-1">
+                                                            <Label htmlFor="startTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Abr</Label>
+                                                            <Input id="startTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.startTime} onChange={(e) => setNewCampaign({ ...newCampaign, startTime: e.target.value })} />
+                                                        </div>
+                                                        <div className="grid gap-1">
+                                                            <Label htmlFor="endTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Fec</Label>
+                                                            <Input id="endTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.endTime} onChange={(e) => setNewCampaign({ ...newCampaign, endTime: e.target.value })} />
+                                                        </div>
+                                                    </div>
+                                                </CardContent>
+                                            </Card>
+                                        </div>
+
+                                        {/* Seção 3: Estratégia de Mensagem e Reengajamento (UNIFICADA) */}
+                                        <Card className="border-accent/10 shadow-none bg-white">
+                                            <CardHeader className="py-2.5 px-4 border-b border-accent/5 bg-slate-50/50">
+                                                <div className="flex items-center justify-between">
+                                                    <CardTitle className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
+                                                        <MessageSquare className="w-3 h-3" /> Estratégia de Mensagem
+                                                    </CardTitle>
+                                                    <div className="flex items-center gap-4 bg-white px-3 py-1 rounded-full border border-accent/10">
+                                                        <div className="flex items-center gap-2">
+                                                            <input type="checkbox" className="accent-accent w-3 h-3" checked={newCampaign.reengagementEnabled} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementEnabled: e.target.checked })} />
+                                                            <span className="text-[10px] font-bold text-accent">Ativar Reengajamento</span>
+                                                        </div>
+                                                        <div className="h-3 w-[1px] bg-slate-200" />
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] text-slate-400 font-bold">TEMPO:</span>
+                                                            <select className="text-[10px] font-bold bg-transparent outline-none" value={newCampaign.reengagementWaitHours} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementWaitHours: parseInt(e.target.value) })} disabled={!newCampaign.reengagementEnabled}>
+                                                                <option value={12}>12h</option>
+                                                                <option value={24}>24h</option>
+                                                                <option value={48}>48h</option>
+                                                                <option value={72}>72h</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] text-slate-400 font-bold">TENTATIVAS:</span>
+                                                            <select className="text-[10px] font-bold bg-transparent outline-none" value={newCampaign.reengagementMaxAttempts} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMaxAttempts: parseInt(e.target.value) })} disabled={!newCampaign.reengagementEnabled}>
+                                                                <option value={1}>1x</option>
+                                                                <option value={2}>2x</option>
+                                                                <option value={3}>3x</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="p-4 space-y-4">
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div className="grid gap-1.5">
+                                                        <div className="flex justify-between items-center">
+                                                            <Label className="text-[10px] uppercase font-bold text-slate-400">1. Impacto Inicial</Label>
+                                                            <span className="text-[8px] text-accent/60 font-mono italic">{"{{nome}}"}</span>
+                                                        </div>
+                                                        <textarea
+                                                            placeholder="Olá {{nome}}, tudo bem? Gostaríamos de conversar sobre..."
+                                                            className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
+                                                            value={newCampaign.initialMessage}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
+                                                        />
+                                                    </div>
+                                                    <div className={cn("grid gap-1.5 transition-opacity duration-300", !newCampaign.reengagementEnabled && "opacity-40 grayscale")}>
+                                                        <Label className="text-[10px] uppercase font-bold text-slate-400">2. Reengajamento (Opcional)</Label>
+                                                        <textarea
+                                                            placeholder="Olá {{nome}}, passando para saber se conseguiu ver nossa mensagem anterior..."
+                                                            className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
+                                                            value={newCampaign.reengagementMessage}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMessage: e.target.value })}
+                                                            disabled={!newCampaign.reengagementEnabled}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-6">
+                                                    <div className="flex-1 grid gap-1.5">
+                                                        <Label htmlFor="templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                            <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                                        </Label>
+                                                        <Input
+                                                            id="templateId"
+                                                            placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                            className="bg-white h-8 border-slate-200 text-xs"
+                                                            value={newCampaign.templateId}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
+                                                        />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-[10px] text-slate-400 leading-tight italic">
+                                                            O reengajamento é enviado apenas se não houver resposta detectada após o tempo configurado.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Seção 4: Sucesso / Conversão */}
+                                        <Card className="border-emerald-500/10 shadow-none bg-emerald-50/30">
+                                            <CardContent className="p-3 space-y-3">
+                                                <div className="flex items-center gap-3">
+                                                    <Label className="text-[10px] uppercase font-bold text-emerald-600 flex items-center gap-2 whitespace-nowrap">
+                                                        <ShieldCheck className="w-3 h-3" /> Gatilhos de Sucesso:
+                                                    </Label>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {[
+                                                            { id: 'CLIENT_RESPONDED', label: 'Resposta' },
+                                                            { id: 'LINK_SENT', label: 'Link Enviado' },
+                                                            { id: 'APPOINTMENT', label: 'Agendamento' },
+                                                            { id: 'SALE', label: 'Fechamento' }
+                                                        ].map(opt => (
+                                                            <Badge
+                                                                key={opt.id}
+                                                                variant={newCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
+                                                                className={cn(
+                                                                    "cursor-pointer px-2.5 py-0.5 text-[10px] transition-all font-bold",
+                                                                    newCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent" : "bg-white hover:bg-emerald-50 border-emerald-100 text-emerald-600/70"
+                                                                )}
+                                                                onClick={() => {
+                                                                    const current = [...newCampaign.successCriteria];
+                                                                    if (current.includes(opt.id)) {
+                                                                        setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
+                                                                    } else {
+                                                                        setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
+                                                                    }
+                                                                }}
+                                                            >
+                                                                {opt.label}
+                                                            </Badge>
                                                         ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </div>
-
-                                        {/* Seção 2: Cadência e Cronograma */}
-                                        <div className="grid grid-cols-2 gap-4 pb-4 border-b border-accent/5">
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="limit" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Limite Diário (Novos)</Label>
-                                                <div className="relative">
-                                                    <Zap className="absolute left-3 top-2.5 h-4 w-4 text-accent/50" />
-                                                    <Input
-                                                        id="limit"
-                                                        type="number"
-                                                        className="bg-accent/5 pl-9 h-10"
-                                                        value={newCampaign.dailyLimit}
-                                                        onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })}
-                                                    />
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="start" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Data de Início</Label>
-                                                <Input
-                                                    id="start"
-                                                    type="date"
-                                                    className="bg-accent/5 h-10"
-                                                    value={newCampaign.startDate}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, startDate: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="startTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela: Início</Label>
-                                                <Input
-                                                    id="startTime"
-                                                    type="time"
-                                                    className="bg-accent/5 h-10"
-                                                    value={newCampaign.startTime}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, startTime: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="endTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela: Fim</Label>
-                                                <Input
-                                                    id="endTime"
-                                                    type="time"
-                                                    className="bg-accent/5 h-10"
-                                                    value={newCampaign.endTime}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, endTime: e.target.value })}
-                                                />
-                                            </div>
-                                        </div>
 
-                                        {/* Seção 3: Mensagem e Criativo */}
-                                        <div className="space-y-4">
-                                            <div className="grid gap-2">
-                                                <div className="flex justify-between items-end">
-                                                    <Label htmlFor="message" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Mensagem Inicial</Label>
-                                                    <span className="text-[9px] text-accent/70 font-mono italic">Variável: {"{{nome}}"}</span>
-                                                </div>
-                                                <textarea
-                                                    id="message"
-                                                    placeholder="Olá {{nome}}, tudo bem? Gostaríamos de conversar sobre..."
-                                                    className="flex min-h-[80px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                                    value={newCampaign.initialMessage}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="grid gap-2 mt-4">
-                                                <Label htmlFor="templateId" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">ID do Template Zenvia (Opcional)</Label>
-                                                <Input
-                                                    id="templateId"
-                                                    placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
-                                                    className="bg-accent/5 h-10"
-                                                    value={newCampaign.templateId}
-                                                    onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {/* Seção 4: Critérios de Sucesso (Compacto) */}
-                                        <div className="p-4 bg-accent/5 rounded-xl border border-accent/10 space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
-                                                    <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                                                    Sucesso (Conversão)
-                                                </Label>
-                                                <Badge variant="outline" className="text-[8px] border-emerald-500/30 text-emerald-600">Obrigatório</Badge>
-                                            </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                {[
-                                                    { id: 'CLIENT_RESPONDED', label: 'Resposta' },
-                                                    { id: 'LINK_SENT', label: 'Link Enviado' },
-                                                    { id: 'APPOINTMENT', label: 'Agendamento' },
-                                                    { id: 'SALE', label: 'Fechamento' }
-                                                ].map(opt => (
-                                                    <Badge
-                                                        key={opt.id}
-                                                        variant={newCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
-                                                        className={cn(
-                                                            "cursor-pointer px-3 py-1 text-[11px] transition-all",
-                                                            newCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent shadow-sm shadow-emerald-200" : "hover:bg-accent/10 border-slate-200 text-slate-500"
-                                                        )}
-                                                        onClick={() => {
-                                                            const current = [...newCampaign.successCriteria];
-                                                            if (current.includes(opt.id)) {
-                                                                setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
-                                                            } else {
-                                                                setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
-                                                            }
-                                                        }}
-                                                    >
-                                                        {opt.label}
-                                                    </Badge>
-                                                ))}
-                                            </div>
-
-                                            {newCampaign.successCriteria.includes('LINK_SENT') && (
-                                                <div className="mt-2 space-y-1.5 animate-in slide-in-from-top-1">
-                                                    <Label htmlFor="linkFilter" className="text-[9px] font-bold uppercase text-slate-400">Termo para Gatilho (Ex: checkout, link, proposta)</Label>
-                                                    <Input
-                                                        id="linkFilter"
-                                                        placeholder="Ex: fiservcapital"
-                                                        className="h-8 text-xs bg-white border-emerald-100"
-                                                        value={newCampaign.successLinkFilter}
-                                                        onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="grid gap-2 pb-4">
-                                            <Label htmlFor="description" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Objetivo (Opcional)</Label>
-                                            <Input
-                                                id="description"
-                                                placeholder="Breve descrição da meta..."
-                                                className="bg-accent/5 h-10 mb-4"
-                                                value={newCampaign.description}
-                                                onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })}
-                                            />
-                                        </div>
+                                                {newCampaign.successCriteria.includes('LINK_SENT') && (
+                                                    <div className="flex items-center gap-3 p-2 bg-white rounded-md border border-emerald-100 animate-in fade-in slide-in-from-left-2">
+                                                        <Label htmlFor="linkFilter" className="text-[10px] font-bold uppercase text-emerald-600/50">Termo do Link:</Label>
+                                                        <Input
+                                                            id="linkFilter"
+                                                            placeholder="Ex: checkout, proposta"
+                                                            className="h-7 text-xs border-emerald-50 focus:ring-emerald-500/10 flex-1"
+                                                            value={newCampaign.successLinkFilter}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </CardContent>
+                                        </Card>
                                     </div>
 
-                                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
-                                        <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500">Cancelar</Button>
-                                        <Button onClick={handleCreateCampaign} className="bg-accent hover:bg-accent/90 px-8 font-bold">Salvar Estratégia</Button>
+                                    <DialogFooter className="p-4 bg-slate-50 border-t border-border/50 gap-2">
+                                        <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500 h-9 px-6">Cancelar</Button>
+                                        <Button
+                                            onClick={handleCreateCampaign}
+                                            className="bg-accent hover:bg-accent/90 px-10 font-bold h-9 shadow-lg shadow-accent/10"
+                                            disabled={!newCampaign.name || !newCampaign.agentId}
+                                        >
+                                            🚀 Lançar Estratégia
+                                        </Button>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
@@ -1433,7 +1490,7 @@ export default function Campaigns() {
 
                     <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
                         <Button variant="ghost" onClick={() => setIsImportOpen(false)} className="text-slate-500">Cancelar</Button>
-                        <Button
+                                                        <Button
                             onClick={handleImportContacts}
                             className="bg-accent hover:bg-accent/90 px-8 font-bold"
                             disabled={importData.length === 0 || !selectedCampaignForImport || isImporting}
@@ -1446,170 +1503,219 @@ export default function Campaigns() {
 
             {/* Edit Campaign Modal */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="sm:max-w-[600px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
-                    <DialogHeader className="p-6 pb-2">
-                        <DialogTitle className="text-2xl font-bold text-accent">Editar Estratégia Outbound</DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Atualize os parâmetros operacionais da sua campanha ativa.
+                <DialogContent className="sm:max-w-[850px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
+                    <DialogHeader className="p-5 pb-2">
+                        <DialogTitle className="text-xl font-bold text-accent">Editar Estratégia Outbound</DialogTitle>
+                        <DialogDescription className="text-[11px]">
+                            Atualize os parâmetros operacionais e estratégicos da sua campanha ativa.
                         </DialogDescription>
                     </DialogHeader>
                     {editingCampaign && (
-                        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-5 custom-scrollbar">
-                            <div className="space-y-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-name" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Nome da Campanha</Label>
-                                    <Input
-                                        id="edit-name"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.name}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Agente Executor</Label>
-                                    <Select 
-                                        value={editingCampaign.agentId} 
-                                        onValueChange={(val) => setEditingCampaign({ ...editingCampaign, agentId: val })}
-                                    >
-                                        <SelectTrigger className="bg-accent/5 h-10">
-                                            <SelectValue placeholder="Selecione o agente" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {agents.map(agent => (
-                                                <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
+                        <div className="flex-1 overflow-y-auto px-5 py-2 space-y-4 custom-scrollbar pb-6">
+                            {/* Seção 1: Identidade e Agente */}
+                            <div className="grid grid-cols-12 gap-4 items-start">
+                                <Card className="col-span-12 lg:col-span-8 border-accent/5 shadow-none bg-slate-50/50">
+                                    <CardContent className="p-3 space-y-3">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid gap-1.5">
+                                                <Label htmlFor="edit-name" className="text-[10px] uppercase font-bold text-slate-400">Nome da Campanha</Label>
+                                                <Input
+                                                    id="edit-name"
+                                                    className="bg-white h-9 border-slate-200 text-sm"
+                                                    value={editingCampaign.name}
+                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
+                                                />
+                                            </div>
+                                            <div className="grid gap-1.5">
+                                                <Label className="text-[10px] uppercase font-bold text-slate-400">Agente IA Executor</Label>
+                                                <Select 
+                                                    value={editingCampaign.agentId} 
+                                                    onValueChange={(val) => setEditingCampaign({ ...editingCampaign, agentId: val })}
+                                                >
+                                                    <SelectTrigger className="bg-white h-9 border-slate-200 text-sm">
+                                                        <SelectValue placeholder="Selecione..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {agents.map(agent => (
+                                                            <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-1.5">
+                                            <Label htmlFor="edit-description" className="text-[10px] uppercase font-bold text-slate-400">Objetivo Estratégico</Label>
+                                            <Input
+                                                id="edit-description"
+                                                className="bg-white h-9 border-slate-200 text-sm"
+                                                value={editingCampaign.description || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, description: e.target.value })}
+                                            />
+                                        </div>
+                                    </CardContent>
+                                </Card>
+
+                                {/* Seção 2: Execução (Compacta) */}
+                                <Card className="col-span-12 lg:col-span-4 border-accent/5 shadow-none bg-slate-50/50">
+                                    <CardContent className="p-3">
+                                        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="edit-start" className="text-[10px] uppercase font-bold text-slate-400">Início</Label>
+                                                <Input id="edit-start" type="date" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.startDate ? (editingCampaign.startDate instanceof Date ? editingCampaign.startDate.toISOString().split('T')[0] : editingCampaign.startDate) : ''} onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: e.target.value as any })} />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="edit-limit" className="text-[10px] uppercase font-bold text-slate-400">Lmt Diário</Label>
+                                                <Input id="edit-limit" type="number" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.dailyLimit} onChange={(e) => setEditingCampaign({ ...editingCampaign, dailyLimit: parseInt(e.target.value) })} />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="edit-startTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Abr</Label>
+                                                <Input id="edit-startTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.startTime || "09:00"} onChange={(e) => setEditingCampaign({ ...editingCampaign, startTime: e.target.value })} />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="edit-endTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Fec</Label>
+                                                <Input id="edit-endTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.endTime || "18:00"} onChange={(e) => setEditingCampaign({ ...editingCampaign, endTime: e.target.value })} />
+                                            </div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4 pb-4 border-b border-accent/5">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-limit" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Limite Diário</Label>
-                                    <Input
-                                        id="edit-limit"
-                                        type="number"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.dailyLimit}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, dailyLimit: parseInt(e.target.value) })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-start" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Data de Início</Label>
-                                    <Input
-                                        id="edit-start"
-                                        type="date"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.startDate ? editingCampaign.startDate.toISOString().split('T')[0] : ''}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: parseLocalDate(e.target.value) })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-startTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela Início</Label>
-                                    <Input
-                                        id="edit-startTime"
-                                        type="time"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.startTime || "09:00"}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, startTime: e.target.value })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-endTime" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Janela Fim</Label>
-                                    <Input
-                                        id="edit-endTime"
-                                        type="time"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.endTime || "18:00"}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, endTime: e.target.value })}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-message" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Mensagem Inicial</Label>
-                                    <textarea
-                                        id="edit-message"
-                                        className="flex min-h-[100px] w-full rounded-md border border-input bg-accent/5 px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                        value={editingCampaign.initialMessage || ""}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-templateId" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">ID do Template Zenvia (Opcional)</Label>
-                                    <Input
-                                        id="edit-templateId"
-                                        placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.metadata?.template_id || ""}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="edit-description" className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Descrição / Objetivo</Label>
-                                    <Input
-                                        id="edit-description"
-                                        className="bg-accent/5 h-10"
-                                        value={editingCampaign.description || ""}
-                                        onChange={(e) => setEditingCampaign({ ...editingCampaign, description: e.target.value })}
-                                    />
-                                </div>
-
-                                {/* Seção: Critérios de Sucesso (Compacto) */}
-                                <div className="p-4 bg-accent/5 rounded-xl border border-accent/10 space-y-3">
+                            {/* Seção 3: Estratégia de Mensagem e Reengajamento (UNIFICADA) */}
+                            <Card className="border-accent/10 shadow-none bg-white">
+                                <CardHeader className="py-2.5 px-4 border-b border-accent/5 bg-slate-50/50">
                                     <div className="flex items-center justify-between">
-                                        <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
-                                            <ShieldCheck className="w-3 h-3 text-emerald-500" />
-                                            Critérios de Sucesso
-                                        </Label>
+                                        <CardTitle className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
+                                            <MessageSquare className="w-3 h-3" /> Estratégia de Mensagem
+                                        </CardTitle>
+                                        <div className="flex items-center gap-4 bg-white px-3 py-1 rounded-full border border-accent/10">
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" className="accent-accent w-3 h-3" checked={editingCampaign.reengagementEnabled || false} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementEnabled: e.target.checked })} />
+                                                <span className="text-[10px] font-bold text-accent">Ativar Reengajamento</span>
+                                            </div>
+                                            <div className="h-3 w-[1px] bg-slate-200" />
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] text-slate-400 font-bold">TEMPO:</span>
+                                                <select className="text-[10px] font-bold bg-transparent outline-none" value={editingCampaign.reengagementWaitHours || 24} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementWaitHours: parseInt(e.target.value) })} disabled={!editingCampaign.reengagementEnabled}>
+                                                    <option value={12}>12h</option>
+                                                    <option value={24}>24h</option>
+                                                    <option value={48}>48h</option>
+                                                    <option value={72}>72h</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] text-slate-400 font-bold">TENTATIVAS:</span>
+                                                <select className="text-[10px] font-bold bg-transparent outline-none" value={editingCampaign.reengagementMaxAttempts || 1} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementMaxAttempts: parseInt(e.target.value) })} disabled={!editingCampaign.reengagementEnabled}>
+                                                    <option value={1}>1x</option>
+                                                    <option value={2}>2x</option>
+                                                    <option value={3}>3x</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {[
-                                            { id: 'CLIENT_RESPONDED', label: 'Resposta' },
-                                            { id: 'LINK_SENT', label: 'Link Enviado' },
-                                            { id: 'APPOINTMENT', label: 'Agendamento' },
-                                            { id: 'SALE', label: 'Fechamento' }
-                                        ].map(opt => (
-                                            <Badge
-                                                key={opt.id}
-                                                variant={(editingCampaign.successCriteria || []).includes(opt.id) ? "default" : "outline"}
-                                                className={cn(
-                                                    "cursor-pointer px-3 py-1 text-[11px] transition-all",
-                                                    (editingCampaign.successCriteria || []).includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent shadow-sm shadow-emerald-200" : "hover:bg-accent/10 border-slate-200 text-slate-500"
-                                                )}
-                                                onClick={() => {
-                                                    const current = [...(editingCampaign.successCriteria || [])];
-                                                    if (current.includes(opt.id)) {
-                                                        setEditingCampaign({ ...editingCampaign, successCriteria: current.filter(id => id !== opt.id) });
-                                                    } else {
-                                                        setEditingCampaign({ ...editingCampaign, successCriteria: [...current, opt.id] });
-                                                    }
-                                                }}
-                                            >
-                                                {opt.label}
-                                            </Badge>
-                                        ))}
+                                </CardHeader>
+                                <CardContent className="p-4 space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-1.5">
+                                            <div className="flex justify-between items-center">
+                                                <Label className="text-[10px] uppercase font-bold text-slate-400">1. Impacto Inicial</Label>
+                                                <span className="text-[8px] text-accent/60 font-mono italic">{"{{nome}}"}</span>
+                                            </div>
+                                            <textarea
+                                                className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
+                                                value={editingCampaign.initialMessage || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className={cn("grid gap-1.5 transition-opacity duration-300", !editingCampaign.reengagementEnabled && "opacity-40 grayscale")}>
+                                            <Label className="text-[10px] uppercase font-bold text-slate-400">2. Reengajamento (Opcional)</Label>
+                                            <textarea
+                                                className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
+                                                value={editingCampaign.reengagementMessage || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementMessage: e.target.value })}
+                                                disabled={!editingCampaign.reengagementEnabled}
+                                            />
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-6">
+                                        <div className="flex-1 grid gap-1.5">
+                                            <Label htmlFor="edit-templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                            </Label>
+                                            <Input
+                                                id="edit-templateId"
+                                                placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                className="bg-white h-8 border-slate-200 text-xs"
+                                                value={editingCampaign.metadata?.template_id || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
+                                            />
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-[10px] text-slate-400 leading-tight italic">
+                                                As alterações no reengajamento entrarão em vigor para os próximos disparos agendados na fila.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {/* Seção 4: Sucesso / Conversão */}
+                            <Card className="border-emerald-500/10 shadow-none bg-emerald-50/30">
+                                <CardContent className="p-3 space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        <Label className="text-[10px] uppercase font-bold text-emerald-600 flex items-center gap-2 whitespace-nowrap">
+                                            <ShieldCheck className="w-3 h-3" /> Gatilhos de Sucesso:
+                                        </Label>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {[
+                                                { id: 'CLIENT_RESPONDED', label: 'Resposta' },
+                                                { id: 'LINK_SENT', label: 'Link Enviado' },
+                                                { id: 'APPOINTMENT', label: 'Agendamento' },
+                                                { id: 'SALE', label: 'Fechamento' }
+                                            ].map(opt => (
+                                                <Badge
+                                                    key={opt.id}
+                                                    variant={editingCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
+                                                    className={cn(
+                                                        "cursor-pointer px-2.5 py-0.5 text-[10px] transition-all font-bold",
+                                                        editingCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent" : "bg-white hover:bg-emerald-50 border-emerald-100 text-emerald-600/70"
+                                                    )}
+                                                    onClick={() => {
+                                                        const current = [...editingCampaign.successCriteria];
+                                                        if (current.includes(opt.id)) {
+                                                            setEditingCampaign({ ...editingCampaign, successCriteria: current.filter(id => id !== opt.id) });
+                                                        } else {
+                                                            setEditingCampaign({ ...editingCampaign, successCriteria: [...current, opt.id] });
+                                                        }
+                                                    }}
+                                                >
+                                                    {opt.label}
+                                                </Badge>
+                                            ))}
+                                        </div>
                                     </div>
 
-                                    {(editingCampaign.successCriteria || []).includes('LINK_SENT') && (
-                                        <div className="mt-2 space-y-1.5 animate-in slide-in-from-top-1">
-                                            <Label htmlFor="edit-linkFilter" className="text-[9px] font-bold uppercase text-slate-400">Termo para Gatilho</Label>
+                                    {editingCampaign.successCriteria.includes('LINK_SENT') && (
+                                        <div className="flex items-center gap-3 p-2 bg-white rounded-md border border-emerald-100 animate-in fade-in slide-in-from-left-2">
+                                            <Label htmlFor="edit-linkFilter" className="text-[10px] font-bold uppercase text-emerald-600/50">Termo do Link:</Label>
                                             <Input
                                                 id="edit-linkFilter"
-                                                className="h-8 text-xs bg-white border-emerald-100"
+                                                placeholder="Ex: checkout, proposta"
+                                                className="h-7 text-xs border-emerald-50 focus:ring-emerald-500/10 flex-1"
                                                 value={editingCampaign.successLinkFilter || ""}
                                                 onChange={(e) => setEditingCampaign({ ...editingCampaign, successLinkFilter: e.target.value })}
                                             />
                                         </div>
                                     )}
-                                </div>
-                            </div>
+                                </CardContent>
+                            </Card>
                         </div>
                     )}
-                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
-                        <Button variant="ghost" onClick={() => setIsEditOpen(false)} className="text-slate-500">Cancelar</Button>
-                        <Button onClick={handleUpdateCampaign} className="bg-accent hover:bg-accent/90 px-8 font-bold">Salvar Alterações</Button>
+                    <DialogFooter className="p-4 bg-slate-50 border-t border-border/50 gap-2">
+                        <Button variant="ghost" onClick={() => setIsEditOpen(false)} className="text-slate-500 h-9 px-6">Cancelar</Button>
+                        <Button onClick={handleUpdateCampaign} className="bg-accent hover:bg-accent/90 px-10 font-bold h-9 shadow-lg shadow-accent/10">
+                            💾 Salvar Alterações
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

@@ -1,3 +1,20 @@
+## [V62.0] - Re-engagement Strategic Engine & UI Sectioning
+### Reengajamento Inteligente & Gestão de Campanhas 2.0
+- **Mecanismo de Reengajamento Não Destrutivo**: Implementação de lógica de reenvio automático que diferencia segmentos:
+  - **Delivered (Não Lidos)**: Foco em gerar abertura/leitura.
+  - **Read (Lidos sem Resposta)**: Reengajamento conversacional para gerar resposta.
+- **Validação de Resposta Antes de Disparo**: Regra rígida que verifica `response_detected = true` antes de cada tentativa de reengajamento, cancelando disparos subsequentes para contatos que já interagiram.
+- **Base de Tempo Dinâmica (Delay Pro)**: O delay de reengajamento utiliza `read_at` como prioridade (se disponível) ou `sent_at` como fallback, evitando abordagens invasivas ou prematuras.
+- **Redesenho da UI de Cadastro (Seções & High-Density Cards)**: Reorganização total dos formulários de Criação/Edição em 5 blocos lógicos, otimizados para uma largura de **850px** para reduzir scroll e maximizar a área útil:
+  1. **Informações da Campanha**: Layout horizontal compacto para Nome, Agente e Objetivo.
+  2. **Configuração de Execução**: Grid de 2x2 para Início, Limite Diário e Janelas de Horário.
+  3. **Estratégia de Mensagem (Side-by-Side)**: Visualização paralela da **Mensagem Inicial** e **Mensagem de Reengajamento**, permitindo ajuste comparativo imediato da abordagem.
+  4. **Controle Integrado de Reengajamento**: Toggle de ativação e parâmetros (Tempo de Espera e Tentativas) consolidados diretamente no cabeçalho da seção de mensagens para visibilidade instantânea.
+  5. **Critérios de Sucesso (Conversão)**: Interface ultra-compacta para gatilhos de link e resposta.
+- **Evolução do Schema (Silent Extension)**: Adição de colunas `reengagement_attempt_count` e `reengagement_last_sent_at` na `outbound_queue`, permitindo o tracking do esforço de reengajamento sem inflar os KPIs principais de "Enviados" ou "Entregues".
+
+---
+
 ## [V61.0] - Executive Dashboard Overhaul & Funnel Transparency
 ### Otimização de UI & Precisão de Funil (Executive SLA)
 - **Header Hierárquico (Two-Line Layout)**: Reorganização total do cabeçalho isolando o nome da campanha em uma linha de destaque (100% largura) e agrupando metadados (Início, Meta, Agente) e ações na linha inferior, eliminando compressão visual.

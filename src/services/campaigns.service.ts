@@ -67,6 +67,8 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             scheduledAt: new Date(d.scheduled_at),
             lastAttemptAt: d.last_attempt_at ? new Date(d.last_attempt_at) : undefined,
             sentAt: d.sent_at ? new Date(d.sent_at) : undefined,
+            reengagementAttemptCount: d.reengagement_attempt_count,
+            reengagementLastSentAt: d.reengagement_last_sent_at ? new Date(d.reengagement_last_sent_at) : undefined,
             createdAt: new Date(d.created_at)
         }));
     },
@@ -455,6 +457,10 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             successCriteria: c.success_criteria,
             successLinkFilter: c.success_link_filter,
             metadata: c.metadata,
+            reengagementEnabled: c.reengagement_enabled,
+            reengagementWaitHours: c.reengagement_wait_hours,
+            reengagementMaxAttempts: c.reengagement_max_attempts,
+            reengagementMessage: c.reengagement_message,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
         }));
@@ -475,7 +481,11 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             initial_message: campaign.initialMessage,
             success_criteria: campaign.successCriteria || [],
             success_link_filter: campaign.successLinkFilter,
-            metadata: campaign.metadata || {}
+            metadata: campaign.metadata || {},
+            reengagement_enabled: campaign.reengagementEnabled || false,
+            reengagement_wait_hours: campaign.reengagementWaitHours || 24,
+            reengagement_max_attempts: campaign.reengagementMaxAttempts || 1,
+            reengagement_message: campaign.reengagementMessage || ''
         };
 
         const { data, error } = await supabase
@@ -503,6 +513,10 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             conversionCount: data.conversion_count || 0,
             successCriteria: data.success_criteria,
             successLinkFilter: data.success_link_filter,
+            reengagementEnabled: data.reengagement_enabled,
+            reengagementWaitHours: data.reengagement_wait_hours,
+            reengagementMaxAttempts: data.reengagement_max_attempts,
+            reengagementMessage: data.reengagement_message,
             createdAt: new Date(data.created_at),
             updatedAt: new Date(data.updated_at)
         } as any;
@@ -522,6 +536,10 @@ async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign
         if (updates.successCriteria) dbPayload.success_criteria = updates.successCriteria;
         if (updates.successLinkFilter !== undefined) dbPayload.success_link_filter = updates.successLinkFilter;
         if (updates.metadata) dbPayload.metadata = updates.metadata;
+        if (updates.reengagementEnabled !== undefined) dbPayload.reengagement_enabled = updates.reengagementEnabled;
+        if (updates.reengagementWaitHours !== undefined) dbPayload.reengagement_wait_hours = updates.reengagementWaitHours;
+        if (updates.reengagementMaxAttempts !== undefined) dbPayload.reengagement_max_attempts = updates.reengagementMaxAttempts;
+        if (updates.reengagementMessage !== undefined) dbPayload.reengagement_message = updates.reengagementMessage;
         if (updates.totalContacts !== undefined) dbPayload.total_contacts = updates.totalContacts;
         if (updates.sentCount !== undefined) dbPayload.sent_count = updates.sentCount;
         if (updates.responseCount !== undefined) dbPayload.response_count = updates.responseCount;

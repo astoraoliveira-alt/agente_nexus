@@ -500,13 +500,15 @@ app.post('/v1/evolution/webhook', async (c) => {
 
         // --- 🛡️ SMART CONVERSATION LINKER & IDENTITY UPGRADE (V50.14) ---
         // 1. Tenta achar pelo Identificador Limpo (Regra de Ouro: Apenas números)
-        let { data: conversationData, error: findError } = await supabaseAdmin
+        const { data: conversationDataResult, error: findError } = await supabaseAdmin
             .from('conversations')
             .select('id, user_identifier')
             .eq('tenant_id', agent.tenant_id)
             .eq('agent_id', agent.id)
             .eq('user_identifier', cleanUserIdentifier)
             .maybeSingle();
+        
+        let conversationData = conversationDataResult;
 
         // 2. Se não achou (ex: Gi Mendes @lid), tenta herança pelo número do telefone
         if (!conversationData && !findError) {
@@ -958,7 +960,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (contactError) console.error(`[ZENVIA] ❌ Erro no Upsert Contato:`, contactError);
 
                 console.log(`[ZENVIA] 🔍 [${traceId}] Buscando conversa (aberta ou fechada)...`);
-                let { data: conv, error: convFetchError } = await supabaseAdmin
+                const { data: conv, error: convFetchError } = await supabaseAdmin
                     .from('conversations')
                     .select('id, status')
                     .eq('tenant_id', agent.tenant_id)
@@ -1313,7 +1315,9 @@ async function startInboundRecoveryWorker() {
                     .update({ status: 'pending', updated_at: new Date().toISOString() })
                     .in('id', stuckItems.map(i => i.id));
             }
-        } catch (err) { }
+        } catch (err) { 
+            console.error("[RECOVERY] ❌ Failed to recover stagnant items:", err);
+        }
     };
     setInterval(recover, 60000);
 }

@@ -575,9 +575,11 @@ export default function Plans() {
                                                         if (e.target.checked) providers.add('meta');
                                                         else providers.delete('meta');
                                                         const next = Array.from(providers) as ('meta' | 'zenvia')[];
-                                                        editingPlan
-                                                            ? setEditingPlan({ ...editingPlan, whatsappOfficialProviders: next })
-                                                            : setNewPlan({ ...newPlan, whatsappOfficialProviders: next });
+                                                        if (editingPlan) {
+                                                            setEditingPlan({ ...editingPlan, whatsappOfficialProviders: next });
+                                                        } else {
+                                                            setNewPlan({ ...newPlan, whatsappOfficialProviders: next });
+                                                        }
                                                     }}
                                                 />
                                                 Meta Oficial
@@ -593,9 +595,11 @@ export default function Plans() {
                                                         if (e.target.checked) providers.add('zenvia');
                                                         else providers.delete('zenvia');
                                                         const next = Array.from(providers) as ('meta' | 'zenvia')[];
-                                                        editingPlan
-                                                            ? setEditingPlan({ ...editingPlan, whatsappOfficialProviders: next })
-                                                            : setNewPlan({ ...newPlan, whatsappOfficialProviders: next });
+                                                        if (editingPlan) {
+                                                            setEditingPlan({ ...editingPlan, whatsappOfficialProviders: next });
+                                                        } else {
+                                                            setNewPlan({ ...newPlan, whatsappOfficialProviders: next });
+                                                        }
                                                     }}
                                                 />
                                                 Zenvia

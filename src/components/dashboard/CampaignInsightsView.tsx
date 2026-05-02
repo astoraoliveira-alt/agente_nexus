@@ -46,7 +46,8 @@ export function CampaignInsightsView() {
   const loadInsights = async () => {
     setIsLoading(true);
     try {
-      const result = await dashboardService.getExecutiveInsights(currentTenant?.id!, days);
+      if (!currentTenant?.id) return;
+      const result = await dashboardService.getExecutiveInsights(currentTenant.id, days);
       setData(result);
     } catch (error) {
       console.error("Error loading insights:", error);

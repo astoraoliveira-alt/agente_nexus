@@ -971,6 +971,10 @@ export interface Campaign {
   successCriteria?: string[];
   successLinkFilter?: string;
   metadata?: Record<string, any>;
+  reengagementEnabled?: boolean;
+  reengagementWaitHours?: number;
+  reengagementMaxAttempts?: number;
+  reengagementMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -1003,6 +1007,8 @@ export interface OutboundContact {
   scheduledAt: Date;
   lastAttemptAt?: Date;
   sentAt?: Date;
+  reengagementAttemptCount?: number;
+  reengagementLastSentAt?: Date;
   createdAt: Date;
 }
 
