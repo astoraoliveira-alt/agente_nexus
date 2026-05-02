@@ -6,7 +6,8 @@ ALTER TABLE public.campaigns
 ADD COLUMN IF NOT EXISTS reengagement_enabled BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS reengagement_wait_hours INTEGER DEFAULT 24,
 ADD COLUMN IF NOT EXISTS reengagement_max_attempts INTEGER DEFAULT 1,
-ADD COLUMN IF NOT EXISTS reengagement_message TEXT;
+ADD COLUMN IF NOT EXISTS reengagement_message TEXT,
+ADD COLUMN IF NOT EXISTS reengagement_template_id TEXT;
 
 -- 2. Add columns to outbound_queue table
 ALTER TABLE public.outbound_queue

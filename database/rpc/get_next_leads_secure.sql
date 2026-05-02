@@ -1,7 +1,4 @@
--- Migration: Update get_next_leads_secure to support Re-engagement V62.0
--- Author: Antigravity AI
--- Date: 2026-05-02
-
+-- [V62.4] MERGED VERSION - Suporte a Reengagement Template ID
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
     p_tenant_id uuid,
     p_campaign_id uuid,
@@ -23,10 +20,9 @@ RETURNS TABLE (
     zenvia_api_token text,
     zenvia_channel_id text,
     template_id text
-)
+) 
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
 AS $$
 #variable_conflict use_column
 DECLARE
@@ -35,7 +31,7 @@ DECLARE
     v_allowed_now boolean;
     v_actual_limit int;
 BEGIN
-    -- [A] AUTO-RECUPERAÇÃO: Limpa leads presos no "processing" por erro antigo no n8n (> 30 mins)
+    -- [A] AUTO-RECUPERAÇÃO: Limpa leads presos no "processing" (> 30 mins)
     UPDATE public.outbound_queue oq_recover
     SET status = 'pending'
     WHERE oq_recover.tenant_id = p_tenant_id
@@ -43,15 +39,15 @@ BEGIN
       AND oq_recover.status = 'processing'
       AND oq_recover.created_at < NOW() - INTERVAL '30 minutes';
 
-    -- 1. Buscar configurações da campanha e verificar se está no horário/data
+    -- 1. Buscar configurações e verificar janela (Usando America/Sao_Paulo para precisão)
     SELECT 
         camp.daily_limit,
         (
             CURRENT_DATE >= COALESCE(camp.start_date, '2000-01-01'::date) AND 
             CURRENT_DATE <= COALESCE(camp.end_date, '2099-12-31'::date) AND
-            (CURRENT_TIME AT TIME ZONE 'UTC-3')::time >= COALESCE(camp.start_time, '00:00:00')::time AND 
-            (CURRENT_TIME AT TIME ZONE 'UTC-3')::time <= COALESCE(camp.end_time, '23:59:59')::time
-        ) as in_window
+            (CURRENT_TIME AT TIME ZONE 'America/Sao_Paulo')::time >= COALESCE(camp.start_time::text, '00:00:00')::time AND 
+            (CURRENT_TIME AT TIME ZONE 'America/Sao_Paulo')::time <= COALESCE(camp.end_time::text, '23:59:59')::time
+        )
     INTO v_daily_limit, v_allowed_now
     FROM public.campaigns camp
     WHERE camp.id = p_campaign_id AND camp.status = 'active';
@@ -60,13 +56,13 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 2. Calcular limite diário (Consome saldo para mensagens iniciais e reengajamentos)
+    -- 2. Calcular limite diário
     SELECT COUNT(*)::int INTO v_sent_today
     FROM public.outbound_queue oq_sent
     WHERE oq_sent.campaign_id = p_campaign_id 
       AND oq_sent.status IN ('sent', 'delivered', 'read') 
-      AND oq_sent.sent_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC-3')::DATE 
-      AND oq_sent.sent_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'UTC-3')::DATE + INTERVAL '1 day');
+      AND oq_sent.sent_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::DATE 
+      AND oq_sent.sent_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::DATE + INTERVAL '1 day');
 
     v_actual_limit := LEAST(p_limit, GREATEST(0, v_daily_limit - v_sent_today));
 
@@ -74,13 +70,12 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 3. Buscar e TRAVAR os leads (Fila Normal + Reengajamento)
+    -- 3. Buscar e TRAVAR os leads
     RETURN QUERY
     WITH selected_leads AS (
         UPDATE public.outbound_queue q
         SET 
             status = 'processing',
-            -- Incrementamos o contador de tentativas se for reengajamento (status anterior não era pending)
             reengagement_attempt_count = CASE 
                 WHEN q.status != 'pending' THEN q.reengagement_attempt_count + 1 
                 ELSE q.reengagement_attempt_count 
@@ -96,10 +91,8 @@ BEGIN
             WHERE oq.tenant_id = p_tenant_id
               AND oq.campaign_id = p_campaign_id
               AND (
-                  -- CASO A: Lead novo (pendente)
                   oq.status = 'pending'
                   OR 
-                  -- CASO B: Reengajamento Estratégico
                   (
                       camp.reengagement_enabled = true
                       AND oq.status IN ('sent', 'delivered', 'read')
@@ -111,17 +104,14 @@ BEGIN
                       )
                   )
               )
-              -- Trava de segurança (2 horas entre mensagens ou 5 mins se preso no processamento)
+              -- Trava de segurança (5 mins se preso no processamento)
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
                   WHERE oq_check.tenant_id = p_tenant_id
                     AND oq_check.contact_phone = oq.contact_phone
-                    AND (oq_check.status = 'sent' OR oq_check.status = 'processing')
-                    AND (oq_check.id <> oq.id)
-                    AND (
-                        oq_check.sent_at > (NOW() - INTERVAL '2 hours') 
-                        OR (oq_check.status = 'processing' AND oq_check.created_at > NOW() - INTERVAL '5 minutes')
-                    )
+                    AND oq_check.status = 'processing'
+                    AND oq_check.id <> oq.id
+                    AND oq_check.created_at > (NOW() - INTERVAL '5 minutes')
               )
             ORDER BY (oq.status = 'pending') DESC, oq.created_at ASC
             LIMIT v_actual_limit
@@ -136,7 +126,6 @@ BEGIN
         sl.campaign_id,
         sl.agent_id,
         sl.tenant_id,
-        -- Lógica de Mensagem: Se reengagement_attempt_count > 0 na RETURNING, é reengajamento
         CASE 
             WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_message, c.initial_message)
             ELSE c.initial_message 
@@ -148,7 +137,11 @@ BEGIN
         ag.meta_phone_number_id::text as meta_phone_number_id,
         ag.zenvia_api_token::text as zenvia_api_token,
         ag.zenvia_channel_id::text as zenvia_channel_id,
-        (c.metadata->>'template_id')::text as template_id
+        -- LÓGICA DE TEMPLATE: Se for reengajamento, usa o template específico se existir
+        CASE 
+            WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_template_id, (c.metadata->>'template_id')::text)
+            ELSE (c.metadata->>'template_id')::text
+        END::text as template_id
     FROM selected_leads sl
     JOIN public.campaigns c ON c.id = sl.campaign_id
     JOIN public.agents ag ON ag.id = sl.agent_id;

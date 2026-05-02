@@ -1,6 +1,7 @@
 -- ============================================================
--- RPC: get_campaign_dashboard_stats
--- Descrição: Agrega métricas de performance de campanhas outbound usando o histórico de status
+-- [V62.7] RPC: get_campaign_dashboard_stats
+-- Descrição: Agrega métricas resilientes usando tabelas de negócio e contagem lead-centric (DISTINCT conversation_id)
+-- Correção: Adicionado import_errors para evitar NaN no Dashboard
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION get_campaign_dashboard_stats(
@@ -23,120 +24,85 @@ DECLARE
   v_conversion_count  BIGINT := 0;
   v_failed_count      BIGINT := 0;
   v_conversion_rate   NUMERIC := 0;
-  
-  -- Filtros de Campanha
   v_success_criteria  TEXT[];
   v_link_filter       TEXT;
 BEGIN
-  -- 1. Obter critérios se for uma campanha específica
+  -- 1. Metadados da Campanha
   IF p_campaign_id IS NOT NULL THEN
-    SELECT success_criteria, success_link_filter 
-    INTO v_success_criteria, v_link_filter
-    FROM campaigns 
+    SELECT 
+        COALESCE(total_contacts, 0), 
+        success_criteria, 
+        success_link_filter 
+    INTO v_total_contacts, v_success_criteria, v_link_filter
+    FROM public.campaigns 
     WHERE id = p_campaign_id;
+
+    -- Erros de importação (para evitar NaN no total)
+    SELECT COUNT(*) INTO v_import_errors
+    FROM public.campaign_import_logs
+    WHERE campaign_id = p_campaign_id;
   END IF;
 
-  -- 2. Carregar Métricas Base (Contatos e Erros)
-  -- Total na fila (carregados)
-  SELECT COUNT(*) INTO v_total_contacts
-  FROM outbound_queue
-  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
-    AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id);
-
-  -- Erros de importação
-  SELECT COUNT(*) INTO v_import_errors
-  FROM campaign_import_logs
-  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
-    AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id);
-
-  -- Falhas de entrega (status = failed)
-  SELECT COUNT(*) INTO v_failed_count
-  FROM outbound_queue
-  WHERE (p_campaign_id IS NULL OR campaign_id = p_campaign_id)
+  -- 2. Métricas de Mensagens (Fonte da Verdade: messages e message_status_history)
+  -- ENVIADOS (Leads únicos impactados)
+  SELECT COUNT(DISTINCT conversation_id) INTO v_sent_count
+  FROM public.messages
+  WHERE (p_campaign_id IS NULL OR (metadata->>'campaign_id')::uuid = p_campaign_id)
     AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    AND status = 'failed';
+    AND direction = 'outbound';
 
-  -- 3. Métricas de Status (Fonte da Verdade: message_status_history)
-  -- Enviados (SENT, DELIVERED, READ, FAILED, REJECTED)
-  SELECT COUNT(DISTINCT message_id) INTO v_sent_count
-  FROM message_status_history
-  WHERE status IN ('SENT', 'DELIVERED', 'READ', 'FAILED', 'REJECTED')
-    AND message_id IN (
-        SELECT id FROM messages 
-        WHERE (p_campaign_id IS NULL OR (metadata->>'campaign_id')::uuid = p_campaign_id)
-          AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
+  -- ENTREGUES
+  SELECT COUNT(DISTINCT m.conversation_id) INTO v_delivered_count
+  FROM public.messages m
+  JOIN public.message_status_history msh ON m.id = msh.message_id
+  WHERE (p_campaign_id IS NULL OR (m.metadata->>'campaign_id')::uuid = p_campaign_id)
+    AND (p_tenant_id IS NULL OR m.tenant_id = p_tenant_id)
+    AND msh.status IN ('DELIVERED', 'READ', 'delivered', 'read');
+
+  -- LIDOS
+  SELECT COUNT(DISTINCT m.conversation_id) INTO v_read_count
+  FROM public.messages m
+  JOIN public.message_status_history msh ON m.id = msh.message_id
+  WHERE (p_campaign_id IS NULL OR (m.metadata->>'campaign_id')::uuid = p_campaign_id)
+    AND (p_tenant_id IS NULL OR m.tenant_id = p_tenant_id)
+    AND msh.status IN ('READ', 'read');
+
+  -- INTERAGIRAM (Respostas Recebidas)
+  SELECT COUNT(DISTINCT m_out.conversation_id) INTO v_response_count
+  FROM public.messages m_out
+  WHERE (p_campaign_id IS NULL OR (m_out.metadata->>'campaign_id')::uuid = p_campaign_id)
+    AND (p_tenant_id IS NULL OR m_out.tenant_id = p_tenant_id)
+    AND EXISTS (
+        SELECT 1 FROM public.messages m_in
+        WHERE m_in.conversation_id = m_out.conversation_id
+          AND m_in.direction = 'inbound'
     );
 
-  -- Entregues (DELIVERED, READ)
-  SELECT COUNT(DISTINCT message_id) INTO v_delivered_count
-  FROM message_status_history
-  WHERE status IN ('DELIVERED', 'READ')
-    AND message_id IN (
-        SELECT id FROM messages 
-        WHERE (p_campaign_id IS NULL OR (metadata->>'campaign_id')::uuid = p_campaign_id)
-          AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    );
-
-  -- Lidas (READ)
-  SELECT COUNT(DISTINCT message_id) INTO v_read_count
-  FROM message_status_history
-  WHERE status = 'READ'
-    AND message_id IN (
-        SELECT id FROM messages 
-        WHERE (p_campaign_id IS NULL OR (metadata->>'campaign_id')::uuid = p_campaign_id)
-          AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
-    );
-
-  -- Respostas detectadas (Interagiram)
-  -- Contamos contatos únicos que enviaram ao menos uma mensagem de volta
-  SELECT COUNT(DISTINCT oq.id) INTO v_response_count
-  FROM outbound_queue oq
-  WHERE (p_campaign_id IS NULL OR oq.campaign_id = p_campaign_id)
-    AND (p_tenant_id IS NULL OR oq.tenant_id = p_tenant_id)
-    AND (
-      oq.response_detected = true
-      OR EXISTS (
-        SELECT 1 
-        FROM public.conversations conv
-        JOIN public.messages msg ON msg.conversation_id = conv.id
-        WHERE conv.tenant_id = oq.tenant_id
-          AND conv.user_identifier = oq.contact_phone
-          -- Garante que a conversa é recente ou ligada à campanha
-          AND (conv.campaign_id = oq.campaign_id OR conv.created_at >= oq.created_at)
-          AND (msg.direction = 'inbound' OR msg.sender_type = 'user')
-      )
-    );
-
-  -- 4. Cálculo de Conversão (Sucesso)
+  -- 3. Conversão (Sucesso)
   IF p_campaign_id IS NOT NULL AND v_success_criteria IS NOT NULL AND array_length(v_success_criteria, 1) > 0 THEN
-      -- Logica Baseada em Critérios Parametrizados
-      SELECT COUNT(DISTINCT oq.id) INTO v_conversion_count
-      FROM outbound_queue oq
-      WHERE oq.campaign_id = p_campaign_id
+      SELECT COUNT(DISTINCT m_out.conversation_id) INTO v_conversion_count
+      FROM public.messages m_out
+      WHERE (m_out.metadata->>'campaign_id')::uuid = p_campaign_id
         AND (
-          -- Critério: Resposta do Cliente
-          ('CLIENT_RESPONDED' = ANY(v_success_criteria) AND oq.response_detected = true)
+          ('CLIENT_RESPONDED' = ANY(v_success_criteria) AND EXISTS (
+              SELECT 1 FROM public.messages m_in
+              WHERE m_in.conversation_id = m_out.conversation_id AND m_in.direction = 'inbound'
+          ))
           OR
-          -- Critério: Link Enviado
           ('LINK_SENT' = ANY(v_success_criteria) AND EXISTS (
-             SELECT 1 FROM messages m 
-             JOIN conversations c ON c.id = m.conversation_id
-             WHERE c.user_identifier = oq.contact_phone
-               AND c.tenant_id = oq.tenant_id
-               AND m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system', 'agent')
-               AND (v_link_filter IS NULL OR v_link_filter = '' OR m.content ILIKE '%' || v_link_filter || '%')
+              SELECT 1 FROM public.messages m_link
+              WHERE m_link.conversation_id = m_out.conversation_id
+                AND m_link.sender_type NOT IN ('user', 'customer')
+                AND (v_link_filter IS NULL OR v_link_filter = '' OR m_link.content ILIKE '%' || v_link_filter || '%')
           ))
         );
   ELSE
-      -- Logica Default: Resposta
       v_conversion_count := v_response_count;
   END IF;
 
-  -- 5. Taxa de Conversão (Sucesso / Enviados)
-  v_conversion_rate := CASE 
-    WHEN v_sent_count = 0 THEN 0 
-    ELSE ROUND((v_conversion_count::NUMERIC / v_sent_count) * 100, 1)
-  END;
+  -- 4. Resultados Finais
+  v_failed_count := v_sent_count - v_delivered_count; 
+  v_conversion_rate := CASE WHEN v_sent_count = 0 THEN 0 ELSE ROUND((v_conversion_count::NUMERIC / v_sent_count) * 100, 1) END;
 
   RETURN json_build_object(
     'total_contacts',    COALESCE(v_total_contacts, 0),
@@ -146,7 +112,7 @@ BEGIN
     'read_count',        COALESCE(v_read_count, 0),
     'response_count',    COALESCE(v_response_count, 0),
     'conversion_count',  COALESCE(v_conversion_count, 0),
-    'failed_count',      COALESCE(v_failed_count, 0),
+    'failed_count',      GREATEST(0, v_failed_count),
     'conversion_rate',   COALESCE(v_conversion_rate, 0)
   );
 END;
