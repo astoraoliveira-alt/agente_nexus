@@ -428,7 +428,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     try {
       const targetCampaignId = campaignId === 'all_consolidated' ? undefined : campaignId;
       const statsData = await api.getCampaignStats(targetCampaignId as any, currentTenant.id);
-      setStats(statsData as any);
 
       const enrichedContacts = await api.getEnrichedOutboundQueue(currentTenant.id, targetCampaignId as any);
       const mappedLeads = enrichedContacts.map(c => ({
@@ -443,16 +442,38 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
           sentAt: c.sentAt || null,
           createdAt: c.createdAt || null,
           campaignId: c.campaignId || null,
-          status: c.status === 'sent' ? 'Enviada' : 
-                 c.status === 'failed' ? 'Erro' : 
-                 c.status === 'pending' ? 'Pendente' : 
-                 c.status === 'processing' ? 'Processando' :
-                 c.status === 'responded' ? 'Respondida' :
-                 c.status === 'delivered' ? 'Entregue' :
-                 c.status === 'read' ? 'Lida' :
-                 c.status === 'converted' ? 'Convertida' : c.status,
+          status: (() => {
+            const s = String(c.status || '').toLowerCase();
+            if (c.is_converted) return 'Convertida';
+            if (['converted', 'convertida'].includes(s)) return 'Convertida';
+            if (c.response_detected) return 'Respondida';
+            if (['read', 'lida'].includes(s)) return 'Lida';
+            if (['delivered', 'entregue'].includes(s)) return 'Entregue';
+            if (['sent', 'enviada'].includes(s)) return 'Enviada';
+            if (['failed', 'erro'].includes(s)) return 'Erro';
+            if (['pending', 'pendente'].includes(s)) return 'Pendente';
+            if (['processing', 'processando'].includes(s)) return 'Processando';
+            if (s === 'not_delivered') return 'Não Entregue';
+            if (s === 'rejected') return 'Rejeitada';
+            return c.status;
+          })(),
           errorMessage: c.error_message || null
       }));
+
+      const computed = {
+        total_contacts: mappedLeads.length,
+        delivered_count: mappedLeads.filter(l => ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida'].includes(l.status)).length,
+        read_count: mappedLeads.filter(l => ['Lida', 'Respondida', 'Convertida'].includes(l.status)).length,
+        response_count: mappedLeads.filter(l => ['Respondida', 'Convertida'].includes(l.status)).length,
+        // We do not override conversion_count because it relies on deep message content scanning in the backend
+        failed_count: mappedLeads.filter(l => ['Erro', 'Não Entregue', 'Rejeitada'].includes(l.status)).length,
+        sent_count: mappedLeads.filter(l => ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida', 'Erro', 'Não Entregue', 'Rejeitada'].includes(l.status)).length
+      };
+
+      setStats({
+        ...statsData,
+        ...computed
+      } as any);
       setLeads(mappedLeads);
     } catch (error) {
       console.error("Error loading dashboard data:", error);
@@ -776,7 +797,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
               <KPISquare label="Enviados" value={stats.total_contacts} percentage={100} subLabel="Base: leads válidos" />
-              <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
+              <div className="grid grid-cols-2 gap-3">
+                <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
+                <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
+              </div>
               <KPISquare 
                 label="Não entregues" 
                 value={Math.max(stats.total_contacts - stats.delivered_count, 0)} 
@@ -785,7 +809,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                 accentClass="text-slate-400 opacity-80"
                 subLabel="Não recebidas (Zenvia)" 
               />
-              <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
             </OperationCluster>
 
             <OperationCluster title="Resultado de Interações" subtitle="Funil Comportamental" icon={Zap}>
@@ -797,24 +820,35 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     value={stats.delivered_count} 
                     percentage={100} 
                     subLabel="Mensagem entregue" 
+                    onClick={() => {
+                      setSelectedStatuses(['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida']);
+                      document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                   />
                   <KPISquare 
                     label="Lidos" 
                     value={stats.read_count} 
                     percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} 
                     subLabel="Taxa Leitura" 
+                    onClick={() => {
+                      setSelectedStatuses(['Lida', 'Respondida', 'Convertida']);
+                      document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                   />
                 </div>
 
                 {/* Linha 2: Engajamento Real (Destaque) */}
                 <div className="w-full">
                   <KPISquare 
-                    label="Interagiram" 
+                    label="Conversas Iniciadas" 
                     value={stats.response_count} 
                     percentage={stats.delivered_count > 0 ? (stats.response_count / stats.delivered_count) * 100 : 0} 
-                    isPositive 
-                    accentClass="text-emerald-600 bg-emerald-50/50"
-                    subLabel="Taxa Interação: (Interagiram/Entregues)" 
+                    isInfo 
+                    subLabel="Taxa Interação: (Conversas Iniciadas/Entregues)" 
+                    onClick={() => {
+                      setSelectedStatuses(['Respondida', 'Convertida']);
+                      document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                   />
                 </div>
 
@@ -825,8 +859,11 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     value={stats.conversion_count} 
                     percentage={stats.delivered_count > 0 ? (stats.conversion_count / stats.delivered_count) * 100 : 0} 
                     isPositive 
-                    accentClass="text-blue-600 bg-blue-50/50"
                     subLabel="Conversão/Entregues" 
+                    onClick={() => {
+                      setSelectedStatuses(['Convertida']);
+                      document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
                   />
                   <KPISquare 
                     label="Pos Interação" 
@@ -849,7 +886,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
 
 
-          <div className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
+          <div id="monitor-table" className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-8 border-b border-border/50 flex items-center justify-between bg-slate-50/30">
               <div className="flex items-center gap-3 flex-wrap">
                 <Activity className="w-5 h-5 text-slate-900" />
@@ -1194,7 +1231,9 @@ function KPISquare({
   hidePercentage = false,
   isPositive = false, 
   isNegative = false, 
-  isHighlight = false 
+  isInfo = false,
+  isHighlight = false,
+  onClick
 }: {
   label: string;
   value: string | number;
@@ -1203,13 +1242,18 @@ function KPISquare({
   hidePercentage?: boolean;
   isPositive?: boolean;
   isNegative?: boolean;
+  isInfo?: boolean;
   isHighlight?: boolean;
+  onClick?: () => void;
 }) {
   const displayValue = typeof value === 'number' ? value.toLocaleString('pt-BR') : value;
   return (
-    <div className={cn(
+    <div 
+      onClick={onClick}
+      className={cn(
       "p-3.5 border border-slate-100 bg-white flex flex-col gap-2.5 rounded-xl transition-all duration-300",
-      isHighlight ? "border-slate-900 bg-slate-50/50 shadow-md" : "hover:border-slate-200"
+      isHighlight ? "border-slate-900 bg-slate-50/50 shadow-md" : "hover:border-slate-200",
+      onClick ? "cursor-pointer hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200" : ""
     )}>
       <div className="flex justify-between items-start">
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 leading-none">{label}</span>
@@ -1218,6 +1262,7 @@ function KPISquare({
             "px-1.5 py-0.5 text-[9px] font-black rounded-lg border",
             isPositive ? "bg-emerald-50 text-emerald-600 border-emerald-100" : 
             isNegative ? "bg-rose-50 text-rose-600 border-rose-100" : 
+            isInfo ? "bg-blue-50 text-blue-600 border-blue-100" : 
             "bg-slate-50 text-slate-600 border-slate-100"
           )}>
             {typeof percentage === 'number' ? `${percentage.toFixed(0)}%` : percentage}

@@ -190,7 +190,9 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             metadata: d.metadata,
             cnpj: d.cnpj,
             conversationId: (queueContextById.get(d.id) as any)?.conversation_id || d.conversation_id || d.metadata?.conversation_id || null,
-            responseDetected: Boolean((queueContextById.get(d.id) as any)?.response_detected),
+            responseDetected: Boolean(d.response_detected || (queueContextById.get(d.id) as any)?.response_detected),
+            response_detected: Boolean(d.response_detected || (queueContextById.get(d.id) as any)?.response_detected),
+            is_converted: Boolean(d.is_converted),
             sentAt: (queueContextById.get(d.id) as any)?.sent_at || null,
             createdAt: (queueContextById.get(d.id) as any)?.created_at || null,
             campaignId: (queueContextById.get(d.id) as any)?.campaign_id || campaignId || null

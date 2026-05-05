@@ -46,6 +46,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         if (!matchesAgent) return false;
 
         if (phoneticMatch(c.userName, searchTerm)) return true;
+        if (c.userId && c.userId.replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''))) return true;
         if (phoneticMatch(c.lastMessage, searchTerm)) return true;
 
         const hasMessageMatch = c.messages.some(m =>
