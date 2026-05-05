@@ -808,6 +808,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                 isNegative 
                 accentClass="text-slate-400 opacity-80"
                 subLabel="Não recebidas (Zenvia)" 
+                onClick={() => {
+                  setSelectedStatuses(['Erro', 'Não Entregue', 'Rejeitada', 'Pendente', 'Processando']);
+                  document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
+                }}
               />
             </OperationCluster>
 
