@@ -1364,6 +1364,39 @@ async function startQueueWorker() {
                         const rawChannelId = agent?.zenvia_channel_id || '';
                         const channelId = rawChannelId.split(',')[0].trim();
                         
+                        const templateId = item.metadata?.template_id;
+                        const ctaLink = item.metadata?.cta_link;
+                        
+                        let contents: any[];
+                        
+                        if (templateId) {
+                            // Extract JWT suffix if cta_link exists
+                            let linkSuffix = '';
+                            if (ctaLink && ctaLink.includes('?t=')) {
+                                linkSuffix = ctaLink.split('?t=')[1];
+                            } else if (ctaLink) {
+                                // If no ?t=, use whole link if it's not the base one
+                                linkSuffix = ctaLink;
+                            }
+
+                            console.log(`[WORKER] 🧩 Using Zenvia Template: ${templateId} for ${contactPhone}`);
+                            if (linkSuffix) console.log(`[WORKER] 🔗 Dynamic Link Suffix: ${linkSuffix.substring(0, 20)}...`);
+
+                            contents = [{
+                                type: 'template',
+                                templateId: templateId,
+                                fields: {
+                                    nome: item.metadata?.razao_social || "Cliente",
+                                    variavellink: linkSuffix || "",
+                                    ...(item.metadata?.zenvia_image_url ? {
+                                        imageUrl: item.metadata.zenvia_image_url
+                                    } : {})
+                                }
+                            }];
+                        } else {
+                            contents = [{ type: 'text', text: message }];
+                        }
+
                         const znvRes = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
                             method: 'POST',
                             headers: { 
@@ -1373,7 +1406,7 @@ async function startQueueWorker() {
                             body: JSON.stringify({
                                 from: channelId,
                                 to: contactPhone,
-                                contents: [{ type: 'text', text: message }]
+                                contents: contents
                             })
                         });
                         result = await znvRes.json();

@@ -31,7 +31,9 @@ import {
     ArrowDown,
     AlertCircle,
     Zap,
-    Activity
+    Activity,
+    ImageIcon,
+    Link2
 } from "lucide-react";
 import {
     Card,
@@ -60,6 +62,16 @@ import {
     DialogTrigger,
     DialogFooter,
 } from "@/components/ui/dialog";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
     Select,
     SelectContent,
@@ -130,6 +142,11 @@ export default function Campaigns() {
             .trim()
             .replace(/^["'`\s]+|["'`\s]+$/g, '');
 
+    const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
+    const [deleteConfirmationInput, setDeleteConfirmationInput] = useState("");
+    const [isDeleting, setIsDeleting] = useState(false);
+
     const decodeJwtPayload = (token: string) => {
         try {
             const payload = token.split('.')[1];
@@ -176,6 +193,8 @@ export default function Campaigns() {
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
         templateId: "",
+        zenviaImageUrl: "",
+        zenviaCtaLink: "",
         successCriteria: ['LINK_SENT'] as string[],
         successLinkFilter: "fiservcapital",
         reengagementEnabled: false,
@@ -271,7 +290,11 @@ export default function Campaigns() {
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
                 initialMessage: normalizeMessagingText(newCampaign.initialMessage),
-                metadata: newCampaign.templateId ? { template_id: newCampaign.templateId } : undefined,
+                metadata: {
+                    template_id: newCampaign.templateId || undefined,
+                    zenvia_image_url: newCampaign.zenviaImageUrl || undefined,
+                    zenvia_cta_link: newCampaign.zenviaCtaLink || undefined
+                },
                 dailyLimit: newCampaign.dailyLimit,
                 successCriteria: newCampaign.successCriteria,
                 successLinkFilter: newCampaign.successCriteria.includes('LINK_SENT') ? newCampaign.successLinkFilter : undefined,
@@ -301,6 +324,8 @@ export default function Campaigns() {
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
                 templateId: "",
+                zenviaImageUrl: "",
+                zenviaCtaLink: "",
                 successCriteria: ['LINK_SENT'],
                 successLinkFilter: "fiservcapital",
                 reengagementEnabled: false,
@@ -583,7 +608,9 @@ export default function Campaigns() {
                         cnpj: item.identifier,
                         identifier: item.identifier,
                         razao_social: item.name,
-                        cta_link: item.ctaLink || null,
+                        cta_link: item.ctaLink || campaign.metadata?.zenvia_cta_link || null,
+                        template_id: campaign.metadata?.template_id || null,
+                        zenvia_image_url: campaign.metadata?.zenvia_image_url || null,
                     }
                 };
             });
@@ -717,21 +744,44 @@ export default function Campaigns() {
         }
     };
 
-    const handleDeleteCampaign = async (id: string) => {
-        if (!confirm("Tem certeza que deseja excluir esta campanha? Esta ação é irreversível.")) return;
+    const handleDeleteCampaign = (id: string) => {
+        const campaign = campaigns.find(c => c.id === id);
+        if (campaign) {
+            setCampaignToDelete(campaign);
+            setDeleteConfirmationInput("");
+            setIsDeleteDialogOpen(true);
+        }
+    };
+
+    const confirmDeleteCampaign = async () => {
+        if (!campaignToDelete || deleteConfirmationInput !== "EXCLUIR") return;
+
+        setIsDeleting(true);
         try {
-            await api.deleteCampaign(id);
+            await api.deleteCampaign(campaignToDelete.id);
+            
+            // Atualização imediata do estado local para feedback instantâneo
+            setCampaigns(prev => prev.filter(c => c.id !== campaignToDelete.id));
+            
             toast({
                 title: "Campanha excluída",
-                description: "A campanha e sua fila foram removidas com sucesso.",
+                description: "A campanha e seus dados relacionados foram removidos com sucesso.",
             });
-            loadData();
+            
+            setIsDeleteDialogOpen(false);
+            setCampaignToDelete(null);
+            
+            // Recarrega dados para garantir sincronia total
+            await loadData();
         } catch (error) {
+            console.error("Erro ao excluir campanha:", error);
             toast({
                 title: "Erro ao excluir",
-                description: "Não foi possível remover a campanha.",
+                description: "Ocorreu um erro ao tentar excluir a campanha.",
                 variant: "destructive",
             });
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -753,7 +803,12 @@ export default function Campaigns() {
                 startTime: editingCampaign.startTime,
                 endTime: editingCampaign.endTime,
                 initialMessage: normalizeMessagingText(editingCampaign.initialMessage),
-                metadata: { ...(editingCampaign.metadata || {}), template_id: editingCampaign.metadata?.template_id || undefined },
+                metadata: { 
+                    ...(editingCampaign.metadata || {}), 
+                    template_id: editingCampaign.metadata?.template_id || undefined,
+                    zenvia_image_url: editingCampaign.metadata?.zenvia_image_url || undefined,
+                    zenvia_cta_link: editingCampaign.metadata?.zenvia_cta_link || undefined
+                },
                 agentId: editingCampaign.agentId,
                 successCriteria: editingCampaign.successCriteria,
                 successLinkFilter: editingCampaign.successLinkFilter,
@@ -1076,24 +1131,48 @@ export default function Campaigns() {
                                                     </div>
                                                 </div>
                                                 
-                                                <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-6">
-                                                    <div className="flex-1 grid gap-1.5">
-                                                        <Label htmlFor="templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                            <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                                <div className="pt-3 border-t border-slate-100 space-y-4">
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor="templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                                <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                                            </Label>
+                                                            <Input
+                                                                id="templateId"
+                                                                placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                                className="bg-white h-8 border-slate-200 text-xs"
+                                                                value={newCampaign.templateId}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
+                                                            />
+                                                        </div>
+                                                        <div className="grid gap-1.5">
+                                                            <Label htmlFor="zenviaImageUrl" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                                <ImageIcon className="w-2.5 h-2.5 text-accent" /> URL da Imagem do Cabeçalho
+                                                            </Label>
+                                                            <Input
+                                                                id="zenviaImageUrl"
+                                                                placeholder="https://sua-imagem.com/foto.png"
+                                                                className="bg-white h-8 border-slate-200 text-xs"
+                                                                value={newCampaign.zenviaImageUrl}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, zenviaImageUrl: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 gap-1.5">
+                                                        <Label htmlFor="zenviaCtaLink" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                            <Link2 className="w-2.5 h-2.5 text-accent" /> Link do Botão (variavellink)
                                                         </Label>
                                                         <Input
-                                                            id="templateId"
-                                                            placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                            id="zenviaCtaLink"
+                                                            placeholder="https://seu-link.com/proposta"
                                                             className="bg-white h-8 border-slate-200 text-xs"
-                                                            value={newCampaign.templateId}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
+                                                            value={newCampaign.zenviaCtaLink}
+                                                            onChange={(e) => setNewCampaign({ ...newCampaign, zenviaCtaLink: e.target.value })}
                                                         />
                                                     </div>
-                                                    <div className="flex-1">
-                                                        <p className="text-[10px] text-slate-400 leading-tight italic">
-                                                            O reengajamento é enviado apenas se não houver resposta detectada após o tempo configurado.
-                                                        </p>
-                                                    </div>
+                                                    <p className="text-[10px] text-slate-400 leading-tight italic">
+                                                        Se usar um template com imagem e botão, preencha a URL da imagem e o link do botão acima.
+                                                    </p>
                                                 </div>
                                             </CardContent>
                                         </Card>
@@ -1637,24 +1716,48 @@ export default function Campaigns() {
                                         </div>
                                     </div>
                                     
-                                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-6">
-                                        <div className="flex-1 grid gap-1.5">
-                                            <Label htmlFor="edit-templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                    <div className="pt-3 border-t border-slate-100 space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid gap-1.5">
+                                                <Label htmlFor="edit-templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                    <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
+                                                </Label>
+                                                <Input
+                                                    id="edit-templateId"
+                                                    placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                    className="bg-white h-8 border-slate-200 text-xs"
+                                                    value={editingCampaign.metadata?.template_id || ""}
+                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
+                                                />
+                                            </div>
+                                            <div className="grid gap-1.5">
+                                                <Label htmlFor="edit-imageUrl" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                    <ImageIcon className="w-2.5 h-2.5 text-accent" /> URL da Imagem do Cabeçalho
+                                                </Label>
+                                                <Input
+                                                    id="edit-imageUrl"
+                                                    placeholder="https://sua-imagem.com/foto.png"
+                                                    className="bg-white h-8 border-slate-200 text-xs"
+                                                    value={editingCampaign.metadata?.zenvia_image_url || ""}
+                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, zenvia_image_url: e.target.value } })}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-1 gap-1.5">
+                                            <Label htmlFor="edit-ctaLink" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
+                                                <Link2 className="w-2.5 h-2.5 text-accent" /> Link do Botão (variavellink)
                                             </Label>
                                             <Input
-                                                id="edit-templateId"
-                                                placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                id="edit-ctaLink"
+                                                placeholder="https://seu-link.com/proposta"
                                                 className="bg-white h-8 border-slate-200 text-xs"
-                                                value={editingCampaign.metadata?.template_id || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
+                                                value={editingCampaign.metadata?.zenvia_cta_link || ""}
+                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, zenvia_cta_link: e.target.value } })}
                                             />
                                         </div>
-                                        <div className="flex-1">
-                                            <p className="text-[10px] text-slate-400 leading-tight italic">
-                                                As alterações no reengajamento entrarão em vigor para os próximos disparos agendados na fila.
-                                            </p>
-                                        </div>
+                                        <p className="text-[10px] text-slate-400 leading-tight italic">
+                                            Certifique-se de preencher a URL da imagem e o link do botão se estiver usando um template de mídia.
+                                        </p>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -1943,6 +2046,51 @@ export default function Campaigns() {
                     )}
                 </SheetContent>
             </Sheet>
+
+            <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+                <AlertDialogContent className="max-w-[400px]">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="text-red-600 flex items-center gap-2">
+                            <Trash2 className="h-5 w-5" />
+                            Excluir Campanha
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-3 pt-2">
+                            <p>Esta ação é <strong>irreversível</strong> e apagará:</p>
+                            <ul className="text-xs list-disc list-inside space-y-1 bg-muted/50 p-2 rounded-md border border-border/10">
+                                <li>Campanha: <span className="font-bold text-foreground">{campaignToDelete?.name}</span></li>
+                                <li>Todos os leads importados</li>
+                                <li>Fila de disparos e logs de execução</li>
+                            </ul>
+                            <p className="text-[11px] text-muted-foreground italic">
+                                * As conversas e métricas financeiras serão preservadas.
+                            </p>
+                            <div className="pt-2">
+                                <Label className="text-[11px] font-bold mb-1.5 block">DIGITE <span className="text-red-500">EXCLUIR</span> PARA CONFIRMAR:</Label>
+                                <Input 
+                                    placeholder="EXCLUIR" 
+                                    value={deleteConfirmationInput}
+                                    onChange={(e) => setDeleteConfirmationInput(e.target.value.toUpperCase())}
+                                    className="h-9 border-red-200 focus-visible:ring-red-500 uppercase font-bold text-center tracking-widest"
+                                    autoFocus
+                                />
+                            </div>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                confirmDeleteCampaign();
+                            }}
+                            disabled={deleteConfirmationInput !== "EXCLUIR" || isDeleting}
+                            className="bg-red-600 hover:bg-red-700 text-white font-bold"
+                        >
+                            {isDeleting ? "Excluindo..." : "EXCLUIR AGORA"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
 
         </MainLayout >
     );
