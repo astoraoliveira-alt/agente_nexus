@@ -612,14 +612,23 @@ async deleteCampaign(id: string): Promise<void> {
         }));
     },
 
-    async getCampaignStats(campaignId: string | null, tenantId: string, useReplica: boolean = false): Promise<any> {
-        const client = useReplica ? supabaseReader : supabase;
-        const { data, error } = await client.rpc('get_campaign_dashboard_stats', {
+    async getCampaignStats(campaignId: string | null, tenantId: string, _useReplica: boolean = false): Promise<any> {
+        // FORCE PRIMARY: ignore replica for dashboard stats to avoid sync lag 404s
+        const client = supabase;
+        const { data, error } = await client.rpc('get_campaign_metrics_v2', {
             p_campaign_id: campaignId === "" ? null : campaignId,
             p_tenant_id: campaignId === "" ? tenantId : null
         });
 
-        if (error) throw error;
+        if (error) {
+            console.error("❌ SUPABASE RPC ERROR (get_campaign_metrics_v2):", {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+            });
+            throw error;
+        }
         return data as {
             total_contacts: number;
             import_errors: number;

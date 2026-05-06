@@ -1,19 +1,11 @@
-## [V62.0] - Re-engagement Strategic Engine & UI Sectioning
-### Reengajamento Inteligente & Gestão de Campanhas 2.0
-- **Mecanismo de Reengajamento Não Destrutivo**: Implementação de lógica de reenvio automático que diferencia segmentos:
-  - **Delivered (Não Lidos)**: Foco em gerar abertura/leitura.
-  - **Read (Lidos sem Resposta)**: Reengajamento conversacional para gerar resposta.
-- **Validação de Resposta Antes de Disparo**: Regra rígida que verifica `response_detected = true` antes de cada tentativa de reengajamento, cancelando disparos subsequentes para contatos que já interagiram.
-- **Base de Tempo Dinâmica (Delay Pro)**: O delay de reengajamento utiliza `read_at` como prioridade (se disponível) ou `sent_at` como fallback, evitando abordagens invasivas ou prematuras.
-- **Redesenho da UI de Cadastro (Seções & High-Density Cards)**: Reorganização total dos formulários de Criação/Edição em 5 blocos lógicos, otimizados para uma largura de **850px** para reduzir scroll e maximizar a área útil:
-  1. **Informações da Campanha**: Layout horizontal compacto para Nome, Agente e Objetivo.
-  2. **Configuração de Execução**: Grid de 2x2 para Início, Limite Diário e Janelas de Horário.
-  3. **Estratégia de Mensagem (Side-by-Side)**: Visualização paralela da **Mensagem Inicial** e **Mensagem de Reengajamento**, permitindo ajuste comparativo imediato da abordagem.
-  4. **Controle Integrado de Reengajamento**: Toggle de ativação e parâmetros (Tempo de Espera e Tentativas) consolidados diretamente no cabeçalho da seção de mensagens para visibilidade instantânea.
-  5. **Critérios de Sucesso (Conversão)**: Interface ultra-compacta para gatilhos de link e resposta.
-- **Evolução do Schema (Silent Extension)**: Adição de colunas `reengagement_attempt_count` e `reengagement_last_sent_at` na `outbound_queue`, permitindo o tracking do esforço de reengajamento sem inflar os KPIs principais de "Enviados" ou "Entregues".
+## [V63.0] - Campaign Analytics Precision & Deterministic Router
+### Estabilização de Analytics e Roteamento de IA
+- **Métricas de Campanha V2 (Isolamento Temporal)**: Implementação da RPC `get_campaign_metrics_v2` com lógica de isolamento por timestamp. Agora, links enviados só são contabilizados se a mensagem for posterior à entrada do lead na campanha atual, eliminando 100% da contaminação de dados entre campanhas distintas.
+- **Roteamento Sofia V15 (Deterministic Overrides)**: Adição de gatilhos determinísticos no roteador n8n para cliques em botões específicos (ex: "Falar com um agente"). Implementação do **Modo Parrot Forçado** com limpeza de prompt (remoção de FAQ) para garantir respostas fixas e eliminar alucinações ou prolixidade da IA em fluxos críticos.
+- **Hibridismo de Banco (Primary Force)**: Ajuste nos serviços de frontend (`campaigns.service.ts`) para forçar o uso da conexão primária (`supabase`) em vez da réplica (`supabaseReader`) em consultas de analytics recém-criadas, mitigando erros 404 causados por atraso na sincronização de schema entre regiões.
 
 ---
+
 
 ## [V61.0] - Executive Dashboard Overhaul & Funnel Transparency
 ### Otimização de UI & Precisão de Funil (Executive SLA)
