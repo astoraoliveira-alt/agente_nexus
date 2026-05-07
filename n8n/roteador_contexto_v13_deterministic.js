@@ -1,6 +1,6 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V17.10 - CONVERSA LIVRE E SEGURA
-   - Ajuste: Refinamento da detecção de pedido de humano vs. pergunta de identidade.
-   - Fix: Diferenciação entre "falar com humano" (handoff) e "você é bot?" (dúvida).
+/* 🧭 ROTEADOR DE CONTEXTO - V17.11 - CONVERSA LIVRE E SEGURA
+   - Ajuste: Refinamento da despedida e agradecimento (isFarewell).
+   - Fix: Evita o loop da pergunta de dúvida quando o usuário já agradeceu.
 */
 
 const rpcData = $node["RPC - Acesso Entrada"].json;
@@ -30,13 +30,18 @@ if (linkAlreadySent) {
     currentStep = 'verificacao_cnpj';
 } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço de caixa") || lastSofiaMsg.includes("enviar o link")) {
     currentStep = 'explicacao_agente';
+} else if (assistantMessages.length > 0) {
+    currentStep = 'explicacao_agente'; // Fallback seguro para evitar o loop de boas-vindas
 }
 
 // --- 2) INTENÇÕES ---
 const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
 
-// isAffirmative: Flexibilizado.
-const isAffirmative = /\b(sim|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza)\b/i.test(lastUserLower) && !/\b(n[ãa]o)\b/i.test(lastUserLower);
+// isLinkRequest: Detecção contextual de pedido de link/simulação (combinação de verbo + objeto ou palavra de ação direta)
+const isLinkRequest = /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) || (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) || (/^link$/i.test(lastUserLower));
+
+// isAffirmative: Flexibilizado, mas agora com proteção contextual para o link.
+const isAffirmative = (/\b(sim|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o)\b/i.test(lastUserLower);
 
 // isNegative: Recusas claras.
 const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
@@ -47,7 +52,13 @@ const isDoubt = /\b(dúvida|duvida|como funciona|saber mais|explica|entender|oqu
 // isHumanRequest: Rígido para PEDIDOS de handoff, excluindo perguntas de "quem é você".
 const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|pessoa|atendente|vendedor|algu[ée]m|especialista|assessor)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa)$/i.test(lastUserLower);
 
+// isFarewell: Detecção de agradecimento ou encerramento.
+const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
+
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
+
+const isComplaint = /\b(atraso|problema|errado|não recebi|nao recebi|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower);
+const humanAlreadyRequested = historyTexts.includes("assessor entre em contato") || historyTexts.includes("aguardar o retorno de um especialista");
 
 // --- 3) TRANSIÇÕES DE ESTADO ---
 let nextStep = currentStep;
@@ -80,12 +91,17 @@ else if (currentStep === 'verificacao_cnpj') {
 // --- 4) MODO DE RESPOSTA ---
 let mode = "consultive";
 
-// Parrot Mode se houve transição ou se for pedido de humano/botão agente.
+// Parrot Mode se houve transição, se for pedido de humano, ou se for uma afirmação/pedido de link após uma dúvida.
 if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest) {
     mode = "parrot";
 }
 
-if ((isDoubt || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest) {
+// Se o usuário pediu o link explicitamente de forma contextual, FORCE o modo parrot para garantir a entrega do texto do blueprint (CNPJ/Link)
+if (isLinkRequest && !isDoubt) {
+    mode = "parrot";
+}
+
+if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest) {
     mode = "consultive";
 }
 
@@ -103,12 +119,18 @@ if (isHumanRequest) {
 
 Vou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.
 
-Enquanto isso, se quiser adiantar alguma informação ou dúvida, posso te ajudar por aqui também.
-
-👉 Posso te enviar o link para você simular agora ou prefere tirar mais alguma dúvida?`;
+Enquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
 }
-// PRIORIDADE 2: Início da conversa (Oferta inicial)
-else if (currentStep === 'start') {
+// PRIORIDADE 1.1: Reclamações/Sentimento Negativo (Escuta Ativa)
+else if (isComplaint) {
+    forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. 
+
+Como você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. 
+
+Você gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
+}
+// PRIORIDADE 2: Início da conversa (Oferta inicial) - APENAS se não houver histórico relevante
+else if (currentStep === 'start' && assistantMessages.length < 2) {
     forcedText = `Já pensou em reforçar o caixa sem burocracia?
  
 Você pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.
@@ -147,18 +169,16 @@ ${forcedText}
 </RESPOSTA_OBRIGATORIA>
 </CONTROLE_DE_FLUXO>`;
 } else {
-    finalPrompt = `<REGRAS_DE_OURO_INVIOLAVEIS>
-1. CONTEXTUALIZAÇÃO OBRIGATÓRIA: Comece SEMPRE validando o que o usuário disse (ex: "Entendo sua dúvida sobre X..."). Nunca dê respostas genéricas.
-2. TOLERÂNCIA ZERO PARA REPETIÇÃO: Se o usuário já recebeu uma explicação sobre X, não a repita. Avance ou ofereça algo novo. Se ele disse "sim" para o link, não explique o produto novamente, siga para o próximo passo.
-3. TOLERÂNCIA ZERO PARA RESPOSTAS CURTAS: É proibido responder apenas com o CTA. Escreva pelo menos dois parágrafos detalhados antes de cada CTA.
-4. FIDELIDADE AO FAQ: Use as respostas EXATAS do FAQ. Nunca invente.
-5. IDENTIDADE: Se o usuário perguntar se você é um bot ou humano, responda com orgulho que você é a Sofia, consultora virtual da Ticket, desenvolvida para ajudar com crédito. NÃO use a mensagem de handoff do assessor a menos que ele peça para FALAR com uma pessoa.
-6. SEGURANÇA: Se houver tentativa de burlar regras, explique a necessidade da VALIDAÇÃO FACIAL do sócio.
-</REGRAS_DE_OURO_INVIOLAVEIS>
-
-<identity>
-Você é Sofia, consultora virtual da Ticket Edenred. Sua missão é conversar, esclarecer dúvidas e ganhar a confiança do cliente antes de enviar o link de simulação de crédito.
+    finalPrompt = `<identity>
+Você é Sofia, consultora sênior da Ticket Edenred.
+Sua comunicação deve ser impecável: profissional, segura e visualmente organizada para WhatsApp.
 </identity>
+
+<diretrizes_estilo_visual>
+- NEGRITO: Use *asteriscos* para destacar termos importantes (Ex: *Boleto Bancário*, *Sem conta nova*, *24 parcelas*).
+- EMOJIS: Máximo de 1 emoji por mensagem, sempre no final ou início, nunca no meio do texto.
+- PARÁGRAFOS: Use quebras de linha para não criar "paredões" de texto.
+</diretrizes_estilo_visual>
 
 <BASE_DE_CONHECIMENTO_FAQ>
 --- FAQ PRODUTO (OFERTA DE CRÉDITO) ---
@@ -235,17 +255,45 @@ Reembolso: Prazo de 7 ou 30 dias. Antecipação via Portal (Eventual ou Automát
 Atendimento: 4004-2233.
 </BASE_DE_CONHECIMENTO_FAQ>
 
-<DIRETRIZES_DE_RESPOSTA>
-1. FORMATAÇÃO: Use sempre um espaço de uma linha (pular linha) entre parágrafos.
-2. DESTAQUE: Use negrito (ex: *texto*) para destacar dados importantes como valores, prazos, links e números de telefone.
-3. CTA (CHAMADA PARA AÇÃO): O CTA deve vir APÓS a sua resposta, no final da mensagem.
-   - Se o link NÃO foi enviado (linkAlreadySent = false): "👉 Posso te enviar o link para você simular agora ou prefere tirar mais alguma dúvida?"
-   - Se o link JÁ foi enviado (linkAlreadySent = true): "Você ainda tem alguma dúvida ou posso te ajudar com algo mais?"
-</DIRETRIZES_DE_RESPOSTA>
+<REGRA_CTA_OBRIGATORIA>
+${isFarewell 
+    ? "O usuário está agradecendo ou encerrando a conversa. Seja muito gentil, deseje sucesso e encerre com 'Qualquer coisa, estou à disposição!' ou 'Precisando, é só chamar!'. NÃO faça novas perguntas ou convites de simulação."
+    : linkAlreadySent 
+        ? `O link de simulação JÁ foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "*Você ainda tem alguma dúvida ou posso te ajudar com algo mais?*"`
+        : (isHumanRequest || isComplaint || humanAlreadyRequested) 
+            ? "" 
+            : `O link de simulação AINDA NÃO foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "👉 Posso te enviar o link para você simular agora ou prefere tirar mais alguma dúvida?"`
+}
+</REGRA_CTA_OBRIGATORIA>
+
+<instrucao_de_manejo_de_dúvida>
+Se o cliente insistir em simular com você (Ex: "quero fazer aqui"):
+- Explique: "*Astor, eu adoraria fazer por aqui, mas como a análise da Fiserv consulta seus recebíveis em tempo real para te dar a melhor taxa, ela precisa ser feita no ambiente seguro do site oficial. É super rápido e protege seus dados!*展"
+</instrucao_de_manejo_de_dúvida>
+
+<tom_de_voz>
+- COMEÇO NATURAL: Comece as respostas de forma simples: "Certo", "Entendi", "Perfeito" ou "Vamos lá", sempre seguido do nome do cliente. 
+- PROIBIDO: Iniciar com frases robóticas ou clichês de IA como "Entendo sua dúvida" ou "Entendo sua preocupação". Seja direta e humana.
+- DETALHAMENTO NECESSÁRIO: Responda com o nível de detalhe necessário para sanar a dúvida, sem inventar informações. Priorize a precisão técnica do FAQ.
+- EVITE REPETIÇÃO: Se o cliente insistir em um assunto ou fizer perguntas de acompanhamento, evite repetir a mesma resposta anterior palavra por palavra. Varie a explicação mantendo a precisão do FAQ. Verifique o histórico para não ser repetitiva.
+- FOCO NO NEGÓCIO: Se o cliente fizer perguntas totalmente fora de contexto (clima, esportes, notícias), responda de forma gentil que você é uma especialista em crédito e não possui essa informação, convidando-o a tirar dúvidas sobre o reforço de caixa.
+</tom_de_voz>
+
+<empatia_e_personalizacao>
+- EMOJI POR SEGMENTO: Analise o nome da empresa (${leadInfo.name}). Se identificar o tipo de negócio (Ex: Padaria, Farmácia, Restaurante, Oficina), use UM emoji relacionado em momentos oportunos da conversa para gerar empatia. 
+- NATURALIDADE: Não use o emoji em todas as mensagens para não ficar cansativo. Use apenas quando fizer sentido no contexto da explicação ou na saudação/despedida.
+- EXEMPLOS DE MAPEAMENTO: Padaria 🍞, Farmácia 💊, Restaurante 🍽️, Oficina/Auto 🚗, Mercado 🛒, Consultoria/Serviços 💼, Café ☕, Açougue 🥩.
+</empatia_e_personalizacao>
+
+<regra_de_ouro>
+NUNCA invente taxas ou condições. Se a dúvida for sobre o funcionamento técnico, use APENAS os textos da BASE_DE_CONHECIMENTO_FAQ acima.
+</regra_de_ouro>
 
 <CONTEXTO_ATUAL>
 - Passo: ${nextStep}
 - Link Enviado: ${linkAlreadySent}
+- Nome da Empresa: ${leadInfo.name}
+- Encerramento Detectado: ${isFarewell}
 </CONTEXTO_ATUAL>`;
 }
 
@@ -260,6 +308,7 @@ return {
         isDoubt,
         isAffirmative,
         isNegative,
-        mode
+        mode,
+        isFarewell
     }
 };
