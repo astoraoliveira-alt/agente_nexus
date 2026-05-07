@@ -1,6 +1,6 @@
 -- ============================================================
--- RPC: get_campaign_leads_enriched (V2.1 - Fix Conversão em Visão Consolidada)
--- Descrição: Retorna leads com status real de conversão buscando critérios dinamicamente.
+-- RPC: get_campaign_leads_enriched (V2.2 - Fix Noise de Conversas Antigas)
+-- Descrição: Retorna leads com status real, filtrando mensagens APÓS o envio da campanha.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION get_campaign_leads_enriched(
@@ -36,8 +36,8 @@ BEGIN
         oq.campaign_id,
         oq.error_message,
         oq.conversation_id,
+        oq.sent_at, -- Importante para o filtro de tempo
         oq.status as raw_status,
-        -- Busca critérios da campanha deste lead especificamente
         c.success_criteria,
         c.success_link_filter
       FROM public.outbound_queue oq
@@ -96,14 +96,15 @@ BEGIN
       )
     ) as establishment_name,
     lws.error_message::text,
-    -- [CORREÇÃO] response_detected Real
+    -- [CORREÇÃO V2.2] response_detected APÓS o envio da campanha
     EXISTS (
         SELECT 1 FROM public.messages m
         WHERE m.conversation_id = lws.conversation_id
           AND m.sender_type = 'user'
           AND m.direction = 'inbound'
+          AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
     ) as response_detected,
-    -- [CORREÇÃO] is_converted Real (Critérios buscados por lead para suportar visão consolidada)
+    -- [CORREÇÃO V2.2] is_converted APÓS o envio da campanha
     (
         CASE 
           WHEN 'CLIENT_RESPONDED' = ANY(lws.success_criteria) THEN
@@ -112,6 +113,7 @@ BEGIN
                 WHERE m.conversation_id = lws.conversation_id
                   AND m.sender_type = 'user'
                   AND m.direction = 'inbound'
+                  AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
             )
           WHEN 'LINK_SENT' = ANY(lws.success_criteria) AND COALESCE(lws.success_link_filter, '') <> '' THEN
             EXISTS (
@@ -119,6 +121,7 @@ BEGIN
                 WHERE m.conversation_id = lws.conversation_id
                   AND m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system')
                   AND m.content ILIKE '%' || lws.success_link_filter || '%'
+                  AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
             )
           ELSE FALSE
         END

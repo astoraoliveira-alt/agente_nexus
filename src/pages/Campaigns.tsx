@@ -56,7 +56,11 @@ import {
     Link2,
     CheckCheck,
     ExternalLink,
-    Send
+    Send,
+    LayoutGrid,
+    MessageSquareText,
+    Smartphone,
+    Target
 } from "lucide-react";
 import {
     Card,
@@ -149,7 +153,6 @@ export default function Campaigns() {
     const [queueMetricsByCampaign, setQueueMetricsByCampaign] = useState<Record<string, { total: number; sent: number; delivered?: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
-    const [isEditOpen, setIsEditOpen] = useState(false);
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [isContactsViewOpen, setIsContactsViewOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
@@ -160,7 +163,6 @@ export default function Campaigns() {
     const [viewContacts, setViewContacts] = useState<any[]>([]);
     const [contactSearch, setContactSearch] = useState("");
     const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
-    const [editingCampaign, setEditingCampaign] = useState<Campaign | null>(null);
     const [isImportErrorsOpen, setIsImportErrorsOpen] = useState(false);
     const [importErrors, setImportErrors] = useState<CampaignImportLog[]>([]);
     const [isLoadingErrors, setIsLoadingErrors] = useState(false);
@@ -213,6 +215,7 @@ export default function Campaigns() {
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
+        id: "",
         name: "",
         description: "",
         agentId: "",
@@ -277,6 +280,7 @@ export default function Campaigns() {
                     ...campaign,
                     sentCount: liveStats.sent_count,
                     deliveredCount: liveStats.delivered_count || 0,
+                    readCount: liveStats.read_count || 0,
                     responseCount: liveStats.response_count,
                     conversionCount: liveStats.conversion_count,
                     conversionRate: liveStats.conversion_rate,
@@ -299,7 +303,7 @@ export default function Campaigns() {
         }
     };
 
-    const handleCreateCampaign = async () => {
+    const handleSaveCampaign = async () => {
         if (!currentTenant || !newCampaign.agentId || !newCampaign.name) {
             toast({
                 title: "Campos obrigatórios",
@@ -310,7 +314,7 @@ export default function Campaigns() {
         }
 
         try {
-            const createdCampaign = await api.createCampaign({
+            const campaignData = {
                 tenantId: currentTenant.id,
                 agentId: newCampaign.agentId,
                 name: newCampaign.name,
@@ -332,18 +336,37 @@ export default function Campaigns() {
                 reengagementWaitHours: newCampaign.reengagementWaitHours,
                 reengagementMaxAttempts: newCampaign.reengagementMaxAttempts,
                 reengagementMessage: newCampaign.reengagementMessage,
-                status: "active" as CampaignStatus,
-            });
+            };
 
-            toast({
-                title: "Campanha criada!",
-                description: "Sua campanha estratégica foi salva e está pronta para disparos.",
-            });
+            if (newCampaign.id) {
+                // Update existing campaign
+                await api.updateCampaign(newCampaign.id, campaignData);
+                toast({
+                    title: "Campanha atualizada!",
+                    description: "As alterações foram salvas com sucesso.",
+                });
+            } else {
+                // Create new campaign
+                const createdCampaign = await api.createCampaign({
+                    ...campaignData,
+                    status: "active" as CampaignStatus,
+                });
+                
+                toast({
+                    title: "Campanha criada!",
+                    description: "Sua campanha estratégica foi salva e está pronta para disparos.",
+                });
+                
+                // For new campaigns, offer to import contacts
+                setSelectedCampaignForImport(createdCampaign.id);
+                setImportData([]);
+                if (fileInputRef.current) fileInputRef.current.value = "";
+                setIsImportOpen(true);
+            }
+
             setIsCreateOpen(false);
-            setSelectedCampaignForImport(createdCampaign.id);
-            setImportData([]);
-            if (fileInputRef.current) fileInputRef.current.value = "";
             setNewCampaign({
+                id: "",
                 name: "",
                 description: "",
                 agentId: agents.length === 1 ? agents[0].id : "",
@@ -364,11 +387,10 @@ export default function Campaigns() {
                 reengagementMessage: ""
             });
             await loadData();
-            setIsImportOpen(true);
         } catch (error) {
             toast({
-                title: "Erro ao criar",
-                description: "Erro ao salvar a campanha no banco de dados.",
+                title: `Erro ao ${newCampaign.id ? 'atualizar' : 'criar'}`,
+                description: "Ocorreu um erro ao salvar os dados da campanha.",
                 variant: "destructive",
             });
         }
@@ -816,53 +838,30 @@ export default function Campaigns() {
     };
 
     const handleOpenEdit = (campaign: Campaign) => {
-        setEditingCampaign({ ...campaign });
-        setIsEditOpen(true);
+        setNewCampaign({
+            id: campaign.id,
+            name: campaign.name,
+            description: campaign.description || "",
+            agentId: campaign.agentId,
+            dailyLimit: campaign.dailyLimit,
+            startDate: campaign.startDate ? format(new Date(campaign.startDate), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"),
+            endDate: campaign.endDate ? format(new Date(campaign.endDate), "yyyy-MM-dd") : "",
+            startTime: campaign.startTime || "09:00",
+            endTime: campaign.endTime || "18:00",
+            initialMessage: campaign.initialMessage || "",
+            templateId: campaign.metadata?.template_id || "",
+            zenviaImageUrl: campaign.metadata?.zenvia_image_url || "",
+            zenviaCtaLink: campaign.metadata?.zenvia_cta_link || "",
+            successCriteria: campaign.successCriteria || ['LINK_SENT'],
+            successLinkFilter: campaign.successLinkFilter || "fiservcapital",
+            reengagementEnabled: campaign.reengagementEnabled || false,
+            reengagementWaitHours: campaign.reengagementWaitHours || 24,
+            reengagementMaxAttempts: campaign.reengagementMaxAttempts || 1,
+            reengagementMessage: campaign.reengagementMessage || ""
+        });
+        setIsCreateOpen(true);
     };
 
-    const handleUpdateCampaign = async () => {
-        if (!editingCampaign) return;
-
-        try {
-            await api.updateCampaign(editingCampaign.id, {
-                name: editingCampaign.name,
-                description: editingCampaign.description,
-                dailyLimit: editingCampaign.dailyLimit,
-                startDate: editingCampaign.startDate,
-                endDate: editingCampaign.endDate,
-                startTime: editingCampaign.startTime,
-                endTime: editingCampaign.endTime,
-                initialMessage: normalizeMessagingText(editingCampaign.initialMessage),
-                metadata: { 
-                    ...(editingCampaign.metadata || {}), 
-                    template_id: editingCampaign.metadata?.template_id || undefined,
-                    zenvia_image_url: editingCampaign.metadata?.zenvia_image_url || undefined,
-                    zenvia_cta_link: editingCampaign.metadata?.zenvia_cta_link || undefined
-                },
-                agentId: editingCampaign.agentId,
-                successCriteria: editingCampaign.successCriteria,
-                successLinkFilter: editingCampaign.successLinkFilter,
-                reengagementEnabled: editingCampaign.reengagementEnabled,
-                reengagementWaitHours: editingCampaign.reengagementWaitHours,
-                reengagementMaxAttempts: editingCampaign.reengagementMaxAttempts,
-                reengagementMessage: editingCampaign.reengagementMessage,
-            });
-
-            toast({
-                title: "Campanha atualizada!",
-                description: "As alterações foram salvas com sucesso.",
-            });
-            setIsEditOpen(false);
-            setEditingCampaign(null);
-            loadData();
-        } catch (error) {
-            toast({
-                title: "Erro ao atualizar",
-                description: "Não foi possível salvar as alterações.",
-                variant: "destructive",
-            });
-        }
-    };
 
     const handleViewContacts = async (campaignId: string) => {
         if (!currentTenant) return;
@@ -1033,26 +1032,46 @@ export default function Campaigns() {
                                                 <Megaphone className="w-5 h-5 text-accent" />
                                             </div>
                                             <div>
-                                                <DialogTitle className="text-xl font-bold tracking-tight">Estratégia Outbound</DialogTitle>
-                                                <DialogDescription className="text-xs">Configure o agente, a audiência e a estratégia de reengajamento.</DialogDescription>
+                                                <DialogTitle className="text-xl font-bold tracking-tight">
+                                                    {newCampaign.id ? "Editar Estratégia Outbound" : "Lançar Nova Estratégia"}
+                                                </DialogTitle>
+                                                <DialogDescription className="text-xs">
+                                                    {newCampaign.id ? "Atualize os parâmetros operacionais e estratégicos da sua campanha." : "Configure o agente, a audiência e a estratégia de reengajamento."}
+                                                </DialogDescription>
                                             </div>
                                         </div>
                                     </DialogHeader>
 
                                     <Tabs defaultValue="geral" className="w-full">
                                         <div className="px-6 border-b border-slate-100">
-                                            <TabsList className="bg-transparent h-auto p-0 gap-6 w-full justify-start rounded-none">
-                                                <TabsTrigger value="geral" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
-                                                    🏠 Geral
+                                            <TabsList className="bg-slate-50/50 h-auto p-1 gap-1 w-full justify-start rounded-xl border border-slate-200/60">
+                                                <TabsTrigger 
+                                                    value="geral" 
+                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm rounded-lg transition-all group"
+                                                >
+                                                    <LayoutGrid className="w-4 h-4 transition-colors group-data-[state=active]:text-slate-600" />
+                                                    Geral
                                                 </TabsTrigger>
-                                                <TabsTrigger value="mensagens" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
-                                                    💬 Mensagens
+                                                <TabsTrigger 
+                                                    value="mensagens" 
+                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:bg-white data-[state=active]:text-emerald-600 data-[state=active]:shadow-sm rounded-lg transition-all group"
+                                                >
+                                                    <MessageSquareText className="w-4 h-4 transition-colors group-data-[state=active]:text-emerald-500" />
+                                                    Mensagens
                                                 </TabsTrigger>
-                                                <TabsTrigger value="zenvia" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
-                                                    ⚙️ WhatsApp
+                                                <TabsTrigger 
+                                                    value="zenvia" 
+                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:bg-white data-[state=active]:text-blue-600 data-[state=active]:shadow-sm rounded-lg transition-all group"
+                                                >
+                                                    <Smartphone className="w-4 h-4 transition-colors group-data-[state=active]:text-blue-500" />
+                                                    WhatsApp
                                                 </TabsTrigger>
-                                                <TabsTrigger value="metas" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
-                                                    🎯 Metas
+                                                <TabsTrigger 
+                                                    value="metas" 
+                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:bg-white data-[state=active]:text-orange-600 data-[state=active]:shadow-sm rounded-lg transition-all group"
+                                                >
+                                                    <Target className="w-4 h-4 transition-colors group-data-[state=active]:text-orange-500" />
+                                                    Metas
                                                 </TabsTrigger>
                                             </TabsList>
                                         </div>
@@ -1452,11 +1471,11 @@ export default function Campaigns() {
                                             <div className="flex gap-3">
                                                 <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500 font-bold px-6 rounded-none">Cancelar</Button>
                                                 <Button
-                                                    onClick={handleCreateCampaign}
+                                                    onClick={handleSaveCampaign}
                                                     className="bg-accent hover:bg-accent/90 px-10 font-bold h-11 text-sm rounded-none shadow-xl shadow-accent/20"
                                                     disabled={!newCampaign.name || !newCampaign.agentId}
                                                 >
-                                                    🚀 Lançar Estratégia
+                                                    {newCampaign.id ? "💾 Salvar Alterações" : "🚀 Lançar Estratégia"}
                                                 </Button>
                                             </div>
                                         </div>
@@ -1560,19 +1579,20 @@ export default function Campaigns() {
                                     <TableHeader>
                                         <TableRow className="border-b-0">
                                             <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[18%] align-middle rounded-tl-xl")}>Campanha / Agente</TableHead>
-                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[9%] align-middle")}>Criada em</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle")}>Status</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[7%] align-middle")}>Carregados</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle text-red-500")}>Inconsistentes</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[7%] align-middle")}>Válidos</TableHead>
-                                            <TableHead colSpan={2} className={cn(headerCenterClass, "w-[16%]")}>Conversas Iniciadas</TableHead>
-                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle")}>Links Enviados</TableHead>
-                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[9%] align-middle")}>Vigência</TableHead>
-                                            <TableHead rowSpan={2} className={cn(headerRightClass, "w-[10%] align-middle rounded-tr-xl")}>Ações</TableHead>
+                                            <TableHead colSpan={4} className={cn(headerCenterClass, "w-[32%]")}>Funil de Interação</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[6%] align-middle")}>Links Enviados</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[7%] align-middle")}>Vigência</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerRightClass, "w-[7%] align-middle rounded-tr-xl")}>Ações</TableHead>
                                         </TableRow>
                                         <TableRow className="border-b border-slate-200/80">
-                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>Msgs<br />Enviadas</TableHead>
-                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>Msgs Entregues</TableHead>
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>ENVIADOS</TableHead>
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>ENTREGUES</TableHead>
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>LIDAS</TableHead>
+                                            <TableHead className={cn(headerCenterClass, "w-[8%] border-t-0")}>RESPONDIDAS</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -1605,11 +1625,6 @@ export default function Campaigns() {
                                                             </div>
                                                         </div>
                                                     </TableCell>
-                                                    <TableCell className="px-2 py-4">
-                                                        <div className="text-xs text-muted-foreground font-medium">
-                                                            {format(campaign.createdAt, "dd/MM/yyyy", { locale: ptBR })}
-                                                        </div>
-                                                    </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">{getStatusBadge(campaign.status)}</TableCell>
                                                     <TableCell className="px-2 py-4 text-center font-semibold">
                                                         {totalLoaded}
@@ -1634,14 +1649,26 @@ export default function Campaigns() {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-blue-600">{sentMessages}</span>
+                                                            <span className="font-semibold text-blue-600">{(campaign as any).sentCount || 0}</span>
                                                             <span className="text-[11px] text-muted-foreground">{sentPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-emerald-600">{deliveredMessages}</span>
+                                                            <span className="font-semibold text-emerald-600">{(campaign as any).deliveredCount || 0}</span>
                                                             <span className="text-[11px] text-muted-foreground">{deliveredPct.toFixed(0)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-emerald-600">{(campaign as any).readCount || 0}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? (((campaign as any).readCount || 0) / validRecords * 100) : 0).toFixed(0)}%</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="px-2 py-4 text-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="font-semibold text-orange-600">{(campaign as any).responseCount || 0}</span>
+                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? (((campaign as any).responseCount || 0) / validRecords * 100) : 0).toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
@@ -1801,248 +1828,6 @@ export default function Campaigns() {
                 </DialogContent>
             </Dialog>
 
-            {/* Edit Campaign Modal */}
-            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent className="sm:max-w-[850px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
-                    <DialogHeader className="p-5 pb-2">
-                        <DialogTitle className="text-xl font-bold text-accent">Editar Estratégia Outbound</DialogTitle>
-                        <DialogDescription className="text-[11px]">
-                            Atualize os parâmetros operacionais e estratégicos da sua campanha ativa.
-                        </DialogDescription>
-                    </DialogHeader>
-                    {editingCampaign && (
-                        <div className="flex-1 overflow-y-auto px-5 py-2 space-y-4 custom-scrollbar pb-6">
-                            {/* Seção 1: Identidade e Agente */}
-                            <div className="grid grid-cols-12 gap-4 items-start">
-                                <Card className="col-span-12 lg:col-span-8 border-accent/5 shadow-none bg-slate-50/50">
-                                    <CardContent className="p-3 space-y-3">
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div className="grid gap-1.5">
-                                                <Label htmlFor="edit-name" className="text-[10px] uppercase font-bold text-slate-400">Nome da Campanha</Label>
-                                                <Input
-                                                    id="edit-name"
-                                                    className="bg-white h-9 border-slate-200 text-sm"
-                                                    value={editingCampaign.name}
-                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
-                                                />
-                                            </div>
-                                            <div className="grid gap-1.5">
-                                                <Label className="text-[10px] uppercase font-bold text-slate-400">Agente IA Executor</Label>
-                                                <Select 
-                                                    value={editingCampaign.agentId} 
-                                                    onValueChange={(val) => setEditingCampaign({ ...editingCampaign, agentId: val })}
-                                                >
-                                                    <SelectTrigger className="bg-white h-9 border-slate-200 text-sm">
-                                                        <SelectValue placeholder="Selecione..." />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {agents.map(agent => (
-                                                            <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </div>
-                                        <div className="grid gap-1.5">
-                                            <Label htmlFor="edit-description" className="text-[10px] uppercase font-bold text-slate-400">Objetivo Estratégico</Label>
-                                            <Input
-                                                id="edit-description"
-                                                className="bg-white h-9 border-slate-200 text-sm"
-                                                value={editingCampaign.description || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, description: e.target.value })}
-                                            />
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                {/* Seção 2: Execução (Compacta) */}
-                                <Card className="col-span-12 lg:col-span-4 border-accent/5 shadow-none bg-slate-50/50">
-                                    <CardContent className="p-3">
-                                        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                                            <div className="grid gap-1">
-                                                <Label htmlFor="edit-start" className="text-[10px] uppercase font-bold text-slate-400">Início</Label>
-                                                <Input id="edit-start" type="date" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.startDate ? (editingCampaign.startDate instanceof Date ? editingCampaign.startDate.toISOString().split('T')[0] : editingCampaign.startDate) : ''} onChange={(e) => setEditingCampaign({ ...editingCampaign, startDate: e.target.value as any })} />
-                                            </div>
-                                            <div className="grid gap-1">
-                                                <Label htmlFor="edit-limit" className="text-[10px] uppercase font-bold text-slate-400">Lmt Diário</Label>
-                                                <Input id="edit-limit" type="number" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.dailyLimit} onChange={(e) => setEditingCampaign({ ...editingCampaign, dailyLimit: parseInt(e.target.value) })} />
-                                            </div>
-                                            <div className="grid gap-1">
-                                                <Label htmlFor="edit-startTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Abr</Label>
-                                                <Input id="edit-startTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.startTime || "09:00"} onChange={(e) => setEditingCampaign({ ...editingCampaign, startTime: e.target.value })} />
-                                            </div>
-                                            <div className="grid gap-1">
-                                                <Label htmlFor="edit-endTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Fec</Label>
-                                                <Input id="edit-endTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={editingCampaign.endTime || "18:00"} onChange={(e) => setEditingCampaign({ ...editingCampaign, endTime: e.target.value })} />
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                            {/* Seção 3: Estratégia de Mensagem e Reengajamento (UNIFICADA) */}
-                            <Card className="border-accent/10 shadow-none bg-white">
-                                <CardHeader className="py-2.5 px-4 border-b border-accent/5 bg-slate-50/50">
-                                    <div className="flex items-center justify-between">
-                                        <CardTitle className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
-                                            <MessageSquare className="w-3 h-3" /> Estratégia de Mensagem
-                                        </CardTitle>
-                                        <div className="flex items-center gap-4 bg-white px-3 py-1 rounded-full border border-accent/10">
-                                            <div className="flex items-center gap-2">
-                                                <input type="checkbox" className="accent-accent w-3 h-3" checked={editingCampaign.reengagementEnabled || false} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementEnabled: e.target.checked })} />
-                                                <span className="text-[10px] font-bold text-accent">Ativar Reengajamento</span>
-                                            </div>
-                                            <div className="h-3 w-[1px] bg-slate-200" />
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] text-slate-400 font-bold">TEMPO:</span>
-                                                <select className="text-[10px] font-bold bg-transparent outline-none" value={editingCampaign.reengagementWaitHours || 24} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementWaitHours: parseInt(e.target.value) })} disabled={!editingCampaign.reengagementEnabled}>
-                                                    <option value={12}>12h</option>
-                                                    <option value={24}>24h</option>
-                                                    <option value={48}>48h</option>
-                                                    <option value={72}>72h</option>
-                                                </select>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] text-slate-400 font-bold">TENTATIVAS:</span>
-                                                <select className="text-[10px] font-bold bg-transparent outline-none" value={editingCampaign.reengagementMaxAttempts || 1} onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementMaxAttempts: parseInt(e.target.value) })} disabled={!editingCampaign.reengagementEnabled}>
-                                                    <option value={1}>1x</option>
-                                                    <option value={2}>2x</option>
-                                                    <option value={3}>3x</option>
-                                                </select>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </CardHeader>
-                                <CardContent className="p-4 space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-1.5">
-                                            <div className="flex justify-between items-center">
-                                                <Label className="text-[10px] uppercase font-bold text-slate-400">1. Impacto Inicial</Label>
-                                                <span className="text-[8px] text-accent/60 font-mono italic">{"{{nome}}"}</span>
-                                            </div>
-                                            <textarea
-                                                className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
-                                                value={editingCampaign.initialMessage || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, initialMessage: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className={cn("grid gap-1.5 transition-opacity duration-300", !editingCampaign.reengagementEnabled && "opacity-40 grayscale")}>
-                                            <Label className="text-[10px] uppercase font-bold text-slate-400">2. Reengajamento (Opcional)</Label>
-                                            <textarea
-                                                className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
-                                                value={editingCampaign.reengagementMessage || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, reengagementMessage: e.target.value })}
-                                                disabled={!editingCampaign.reengagementEnabled}
-                                            />
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="pt-3 border-t border-slate-100 space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="grid gap-1.5">
-                                                <Label htmlFor="edit-templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                    <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
-                                                </Label>
-                                                <Input
-                                                    id="edit-templateId"
-                                                    placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
-                                                    className="bg-white h-8 border-slate-200 text-xs"
-                                                    value={editingCampaign.metadata?.template_id || ""}
-                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, template_id: e.target.value } })}
-                                                />
-                                            </div>
-                                            <div className="grid gap-1.5">
-                                                <Label htmlFor="edit-imageUrl" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                    <ImageIcon className="w-2.5 h-2.5 text-accent" /> URL da Imagem do Cabeçalho
-                                                </Label>
-                                                <Input
-                                                    id="edit-imageUrl"
-                                                    placeholder="https://sua-imagem.com/foto.png"
-                                                    className="bg-white h-8 border-slate-200 text-xs"
-                                                    value={editingCampaign.metadata?.zenvia_image_url || ""}
-                                                    onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, zenvia_image_url: e.target.value } })}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="grid grid-cols-1 gap-1.5">
-                                            <Label htmlFor="edit-ctaLink" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                <Link2 className="w-2.5 h-2.5 text-accent" /> Link do Botão (variavellink)
-                                            </Label>
-                                            <Input
-                                                id="edit-ctaLink"
-                                                placeholder="https://seu-link.com/proposta"
-                                                className="bg-white h-8 border-slate-200 text-xs"
-                                                value={editingCampaign.metadata?.zenvia_cta_link || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, metadata: { ...editingCampaign.metadata, zenvia_cta_link: e.target.value } })}
-                                            />
-                                        </div>
-                                        <p className="text-[10px] text-slate-400 leading-tight italic">
-                                            Certifique-se de preencher a URL da imagem e o link do botão se estiver usando um template de mídia.
-                                        </p>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            {/* Seção 4: Sucesso / Conversão */}
-                            <Card className="border-emerald-500/10 shadow-none bg-emerald-50/30">
-                                <CardContent className="p-3 space-y-3">
-                                    <div className="flex items-center gap-3">
-                                        <Label className="text-[10px] uppercase font-bold text-emerald-600 flex items-center gap-2 whitespace-nowrap">
-                                            <ShieldCheck className="w-3 h-3" /> Gatilhos de Sucesso:
-                                        </Label>
-                                        <div className="flex flex-wrap gap-1.5">
-                                            {[
-                                                { id: 'CLIENT_RESPONDED', label: 'Resposta' },
-                                                { id: 'LINK_SENT', label: 'Link Enviado' },
-                                                { id: 'APPOINTMENT', label: 'Agendamento' },
-                                                { id: 'SALE', label: 'Fechamento' }
-                                            ].map(opt => (
-                                                <Badge
-                                                    key={opt.id}
-                                                    variant={editingCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
-                                                    className={cn(
-                                                        "cursor-pointer px-2.5 py-0.5 text-[10px] transition-all font-bold",
-                                                        editingCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent" : "bg-white hover:bg-emerald-50 border-emerald-100 text-emerald-600/70"
-                                                    )}
-                                                    onClick={() => {
-                                                        const current = [...editingCampaign.successCriteria];
-                                                        if (current.includes(opt.id)) {
-                                                            setEditingCampaign({ ...editingCampaign, successCriteria: current.filter(id => id !== opt.id) });
-                                                        } else {
-                                                            setEditingCampaign({ ...editingCampaign, successCriteria: [...current, opt.id] });
-                                                        }
-                                                    }}
-                                                >
-                                                    {opt.label}
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {editingCampaign.successCriteria.includes('LINK_SENT') && (
-                                        <div className="flex items-center gap-3 p-2 bg-white rounded-md border border-emerald-100 animate-in fade-in slide-in-from-left-2">
-                                            <Label htmlFor="edit-linkFilter" className="text-[10px] font-bold uppercase text-emerald-600/50">Termo do Link:</Label>
-                                            <Input
-                                                id="edit-linkFilter"
-                                                placeholder="Ex: checkout, proposta"
-                                                className="h-7 text-xs border-emerald-50 focus:ring-emerald-500/10 flex-1"
-                                                value={editingCampaign.successLinkFilter || ""}
-                                                onChange={(e) => setEditingCampaign({ ...editingCampaign, successLinkFilter: e.target.value })}
-                                            />
-                                        </div>
-                                    )}
-                                </CardContent>
-                            </Card>
-                        </div>
-                    )}
-                    <DialogFooter className="p-4 bg-slate-50 border-t border-border/50 gap-2">
-                        <Button variant="ghost" onClick={() => setIsEditOpen(false)} className="text-slate-500 h-9 px-6">Cancelar</Button>
-                        <Button onClick={handleUpdateCampaign} className="bg-accent hover:bg-accent/90 px-10 font-bold h-9 shadow-lg shadow-accent/10">
-                            💾 Salvar Alterações
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             {/* View Contacts Modal */}
             <Dialog open={isContactsViewOpen} onOpenChange={setIsContactsViewOpen}>

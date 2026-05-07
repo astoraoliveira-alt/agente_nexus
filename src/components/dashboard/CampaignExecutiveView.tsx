@@ -452,14 +452,15 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
           status: (() => {
             const s = String(c.status || '').toLowerCase();
             
-            // REGRA DE OURO (V3.0): Hierarquia de status para evitar sobrecontagem nos filtros
-            // Uma conversão é o status mais alto.
+            // REGRA DE OURO (V3.1): Hierarquia de status refinada
+            // 1. Conversão é o status máximo.
             if (c.is_converted || c.isConverted || ['converted', 'convertida'].includes(s)) return 'Convertida';
             
-            // Resposta é o próximo nível.
-            if (c.response_detected || c.responseDetected || ['respondida'].includes(s)) return 'Respondida';
+            // 2. Resposta (Interação real)
+            // Se houver conversão, já retornamos acima. Se não, verificamos resposta.
+            if (c.response_detected || c.responseDetected || s === 'respondida') return 'Respondida';
             
-            // Leitura é o nível base de interação.
+            // 3. Leitura (Nível base de interação)
             if (s === 'read' || s === 'lida') return 'Lida';
             
             if (['delivered', 'entregue'].includes(s)) return 'Entregue';
@@ -831,7 +832,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <OperationCluster title="Processamento de Leads" subtitle="Ingestão e Validação" icon={Users}>
-              <KPISquare label="Total no Arquivo" value={(stats.total_contacts || 0) + (stats.import_errors || 0)} percentage={0} subLabel="Base: leads válidos" hidePercentage />
+              <KPISquare label="Total no Arquivo" value={(stats.total_contacts || 0) + (stats.import_errors || 0)} percentage={100} isInfo subLabel="Base: leads válidos" hidePercentage />
               <KPISquare label="Leads Válidos" value={stats.total_contacts || 0} percentage={100} isPositive subLabel="Base do card (100%)" />
               <KPISquare label="Inconsistentes" value={stats.import_errors || 0} percentage={(stats.total_contacts || 0) > 0 ? ((stats.import_errors || 0) / (stats.total_contacts || 0)) * 100 : 0} isNegative subLabel="Base: leads válidos" />
             </OperationCluster>
@@ -1296,10 +1297,11 @@ function KPISquare({
     <div 
       onClick={onClick}
       className={cn(
-      "p-3.5 border border-slate-100 bg-white flex flex-col gap-2.5 rounded-xl transition-all duration-300",
+      "p-3.5 border border-slate-100 bg-white flex flex-col gap-2.5 rounded-xl transition-all duration-300 relative overflow-hidden",
       isHighlight ? "border-slate-900 bg-slate-50/50 shadow-md" : "hover:border-slate-200",
       onClick ? "cursor-pointer hover:shadow-md hover:-translate-y-0.5 hover:border-blue-200" : ""
     )}>
+      {isInfo && <div className="absolute top-0 left-0 w-1 h-full bg-blue-600" />}
       <div className="flex justify-between items-start">
         <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 leading-none">{label}</span>
         {!hidePercentage && (
