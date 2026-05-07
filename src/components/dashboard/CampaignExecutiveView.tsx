@@ -24,7 +24,13 @@ import {
   SmilePlus,
   MessagesSquare,
   TimerReset,
-  UserRound
+  UserRound,
+  Eye,
+  TrendingUp,
+  FileText,
+  Building2,
+  Check,
+  ArrowLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -438,16 +444,24 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
           contactName: c.contactName || 'Sem Nome',
           establishmentName: c.establishmentName || null,
           conversationId: c.conversationId || null,
-          responseDetected: Boolean(c.responseDetected),
+          responseDetected: Boolean(c.responseDetected || c.response_detected),
+          isConverted: Boolean(c.isConverted || c.is_converted), // Suporte a camelCase e snake_case
           sentAt: c.sentAt || null,
           createdAt: c.createdAt || null,
           campaignId: c.campaignId || null,
           status: (() => {
             const s = String(c.status || '').toLowerCase();
-            if (c.is_converted) return 'Convertida';
-            if (['converted', 'convertida'].includes(s)) return 'Convertida';
-            if (c.response_detected) return 'Respondida';
-            if (['read', 'lida'].includes(s)) return 'Lida';
+            
+            // REGRA DE OURO (V3.0): Hierarquia de status para evitar sobrecontagem nos filtros
+            // Uma conversão é o status mais alto.
+            if (c.is_converted || c.isConverted || ['converted', 'convertida'].includes(s)) return 'Convertida';
+            
+            // Resposta é o próximo nível.
+            if (c.response_detected || c.responseDetected || ['respondida'].includes(s)) return 'Respondida';
+            
+            // Leitura é o nível base de interação.
+            if (s === 'read' || s === 'lida') return 'Lida';
+            
             if (['delivered', 'entregue'].includes(s)) return 'Entregue';
             if (['sent', 'enviada'].includes(s)) return 'Enviada';
             if (['failed', 'erro'].includes(s)) return 'Erro';
@@ -455,7 +469,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             if (['processing', 'processando'].includes(s)) return 'Processando';
             if (s === 'not_delivered') return 'Não Entregue';
             if (s === 'rejected') return 'Rejeitada';
-            return c.status;
+            return c.status || 'Pendente';
           })(),
           errorMessage: c.error_message || null
       }));
@@ -465,9 +479,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         delivered_count: mappedLeads.filter(l => ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida'].includes(l.status)).length,
         read_count: mappedLeads.filter(l => ['Lida', 'Respondida', 'Convertida'].includes(l.status)).length,
         response_count: mappedLeads.filter(l => ['Respondida', 'Convertida'].includes(l.status)).length,
-        // We do not override conversion_count because it relies on deep message content scanning in the backend
+        conversion_count: mappedLeads.filter(l => l.status === 'Convertida').length,
         failed_count: mappedLeads.filter(l => ['Erro', 'Não Entregue', 'Rejeitada'].includes(l.status)).length,
-        sent_count: mappedLeads.filter(l => ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida', 'Erro', 'Não Entregue', 'Rejeitada'].includes(l.status)).length
+        sent_count: mappedLeads.filter(l => ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida', 'Erro', 'Não Entregue', 'Rejeitada'].includes(l.status)).length,
+        import_errors: Number(statsData?.import_errors || 0)
       };
 
       setStats({
@@ -553,14 +568,27 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
   const selectedCampaign = campaigns.find(c => c.id === campaignId);
   const selectedAgent = agents.find(agent => agent.id === selectedCampaign?.agentId);
 
-  const statusOptions = useMemo(
-    () => Array.from(new Set(leads.map((lead) => lead.status))).sort((a, b) => a.localeCompare(b)),
-    [leads]
-  );
+  const statusOptions = useMemo(() => {
+    const options = Array.from(new Set(leads.map((lead) => lead.status)));
+    
+    // Força inclusão de 'Convertida' se houver leads convertidos (mesmo que com status visual 'Lida')
+    if (leads.some(l => l.isConverted) && !options.includes('Convertida')) {
+      options.push('Convertida');
+    }
+    
+    return options.sort((a, b) => a.localeCompare(b));
+  }, [leads]);
 
   const filteredLeads = useMemo(() => {
     if (selectedStatuses.length === 0) return leads;
-    return leads.filter((lead) => selectedStatuses.includes(lead.status));
+    return leads.filter((lead) => {
+      // Se o filtro 'Convertida' estiver ativo, incluímos leads com status visual 'Convertida'
+      // OU leads que tenham a flag real de conversão isConverted como true.
+      if (selectedStatuses.includes('Convertida') && lead.isConverted) {
+        return true;
+      }
+      return selectedStatuses.includes(lead.status);
+    });
   }, [leads, selectedStatuses]);
 
   const sortedLeads = useMemo(() => {
@@ -628,7 +656,20 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
   const renderStatusBadge = (status?: string | null, errorMessage?: string | null) => {
     const normalized = String(status || '').toLowerCase();
-    const isSuccess = ['enviada', 'concluída', 'concluida', 'convertida', 'entregue', 'lida'].includes(normalized);
+    
+    // Status 'Lida' agora tem sua própria identidade visual (Azul Sky)
+    if (normalized === 'lida' || normalized === 'read') {
+      return (
+        <div className="flex flex-col items-end gap-1">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-sky-50 text-sky-600 border border-sky-100">
+            <Eye className="w-3 h-3" />
+            Lida
+          </span>
+        </div>
+      );
+    }
+
+    const isSuccess = ['enviada', 'concluída', 'concluida', 'convertida', 'entregue'].includes(normalized);
     const isError = normalized === 'erro' || !!errorMessage;
     const isProcessing = normalized === 'processando';
 
@@ -790,9 +831,9 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <OperationCluster title="Processamento de Leads" subtitle="Ingestão e Validação" icon={Users}>
-              <KPISquare label="Total no Arquivo" value={stats.total_contacts + stats.import_errors} percentage={stats.total_contacts > 0 ? ((stats.total_contacts + stats.import_errors) / stats.total_contacts) * 100 : 0} subLabel="Base: leads válidos" hidePercentage />
-              <KPISquare label="Leads Válidos" value={stats.total_contacts} percentage={stats.total_contacts > 0 ? 100 : 0} isPositive subLabel="Base do card (100%)" />
-              <KPISquare label="Inconsistentes" value={stats.import_errors} percentage={stats.total_contacts > 0 ? (stats.import_errors / stats.total_contacts) * 100 : 0} isNegative subLabel="Base: leads válidos" />
+              <KPISquare label="Total no Arquivo" value={(stats.total_contacts || 0) + (stats.import_errors || 0)} percentage={0} subLabel="Base: leads válidos" hidePercentage />
+              <KPISquare label="Leads Válidos" value={stats.total_contacts || 0} percentage={100} isPositive subLabel="Base do card (100%)" />
+              <KPISquare label="Inconsistentes" value={stats.import_errors || 0} percentage={(stats.total_contacts || 0) > 0 ? ((stats.import_errors || 0) / (stats.total_contacts || 0)) * 100 : 0} isNegative subLabel="Base: leads válidos" />
             </OperationCluster>
 
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
@@ -871,8 +912,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   />
                   <KPISquare 
                     label="Pos Interação" 
-                    value={`${stats.response_count > 0 ? Math.round((stats.conversion_count / stats.response_count) * 100) : 0}%`}
-                    percentage={stats.response_count > 0 ? (stats.conversion_count / stats.response_count) * 100 : 0}
+                    value={`${(stats.response_count || 0) > 0 ? Math.min(Math.round(((stats.conversion_count || 0) / (stats.response_count || 0)) * 100), 100) : 0}%`}
+                    percentage={(stats.response_count || 0) > 0 ? (stats.conversion_count / stats.response_count) * 100 : 0}
                     isPositive
                     subLabel="Eficácia Resposta"
                     hideValue={true}

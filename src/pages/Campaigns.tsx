@@ -1,4 +1,24 @@
 import { useState, useEffect, useRef } from "react";
+
+const renderWhatsAppText = (text: string) => {
+    if (!text) return null;
+    
+    let processed = text.replace(/{{nome}}/g, 'Astor');
+    
+    return processed.split('\n').map((line, i) => {
+        const parts = line.split(/(\*.*?\*)/g);
+        return (
+            <span key={i} className="block min-h-[1em]">
+                {parts.map((part, j) => {
+                    if (part.startsWith('*') && part.endsWith('*')) {
+                        return <strong key={j} className="font-bold">{part.slice(1, -1)}</strong>;
+                    }
+                    return part;
+                })}
+            </span>
+        );
+    });
+};
 import { useApp } from "@/contexts/AppContext";
 import { api } from "@/services/api";
 import { Campaign, CampaignStatus, Agent, CampaignImportLog } from "@/lib/types";
@@ -33,7 +53,10 @@ import {
     Zap,
     Activity,
     ImageIcon,
-    Link2
+    Link2,
+    CheckCheck,
+    ExternalLink,
+    Send
 } from "lucide-react";
 import {
     Card,
@@ -80,18 +103,25 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger
+} from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import {
     Sheet,
     SheetContent,
     SheetDescription,
     SheetHeader,
     SheetTitle,
+    SheetTrigger
 } from "@/components/ui/sheet";
-import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MainLayout } from "@/components/layout/MainLayout";
+import { DeviceFrame } from "@/components/ui/DeviceFrame";
 
 const parseLocalDate = (dateString: string): Date => {
     if (!dateString) return new Date();
@@ -116,7 +146,7 @@ export default function Campaigns() {
     const { toast } = useToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [agents, setAgents] = useState<Agent[]>([]);
-    const [queueMetricsByCampaign, setQueueMetricsByCampaign] = useState<Record<string, { total: number; sent: number }>>({});
+    const [queueMetricsByCampaign, setQueueMetricsByCampaign] = useState<Record<string, { total: number; sent: number; delivered?: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -997,253 +1027,444 @@ export default function Campaigns() {
                                 </DialogTrigger>
                                 )}
                                 <DialogContent className="sm:max-w-[850px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
-                                    <DialogHeader className="p-5 pb-2">
-                                        <DialogTitle className="text-xl font-bold text-accent">Criar Nova Campanha Outbound</DialogTitle>
-                                        <DialogDescription className="text-[11px]">
-                                            Defina o agente, a audiência e a estratégia de reengajamento em um único lugar.
-                                        </DialogDescription>
+                                    <DialogHeader className="p-6 pb-2">
+                                        <div className="flex items-center gap-3 mb-1">
+                                            <div className="p-2 bg-accent/10 rounded-lg">
+                                                <Megaphone className="w-5 h-5 text-accent" />
+                                            </div>
+                                            <div>
+                                                <DialogTitle className="text-xl font-bold tracking-tight">Estratégia Outbound</DialogTitle>
+                                                <DialogDescription className="text-xs">Configure o agente, a audiência e a estratégia de reengajamento.</DialogDescription>
+                                            </div>
+                                        </div>
                                     </DialogHeader>
-                                    
-                                    <div className="flex-1 overflow-y-auto px-5 py-2 space-y-4 custom-scrollbar pb-6">
-                                        {/* Seção 1: Identidade e Agente */}
-                                        <div className="grid grid-cols-12 gap-4 items-start">
-                                            <Card className="col-span-12 lg:col-span-8 border-accent/5 shadow-none bg-slate-50/50">
-                                                <CardContent className="p-3 space-y-3">
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div className="grid gap-1.5">
-                                                            <Label htmlFor="name" className="text-[10px] uppercase font-bold text-slate-400">Nome da Campanha</Label>
+
+                                    <Tabs defaultValue="geral" className="w-full">
+                                        <div className="px-6 border-b border-slate-100">
+                                            <TabsList className="bg-transparent h-auto p-0 gap-6 w-full justify-start rounded-none">
+                                                <TabsTrigger value="geral" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
+                                                    🏠 Geral
+                                                </TabsTrigger>
+                                                <TabsTrigger value="mensagens" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
+                                                    💬 Mensagens
+                                                </TabsTrigger>
+                                                <TabsTrigger value="zenvia" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
+                                                    ⚙️ WhatsApp
+                                                </TabsTrigger>
+                                                <TabsTrigger value="metas" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-accent rounded-none px-0 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:text-accent transition-all">
+                                                    🎯 Metas
+                                                </TabsTrigger>
+                                            </TabsList>
+                                        </div>
+
+                                        <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                            <TabsContent value="geral" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div className="space-y-4">
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="name" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Nome da Campanha</Label>
                                                             <Input
                                                                 id="name"
                                                                 placeholder="Ex: Reengajamento Janeiro"
-                                                                className="bg-white h-9 border-slate-200 text-sm"
+                                                                className="h-10 border-slate-200 focus:ring-accent/10 focus:border-accent transition-all rounded-none"
                                                                 value={newCampaign.name}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })}
                                                             />
                                                         </div>
-                                                        <div className="grid gap-1.5">
-                                                            <Label htmlFor="agent" className="text-[10px] uppercase font-bold text-slate-400">Agente IA Executor</Label>
-                                                            <Select value={newCampaign.agentId} onValueChange={(v) => setNewCampaign({ ...newCampaign, agentId: v })}>
-                                                                <SelectTrigger className="bg-white h-9 border-slate-200 text-sm">
-                                                                    <SelectValue placeholder="Selecione..." />
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="agentId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Agente IA Executor</Label>
+                                                            <Select
+                                                                value={newCampaign.agentId}
+                                                                onValueChange={(val) => setNewCampaign({ ...newCampaign, agentId: val })}
+                                                            >
+                                                                <SelectTrigger id="agentId" className="h-10 border-slate-200 focus:ring-accent/10 focus:border-accent transition-all rounded-none">
+                                                                    <SelectValue placeholder="Selecione a personalidade da IA" />
                                                                 </SelectTrigger>
                                                                 <SelectContent>
-                                                                    {agents.map(agent => (
-                                                                        <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                                                                    {agents.map((agent) => (
+                                                                        <SelectItem key={agent.id} value={agent.id}>
+                                                                            <div className="flex flex-col">
+                                                                                <span className="font-medium">{agent.name}</span>
+                                                                                <span className="text-[10px] text-muted-foreground">{agent.role || 'Consultor Especialista'}</span>
+                                                                            </div>
+                                                                        </SelectItem>
                                                                     ))}
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="description" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Objetivo Estratégico (Opcional)</Label>
+                                                            <Input
+                                                                id="description"
+                                                                placeholder="Ex: Converter leads inativos de Jan"
+                                                                className="h-10 border-slate-200 focus:ring-accent/10 focus:border-accent transition-all rounded-none"
+                                                                value={newCampaign.description}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })}
+                                                            />
+                                                        </div>
                                                     </div>
-                                                    <div className="grid gap-1.5">
-                                                        <Label htmlFor="description" className="text-[10px] uppercase font-bold text-slate-400">Objetivo Estratégico</Label>
-                                                        <Input
-                                                            id="description"
-                                                            placeholder="Ex: Converter leads inativos de Jan"
-                                                            className="bg-white h-9 border-slate-200 text-sm"
-                                                            value={newCampaign.description}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })}
-                                                        />
-                                                    </div>
-                                                </CardContent>
-                                            </Card>
 
-                                            {/* Seção 2: Execução (Compacta) */}
-                                            <Card className="col-span-12 lg:col-span-4 border-accent/5 shadow-none bg-slate-50/50">
-                                                <CardContent className="p-3">
-                                                    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                                                        <div className="grid gap-1">
-                                                            <Label htmlFor="start" className="text-[10px] uppercase font-bold text-slate-400">Início</Label>
-                                                            <Input id="start" type="date" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.startDate} onChange={(e) => setNewCampaign({ ...newCampaign, startDate: e.target.value })} />
+                                                    <div className="bg-slate-50 p-4 space-y-4 border border-slate-100">
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="grid gap-2">
+                                                                <Label htmlFor="startDate" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2">
+                                                                    <Calendar className="w-3 h-3 text-accent" /> Início
+                                                                </Label>
+                                                                <Input
+                                                                    id="startDate"
+                                                                    type="date"
+                                                                    className="h-9 border-slate-200 bg-white rounded-none text-xs"
+                                                                    value={newCampaign.startDate}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, startDate: e.target.value })}
+                                                                />
+                                                            </div>
+                                                            <div className="grid gap-2">
+                                                                <Label htmlFor="dailyLimit" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2">
+                                                                    <Activity className="w-3 h-3 text-accent" /> Limite Diário
+                                                                </Label>
+                                                                <Input
+                                                                    id="dailyLimit"
+                                                                    type="number"
+                                                                    className="h-9 border-slate-200 bg-white rounded-none text-xs"
+                                                                    value={newCampaign.dailyLimit}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })}
+                                                                />
+                                                            </div>
                                                         </div>
-                                                        <div className="grid gap-1">
-                                                            <Label htmlFor="limit" className="text-[10px] uppercase font-bold text-slate-400">Lmt Diário</Label>
-                                                            <Input id="limit" type="number" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.dailyLimit} onChange={(e) => setNewCampaign({ ...newCampaign, dailyLimit: parseInt(e.target.value) })} />
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                            <div className="grid gap-2">
+                                                                <Label htmlFor="startTime" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2">
+                                                                    <Clock className="w-3 h-3 text-accent" /> Janela Abre
+                                                                </Label>
+                                                                <Input
+                                                                    id="startTime"
+                                                                    type="time"
+                                                                    className="h-9 border-slate-200 bg-white rounded-none text-xs"
+                                                                    value={newCampaign.startTime}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, startTime: e.target.value })}
+                                                                />
+                                                            </div>
+                                                            <div className="grid gap-2">
+                                                                <Label htmlFor="endTime" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-2">
+                                                                    <Clock className="w-3 h-3 text-accent" /> Janela Fecha
+                                                                </Label>
+                                                                <Input
+                                                                    id="endTime"
+                                                                    type="time"
+                                                                    className="h-9 border-slate-200 bg-white rounded-none text-xs"
+                                                                    value={newCampaign.endTime}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, endTime: e.target.value })}
+                                                                />
+                                                            </div>
                                                         </div>
-                                                        <div className="grid gap-1">
-                                                            <Label htmlFor="startTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Abr</Label>
-                                                            <Input id="startTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.startTime} onChange={(e) => setNewCampaign({ ...newCampaign, startTime: e.target.value })} />
+                                                        <p className="text-[10px] text-slate-400 leading-snug">
+                                                            O sistema gerenciará a fila de disparos automaticamente dentro desta janela de horário e limite diário.
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            </TabsContent>
+
+                                            <TabsContent value="mensagens" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                                <div className="flex items-center justify-between p-4 bg-accent/5 border border-accent/10">
+                                                    <div className="space-y-0.5">
+                                                        <Label className="text-sm font-bold text-accent flex items-center gap-2">
+                                                            🚀 Ciclo de Reengajamento
+                                                        </Label>
+                                                        <p className="text-[11px] text-slate-500">Mande um lembrete automático se o lead não responder.</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-[10px] font-bold uppercase text-slate-400">Status:</span>
+                                                            <div 
+                                                                className={cn(
+                                                                    "w-10 h-5 rounded-full p-1 cursor-pointer transition-all",
+                                                                    newCampaign.reengagementEnabled ? "bg-accent" : "bg-slate-200"
+                                                                )}
+                                                                onClick={() => setNewCampaign({ ...newCampaign, reengagementEnabled: !newCampaign.reengagementEnabled })}
+                                                            >
+                                                                <div className={cn("w-3 h-3 bg-white rounded-full transition-all", newCampaign.reengagementEnabled ? "ml-5" : "ml-0")} />
+                                                            </div>
                                                         </div>
-                                                        <div className="grid gap-1">
-                                                            <Label htmlFor="endTime" className="text-[10px] uppercase font-bold text-slate-400">Janela Fec</Label>
-                                                            <Input id="endTime" type="time" className="bg-white h-8 border-slate-200 text-[12px] p-1" value={newCampaign.endTime} onChange={(e) => setNewCampaign({ ...newCampaign, endTime: e.target.value })} />
+                                                        {newCampaign.reengagementEnabled && (
+                                                            <div className="flex items-center gap-3 animate-in fade-in zoom-in-95">
+                                                                <div className="h-4 w-[1px] bg-slate-200" />
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase">Tempo</span>
+                                                                    <select 
+                                                                        className="text-xs bg-transparent border-none font-bold text-accent p-0 focus:ring-0 cursor-pointer"
+                                                                        value={newCampaign.reengagementWaitHours}
+                                                                        onChange={(e) => setNewCampaign({ ...newCampaign, reengagementWaitHours: parseInt(e.target.value) })}
+                                                                    >
+                                                                        <option value={12}>12h</option>
+                                                                        <option value={24}>24h</option>
+                                                                        <option value={48}>48h</option>
+                                                                    </select>
+                                                                </div>
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[9px] font-bold text-slate-400 uppercase">Voltas</span>
+                                                                    <select 
+                                                                        className="text-xs bg-transparent border-none font-bold text-accent p-0 focus:ring-0 cursor-pointer"
+                                                                        value={newCampaign.reengagementMaxAttempts}
+                                                                        onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMaxAttempts: parseInt(e.target.value) })}
+                                                                    >
+                                                                        <option value={1}>1x</option>
+                                                                        <option value={2}>2x</option>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex flex-col lg:flex-row gap-8">
+                                                    <div className="flex-1 space-y-6">
+                                                        <div className="space-y-2">
+                                                            <div className="flex justify-between items-center">
+                                                                <Label className="text-[11px] uppercase font-bold text-slate-500">1. Impacto Inicial</Label>
+                                                                <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-500">{"{{nome}}"} disponível</span>
+                                                            </div>
+                                                            <textarea
+                                                                placeholder="Olá {{nome}}, temos uma proposta exclusiva..."
+                                                                className="flex min-h-[140px] w-full border border-slate-200 bg-white px-3 py-2 text-sm focus:ring-1 focus:ring-accent outline-none transition-all rounded-none"
+                                                                value={newCampaign.initialMessage}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
+                                                            />
+                                                        </div>
+                                                        <div className={cn("space-y-2 transition-all", !newCampaign.reengagementEnabled && "opacity-40 pointer-events-none")}>
+                                                            <Label className="text-[11px] uppercase font-bold text-slate-500">2. Mensagem de Reengajamento</Label>
+                                                            <textarea
+                                                                placeholder="Olá {{nome}}, conseguiu ver o que te mandei?"
+                                                                className="flex min-h-[140px] w-full border border-slate-200 bg-white px-3 py-2 text-sm focus:ring-1 focus:ring-accent outline-none transition-all rounded-none"
+                                                                value={newCampaign.reengagementMessage}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMessage: e.target.value })}
+                                                                disabled={!newCampaign.reengagementEnabled}
+                                                            />
+                                                        </div>
+                                                        <div className="p-3 bg-slate-50 border border-slate-100 space-y-2">
+                                                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
+                                                                <Megaphone className="w-3 h-3" /> Preview de Conversa
+                                                            </div>
+                                                            <p className="text-[10px] text-slate-500 leading-tight">
+                                                                O preview ao lado simula como a mensagem será vista no dispositivo do cliente, incluindo formatação e mídia.
+                                                            </p>
                                                         </div>
                                                     </div>
-                                                </CardContent>
-                                            </Card>
-                                        </div>
 
-                                        {/* Seção 3: Estratégia de Mensagem e Reengajamento (UNIFICADA) */}
-                                        <Card className="border-accent/10 shadow-none bg-white">
-                                            <CardHeader className="py-2.5 px-4 border-b border-accent/5 bg-slate-50/50">
-                                                <div className="flex items-center justify-between">
-                                                    <CardTitle className="text-[10px] uppercase font-bold tracking-wider text-slate-600 flex items-center gap-2">
-                                                        <MessageSquare className="w-3 h-3" /> Estratégia de Mensagem
-                                                    </CardTitle>
-                                                    <div className="flex items-center gap-4 bg-white px-3 py-1 rounded-full border border-accent/10">
-                                                        <div className="flex items-center gap-2">
-                                                            <input type="checkbox" className="accent-accent w-3 h-3" checked={newCampaign.reengagementEnabled} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementEnabled: e.target.checked })} />
-                                                            <span className="text-[10px] font-bold text-accent">Ativar Reengajamento</span>
+                                                    <div className="hidden lg:block w-[300px] shrink-0">
+                                                        <DeviceFrame className="h-[520px] w-[280px] border-[8px] rounded-[2rem]">
+                                                            <div className="h-full flex flex-col bg-[#efeae2] dark:bg-slate-900">
+                                                                {/* Header WhatsApp */}
+                                                                <div className="bg-[#075e54] p-3 pt-6 text-white flex items-center gap-2">
+                                                                    <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0" />
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[11px] font-bold">Ticket Edenred</span>
+                                                                        <span className="text-[8px] opacity-70">online</span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Chat Area */}
+                                                                <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar">
+                                                                    {/* Data Tag */}
+                                                                    <div className="flex justify-center">
+                                                                        <span className="bg-[#dcf8c6] dark:bg-slate-800 text-[8px] px-2 py-0.5 rounded uppercase font-bold text-slate-500">Hoje</span>
+                                                                    </div>
+
+                                                                    {/* Balão 1: Impacto Inicial */}
+                                                                    <div className="bg-white dark:bg-slate-800 p-2 rounded-lg rounded-tl-none shadow-sm max-w-[85%] relative animate-in slide-in-from-left-1">
+                                                                        {newCampaign.zenviaImageUrl && (
+                                                                            <img 
+                                                                                src={newCampaign.zenviaImageUrl} 
+                                                                                alt="Header" 
+                                                                                className="w-full h-24 object-cover rounded mb-2 border border-slate-100"
+                                                                            />
+                                                                        )}
+                                                                        <p className="text-[10px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                                                                            {renderWhatsAppText(newCampaign.initialMessage) || 'Escreva sua mensagem inicial...'}
+                                                                        </p>
+                                                                        <div className="flex justify-end items-center gap-1 mt-1">
+                                                                            <span className="text-[8px] text-slate-400">12:00</span>
+                                                                            <CheckCheck className="w-2.5 h-2.5 text-blue-400" />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Botão Simulado */}
+                                                                    {newCampaign.zenviaCtaLink && (
+                                                                        <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100 flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all max-w-[85%] animate-in fade-in zoom-in-95">
+                                                                            <ExternalLink className="w-3 h-3 text-blue-500" />
+                                                                            <span className="text-[9px] font-bold text-blue-600">ACESSAR PROPOSTA</span>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Balão 2: Reengajamento */}
+                                                                    {newCampaign.reengagementEnabled && newCampaign.reengagementMessage && (
+                                                                        <div className="bg-white dark:bg-slate-800 p-2 rounded-lg rounded-tl-none shadow-sm max-w-[85%] relative animate-in slide-in-from-left-1 mt-4">
+                                                                            <p className="text-[10px] text-slate-800 dark:text-slate-200 leading-relaxed">
+                                                                                {renderWhatsAppText(newCampaign.reengagementMessage)}
+                                                                            </p>
+                                                                            <div className="flex justify-end items-center gap-1 mt-1">
+                                                                                <span className="text-[8px] text-slate-400">Amanhã</span>
+                                                                                <CheckCheck className="w-2.5 h-2.5 text-blue-400" />
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Input WhatsApp */}
+                                                                <div className="p-2 bg-white dark:bg-slate-950 flex items-center gap-2">
+                                                                    <div className="w-4 h-4 rounded-full bg-slate-100" />
+                                                                    <div className="flex-1 h-6 bg-slate-50 rounded-full border border-slate-100" />
+                                                                    <div className="w-4 h-4 rounded-full bg-[#075e54] flex items-center justify-center">
+                                                                        <Send className="w-2 h-2 text-white" />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </DeviceFrame>
+                                                    </div>
+                                                </div>
+                                            </TabsContent>
+
+                                            <TabsContent value="zenvia" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                                <div className="p-4 bg-slate-900 text-white space-y-4 border-l-4 border-accent">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="p-1.5 bg-accent rounded">
+                                                            <Zap className="w-4 h-4 text-white" />
                                                         </div>
-                                                        <div className="h-3 w-[1px] bg-slate-200" />
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[10px] text-slate-400 font-bold">TEMPO:</span>
-                                                            <select className="text-[10px] font-bold bg-transparent outline-none" value={newCampaign.reengagementWaitHours} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementWaitHours: parseInt(e.target.value) })} disabled={!newCampaign.reengagementEnabled}>
-                                                                <option value={12}>12h</option>
-                                                                <option value={24}>24h</option>
-                                                                <option value={48}>48h</option>
-                                                                <option value={72}>72h</option>
-                                                            </select>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-[10px] text-slate-400 font-bold">TENTATIVAS:</span>
-                                                            <select className="text-[10px] font-bold bg-transparent outline-none" value={newCampaign.reengagementMaxAttempts} onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMaxAttempts: parseInt(e.target.value) })} disabled={!newCampaign.reengagementEnabled}>
-                                                                <option value={1}>1x</option>
-                                                                <option value={2}>2x</option>
-                                                                <option value={3}>3x</option>
-                                                            </select>
+                                                        <div>
+                                                            <h4 className="text-sm font-bold">Configurações Técnicas WhatsApp</h4>
+                                                            <p className="text-[10px] text-slate-400 uppercase tracking-widest font-medium">Integração Direta Zenvia</p>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </CardHeader>
-                                            <CardContent className="p-4 space-y-4">
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="grid gap-1.5">
-                                                        <div className="flex justify-between items-center">
-                                                            <Label className="text-[10px] uppercase font-bold text-slate-400">1. Impacto Inicial</Label>
-                                                            <span className="text-[8px] text-accent/60 font-mono italic">{"{{nome}}"}</span>
-                                                        </div>
-                                                        <textarea
-                                                            placeholder="Olá {{nome}}, tudo bem? Gostaríamos de conversar sobre..."
-                                                            className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
-                                                            value={newCampaign.initialMessage}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, initialMessage: e.target.value })}
-                                                        />
-                                                    </div>
-                                                    <div className={cn("grid gap-1.5 transition-opacity duration-300", !newCampaign.reengagementEnabled && "opacity-40 grayscale")}>
-                                                        <Label className="text-[10px] uppercase font-bold text-slate-400">2. Reengajamento (Opcional)</Label>
-                                                        <textarea
-                                                            placeholder="Olá {{nome}}, passando para saber se conseguiu ver nossa mensagem anterior..."
-                                                            className="flex min-h-[120px] w-full rounded-lg border border-slate-200 bg-slate-50/30 px-3 py-2 text-sm focus:ring-2 focus:ring-accent/10 outline-none transition-all"
-                                                            value={newCampaign.reengagementMessage}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, reengagementMessage: e.target.value })}
-                                                            disabled={!newCampaign.reengagementEnabled}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="pt-3 border-t border-slate-100 space-y-4">
-                                                    <div className="grid grid-cols-2 gap-4">
-                                                        <div className="grid gap-1.5">
-                                                            <Label htmlFor="templateId" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                                <Zap className="w-2.5 h-2.5 text-accent" /> ID Template Zenvia (Opcional)
-                                                            </Label>
+
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div className="space-y-4">
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="templateId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">ID do Template (Zenvia)</Label>
                                                             <Input
                                                                 id="templateId"
-                                                                placeholder="Ex: f1af4efa-92b5-49cd-ba91-990d69989167"
-                                                                className="bg-white h-8 border-slate-200 text-xs"
+                                                                placeholder="f1af4efa-92b5-49cd-ba91-990d69989167"
+                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
                                                                 value={newCampaign.templateId}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
                                                             />
+                                                            <p className="text-[10px] text-slate-400">Obrigatório para campanhas de primeiro contato.</p>
                                                         </div>
-                                                        <div className="grid gap-1.5">
-                                                            <Label htmlFor="zenviaImageUrl" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                                <ImageIcon className="w-2.5 h-2.5 text-accent" /> URL da Imagem do Cabeçalho
-                                                            </Label>
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="zenviaImageUrl" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">URL da Imagem de Capa</Label>
                                                             <Input
                                                                 id="zenviaImageUrl"
-                                                                placeholder="https://sua-imagem.com/foto.png"
-                                                                className="bg-white h-8 border-slate-200 text-xs"
+                                                                placeholder="https://images.zenvia.com/banner.png"
+                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
                                                                 value={newCampaign.zenviaImageUrl}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, zenviaImageUrl: e.target.value })}
                                                             />
                                                         </div>
                                                     </div>
-                                                    <div className="grid grid-cols-1 gap-1.5">
-                                                        <Label htmlFor="zenviaCtaLink" className="text-[9px] uppercase font-bold text-slate-400 flex items-center gap-1.5">
-                                                            <Link2 className="w-2.5 h-2.5 text-accent" /> Link do Botão (variavellink)
-                                                        </Label>
-                                                        <Input
-                                                            id="zenviaCtaLink"
-                                                            placeholder="https://seu-link.com/proposta"
-                                                            className="bg-white h-8 border-slate-200 text-xs"
-                                                            value={newCampaign.zenviaCtaLink}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, zenviaCtaLink: e.target.value })}
-                                                        />
-                                                    </div>
-                                                    <p className="text-[10px] text-slate-400 leading-tight italic">
-                                                        Se usar um template com imagem e botão, preencha a URL da imagem e o link do botão acima.
-                                                    </p>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
-
-                                        {/* Seção 4: Sucesso / Conversão */}
-                                        <Card className="border-emerald-500/10 shadow-none bg-emerald-50/30">
-                                            <CardContent className="p-3 space-y-3">
-                                                <div className="flex items-center gap-3">
-                                                    <Label className="text-[10px] uppercase font-bold text-emerald-600 flex items-center gap-2 whitespace-nowrap">
-                                                        <ShieldCheck className="w-3 h-3" /> Gatilhos de Sucesso:
-                                                    </Label>
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {[
-                                                            { id: 'CLIENT_RESPONDED', label: 'Resposta' },
-                                                            { id: 'LINK_SENT', label: 'Link Enviado' },
-                                                            { id: 'APPOINTMENT', label: 'Agendamento' },
-                                                            { id: 'SALE', label: 'Fechamento' }
-                                                        ].map(opt => (
-                                                            <Badge
-                                                                key={opt.id}
-                                                                variant={newCampaign.successCriteria.includes(opt.id) ? "default" : "outline"}
-                                                                className={cn(
-                                                                    "cursor-pointer px-2.5 py-0.5 text-[10px] transition-all font-bold",
-                                                                    newCampaign.successCriteria.includes(opt.id) ? "bg-emerald-600 hover:bg-emerald-700 border-transparent" : "bg-white hover:bg-emerald-50 border-emerald-100 text-emerald-600/70"
-                                                                )}
-                                                                onClick={() => {
-                                                                    const current = [...newCampaign.successCriteria];
-                                                                    if (current.includes(opt.id)) {
-                                                                        setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
-                                                                    } else {
-                                                                        setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
-                                                                    }
-                                                                }}
-                                                            >
-                                                                {opt.label}
-                                                            </Badge>
-                                                        ))}
+                                                    <div className="space-y-4">
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="zenviaCtaLink" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Link do Botão (VariavelLink)</Label>
+                                                            <Input
+                                                                id="zenviaCtaLink"
+                                                                placeholder="https://seu-link.com/token"
+                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
+                                                                value={newCampaign.zenviaCtaLink}
+                                                                onChange={(e) => setNewCampaign({ ...newCampaign, zenviaCtaLink: e.target.value })}
+                                                            />
+                                                            <div className="p-3 bg-amber-50 border border-amber-100 rounded-sm">
+                                                                <p className="text-[10px] text-amber-700 leading-tight">
+                                                                    <strong>Nota:</strong> O sistema extrairá automaticamente o token se houver um <code>?t=</code> no link.
+                                                                </p>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
+                                            </TabsContent>
 
-                                                {newCampaign.successCriteria.includes('LINK_SENT') && (
-                                                    <div className="flex items-center gap-3 p-2 bg-white rounded-md border border-emerald-100 animate-in fade-in slide-in-from-left-2">
-                                                        <Label htmlFor="linkFilter" className="text-[10px] font-bold uppercase text-emerald-600/50">Termo do Link:</Label>
-                                                        <Input
-                                                            id="linkFilter"
-                                                            placeholder="Ex: checkout, proposta"
-                                                            className="h-7 text-xs border-emerald-50 focus:ring-emerald-500/10 flex-1"
-                                                            value={newCampaign.successLinkFilter}
-                                                            onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
-                                                        />
+                                            <TabsContent value="metas" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2">
+                                                <div className="grid grid-cols-1 gap-6">
+                                                    <div className="bg-emerald-50 border border-emerald-100 p-6 space-y-6">
+                                                        <div className="space-y-1">
+                                                            <h4 className="text-sm font-bold text-emerald-700">Gatilhos de Sucesso</h4>
+                                                            <p className="text-xs text-emerald-600/70">Defina o que caracteriza uma conversão nesta campanha.</p>
+                                                        </div>
+                                                        
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {[
+                                                                { id: 'CLIENT_RESPONDED', label: 'Lead Respondeu', desc: 'Qualquer resposta encerra o ciclo' },
+                                                                { id: 'LINK_SENT', label: 'Clicou no Link', desc: 'Identificado pelo termo do link' },
+                                                                { id: 'APPOINTMENT', label: 'Agendamento Realizado', desc: 'Marcação confirmada no CRM' },
+                                                                { id: 'SALE', label: 'Venda Concluída', desc: 'Conversão final em faturamento' }
+                                                            ].map(opt => (
+                                                                <div 
+                                                                    key={opt.id}
+                                                                    onClick={() => {
+                                                                        const current = [...newCampaign.successCriteria];
+                                                                        if (current.includes(opt.id)) {
+                                                                            setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
+                                                                        } else {
+                                                                            setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
+                                                                        }
+                                                                    }}
+                                                                    className={cn(
+                                                                        "flex-1 min-w-[200px] p-4 border transition-all cursor-pointer group",
+                                                                        newCampaign.successCriteria.includes(opt.id) 
+                                                                            ? "bg-emerald-600 border-emerald-600 text-white" 
+                                                                            : "bg-white border-emerald-100 text-slate-600 hover:border-emerald-300"
+                                                                    )}
+                                                                >
+                                                                    <div className="flex items-center justify-between mb-1">
+                                                                        <span className="text-[11px] font-bold uppercase tracking-wider">{opt.label}</span>
+                                                                        <div className={cn("w-2 h-2 rounded-full", newCampaign.successCriteria.includes(opt.id) ? "bg-white animate-pulse" : "bg-emerald-100")} />
+                                                                    </div>
+                                                                    <p className={cn("text-[10px] leading-tight", newCampaign.successCriteria.includes(opt.id) ? "text-emerald-50" : "text-slate-400")}>
+                                                                        {opt.desc}
+                                                                    </p>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+
+                                                        {newCampaign.successCriteria.includes('LINK_SENT') && (
+                                                            <div className="p-4 bg-white border border-emerald-200 space-y-3 animate-in slide-in-from-top-2">
+                                                                <Label htmlFor="linkFilter" className="text-[11px] font-bold uppercase text-emerald-700">Termo de Identificação do Link</Label>
+                                                                <Input
+                                                                    id="linkFilter"
+                                                                    placeholder="Ex: fiservcapital, proposta, checkout"
+                                                                    className="h-10 border-emerald-100 focus:ring-emerald-500 rounded-none font-mono text-sm"
+                                                                    value={newCampaign.successLinkFilter}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
+                                                                />
+                                                                <p className="text-[10px] text-emerald-600/60 italic">
+                                                                    O sistema contará conversão sempre que um link enviado contiver este termo.
+                                                                </p>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    </div>
+                                                </div>
+                                            </TabsContent>
+                                        </div>
+                                    </Tabs>
 
-                                    <DialogFooter className="p-4 bg-slate-50 border-t border-border/50 gap-2">
-                                        <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500 h-9 px-6">Cancelar</Button>
-                                        <Button
-                                            onClick={handleCreateCampaign}
-                                            className="bg-accent hover:bg-accent/90 px-10 font-bold h-9 shadow-lg shadow-accent/10"
-                                            disabled={!newCampaign.name || !newCampaign.agentId}
-                                        >
-                                            🚀 Lançar Estratégia
-                                        </Button>
+                                    <DialogFooter className="p-6 bg-slate-50 border-t border-slate-100">
+                                        <div className="flex justify-between items-center w-full">
+                                            <p className="text-[10px] text-slate-400 max-w-[200px]">
+                                                Todos os dados técnicos serão validados pelo motor de IA antes do disparo inicial.
+                                            </p>
+                                            <div className="flex gap-3">
+                                                <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="text-slate-500 font-bold px-6 rounded-none">Cancelar</Button>
+                                                <Button
+                                                    onClick={handleCreateCampaign}
+                                                    className="bg-accent hover:bg-accent/90 px-10 font-bold h-11 text-sm rounded-none shadow-xl shadow-accent/20"
+                                                    disabled={!newCampaign.name || !newCampaign.agentId}
+                                                >
+                                                    🚀 Lançar Estratégia
+                                                </Button>
+                                            </div>
+                                        </div>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
                         </div>
                     </div>
-                </div>
 
                 <div className="p-6 space-y-6">
                     {/* Stats Cards */}
@@ -2091,6 +2312,7 @@ export default function Campaigns() {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+                </div>
 
         </MainLayout >
     );
