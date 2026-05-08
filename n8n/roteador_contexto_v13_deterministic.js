@@ -68,8 +68,11 @@ const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chama
 const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
 
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
-
 const isComplaint = /\b(atraso|problema|errado|não recebi|nao recebi|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower);
+
+// isLinkIssue: Detecção específica de falha no sistema da Fiserv (V17.21)
+const isLinkIssue = (/\b(não|nao)\s+consigo\s+preencher\b/i.test(lastUserLower) || /\b(problema|erro|falha)\b.*\b(link|site|preencher|dados)\b/i.test(lastUserLower) || /\b(link|site)\s+não\s+funciona\b/i.test(lastUserLower));
+
 const lastAssistantMsg = String(assistantMessages[assistantMessages.length - 1]?.content || "").toLowerCase();
 const humanAlreadyRequested = lastAssistantMsg.includes("assessor entre em contato") || lastAssistantMsg.includes("aguardar o retorno de um especialista");
 
@@ -105,7 +108,7 @@ else if (currentStep === 'verificacao_cnpj') {
 let mode = "consultive";
 
 // Parrot Mode se houve transição, se for pedido de humano, ou se for uma afirmação/pedido de link após uma dúvida.
-if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest) {
+if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue) {
     mode = "parrot";
 }
 
@@ -114,7 +117,7 @@ if (isLinkRequest && !isDoubt) {
     mode = "parrot";
 }
 
-if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest) {
+if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest && !isLinkIssue) {
     mode = "consultive";
 }
 
@@ -126,15 +129,23 @@ let forcedText = String(activeConfig.rules || "");
 
 // --- OVERRIDE DE TEXTOS FIXOS (GARANTE A MENSAGEM OFICIAL) ---
 
-// PRIORIDADE 1: Pedido de Atendente/Humano (Mensagem específica enviada pelo usuário)
-if (isHumanRequest) {
+// PRIORIDADE 1: Problemas com o Link (Fiserv Down)
+if (isLinkIssue) {
+    forcedText = `Certo, entendo perfeitamente. Atualmente, o sistema da Fiserv está passando por uma instabilidade que impede a edição ou o preenchimento de alguns dados diretamente no link em alguns navegadores.
+    
+Não se preocupe! Como você encontrou essa dificuldade, vou solicitar agora mesmo que um especialista da Fiserv entre em contato com você via WhatsApp em até 24h para coletar esses dados e seguir com a sua análise manualmente. 
+
+*Posso confirmar essa solicitação de contato para você?*`;
+}
+// PRIORIDADE 2: Pedido de Atendente/Humano
+else if (isHumanRequest) {
     forcedText = `Claro, entendo.
 
 Vou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.
 
 Enquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
 }
-// PRIORIDADE 1.1: Reclamações/Sentimento Negativo (Escuta Ativa)
+// PRIORIDADE 3: Reclamações/Sentimento Negativo (Escuta Ativa)
 else if (isComplaint) {
     forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. 
 
