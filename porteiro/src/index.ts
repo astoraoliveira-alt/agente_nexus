@@ -1002,22 +1002,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const text = content?.text || content?.fileCaption || '';
                     const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'text');
                     
-                    // 💾 SALVA NA TABELA MESSAGES (Para visibilidade no Dashboard)
-                    const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
-                        conversation_id: convId,
-                        tenant_id: agent.tenant_id,
-                        content: text,
-                        direction: 'inbound',
-                        sender_type: 'user',
-                        message_type: 'text',
-                        remote_id: externalId,
-                        metadata: { trace_id: traceId, provider: 'zenvia' }
-                    });
-
-                    if (msgInsertError) {
-                        console.error(`[ZENVIA] ❌ Erro ao salvar mensagem na tabela messages:`, msgInsertError);
-                    }
-
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
                     console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message...`);

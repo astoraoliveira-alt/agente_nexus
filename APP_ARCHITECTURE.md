@@ -1,3 +1,15 @@
+## [V64.0] - Human-in-the-Loop (HITL) Handoff Hub & Admin Resilience
+### Estabilização de HITL e Segurança Multi-Admin
+- **Human-in-the-Loop (HITL) Handoff Hub**: Implementação da fila centralizada de transição humano-IA. O sistema agora permite o monitoramento em tempo real de pedidos de suporte humano via `HandoffHub.tsx`, integrando-se nativamente ao roteador determinístico.
+- **Permissions Engine (RBAC Expansion)**: Integração das permissões `handoff.view` e `handoff.manage` como cidadãos de primeira classe no sistema de perfis (`permissions.ts`). O menu lateral e as ações de "Takeover" agora respeitam rigorosamente a granularidade do perfil do usuário.
+- **Segurança RLS V8 (Multi-Admin Resilience)**: Implantação de políticas de segurança (RLS) ultra-robustas na tabela `handoff_requests`.
+    - **Domain-Based Fallback**: Liberação automática de acesso para qualquer e-mail do domínio `@davosbr.com`, garantindo que a equipe de suporte da Davos tenha visibilidade imediata sem atrasos de sincronização de perfil.
+    - **Suporte a Admins Flutuantes**: Ajuste para permitir que `tenant_admin` sem empresa fixa (tenant_id nulo ou vazio) consigam gerenciar filas de qualquer tenant selecionado.
+    - **Blindagem de Cast (UUID Safety)**: Implementação de validação por comprimento de string (`LENGTH = 36`) nas políticas SQL, eliminando erros de sintaxe (`invalid input syntax for type uuid`) causados por identificadores vazios.
+- **HandoffHub UI Orchestration**: Correção de erros de referência de permissões e sincronização de dados via Realtime. O botão "Atender Agora" agora executa a transição atômica para `human_active` e atribui o operador logado à conversa instantaneamente.
+
+---
+
 ## [V63.0] - Campaign Analytics Precision & Deterministic Router
 ### Estabilização de Analytics e Roteamento de IA
 - **Métricas de Campanha V2 (Isolamento Temporal)**: Implementação da RPC `get_campaign_metrics_v2` com lógica de isolamento por timestamp. Agora, links enviados só são contabilizados se a mensagem for posterior à entrada do lead na campanha atual, eliminando 100% da contaminação de dados entre campanhas distintas.

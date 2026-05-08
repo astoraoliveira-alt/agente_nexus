@@ -17,7 +17,8 @@ CREATE OR REPLACE FUNCTION public.record_message(
     p_remote_id TEXT DEFAULT NULL,
     p_file_url TEXT DEFAULT NULL,
     p_transcription TEXT DEFAULT NULL,
-    p_direction TEXT DEFAULT NULL     -- Adicionado para flexibilidade n8n
+    p_direction TEXT DEFAULT NULL,
+    p_external_id TEXT DEFAULT NULL  -- 🔥 Novo: Idempotência Real
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -40,7 +41,7 @@ BEGIN
         PERFORM public.fn_reset_conversation(p_conversation_id);
     END IF;
 
-    -- [3] Inserção na Tabela Messages
+    -- [3] Inserção na Tabela Messages com Idempotência
     INSERT INTO public.messages (
         conversation_id, 
         tenant_id, 
@@ -51,7 +52,8 @@ BEGIN
         trace_id, 
         metadata,
         remote_id,
-        direction      -- 🔥 CORREÇÃO: Coluna agora devidamente mapeada
+        external_id,   -- 🔥 Mapeamento correto
+        direction
     ) VALUES (
         p_conversation_id, 
         p_tenant_id, 
@@ -65,8 +67,10 @@ BEGIN
             'transcription', p_transcription
         ),
         p_remote_id,
+        COALESCE(p_external_id, p_remote_id), -- Fallback se external_id for null
         v_direction
-    );
+    )
+    ON CONFLICT (tenant_id, external_id) DO NOTHING; -- 🛡️ BLOQUEIO DE DUPLICATAS
 
     -- [4] 🛡️ LOOP BREAKER: Finaliza o item na fila de entrada
     IF p_trace_id IS NOT NULL THEN
@@ -74,7 +78,7 @@ BEGIN
         SET status = 'done',
             processed_at = NOW(),
             error_message = COALESCE(error_message, '') || ' [Auto-Cleanup: Response Recorded]'
-        WHERE trace_id = p_trace_id OR external_id = p_trace_id;
+        WHERE trace_id = p_trace_id OR external_id = p_trace_id OR external_id = p_external_id;
     END IF;
 
     RETURN jsonb_build_object('status', 'success', 'direction_recorded', v_direction);
