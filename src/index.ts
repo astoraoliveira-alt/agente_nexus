@@ -1007,7 +1007,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
                         conversation_id: convId,
                         tenant_id: agent.tenant_id,
-                        agent_id: agent.id,
                         content: text,
                         direction: 'inbound',
                         sender_type: 'user',

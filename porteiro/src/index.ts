@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.5-HITL-FIX';
+const VERSION = 'V66.6-FINAL-SCHEMA';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1006,7 +1006,6 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
                         conversation_id: convId,
                         tenant_id: agent.tenant_id,
-                        agent_id: agent.id,
                         content: text,
                         direction: 'inbound',
                         sender_type: 'user',
