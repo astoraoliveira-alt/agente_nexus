@@ -56,23 +56,33 @@ export const conversationsService = {
             };
         }) as import('@/lib/types').Message[];
     },
-
     async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
-        // Fetch conversation to get tenant_id AND agent config (for Webhook)
-        const { data: conv } = await supabase
+        // DEBUG: Chamando sendMessage
+        console.log('🚀 Enviar mensagem para ID:', conversationId);
+        
+        // 1. Fetch conversation data first
+        const { data: conv, error: fetchError } = await supabase
             .from('conversations')
-            .select(`
-                tenant_id,
-                user_identifier,
-                agents (
-                    type,
-                    integration_config
-                )
-            `)
+            .select('tenant_id, agent_id, user_identifier')
             .eq('id', conversationId)
-            .single();
+            .maybeSingle();
 
-        if (!conv) throw new Error('Conversation not found');
+        if (fetchError) {
+            console.error('❌ Error fetching conversation:', fetchError);
+            throw fetchError;
+        }
+
+        if (!conv) {
+            console.error('❌ Conversation not found in DB for ID:', conversationId);
+            throw new Error('Conversation not found');
+        }
+
+        // 2. Fetch agent config separately to avoid join issues
+        const { data: agentData } = await supabase
+            .from('agents')
+            .select('type, integration_config')
+            .eq('id', conv.agent_id)
+            .maybeSingle();
 
         const { error } = await supabase
             .from('messages')
@@ -94,40 +104,49 @@ export const conversationsService = {
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
 
-        // 3. Trigger N8N Webhook (Delivery to Landing Page)
-        if (sender === 'human') {
-            // Extract URL from Agent Config (Dynamic) or Fallback to Env
-            const agentConfig = conv.agents as any; // Type casting for quick fix or update Interface
-
-            // STRICT CHECK: Only trigger N8N if Agent Type is 'whatsapp'
-            if (agentConfig?.type === 'whatsapp') {
-                const dynamicUrl = agentConfig?.integration_config?.n8n_webhook_url;
+        // 3. Trigger N8N (Unified Flow via Queue)
+        if (sender === 'human' && agentData) {
+            if (agentData.type === 'whatsapp') {
+                const dynamicUrl = agentData.integration_config?.n8n_webhook_url;
                 const n8nUrl = dynamicUrl || import.meta.env.VITE_N8N_WEBHOOK_URL;
+                const traceId = `CHT-MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
                 if (n8nUrl) {
                     try {
-                        console.log('📡 Relaying message to N8N (Dynamic):', n8nUrl);
+                        console.log('📡 Enqueuing manual message and triggering N8N:', traceId);
+                        
+                        // 1. Enqueue in the unified queue
+                        const { error: queueError } = await supabase.rpc('fn_enqueue_inbound_message', {
+                            p_tenant_id: conv.tenant_id,
+                            p_agent_id: conv.agent_id,
+                            p_conversation_id: conversationId,
+                            p_external_id: `MANUAL-${Date.now()}`,
+                            p_payload: {
+                                content: content,
+                                phone: conv.user_identifier,
+                                name: senderName || 'Operador',
+                                sender: 'human'
+                            },
+                            p_trace_id: traceId,
+                            p_message_type: 'human_response' // Unified type for n8n routing
+                        });
+
+                        if (queueError) throw queueError;
+
+                        // 2. Trigger N8N (Same protocol as Porteiro)
                         fetch(n8nUrl, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                action: 'send_message',
+                                trace_id: traceId,
                                 conversation_id: conversationId,
-                                content: content,
-                                sender: 'human',
-                                sender_name: senderName,
-                                tenant_id: conv.tenant_id,
-                                recipient_phone: conv.user_identifier // Optimized: Send phone directly
+                                action: 'manual_message'
                             })
                         }).catch(err => console.error('❌ N8N Webhook Error:', err));
                     } catch (e) {
-                        console.warn('Failed to call N8N:', e);
+                        console.error('Failed to unify message flow:', e);
                     }
-                } else {
-                    console.warn('⚠️ No N8N Webhook URL configured for this agent.');
                 }
-            } else {
-                console.log('ℹ️ Agent type is not whatsapp, skipping N8N webhook.');
             }
         }
     },

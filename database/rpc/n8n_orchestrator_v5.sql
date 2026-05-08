@@ -177,6 +177,7 @@ BEGIN
         ),
         'conversation', jsonb_build_object(
             'id', v_conversation_id,
+            'status', v_agent_status,
             'reopened', v_reopened
         ),
         'security', jsonb_build_object( -- Bloco extra para o novo Gatekeeper opcional

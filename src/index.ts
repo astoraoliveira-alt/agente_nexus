@@ -502,7 +502,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // 1. Tenta achar pelo Identificador Limpo (Regra de Ouro: Apenas números)
         const { data: conversationDataResult, error: findError } = await supabaseAdmin
             .from('conversations')
-            .select('id, user_identifier')
+            .select('id, user_identifier, status')
             .eq('tenant_id', agent.tenant_id)
             .eq('agent_id', agent.id)
             .eq('user_identifier', cleanUserIdentifier)
@@ -516,7 +516,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             
             const { data: heritage, error: heritageError } = await supabaseAdmin
                 .from('conversations')
-                .select('id, user_identifier')
+                .select('id, user_identifier, status')
                 .eq('tenant_id', agent.tenant_id)
                 .eq('agent_id', agent.id)
                 .like('user_identifier', `${phone}%`)
@@ -527,13 +527,19 @@ app.post('/v1/evolution/webhook', async (c) => {
 
             if (heritage) {
                 console.log(`[PORTEIRO] 🧬 Herança encontrada! Migrando conversa ${heritage.id} de ${heritage.user_identifier} -> ${remoteID}`);
+                const updatePayload: any = { 
+                    user_identifier: remoteID,
+                    last_message_at: new Date().toISOString()
+                };
+
+                // Reopen as AI active only if it was closed
+                if (heritage.status === 'closed') {
+                    updatePayload.status = 'ai_active';
+                }
+
                 const { data: updated, error: updateError } = await supabaseAdmin
                     .from('conversations')
-                    .update({ 
-                        user_identifier: remoteID,
-                        status: 'ai_active',
-                        last_message_at: new Date().toISOString()
-                    })
+                    .update(updatePayload)
                     .eq('id', heritage.id)
                     .select()
                     .single();
@@ -572,14 +578,20 @@ app.post('/v1/evolution/webhook', async (c) => {
         const conversationId = conversationData.id;
         console.log(`[PORTEIRO] 🛡️ Using Unified Conversation ID: ${conversationId} for ${remoteID}`);
 
-        // 4. Atualiza metadados de última atividade para garantir visibilidade no Dashboard
+        const finalUpdatePayload: any = { 
+            last_message_at: new Date().toISOString(),
+            user_name: pushName 
+        };
+
+        // If it was closed, reopen it for AI. 
+        // If it is human_active, PRESERVE IT (don't overwrite with ai_active)
+        if (conversationData.status === 'closed') {
+            finalUpdatePayload.status = 'ai_active';
+        }
+
         await supabaseAdmin
             .from('conversations')
-            .update({ 
-                last_message_at: new Date().toISOString(),
-                status: 'ai_active',
-                user_name: pushName 
-            })
+            .update(finalUpdatePayload)
             .eq('id', conversationId);
 
         // 5. Update last_message_at (Touch conversation)
@@ -986,10 +998,28 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 }
 
                 if (convId) {
-                    console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Preparando enfileiramento...`);
+                    console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Salvando mensagem no banco...`);
                     const content = (msg.contents || body.contents)?.[0];
                     const text = content?.text || content?.fileCaption || '';
-                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'conversation');
+                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'text');
+
+                    // 💾 SALVA NA TABELA MESSAGES (Para visibilidade no Dashboard)
+                    const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
+                        conversation_id: convId,
+                        tenant_id: agent.tenant_id,
+                        agent_id: agent.id,
+                        content: text,
+                        direction: 'inbound',
+                        sender_type: 'user',
+                        message_type: 'text',
+                        remote_id: externalId,
+                        metadata: { trace_id: traceId, provider: 'zenvia' }
+                    });
+
+                    if (msgInsertError) {
+                        console.error(`[ZENVIA] ❌ Erro ao salvar mensagem na tabela messages:`, msgInsertError);
+                    }
+
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
                     console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message...`);
@@ -1008,14 +1038,14 @@ app.post('/v1/zenvia/webhook', async (c) => {
                             messageType: type
                         },
                         p_trace_id: trace,
-                        p_message_type: type,
+                        p_message_type: type === 'text' ? 'conversation' : type,
                         p_latency_ms: 0
                     });
 
                     if (rpcError) {
                         console.error(`[ZENVIA] ❌ Erro RPC enfileiramento:`, rpcError);
                     } else {
-                        console.log(`[ZENVIA] ✅ Mensagem enfileirada: ${phone} [Trace: ${trace}] [Original: ${traceId}]`);
+                        console.log(`[ZENVIA] ✅ Mensagem enfileirada e salva: ${phone} [Trace: ${trace}]`);
                     }
 
                     const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;

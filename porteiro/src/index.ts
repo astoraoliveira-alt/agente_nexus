@@ -997,10 +997,28 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 }
 
                 if (convId) {
-                    console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Preparando enfileiramento...`);
+                    console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Salvando mensagem no banco...`);
                     const content = (msg.contents || body.contents)?.[0];
                     const text = content?.text || content?.fileCaption || '';
-                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'conversation');
+                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'text');
+                    
+                    // 💾 SALVA NA TABELA MESSAGES (Para visibilidade no Dashboard)
+                    const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
+                        conversation_id: convId,
+                        tenant_id: agent.tenant_id,
+                        agent_id: agent.id,
+                        content: text,
+                        direction: 'inbound',
+                        sender_type: 'user',
+                        message_type: 'text',
+                        remote_id: externalId,
+                        metadata: { trace_id: traceId, provider: 'zenvia' }
+                    });
+
+                    if (msgInsertError) {
+                        console.error(`[ZENVIA] ❌ Erro ao salvar mensagem na tabela messages:`, msgInsertError);
+                    }
+
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
                     console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message...`);
@@ -1012,21 +1030,21 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         p_payload: {
                             name: msg.visitor?.name || phone,
                             phone, 
-                            instance: destination, // Use the actual number/channel that received the message
+                            instance: destination, 
                             content: text, 
                             platform: 'zenvia', 
                             mediaUrl: content?.fileUrl,
                             messageType: type
                         },
                         p_trace_id: trace,
-                        p_message_type: type,
+                        p_message_type: type === 'text' ? 'conversation' : type,
                         p_latency_ms: 0
                     });
 
                     if (rpcError) {
                         console.error(`[ZENVIA] ❌ Erro RPC enfileiramento:`, rpcError);
                     } else {
-                        console.log(`[ZENVIA] ✅ Mensagem enfileirada: ${phone} [Trace: ${trace}] [Original: ${traceId}]`);
+                        console.log(`[ZENVIA] ✅ Mensagem enfileirada e salva: ${phone} [Trace: ${trace}]`);
                     }
 
                     const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
