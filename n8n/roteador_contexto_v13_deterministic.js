@@ -131,11 +131,11 @@ let forcedText = String(activeConfig.rules || "");
 
 // PRIORIDADE 1: Problemas com o Link (Fiserv Down)
 if (isLinkIssue) {
-    forcedText = `Certo, entendo perfeitamente. Atualmente, o sistema da Fiserv está passando por uma instabilidade que impede a edição ou o preenchimento de alguns dados diretamente no link em alguns navegadores.
+    forcedText = `Certo, entendo perfeitamente. Atualmente, o sistema da Fiserv está passando por uma instabilidade temporária que impede a edição ou o preenchimento de alguns dados diretamente no link em alguns navegadores.
     
-Não se preocupe! Como você encontrou essa dificuldade, vou solicitar agora mesmo que um especialista da Fiserv entre em contato com você via WhatsApp em até 24h para coletar esses dados e seguir com a sua análise manualmente. 
+Recomendo que você tente realizar o preenchimento novamente um pouco mais tarde. Geralmente, limpar o cache do navegador ou tentar por outro aparelho também ajuda a contornar essa instabilidade.
 
-*Posso confirmar essa solicitação de contato para você?*`;
+*Ficou com alguma outra dúvida ou posso te ajudar em algo mais?*`;
 }
 // PRIORIDADE 2: Pedido de Atendente/Humano
 else if (isHumanRequest) {
