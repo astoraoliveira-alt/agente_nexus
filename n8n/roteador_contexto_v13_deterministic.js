@@ -1,10 +1,22 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V17.11 - CONVERSA LIVRE E SEGURA
-   - Ajuste: Refinamento da despedida e agradecimento (isFarewell).
-   - Fix: Evita o loop da pergunta de dúvida quando o usuário já agradeceu.
+/* 🧭 ROTEADOR DE CONTEXTO - V17.20 - HANDOFF HUB INTEGRATED
+   - Integridade total da Sofia (FAQ, CTAs, Empatia).
+   - Filtro: Botão inicial NÃO dispara Handoff Hub.
+   - Handoff ativado APENAS por texto ou reclamação.
 */
 
 const rpcData = $node["RPC - Acesso Entrada"].json;
 const ctx = rpcData.context || {};
+
+// 🛡️ PROTEÇÃO DE HANDOFF (HITL)
+// Se o status for 'human_active', bloqueamos a execução para não dar "Echo" ou interferir no humano.
+if (ctx.status === 'human_active') {
+    return {
+        stop_flow: true,
+        reason: "Handoff Ativo: Operador humano está no controle.",
+        conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+    };
+}
+
 const leadInfo = ctx.lead_info || {};
 const agent = ctx.agent || {};
 const blueprint = agent.workflow_blueprint || { steps: {} };
@@ -14,7 +26,7 @@ const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $js
 const lastUserLower = currentMsg.toLowerCase();
 
 // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
-const assistantMessages = history.filter(m => 
+const assistantMessages = history.filter(m =>
     ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
 );
 
@@ -58,7 +70,8 @@ const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[é
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 
 const isComplaint = /\b(atraso|problema|errado|não recebi|nao recebi|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower);
-const humanAlreadyRequested = historyTexts.includes("assessor entre em contato") || historyTexts.includes("aguardar o retorno de um especialista");
+const lastAssistantMsg = String(assistantMessages[assistantMessages.length - 1]?.content || "").toLowerCase();
+const humanAlreadyRequested = lastAssistantMsg.includes("assessor entre em contato") || lastAssistantMsg.includes("aguardar o retorno de um especialista");
 
 // --- 3) TRANSIÇÕES DE ESTADO ---
 let nextStep = currentStep;
@@ -68,22 +81,22 @@ let transitionApplied = false;
 if (isAgentButtonClick) {
     nextStep = 'explicacao_agente';
     transitionApplied = true;
-} 
+}
 else if (currentStep === 'start') {
-    if (!isNegative && !isDoubt) { 
-        nextStep = 'explicacao_agente'; 
-        transitionApplied = true; 
+    if (!isNegative && !isDoubt) {
+        nextStep = 'explicacao_agente';
+        transitionApplied = true;
     }
-} 
+}
 else if (currentStep === 'explicacao_agente') {
-    if (isAffirmative && !isDoubt) { 
-        nextStep = 'verificacao_cnpj'; 
-        transitionApplied = true; 
+    if (isAffirmative && !isDoubt) {
+        nextStep = 'verificacao_cnpj';
+        transitionApplied = true;
     }
-} 
+}
 else if (currentStep === 'verificacao_cnpj') {
     if (isAffirmative && !isDoubt) {
-        nextStep = 'envio_link'; 
+        nextStep = 'envio_link';
         transitionApplied = true;
     }
 }
@@ -220,7 +233,7 @@ Significa que a Fiserv Capital utilizará os seus recebimentos Ticket como garan
 Com quanto tempo de atraso no pagamento via boleto acarretará em desconto via recebíveis Ticket?
 Se o estabelecimento ficar entre 3 a 4 meses sem realizar os devidos pagamentos via boleto bancário, a Fiserv fará o desconto via recebível Ticket. Após a quitação dos boletos em atraso, o pagamento voltará a ser feito via boleto.
 
-O valor que eu solicitar será o valor que será aprovado para mim?
+SR. O valor que eu solicitar será o valor que será aprovado para mim?
 Não necessariamente. O valor desejado é uma base, mas após você informá-lo, faremos uma análise de crédito para avaliar seus dados e definir o limite final, que pode ser menor ou maior que o solicitado. Mas não se preocupe, faremos o possível para ao menos alcançar o valor desejado.
 
 Posso aumentar meu limite aprovado? Como consigo uma oferta de crédito?
@@ -256,14 +269,14 @@ Atendimento: 4004-2233.
 </BASE_DE_CONHECIMENTO_FAQ>
 
 <REGRA_CTA_OBRIGATORIA>
-${isFarewell 
-    ? "O usuário está agradecendo ou encerrando a conversa. Seja muito gentil, deseje sucesso e encerre com 'Qualquer coisa, estou à disposição!' ou 'Precisando, é só chamar!'. NÃO faça novas perguntas ou convites de simulação."
-    : linkAlreadySent 
-        ? `O link de simulação JÁ foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "*Você ainda tem alguma dúvida ou posso te ajudar com algo mais?*"`
-        : (isHumanRequest || isComplaint || humanAlreadyRequested) 
-            ? "" 
-            : `O link de simulação AINDA NÃO foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "👉 Posso te enviar o link para você simular agora ou prefere tirar mais alguma dúvida?"`
-}
+${isFarewell
+            ? "O usuário está agradecendo ou encerrando a conversa. Seja muito gentil, deseje sucesso e encerre com 'Qualquer coisa, estou à disposição!' ou 'Precisando, é só chamar!'. NÃO faça novas perguntas ou convites de simulação."
+            : linkAlreadySent
+                ? `O link de simulação JÁ foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "*Você ainda tem alguma dúvida ou posso te ajudar com algo mais?*"`
+                : (isHumanRequest || isComplaint || humanAlreadyRequested)
+                    ? ""
+                    : `O link de simulação AINDA NÃO foi enviado. Você deve OBRIGATORIAMENTE terminar sua resposta pulando uma linha e fazendo a seguinte pergunta: "👉 Posso te enviar o link para você simular agora ou prefere tirar mais alguma dúvida?"`
+        }
 </REGRA_CTA_OBRIGATORIA>
 
 <instrucao_de_manejo_de_dúvida>
@@ -302,6 +315,14 @@ return {
     p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
     currentStep: nextStep,
     mode: mode,
+    trigger_handoff: (isHumanRequest || isComplaint) && !isAgentButtonClick,
+    handoff_data: {
+        initial_message: currentMsg,
+        campaign_id: leadInfo.campaign_id || ctx.campaign_id,
+        lead_id: leadInfo.id || ctx.lead_id,
+        tenant_id: ctx.tenant_id,
+        priority: isComplaint ? 'high' : 'medium'
+    },
     debug: {
         currentStep,
         nextStep,
@@ -309,6 +330,9 @@ return {
         isAffirmative,
         isNegative,
         mode,
-        isFarewell
+        isFarewell,
+        isHumanRequest,
+        isComplaint,
+        isAgentButtonClick
     }
 };

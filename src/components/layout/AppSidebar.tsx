@@ -58,7 +58,7 @@ const platformNavItems = [
 ];
 
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations } = useApp();
+  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations, handoffRequests } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
 
@@ -71,6 +71,15 @@ export function AppSidebar() {
     { title: 'Contatos', url: '/contacts', icon: Users, permission: 'contacts.view' },
     { title: 'Agentes', url: '/agents', icon: Bot, permission: 'agents.view' },
     { title: 'Campanhas', url: '/campaigns', icon: Megaphone, permission: 'campaigns.view' },
+    { 
+      title: 'Fila de Atendimento', 
+      url: '/handoff-hub', 
+      icon: Zap, 
+      permission: 'handoff.view', 
+      badge: handoffRequests.filter(r => r.status === 'pending').length > 0 
+        ? handoffRequests.filter(r => r.status === 'pending').length 
+        : undefined 
+    },
   ];
 
   const handleLogout = () => {

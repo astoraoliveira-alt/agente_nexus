@@ -32,6 +32,7 @@ import SelectTenant from "./pages/SelectTenant";
 import SystemStatus from "./pages/admin/SystemStatus";
 import AIPerformanceCenter from "./pages/AIPerformanceCenter";
 import ConversationObservatory from "./pages/ConversationObservatory";
+import HandoffHub from "./pages/HandoffHub";
 
 
 const queryClient = new QueryClient();
@@ -75,6 +76,7 @@ const App = () => (
             <Route path="/admin/status" element={<ProtectedRoute><SystemStatus /></ProtectedRoute>} />
             <Route path="/ai-performance" element={<ProtectedRoute><AIPerformanceCenter /></ProtectedRoute>} />
             <Route path="/observatory" element={<ProtectedRoute><ConversationObservatory /></ProtectedRoute>} />
+            <Route path="/handoff-hub" element={<ProtectedRoute><HandoffHub /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

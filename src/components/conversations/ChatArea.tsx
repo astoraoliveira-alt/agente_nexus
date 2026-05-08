@@ -228,6 +228,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   const [viewMode, setViewMode] = useState<'default' | 'mobile'>('default');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const userScrolledUpRef = useRef(false);
 
   const prevMessagesLength = useRef(conversation?.messages?.length || 0);
@@ -240,35 +241,50 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
     userScrolledUpRef.current = !isAtBottom;
   };
 
-  // Auto-scroll to bottom whenever messages change
+  // Função de scroll forçado
+  const scrollToBottom = (behavior: "auto" | "smooth" = "auto") => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
+  };
+
+  // Auto-scroll to bottom whenever messages change or container resizes
   useEffect(() => {
-    // 1. Silent Refresh Strategy
-    // If the user is Searching (highlightTerm active), we DO NOT auto-scroll to bottom.
-    // Instead we scroll to the first highlighted term in the chat.
-    if (highlightTerm && scrollContainerRef.current) {
-      setTimeout(() => {
-        const firstMatch = scrollContainerRef.current?.querySelector('.highlighted-search-match');
-        if (firstMatch) {
-          firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      }, 100);
-      return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    // Se mudou de conversa, resetamos o estado e forçamos o scroll
+    const currentId = conversation?.id;
+    if (prevConversationId.current !== currentId) {
+      userScrolledUpRef.current = false;
+      prevConversationId.current = currentId;
+      setTimeout(() => scrollToBottom("auto"), 50);
     }
 
-    const isDifferentConversation = prevConversationId.current !== conversation?.id;
-    const currentLength = conversation?.messages?.length || 0;
-    const hasNewMessages = currentLength > prevMessagesLength.current;
-
-    // Only scroll if we switched conversations, OR if there are new messages AND the user hasn't scrolled up to read history.
-    if (isDifferentConversation || (hasNewMessages && !userScrolledUpRef.current)) {
-      if (messagesEndRef.current) {
-        messagesEndRef.current.scrollIntoView({ behavior: isDifferentConversation ? "auto" : "smooth" });
+    const resizeObserver = new ResizeObserver(() => {
+      // Se o usuário não estiver lendo o histórico, acompanhamos o crescimento do conteúdo
+      if (!userScrolledUpRef.current) {
+        scrollToBottom();
       }
+    });
+
+    // Observamos o conteúdo interno (o wrapper das mensagens)
+    const contentWrapper = container.querySelector('.messages-wrapper');
+    if (contentWrapper) {
+      resizeObserver.observe(contentWrapper);
     }
 
-    prevMessagesLength.current = currentLength;
-    prevConversationId.current = conversation?.id;
-  }, [conversation?.messages, conversation?.id, highlightTerm]);
+    return () => resizeObserver.disconnect();
+  }, [conversation?.id]);
+
+  // Focus effect when conversation status is human_active
+  useEffect(() => {
+    if (conversation?.status === 'human_active' && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 300);
+    }
+  }, [conversation?.id, conversation?.status]);
 
   // Permissions & Restrictions
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
@@ -516,135 +532,129 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto p-4 space-y-4"
+            className="flex-1 overflow-y-auto p-4"
           >
-            {conversation.messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  'flex',
-                  message.sender === 'user' ? 'justify-start' : 'justify-end'
-                )}
-              >
-                <div className={cn(
-                  "flex items-end gap-2 max-w-[80%]",
-                  message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
-                )}>
-                  {/* Avatar Logic: 
-                        If User (Left): Avatar is First (handled by flex-row)
-                        If Agent (Right): Avatar is First in DOM but Last visually due to flex-row-reverse 
-                    */}
-
+            <div className="messages-wrapper space-y-4">
+              {conversation.messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={cn(
+                    'flex',
+                    message.sender === 'user' ? 'justify-start' : 'justify-end'
+                  )}
+                >
                   <div className={cn(
-                    'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
-                    message.sender === 'ai' ? 'bg-accent/10' :
-                      message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
+                    "flex items-end gap-2 max-w-[80%]",
+                    message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
                   )}>
-                    {message.sender === 'ai' ? (
-                      <Bot className="h-4 w-4 text-accent" />
-                    ) : message.sender === 'human' ? (
-                      <User className="h-4 w-4 text-success" />
-                    ) : (
-                      <User className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1 px-1">
-                      {/* Sender Name Label */}
-                      {message.sender === 'human' && message.senderName && (
-                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
-                      )}
-                      {message.sender === 'ai' && (
-                        <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
-                      )}
-                      {message.sender === 'user' && (
-                        <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
-                      )}
-                    </div>
-
+                    {/* Avatar Logic */}
                     <div className={cn(
-                      'chat-bubble shadow-sm relative group/bubble',
-                      message.sender === 'user' ? 'chat-bubble-user rounded-bl-sm' :
-                        message.sender === 'human' ? 'chat-bubble-human rounded-br-sm' :
-                          'chat-bubble-ai rounded-br-sm' // Default fallback for AI/Bot
+                      'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
+                      message.sender === 'ai' ? 'bg-accent/10' :
+                        message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
                     )}>
-                      {/* Copy Button (Visible on Hover) */}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className={cn(
-                          "absolute -top-3 h-6 w-6 rounded-full shadow-md opacity-0 group-hover/bubble:opacity-100 transition-opacity bg-background border border-border",
-                          message.sender === 'user' ? "-left-2" : "-right-2"
-                        )}
-                        onClick={() => {
-                          const textToCopy = parseMessageContent(message.content) || message.transcription || '';
-                          if (textToCopy) {
-                            navigator.clipboard.writeText(textToCopy);
-                            toast.success('Mensagem copiada!');
-                          }
-                        }}
-                      >
-                        <Copy className="h-3 w-3 text-muted-foreground" />
-                      </Button>
-
-                      {message.type === 'audio' ? (
-                        <div className="space-y-2">
-                          <AudioMessage message={message} />
-                          {message.transcription && (
-                            <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
-                              <HighlightText text={maskSensitiveData(message.transcription, maskingEnabled)} term={highlightTerm} />
-                            </div>
-                          )}
-                        </div>
-                      ) : message.type === 'image' ? (
-                        <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
+                      {message.sender === 'ai' ? (
+                        <Bot className="h-4 w-4 text-accent" />
+                      ) : message.sender === 'human' ? (
+                        <User className="h-4 w-4 text-success" />
                       ) : (
-                        <p className="text-sm custom-markdown leading-relaxed">
-                          <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
-                        </p>
+                        <User className="h-4 w-4 text-muted-foreground" />
                       )}
                     </div>
 
-                    <div className={cn(
-                      "flex items-center gap-1 mt-1",
-                      message.sender !== 'user' ? "justify-end" : "justify-start"
-                    )}>
-                      <p className="text-[10px] text-muted-foreground/60">
-                        {format(message.timestamp, 'HH:mm', { locale: ptBR })}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 px-1">
+                        {message.sender === 'human' && message.senderName && (
+                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
+                        )}
+                        {message.sender === 'ai' && (
+                          <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
+                        )}
+                        {message.sender === 'user' && (
+                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
+                        )}
+                      </div>
 
-                      {message.sender !== 'user' && (
-                        <div className="flex items-center">
-                          {message.status === 'failed' || message.status === 'rejected' ? (
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <AlertCircle className="h-3 w-3 text-destructive animate-pulse cursor-help" />
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-[200px] text-[10px]">
-                                  {message.statusDescription || 'Erro no envio da mensagem pela Zenvia.'}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          ) : message.status === 'read' ? (
-                            <CheckCheck className="h-3 w-3 text-info" />
-                          ) : message.status === 'delivered' ? (
-                            <CheckCheck className="h-3 w-3 text-muted-foreground/40" />
-                          ) : message.status === 'sent' ? (
-                            <Check className="h-3 w-3 text-muted-foreground/40" />
-                          ) : message.status === 'processing' || message.status === 'pending' ? (
-                            <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title="Processando..." />
-                          ) : null}
-                        </div>
-                      )}
+                      <div className={cn(
+                        'chat-bubble shadow-sm relative group/bubble',
+                        message.sender === 'user' ? 'chat-bubble-user rounded-bl-sm' :
+                          message.sender === 'human' ? 'chat-bubble-human rounded-br-sm' :
+                            'chat-bubble-ai rounded-br-sm'
+                      )}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "absolute -top-3 h-6 w-6 rounded-full shadow-md opacity-0 group-hover/bubble:opacity-100 transition-opacity bg-background border border-border",
+                            message.sender === 'user' ? "-left-2" : "-right-2"
+                          )}
+                          onClick={() => {
+                            const textToCopy = parseMessageContent(message.content) || message.transcription || '';
+                            if (textToCopy) {
+                              navigator.clipboard.writeText(textToCopy);
+                              toast.success('Mensagem copiada!');
+                            }
+                          }}
+                        >
+                          <Copy className="h-3 w-3 text-muted-foreground" />
+                        </Button>
+
+                        {message.type === 'audio' ? (
+                          <div className="space-y-2">
+                            <AudioMessage message={message} />
+                            {message.transcription && (
+                              <div className="text-sm leading-relaxed p-2 text-primary-foreground/90 font-normal border-l-2 border-white/30 pl-3">
+                                <HighlightText text={maskSensitiveData(message.transcription, maskingEnabled)} term={highlightTerm} />
+                              </div>
+                            )}
+                          </div>
+                        ) : message.type === 'image' ? (
+                          <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
+                        ) : (
+                          <p className="text-sm custom-markdown leading-relaxed">
+                            <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
+                          </p>
+                        )}
+                      </div>
+
+                      <div className={cn(
+                        "flex items-center gap-1 mt-1",
+                        message.sender !== 'user' ? "justify-end" : "justify-start"
+                      )}>
+                        <p className="text-[10px] text-muted-foreground/60">
+                          {format(message.timestamp, 'HH:mm', { locale: ptBR })}
+                        </p>
+                        {message.sender !== 'user' && (
+                          <div className="flex items-center">
+                            {message.status === 'failed' || message.status === 'rejected' ? (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <AlertCircle className="h-3 w-3 text-destructive animate-pulse cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[200px] text-[10px]">
+                                    {message.statusDescription || 'Erro no envio da mensagem pela Zenvia.'}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            ) : message.status === 'read' ? (
+                              <CheckCheck className="h-3 w-3 text-info" />
+                            ) : message.status === 'delivered' ? (
+                              <CheckCheck className="h-3 w-3 text-muted-foreground/40" />
+                            ) : message.status === 'sent' ? (
+                              <Check className="h-3 w-3 text-muted-foreground/40" />
+                            ) : message.status === 'processing' || message.status === 'pending' ? (
+                              <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title="Processando..." />
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
-            {/* Invisible element to auto-scroll to */}
-            <div ref={messagesEndRef} />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
           </div>
 
           {/* Input Area */}
@@ -671,6 +681,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                 />
 
                 <input
+                  ref={inputRef}
                   type="text"
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
@@ -681,7 +692,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                     }
                   }}
                   placeholder="Digite sua mensagem como operador..."
-                  className="flex-1 px-4 py-2 bg-muted border-0 focus:outline-none focus:ring-1 focus:ring-accent"
+                  className="flex-1 px-4 py-2 bg-muted/50 rounded-md border border-border focus:border-border/80 focus:outline-none focus:ring-1 focus:ring-border/40 transition-all"
                   autoFocus
                 />
 

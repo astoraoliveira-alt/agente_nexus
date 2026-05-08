@@ -87,6 +87,10 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     { action: 'view_contacts', name: 'Ver Leads da Campanha', description: 'Abrir a listagem de contatos carregados.' },
     { action: 'pause', name: 'Pausar ou Retomar', description: 'Pausar ou reativar campanhas.' },
   ]),
+  defineModule('handoff', 'Fila de Atendimento', 'Gestão de transição de IA para atendimento humano.', 'principal', [
+    { action: 'view', name: 'Acessar Fila', description: 'Visualizar a fila de solicitações de atendimento humano.' },
+    { action: 'manage', name: 'Gerenciar Fila', description: 'Atender solicitações e gerenciar o status da fila.' },
+  ]),
   defineModule('crm', 'CRM (Kanban)', 'Gestão de pipeline comercial e movimentação de cards.', 'governanca', [
     { action: 'view', name: 'Acessar CRM', description: 'Visualizar o quadro Kanban.' },
     { action: 'manage_cards', name: 'Gerenciar Cards', description: 'Mover e atualizar cards do CRM.' },
@@ -176,6 +180,7 @@ const viewerPermissions = [
   'users.view',
   'profiles.view',
   'settings.view',
+  'handoff.view',
 ];
 
 const operatorPermissions = [
@@ -186,6 +191,7 @@ const operatorPermissions = [
   'contacts.create',
   'contacts.edit',
   'campaigns.import',
+  'handoff.manage',
 ];
 
 export const getDefaultPermissionsForRole = (role?: string | null): string[] => {

@@ -4,6 +4,7 @@ import { api } from '@/services/api';
 import { AuthService } from '@/services/auth';
 import { supabase } from '@/lib/supabase';
 import { getDefaultPermissionsForRole } from '@/lib/permissions';
+import { toast } from "sonner";
 
 export type SlideOverContentType =
   | 'conversation-details'
@@ -62,6 +63,8 @@ interface AppContextType {
   closeConversation: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
   sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
+  // Handoff Requests (HITL)
+  handoffRequests: any[];
   isLoading: boolean;
 }
 
@@ -101,6 +104,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [slideOverData, setSlideOverData] = useState<any>(null);
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [maskingEnabled, setMaskingEnabled] = useState(true); // Default to true for safety
+  const [handoffRequests, setHandoffRequests] = useState<any[]>([]);
 
   const toggleMasking = () => setMaskingEnabled(prev => !prev);
 
@@ -304,7 +308,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     console.log("🔥 [Phase 2] Subscribing to REALTIME changes for tenant:", currentTenant.id);
 
-    // Initial Load
+    // Initial Handoff Load
+    const loadHandoffs = async () => {
+      if (!currentTenant?.id) {
+        console.warn('⚠️ [Handoff] Tentativa de carga sem Tenant ID');
+        return;
+      }
+      
+      console.log('🔍 [Handoff] Buscando pedidos (Fila + Hoje) para:', currentTenant.id);
+      const { data, error } = await supabase
+        .from('handoff_requests')
+        .select('*')
+        .eq('tenant_id', currentTenant.id)
+        .order('requested_at', { ascending: false })
+        .limit(50); // Pegamos os últimos 50 para o histórico
+        
+      if (error) {
+        console.error('❌ [Handoff] Erro na consulta:', error);
+      } else {
+        console.log('✅ [Handoff] Pedidos encontrados:', data?.length || 0);
+        if (data) setHandoffRequests(data);
+      }
+    };
+
+    loadHandoffs();
     loadConversationsList();
 
     // Strategy: Debounce list updates to avoid thrashing during rapid messages
@@ -380,6 +407,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       )
       .subscribe();
 
+    // 4. Real-time Handoff Requests Subscription
+    const handoffChannel = supabase
+      .channel('handoff-hub')
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'handoff_requests',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        async (payload: any) => {
+          console.log('🔔 Handoff Signal:', payload.eventType);
+          if (payload.eventType === 'INSERT') {
+            setHandoffRequests(prev => [payload.new, ...prev]);
+            toast.info("Novo pedido de humano!", {
+               description: payload.new.initial_message || "Um cliente solicitou ajuda.",
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            setHandoffRequests(prev => prev.map(h => h.id === payload.new.id ? payload.new : h));
+          } else if (payload.eventType === 'DELETE') {
+            setHandoffRequests(prev => prev.filter(h => h.id === payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
     // Health-check Polling (Extreme safety: 10 minutes)
     const intervalId = setInterval(loadConversationsList, 600000);
 
@@ -388,6 +442,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       supabase.removeChannel(convChannel);
       supabase.removeChannel(msgChannel);
       supabase.removeChannel(leadsChannel);
+      supabase.removeChannel(handoffChannel);
       clearInterval(intervalId);
       if (refreshTimeout) clearTimeout(refreshTimeout);
     };
@@ -470,48 +525,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const takeOverConversation = async (conversationId: string) => {
     if (!currentUser || !currentTenant) return;
 
-    // Optimistic UI Update
-    setConversations(prev =>
-      prev.map(conv =>
-        conv.id === conversationId
-          ? {
+    // 1. Criar a mensagem de sistema localmente
+    const systemMsg = {
+      id: `${conversationId}-takeover-${Date.now()}`,
+      conversationId,
+      tenantId: currentTenant.id,
+      tenantSlug: currentTenant.slug,
+      content: `🔄 ${currentUser.name} assumiu a conversa`,
+      type: 'text' as const,
+      sender: 'ai' as const,
+      timestamp: new Date(),
+    };
+
+    let updated: any = null;
+
+    // 2. Atualização Otimista
+    setConversations(prev => {
+      const newList = prev.map(conv => {
+        if (conv.id === conversationId) {
+          const updatedConv = {
             ...conv,
             status: 'human_active' as const,
             assignedOperator: currentUser.name,
-            messages: [
-              ...conv.messages,
-              {
-                id: `${conv.id}-takeover-${Date.now()}`,
-                conversationId,
-                tenantId: currentTenant.id,
-                tenantSlug: currentTenant.slug,
-                content: `🔄 ${currentUser.name} assumiu a conversa`,
-                type: 'text' as const,
-                sender: 'ai' as const, // System message usually from AI/System
-                timestamp: new Date(),
-              },
-            ],
-          }
-          : conv
-      )
-    );
+            messages: [...(conv.messages || []), systemMsg]
+          };
+          updated = updatedConv;
+          return updatedConv;
+        }
+        return conv;
+      });
+      return newList;
+    });
 
-    if (selectedConversation?.id === conversationId) {
-      setSelectedConversation(prev => prev ? {
-        ...prev,
-        status: 'human_active',
-        assignedOperator: currentUser.name,
-      } : null);
+    if (updated) {
+      setSelectedConversation(updated);
     }
 
     try {
-      // Pass operatorName for Audit Log
       await api.assignConversation(conversationId, currentUser.id, currentUser.name);
-      // System message
       await api.sendMessage(conversationId, `🔄 ${currentUser.name} assumiu a conversa`, 'ai');
+      return updated;
     } catch (error) {
       console.error(error);
-      // In real app, revert state here
+      return updated;
     }
   };
 
@@ -699,6 +755,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transferConversation,
         switchTenant,
         sendMessage,
+        handoffRequests,
         maskingEnabled,
         toggleMasking,
       }}
