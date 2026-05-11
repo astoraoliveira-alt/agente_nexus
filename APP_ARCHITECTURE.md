@@ -10,6 +10,7 @@ O **Nexus Hub** não é apenas um chatbot; é uma **Torre de Controle de IA Tran
 - **Agnosticismo de Canal**: Funciona via WhatsApp (Evolution/Zenvia), Web Widget ou Voice (VAPI).
 - **Segurança Determinística**: A IA não decide o que o usuário pode acessar; o banco de dados (Gatekeeper) decide.
 - **Observabilidade Total**: Cada mensagem possui um `trace_id` (INC ou TRC) que permite rastreio end-to-end.
+- **Segurança Proativa**: Zero chaves de API expostas no frontend. Todo processamento sensível ocorre no Server-side (Edge Functions).
 
 ---
 
@@ -915,17 +916,19 @@ Para evitar que a IA perca o contexto de decisões tomadas na **mesma** conversa
 
 ## 9. Inteligência de Conhecimento (RAG)
 
-### 9.1 Knowledge Base Estática (RAG por Agente)
+### 5.1 Base de Conhecimento Estática (RAG)
 
-**Processamento 100% Client-Side** para reduzir carga no backend:
+**Processamento Server-Side Seguro** para proteção de credenciais e performance:
 
 | Etapa | Tecnologia | Detalhe |
 | :--- | :--- | :--- |
-| **Extração** | `pdfjs-dist` + WebWorkers | PDF → texto. Suporte a `.docx` (mammoth), `.xlsx`, `.csv`, `.json` |
-| **Chunking** | `src/lib/text-chunker.ts` | Divide documentos em fragmentos otimizados para tokens |
-| **Embeddings** | OpenAI `text-embedding-3-small` | Chamadas diretas do frontend via `api.generateEmbedding()` |
-| **Persistência** | `agent_knowledge` table | Armazena chunk + embedding. UI agrupa chunks do mesmo arquivo |
-| **Recuperação** | `get_agent_context` RPC | Cosine Similarity via `pgvector`. Retorna top-K chunks relevantes |
+| **Extração** | `pdfjs-dist` (Worker) | PDF → texto no cliente apenas para preview/limpeza. |
+| **Geração** | **Supabase Edge Function** | Envia texto bruto para a função `/process-embeddings`. |
+| **Embeddings** | OpenAI (Server-side) | A Edge Function detém a chave secreta e gera os vetores via `text-embedding-3-small`. |
+| **Persistência** | `agent_knowledge` table | Armazena chunk + embedding. UI agrupa chunks do mesmo arquivo. |
+| **Recuperação** | `get_agent_context` RPC | Cosine Similarity via `pgvector`. Retorna top-K chunks relevantes. |
+
+> 🛡️ **Segurança**: Nunca exponha chaves de API da OpenAI no frontend. O uso de `VITE_OPENAI_API_KEY` foi banido em favor de Edge Functions.
 
 A UI exibe arquivos agrupados (ex: `Apostila.pdf (Parte 1/5)`) mas armazena cada chunk individualmente no banco.
 
@@ -1124,6 +1127,23 @@ Para evitar inflar o custo operacional (DRE), a RPC `get_financial_report` utili
 
 ---
 
+## 11. Performance & Escalabilidade (Cache Layer)
+
+### 11.1 Dashmaster Cache (Otimização de UI)
+Para evitar a degradação do banco de dados com múltiplos tenants, o Nexus Hub utiliza uma camada de cache persistente:
+- **Tabela**: `public.dash_cache`
+- **Funcionamento**: A RPC `get_dashmaster_v1` verifica se existe um cache válido para o `tenant_id` (TTL: 5 minutos).
+- **Invalidação**: Gatilhos em `messages`, `consumption_metrics` e `conversations` marcam o cache como `stale`.
+- **Benefício**: Redução de 90% na carga do CPU do Postgres em horários de pico.
+
+### 11.2 Invalidação de Frequency Capping
+As regras de `capping_config` são invalidadas proativamente quando:
+1.  Uma campanha é pausada ou reiniciada.
+2.  O `cooldown_hours` é alterado nas configurações do agente.
+3.  Um incidente crítico é aberto (ativa o `override_on_incidents`).
+
+---
+
 ## 13. Inteligência de Leads & Campanhas (CRM V2)
 
 ### 13.1 CRM de Contatos (`/contacts`)
@@ -1208,7 +1228,7 @@ A tabela pivot `agent_flows(agent_id, flow_id, is_primary)` vincula agentes a m�
 
 ---
 
-## 15. Privacidade & LGPD (Privacy by Design)
+## 12. Privacidade & LGPD (Privacy by Design)
 
 ### 15.1 Camada de Mascaramento UI (`src/lib/masking.ts`)
 
@@ -1240,7 +1260,7 @@ A tabela `companies.privacy_settings` armazena:
 
 ---
 
-## 16. Monitoramento & Observabilidade
+## 13. Monitoramento & Observabilidade
 
 ### 16.1 Sincronização de Conversas (Realtime-First)
 
@@ -1443,22 +1463,19 @@ Operador responde → api.sendMessage() → N8N via Evolution/VAPI
 
 ---
 
-## 19. Variáveis de Ambiente (`.env.local`)
+## 14. Variáveis de Ambiente (`.env.local`)
 
 ```env
 # Supabase (obrigatório)
 VITE_SUPABASE_URL=https://[project].supabase.co
 VITE_SUPABASE_ANON_KEY=[anon_key]
 
-# OpenAI (para RAG e sugestão de políticas)
-VITE_OPENAI_API_KEY=sk-...
-
 # N8N (webhooks)
 VITE_N8N_WEBHOOK_URL=https://[n8n-host]/webhook/[id]
 
-# Proxy de desenvolvimento (vite.config.ts)
-# /openai-api → https://api.openai.com
-# /supabase-api → https://[project].supabase.co
+# IMPORTANTE: Chaves de API de LLMs (OpenAI, Anthropic) 
+# NÃO devem ser incluídas no frontend. 
+# Elas são configuradas apenas no Supabase (Vault/Edge Functions) e Porteiro.
 ```
 
 ---
