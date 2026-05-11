@@ -41,16 +41,28 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     let result = conversations;
 
     if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
       result = result.filter(c => {
         const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
         if (!matchesAgent) return false;
 
+        // 1. Busca fonética (para nomes de pessoas)
         if (phoneticMatch(c.userName, searchTerm)) return true;
-        if (c.userId && c.userId.replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''))) return true;
+        if (phoneticMatch(c.establishmentName || '', searchTerm)) return true;
         if (phoneticMatch(c.lastMessage, searchTerm)) return true;
 
+        // 2. Busca literal (para nomes de empresas e termos exatos)
+        if (c.userName.toLowerCase().includes(searchLower)) return true;
+        if (c.establishmentName?.toLowerCase().includes(searchLower)) return true;
+        if (c.lastMessage.toLowerCase().includes(searchLower)) return true;
+
+        // 3. Busca por telefone (numérica)
+        if (c.userId && c.userId.replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''))) return true;
+
+        // 4. Busca nas mensagens
         const hasMessageMatch = c.messages.some(m =>
           phoneticMatch(m.content || '', searchTerm) ||
+          (m.content || '').toLowerCase().includes(searchLower) ||
           phoneticMatch(m.transcription || '', searchTerm)
         );
         return hasMessageMatch;
