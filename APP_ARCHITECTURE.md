@@ -1,12 +1,111 @@
-## [V64.0] - Human-in-the-Loop (HITL) Handoff Hub & Admin Resilience
-### Estabilização de HITL e Segurança Multi-Admin
-- **Human-in-the-Loop (HITL) Handoff Hub**: Implementação da fila centralizada de transição humano-IA. O sistema agora permite o monitoramento em tempo real de pedidos de suporte humano via `HandoffHub.tsx`, integrando-se nativamente ao roteador determinístico.
-- **Permissions Engine (RBAC Expansion)**: Integração das permissões `handoff.view` e `handoff.manage` como cidadãos de primeira classe no sistema de perfis (`permissions.ts`). O menu lateral e as ações de "Takeover" agora respeitam rigorosamente a granularidade do perfil do usuário.
-- **Segurança RLS V8 (Multi-Admin Resilience)**: Implantação de políticas de segurança (RLS) ultra-robustas na tabela `handoff_requests`.
-    - **Domain-Based Fallback**: Liberação automática de acesso para qualquer e-mail do domínio `@davosbr.com`, garantindo que a equipe de suporte da Davos tenha visibilidade imediata sem atrasos de sincronização de perfil.
-    - **Suporte a Admins Flutuantes**: Ajuste para permitir que `tenant_admin` sem empresa fixa (tenant_id nulo ou vazio) consigam gerenciar filas de qualquer tenant selecionado.
-    - **Blindagem de Cast (UUID Safety)**: Implementação de validação por comprimento de string (`LENGTH = 36`) nas políticas SQL, eliminando erros de sintaxe (`invalid input syntax for type uuid`) causados por identificadores vazios.
-- **HandoffHub UI Orchestration**: Correção de erros de referência de permissões e sincronização de dados via Realtime. O botão "Atender Agora" agora executa a transição atômica para `human_active` e atribui o operador logado à conversa instantaneamente.
+# 🛡️ Nexus Hub — Arquitetura de Inteligência Transacional (SST)
+> **Single Source of Truth (SST)**: Este documento é o manual definitivo do sistema, consolidando infraestrutura, orquestração de IA e governança operacional.
+
+---
+
+## 1. Visão Geral e Filosofia
+O **Nexus Hub** não é apenas um chatbot; é uma **Torre de Controle de IA Transacional**. Sua arquitetura foi desenhada para transformar conversas em fluxos seguros, auditáveis e escaláveis, utilizando um modelo híbrido de orquestração.
+
+### 🎯 Missão Técnica
+- **Agnosticismo de Canal**: Funciona via WhatsApp (Evolution/Zenvia), Web Widget ou Voice (VAPI).
+- **Segurança Determinística**: A IA não decide o que o usuário pode acessar; o banco de dados (Gatekeeper) decide.
+- **Observabilidade Total**: Cada mensagem possui um `trace_id` (INC ou TRC) que permite rastreio end-to-end.
+
+---
+
+## 2. Guia do Desenvolvedor Core (O Cérebro)
+*Esta seção descreve como o sistema processa informações e como estender suas capacidades.*
+
+### 🚀 2.1. O Pipeline de Execução (Node Engine v2.0)
+Adotamos o **Pipeline Pattern** para garantir que cada etapa do processamento de IA seja isolada e testável.
+- **PipelineStep**: Interface base. Cada step (Guardrails, Intent, RAG, LLM) faz apenas uma coisa.
+- **PipelineContext**: Objeto mutável que carrega o estado da mensagem. O `context_state` (JSONB) é o contrato de memória da conversa.
+- **StepTracer**: Registra latência e sucesso de cada nó individualmente, permitindo debug visual (Langfuse + Dashboards Internos).
+
+### 🧠 2.2. Context Factory (A RPC Mestra)
+A inteligência do Nexus reside na RPC `public.fn_fetch_next_inbound_message`. Ela substitui dezenas de nós no n8n ao realizar:
+1. **Hidratação de Prompt**: Substituição dinâmica de `{{LEAD_NAME}}` e metadados.
+2. **Isolamento Temporal**: Se uma conversa é fechada e reaberta, o histórico antigo é ocultado da IA (Prevenção de alucinação).
+3. **Injeção de Políticas**: Carrega as regras `canDo` e `cannotDo` configuradas no AdminPanel.
+4. **Intelligent Sliding Window (V66.9)**: Injeção automática de resumos de conversas anteriores (`metadata->'summary'`) no histórico. 
+   - **Compressão**: Realizada de forma assíncrona pelo **Auditor Worker** no n8n após o fechamento de cada turno ou ao atingir o threshold de 15 mensagens.
+   - **Armazenamento**: Persistido na coluna `metadata` da tabela `conversations`.
+
+### 🛡️ 2.3. Segurança Transacional (Identity Gate)
+O sistema opera em 3 camadas de contenção:
+1. **Layer 1 (Intent)**: Classificação semântica da intenção do usuário.
+2. **Layer 2 (Gatekeeper)**: RPC `evaluate_conversation_security` valida se a intenção exige autenticação (ex: CNPJ).
+3. **Layer 3 (Masking)**: Se não autenticado, as ferramentas financeiras (Tools) são **escondidas** do LLM no n8n/Node, impedindo Prompt Injection.
+
+### 🎧 2.4. Handoff Hub (Fila de Atendimento Manual)
+O Nexus gerencia a transição IA -> Humano através de uma fila dedicada de alta prioridade.
+
+*   **Tabela Core**: `public.handoff_requests`
+*   **Fluxo de Ativação**:
+    1.  O Orquestrador detecta necessidade de intervenção (ex: baixa confiança, pedido explícito ou falha de ferramenta).
+    2.  Invoca a RPC `log_handoff_request`, que insere o pedido com prioridade e metadados.
+    3.  A conversa é marcada como `human_active`.
+    4.  O **Realtime Channel** notifica instantaneamente todos os operadores logados no tenant.
+*   **Gestão**: Operadores podem "Assumir" (Takeover), "Resolver" ou "Transferir" conversas, com auditoria completa em `audit_logs`.
+
+---
+
+## 3. Infraestrutura Operacional
+### 🚧 3.1. Porteiro Gateway (The Defender)
+O serviço Node.js (Hono) que guarda a entrada do sistema:
+- **Debounce de 1.5s**: Agrupa mensagens fragmentadas do usuário para evitar múltiplas respostas da IA.
+- **Scale Guardian**: Limite de 50 jobs simultâneos para evitar colapso de infraestrutura.
+- **Realtime Handshake**: Dispara o trigger para o orquestrador (n8n/Node) apenas após o commit bem-sucedido no banco de dados.
+
+### 📡 3.2. Realtime Event Bus (Supabase Channels)
+A partir da V51, o Nexus abandonou o polling curto em favor de uma arquitetura baseada 100% em eventos via Supabase Realtime (WebSockets).
+
+*   **Canal `tenant-convs-${tenantId}`**: Atualiza a lista lateral e snippets de última mensagem.
+*   **Canal `tenant-msgs-${tenantId}`**: Atualiza o chat ativo em tempo real (zero latência percebida).
+*   **Canal `handoff-hub`**: Notificações críticas de intervenção humana (Toasts e alertas visuais).
+*   **Fallback**: Intervalo de segurança de 10 minutos para resincronização de estado pesado.
+
+### 🏥 3.3. Hospital (DLQ & Resiliência)
+Mensagens que falham no processamento caem na `inbound_queue_errors` (Dead Letter Queue). O dashboard permite o reprocessamento manual com preservação do `trace_id` original.
+
+---
+
+## 4. Fluxos de Negócio Específicos
+### 🎧 4.1. Human-in-the-Loop (HITL)
+O bastão entre IA e Humano é gerenciado via `conversations.status`:
+- **Takeover Atômico**: Garante que apenas um operador assuma a conversa por vez.
+- **SLA Tracking**: Monitoramento do Tempo Médio de Resposta (T.M.R) no `HandoffHub.tsx`.
+- **Sync em Tempo Real**: Uso de Pub/Sub do Supabase para que a Landing Page e o Operador vejam a mesma mensagem instantaneamente.
+
+### 📢 4.2. Incident Broadcast Engine
+- **Prioridade 10**: Mensagens de incidentes passam à frente da fila normal.
+- **Broadcast Preview**: UI para revisão de destinatários e preview de mensagens críticas.
+
+---
+
+## 5. Roadmap e Evolução (Fases 1-4)
+- **Fase 1 (Concluída)**: Telemetria rica e desacoplamento financeiro.
+- **Fase 2 (Concluída)**: Tracing rigoroso (`trace_id` universal).
+- **Fase 3 (Em Andamento)**: Sub-workflows no n8n e desacoplamento de responsabilidades puras.
+- **Fase 4 (Próxima)**: Idempotência total no Outbound e garantia de disparo único.
+
+---
+
+## 6. Débito Técnico e Backlog Prioritário
+1. **Migração React Query**: Redução de waterfalls de requests no frontend.
+2. **Standardization de Canais**: Unificação de metadados para VAPI, Evolution e Zenvia.
+3. **Nexus 3.0**: Migração de sessões de segurança para persistência global baseada em Identificador de Usuário (Cross-Agent Identity).
+
+---
+
+
+## [V66.9] - Production Stability & Intelligent Context
+### Estabilização de RPCs e Otimização de Memória
+- **Intelligent Sliding Window (RPC V66.9)**: Migração do histórico de mensagens estático para um modelo de janela deslizante inteligente. A Sofia agora consome o resumo da conversa (`metadata->'summary'`) injetado via sistema, reduzindo o peso do contexto em 70% sem perder a linha de raciocínio.
+- **Blindagem de Incidentes em Runtime**: Injeção de blocos `EXCEPTION` na RPC mestre, garantindo que falhas em tabelas de incidentes ou ferramentas não bloqueiem a resposta principal da IA.
+- **Remediação de Mapeamento n8n**: Sincronização completa de tokens de provedores (Zenvia/Meta) espelhados tanto na raiz do objeto quanto no nó `context.agent`, resolvendo erros de `undefined` no roteador.
+- **Frequency Capping & Recovery**: Implementação de trava de segurança na `get_next_leads_secure` e script de auto-limpeza para leads paralisados no status `processing`.
+- **UX Performance (Frontend Polling)**: Redução do intervalo de monitoramento no `AIPerformanceCenter.tsx` de 3s para 30s, otimizando o consumo de CPU do navegador e do servidor.
 
 ---
 
@@ -203,7 +302,7 @@ Esta arquitetura garante altíssima coesão e velocidade entre os motores vitais
 - **Service Layer no Frontend (Modularizada `src/services/`):** 
   - Anteriormente centralizada em um "God Object" de mais de 2.000 linhas (`api.ts`), a camada foi refatorada e dividida por domínios (`auth.service.ts`, `agents.service.ts`, `financial.service.ts`, `conversations.service.ts`, etc).
   - O antigo arquivo `api.ts` atua agora apenas como uma **Facade** (Fachada) injetando o supabase e agregando os submódulos, garantindo compatibilidade com o resto do sistema (Zero quebras de UI ou dependências circulares). Traduz `snake_case` (DB) para `camelCase` (frontend).
-- **Contexto Global (`src/contexts/AppContext.tsx`):** React Context utilizando `AppProvider` para gerenciar estado global: usuário autenticado, tenant ativo, lista de conversas e painel lateral (slide-over). Faz polling de conversas a cada 20s e mensagens a cada 5s.
+- **Contexto Global (`src/contexts/AppContext.tsx`):** React Context utilizando `AppProvider` para gerenciar estado global. Desde a V51, utiliza **Supabase Realtime** para sincronização instantânea de mensagens e conversas, eliminando a necessidade de polling de 20s/5s.
 - **Segurança Nativa por RLS:** Isolamento multi-tenant garantido pelo PostgreSQL. Impossível que um tenant acesse dados de outro, mesmo em caso de erro no frontend.
 
 ### 2.5 Configuração de Ambiente N8N (Segurança e Variáveis)
@@ -275,10 +374,12 @@ Para garantir que 100% das mensagens de campanha cheguem ao destino com a person
 1.  **Normalização de Telefone (Porteiro Guard):** Todos os números são forçados para o formato `55 + DDD + Número` antes do disparo. O Porteiro rejeita envios sem o prefixo internacional para evitar falhas silenciosas na Evolution API.
 2.  **Placeholder Anti-Parser (N8N Safe):** Devido ao comportamento do n8n de tentar interpretar `{{variavel}}` como JavaScript, as mensagens de campanha usam a técnica `split('{{nome}' + '}').join(valor)` no nó de substituição. Isso garante que o placeholder seja substituído apenas no texto final, sem quebrar o workflow.
 3.  **Sincronização de Conversa (Atomic Delivery):** Ao disparar uma mensagem via n8n, o sistema utiliza a RPC `handle_outbound_sent` para criar a conversa, registrar a mensagem e dar baixa na fila de uma só vez. Isso garante que a conversa apareça no Dashboard INSTANTANEAMENTE após o envio.
-4.  **Processamento em Loop Serial (Anti-Spam):** O sistema migrou do processamento em lote para o modelo de **Loop Sequencial** (`Split In Batches` com `Batch Size: 1`). Isso permite a aplicação de uma **Cadência Obrigatória (Wait 5s)** entre cada lead, protegendo a conta de WhatsApp contra bloqueios por spam em disparos de alto volume.
+4.  **Escalabilidade de Outbound (Batch Size):** O sistema suporta processamento em lote configurável no n8n.
+    *   **Modo Anti-Spam (Default):** Batch Size 1 com cadência de 5s. Recomendado para prospecção fria.
+    *   **Modo High-Volume (Elite):** Batch Size 10-50. Recomendado para bases já engajadas ou comunicações transacionais (Incidentes).
 5.  **Persistência de Contexto no Loop:** Para evitar a perda de dados do lead após respostas de APIs externas (ex: Evolution), o sistema utiliza a referência estrita `$('Loop Over Items').item.json`. Isso garante que metadados como `tenant_id` e `campaign_id` permaneçam disponíveis durante toda a iteração, mesmo em caso de erro.
 6.  **Observabilidade de Erros (Dead-End Tracking):** Falhas de envio (ex: Números Inválidos / 400 Bad Request) são agora interceptadas pelo ramo de erro do n8n e gravadas imediatamente na `outbound_queue`. Um gatilho no banco (`trg_log_outbound_status`) espelha essas falhas centralizadamente na tabela `integration_logs`.
-7.  **Identidade "Digits Only" (Strict Number):** Para evitar que mensagens enviadas via API (com sufixo `@s.whatsapp.net`) criem duplicatas quando o cliente responde (apenas número), o sistema normaliza todos os `user_identifier` para conterem **apenas números**. Qualquer carvinvoto ou sufixo é removido automaticamente pela RPC.
+7.  **Frequency Capping & Auto-Recovery (V66.9):** Proteção nativa na fila de leads (`get_next_leads_secure`) para evitar envios duplicados em rajadas de processamento. Inclui mecanismo de auto-recuperação que libera leads presos em "processing" por mais de 30 minutos.
 8.  **Strict Type-Safety (Enum Binding):** A partir da v53, todas as RPCs de outbound (como `handle_outbound_sent`) forçam o casting explícito de strings para os tipos `public.conversation_channel` e `public.conversation_status`. Isso evita o erro `42804` e garante que mensagens enviadas via n8n sejam tipadas corretamente antes de tocar o disco.
 9.  **Standardized Visibility (Active State):** Leads de campanhas são criados com status `ai_active`. O Dashboard foi otimizado para tratar `ai_active` e `human_active` como estados de visibilidade imediata, garantindo que o operador veja o disparo da campanha no tempo real do chat.
 
@@ -485,6 +586,7 @@ companies (tenants)
     ├── consumption_metrics (billing)
     ├── campaigns
     │   └── outbound_queue
+    ├── dash_cache (Cache de performance para dashboards)
     ├── inbound_queue (Fila de Recepção de Eventos Rápidos)
     │   └── inbound_queue_errors (Dead Letter Queue / Fila Morta)
     ├── audit_logs (imutável)
@@ -537,6 +639,7 @@ companies (tenants)
 | `zenvia_channel_id` | VARCHAR(255) | **[V50]** Channel ID da Zenvia (número "from" nos envios) |
 | `zenvia_api_token` | TEXT | **[V50]** API Token de autenticação na Zenvia |
 | `applied_policies` | TEXT[] | IDs/nomes de políticas vinculadas |
+| `capping_config` | JSONB | **[V66.10]** Regras de Frequency Capping: `{"max_per_day": 1, "cooldown_hours": 24, "override_on_incidents": true}` |
 | `risk_score` | NUMERIC | Score acumulado de risco (ISO 42001) |
 | `last_actor_name` | TEXT | Último usuário que alterou o agente (auditoria UI) |
 | `is_gatekeeper` | BOOLEAN | Identifica se o agente é um validador de acesso (Segurança) |
@@ -1044,7 +1147,7 @@ Movimentação automática pela IA (baseada em score da auditoria) ou manual pel
 2. Importar lista: .csv/.xls/.xlsx com detecção automática de colunas
 3. Deduplicação automática por (campaign_id, contact_phone) via UNIQUE
 4. Status: draft → active → running → completed/cancelled
-5. N8N consome outbound_queue em **Loop Sequencial (Batch Size 1)** com cadence de 5s.
+5. **Throughput Outbound**: O n8n consome a fila com Batch Size configurável (1 a 50) e cadência variável para proteção de conta.
 6. **Sincronização Automática (Triggers)**:
    - `trg_sync_campaign_stats`: Atualiza `sent_count` e `failed_count` na tabela `campaigns` em tempo real para cada alteração na `outbound_queue`. O dashboard não depende mais de contagens manuais do n8n.
    - `trg_log_outbound_status`: Centraliza todos os logs de sucesso e erro (ex: número inválido) na tabela `integration_logs`.
@@ -1139,7 +1242,7 @@ A tabela `companies.privacy_settings` armazena:
 
 ## 16. Monitoramento & Observabilidade
 
-### 16.1 Polling de Conversas (AppContext)
+### 16.1 Sincronização de Conversas (Realtime-First)
 
 | Intervalo | Dado | Motivo |
 | :--- | :--- | :--- |
@@ -2191,3 +2294,27 @@ Para alinhar o sistema com a linguagem de vendas B2B, o termo técnico "Sucesso"
 -   Cards de KPI de alto nível.
 -   Tabelas de Estratégia Outbound.
 -   Rótulos de eixos em gráficos históricos.
+
+### 13.5 Ponte de Conversão (Action Tracking) [V66.14]
+Para elevar a precisão do ROI, o Nexus V66.14 introduz o rastreamento de **Ações Reais** via redirecionador (Bridge).
+
+- **A Inteligência**: O sistema não usa uma URL fixa. Ele recupera o `cta_link` personalizado de cada lead (aquele com o token de CNPJ/identificador) diretamente da `outbound_queue`.
+- **O Fluxo**:
+  1. O n8n gera uma URL dinâmica: `https://api.davosnexus.ai/v1/l/{{trace_id}}`.
+  2. Ao clicar, o Porteiro recebe o `trace_id` e aciona a RPC `log_link_conversion`.
+  3. A RPC registra o evento de sucesso na timeline e retorna a URL personalizada do lead.
+  4. O usuário é redirecionado instantaneamente para o seu destino específico na Fiserv.
+- **Vantagem**: Mantém a personalização total dos links (tokens de segurança/origem) enquanto garante 100% de rastreabilidade.
+
+
+---
+
+## 24. Consolidação de Documentação & Débitos Técnicos (Tombstone)
+Para garantir a limpeza do repositório, os seguintes arquivos foram consolidados neste SST e **removidos** do sistema:
+- `N8N_VS_NODEJS_MIGRATION.md`: (Consolidado na Seção 2.1)
+- `NODE_ENGINE_ARCHITECTURE.md`: (Consolidado na Seção 2.2)
+- `PERFORMANCE_ROADMAP.md`: (Consolidado na Seção 6)
+- `LEGACY_POLLING_DOCS.md`: (Removido em favor da Seção 3.2)
+
+---
+*Este documento é a única fonte da verdade (SST) para o Davos Nexus v66.14.*

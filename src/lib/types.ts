@@ -565,6 +565,20 @@ export interface AIIncident {
   userIdentifier?: string;
 }
 
+export interface SystemIncident {
+  id: string;
+  tenant_id: string;
+  campaign_id?: string;
+  title: string;
+  problem_description: string;
+  response_message: string;
+  mode: 'active' | 'passive' | 'both';
+  status: 'active' | 'resolved';
+  created_at: string;
+  resolved_at?: string;
+  created_by?: string;
+}
+
 // ============ Conversational Flow Types ============
 export type FlowStageType = 'greeting' | 'qualification' | 'resolution' | 'handoff' | 'closing';
 
@@ -774,7 +788,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   // Governance
   { id: 'governance.view', name: 'Visualizar Governança', description: 'Ver políticas e logs de IA', category: 'Governança' },
   { id: 'governance.manage', name: 'Gerenciar Governança', description: 'Editar políticas de IA', category: 'Governança' },
-  { id: 'governance.incidents', name: 'Gerenciar Incidentes', description: 'Registrar e resolver incidentes', category: 'Governança' },
+  { id: 'governance.incidents', name: 'Gerenciar Incidentes', description: 'Registrar e resolver incidentes de IA', category: 'Governança' },
+  { id: 'incidents.view', name: 'Gerenciar Comunicados', description: 'Visualizar e gerenciar comunicados de sistema', category: 'Comunicados' },
 
   // Administration
   { id: 'profiles.manage', name: 'Gerenciar Perfis', description: 'Criar e editar perfis de acesso', category: 'Administração' },

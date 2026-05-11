@@ -161,7 +161,8 @@ app.use('/v1/*', async (c, next) => {
         c.req.path === '/v1/evolution/webhook' ||
         c.req.path === '/v1/zenvia/webhook' ||
         c.req.path === '/v1/zenvia/status' ||
-        c.req.path.startsWith('/v1/queue/')
+        c.req.path.startsWith('/v1/queue/') ||
+        c.req.path.startsWith('/v1/l/')
     ) {
         return await next();
     }
@@ -184,6 +185,45 @@ app.use('/v1/*', async (c, next) => {
 // --- ROUTES ---
 
 app.get('/', (c) => c.text('Davos Nexus PORTEIRO (v1.0.0) — Active & Guarding.'));
+
+// --- CONVERSION BRIDGE (V66.13) ---
+/**
+ * Public Redirector for Action Tracking
+ * Registers conversion and redirects to campaign target URL
+ */
+app.get('/v1/l/:trace_id', async (c) => {
+    const trace_id = c.req.param('trace_id');
+    const startTime = Date.now();
+    
+    try {
+        // 1. Chama a RPC que registra a conversão e JÁ retorna o cta_link correto do lead
+        const { data: targetUrl, error: rpcError } = await supabaseAdmin.rpc('log_link_conversion', { 
+            p_trace_id: trace_id 
+        });
+
+        if (rpcError) {
+            console.error(`[BRIDGE] ❌ RPC Error for ${trace_id}:`, rpcError.message);
+        }
+
+        // 2. Log Audit
+        logIntegration({
+            provider: 'nexus_bridge',
+            trace_id: trace_id,
+            payload: { trace_id, targetUrl },
+            status: rpcError ? 'error' : 'success',
+            path: '/v1/l/:trace_id',
+            latency_ms: Date.now() - startTime
+        });
+
+        // 3. Redireciona para o link do lead ou fallback de segurança
+        const finalUrl = targetUrl || 'https://fiservcapital.moneymoneyinvest.com.br/ticket/solicite-agora';
+        
+        return c.redirect(finalUrl);
+    } catch (err: any) {
+        console.error(`[BRIDGE] ❌ Critical Failure for ${trace_id}:`, err.message);
+        return c.redirect('https://fiservcapital.moneymoneyinvest.com.br/ticket/solicite-agora');
+    }
+});
 
 /**
  * Proxy to Evolution API (Secures API Key and avoids CORS)

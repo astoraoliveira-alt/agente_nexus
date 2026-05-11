@@ -5,6 +5,7 @@ import { plansService } from './plans.service';
 import { agentsService } from './agents.service';
 import { conversationsService } from './conversations.service';
 import { incidentsService } from './incidents.service';
+import { systemIncidentsService } from './systemIncidents.service';
 import { capabilitiesService } from './capabilities.service';
 import { financialService } from './financial.service';
 import { campaignsService } from './campaigns.service';
@@ -24,6 +25,7 @@ _capabilities: {
 ...agentsService,
 ...conversationsService,
 ...incidentsService,
+...systemIncidentsService,
 ...capabilitiesService,
 ...financialService,
 ...campaignsService,

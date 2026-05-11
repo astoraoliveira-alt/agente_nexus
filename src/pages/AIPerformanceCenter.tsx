@@ -778,7 +778,7 @@ function TabStressLab({ tenantId }: { tenantId?: string }) {
         }
       };
       fetchLogs();
-      interval = setInterval(fetchLogs, 3000);
+      interval = setInterval(fetchLogs, 30000);
     }
     return () => clearInterval(interval);
   }, [currentTraceId, tenantId, logs.length]);

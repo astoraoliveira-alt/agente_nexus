@@ -71,6 +71,7 @@ export function AppSidebar() {
     { title: 'Contatos', url: '/contacts', icon: Users, permission: 'contacts.view' },
     { title: 'Agentes', url: '/agents', icon: Bot, permission: 'agents.view' },
     { title: 'Campanhas', url: '/campaigns', icon: Megaphone, permission: 'campaigns.view' },
+    { title: 'Comunicados', url: '/incidents', icon: Bell, permission: 'incidents.view' },
     { 
       title: 'Fila de Atendimento', 
       url: '/handoff-hub', 

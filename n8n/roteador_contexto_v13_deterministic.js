@@ -1,14 +1,13 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V17.20 - HANDOFF HUB INTEGRATED
-   - Integridade total da Sofia (FAQ, CTAs, Empatia).
-   - Filtro: Botão inicial NÃO dispara Handoff Hub.
-   - Handoff ativado APENAS por texto ou reclamação.
+/* 🧭 ROTEADOR DE CONTEXTO - V17.27 - INCIDENT & COMPLAINT PRIORITY
+   - Correção: Prioridade Parrot para Reclamações (isComplaint).
+   - Smart Match V2 refinado para frases longas.
+   - Preservação de Sofia Persona e FAQ integral.
 */
 
 const rpcData = $node["RPC - Acesso Entrada"].json;
 const ctx = rpcData.context || {};
 
 // 🛡️ PROTEÇÃO DE HANDOFF (HITL)
-// Se o status for 'human_active', bloqueamos a execução para não dar "Echo" ou interferir no humano.
 if (ctx.status === 'human_active') {
     return {
         stop_flow: true,
@@ -43,100 +42,111 @@ if (linkAlreadySent) {
 } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço de caixa") || lastSofiaMsg.includes("enviar o link")) {
     currentStep = 'explicacao_agente';
 } else if (assistantMessages.length > 0) {
-    currentStep = 'explicacao_agente'; // Fallback seguro para evitar o loop de boas-vindas
+    currentStep = 'explicacao_agente'; 
 }
 
 // --- 2) INTENÇÕES ---
 const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
-
-// isLinkRequest: Detecção contextual de pedido de link/simulação (combinação de verbo + objeto ou palavra de ação direta)
 const isLinkRequest = /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) || (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) || (/^link$/i.test(lastUserLower));
-
-// isAffirmative: Flexibilizado, mas agora com proteção contextual para o link.
 const isAffirmative = (/\b(sim|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o)\b/i.test(lastUserLower);
-
-// isNegative: Recusas claras.
 const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
-
-// isDoubt: Qualquer pergunta ou palavra de dúvida.
 const isDoubt = /\b(dúvida|duvida|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo)\b/i.test(lastUserLower);
-
-// isHumanRequest: Rígido para PEDIDOS de handoff, excluindo perguntas de "quem é você".
 const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|pessoa|atendente|vendedor|algu[ée]m|especialista|assessor)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa)$/i.test(lastUserLower);
-
-// isFarewell: Detecção de agradecimento ou encerramento.
 const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
-
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 const isComplaint = /\b(atraso|problema|errado|não recebi|nao recebi|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower);
 
-// isLinkIssue: Detecção específica de falha no sistema da Fiserv (V17.21)
-const isLinkIssue = (/\b(não|nao)\s+consigo\s+preencher\b/i.test(lastUserLower) || /\b(problema|erro|falha)\b.*\b(link|site|preencher|dados)\b/i.test(lastUserLower) || /\b(link|site)\s+não\s+funciona\b/i.test(lastUserLower));
+// --- 3) GESTÃO DINÂMICA DE INCIDENTES (Smart Match V2) ---
+let forcedIncidentText = null;
+const activeIncidents = agent.active_incidents || [];
+const incidentIdFromPayload = rpcData.payload?.incident_id;
+let isLinkIssue = false;
+
+const currentCampaignId = rpcData.p_metadata?.campaign_id || leadInfo.campaign_id || ctx.campaign_id;
+
+// Prioridade 1: Broadcast Ativo (ID vindo do payload)
+if (incidentIdFromPayload) {
+    const specificIncident = activeIncidents.find(i => i.id === incidentIdFromPayload);
+    if (specificIncident) {
+        forcedIncidentText = specificIncident.response_message;
+        isLinkIssue = true;
+    }
+}
+
+// Prioridade 2: Smart Match Passivo (se não foi forçado pelo payload)
+if (!forcedIncidentText) {
+    for (const incident of activeIncidents) {
+        if (incident.mode === 'passive' || incident.mode === 'both') {
+            // Se houver campaign_id no incidente, o match deve ser exato. Se for nulo, é global.
+            if (incident.campaign_id && incident.campaign_id !== currentCampaignId) continue;
+
+            const triggerWords = incident.problem_description.toLowerCase()
+                .split(/[\s,.\/]/)
+                .filter(w => w.length > 3);
+
+            const matched = triggerWords.some(w => lastUserLower.includes(w));
+            
+            if (matched) {
+                isLinkIssue = true;
+                forcedIncidentText = incident.response_message;
+                if (incident.campaign_id === currentCampaignId) break;
+            }
+        }
+    }
+}
 
 const lastAssistantMsg = String(assistantMessages[assistantMessages.length - 1]?.content || "").toLowerCase();
 const humanAlreadyRequested = lastAssistantMsg.includes("assessor entre em contato") || lastAssistantMsg.includes("aguardar o retorno de um especialista");
 
-// --- 3) TRANSIÇÕES DE ESTADO ---
+// --- 4) TRANSIÇÕES DE ESTADO ---
 let nextStep = currentStep;
 let transitionApplied = false;
 
-// 🛡️ REGRAS DE TRANSIÇÃO RÍGIDAS
 if (isAgentButtonClick) {
     nextStep = 'explicacao_agente';
     transitionApplied = true;
-}
-else if (currentStep === 'start') {
+} else if (currentStep === 'start') {
     if (!isNegative && !isDoubt) {
         nextStep = 'explicacao_agente';
         transitionApplied = true;
     }
-}
-else if (currentStep === 'explicacao_agente') {
+} else if (currentStep === 'explicacao_agente') {
     if (isAffirmative && !isDoubt) {
         nextStep = 'verificacao_cnpj';
         transitionApplied = true;
     }
-}
-else if (currentStep === 'verificacao_cnpj') {
+} else if (currentStep === 'verificacao_cnpj') {
     if (isAffirmative && !isDoubt) {
         nextStep = 'envio_link';
         transitionApplied = true;
     }
 }
 
-// --- 4) MODO DE RESPOSTA ---
+// --- 5) MODO DE RESPOSTA ---
 let mode = "consultive";
-
-// Parrot Mode se houve transição, se for pedido de humano, ou se for uma afirmação/pedido de link após uma dúvida.
-if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue) {
+// Prioridade Parrot: Transição, Botão, Humano, Incidente OU Reclamação
+if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || isComplaint) {
     mode = "parrot";
 }
-
-// Se o usuário pediu o link explicitamente de forma contextual, FORCE o modo parrot para garantir a entrega do texto do blueprint (CNPJ/Link)
 if (isLinkRequest && !isDoubt) {
     mode = "parrot";
 }
-
 if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest && !isLinkIssue) {
     mode = "consultive";
 }
 
-// --- 5) PROMPT FINAL ---
+// --- 6) PROMPT FINAL ---
 let activeConfig = blueprint.steps[nextStep] || blueprint.steps["start"];
 if (isAgentButtonClick) activeConfig = blueprint.steps["explicacao_agente"];
 
 let forcedText = String(activeConfig.rules || "");
 
-// --- OVERRIDE DE TEXTOS FIXOS (GARANTE A MENSAGEM OFICIAL) ---
+// --- OVERRIDE DE TEXTOS FIXOS (PRIORIDADE) ---
 
-// PRIORIDADE 1: Problemas com o Link (Fiserv Down)
-if (isLinkIssue) {
-    forcedText = `Certo, entendo perfeitamente. Atualmente, o sistema da Fiserv está passando por uma instabilidade temporária que impede a edição ou o preenchimento de alguns dados diretamente no link em alguns navegadores.
-    
-Recomendo que você tente realizar o preenchimento novamente um pouco mais tarde. Geralmente, limpar o cache do navegador ou tentar por outro aparelho também ajuda a contornar essa instabilidade.
-
-*Ficou com alguma outra dúvida ou posso te ajudar em algo mais?*`;
-}
+// PRIORIDADE 1: Incidentes Ativos (Dinamismo Total)
+if (isLinkIssue && forcedIncidentText) {
+    forcedText = forcedIncidentText;
+} 
 // PRIORIDADE 2: Pedido de Atendente/Humano
 else if (isHumanRequest) {
     forcedText = `Claro, entendo.
@@ -144,8 +154,8 @@ else if (isHumanRequest) {
 Vou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.
 
 Enquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
-}
-// PRIORIDADE 3: Reclamações/Sentimento Negativo (Escuta Ativa)
+} 
+// PRIORIDADE 3: Reclamações (Escuta Ativa)
 else if (isComplaint) {
     forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. 
 
@@ -153,7 +163,7 @@ Como você mencionou esse problema, vou priorizar o seu contato com um de nossos
 
 Você gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
 }
-// PRIORIDADE 2: Início da conversa (Oferta inicial) - APENAS se não houver histórico relevante
+// PRIORIDADE 4: Boas-vindas (Start)
 else if (currentStep === 'start' && assistantMessages.length < 2) {
     forcedText = `Já pensou em reforçar o caixa sem burocracia?
  
@@ -165,7 +175,7 @@ Você pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ti
 
 👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
 }
-// PRIORIDADE 3: Clique no botão ou Passo de Explicação
+// PRIORIDADE 5: Explicação Sofia
 else if (isAgentButtonClick || nextStep === 'explicacao_agente') {
     forcedText = `Olá! Sou a Sofia, especialista da Ticket. Que bom que você quer saber mais!
 
@@ -334,16 +344,5 @@ return {
         tenant_id: ctx.tenant_id,
         priority: isComplaint ? 'high' : 'medium'
     },
-    debug: {
-        currentStep,
-        nextStep,
-        isDoubt,
-        isAffirmative,
-        isNegative,
-        mode,
-        isFarewell,
-        isHumanRequest,
-        isComplaint,
-        isAgentButtonClick
-    }
+    debug: { nextStep, mode, isLinkIssue, currentCampaignId }
 };
