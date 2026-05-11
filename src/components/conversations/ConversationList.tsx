@@ -38,40 +38,40 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
 
   // 2. Filter & Sort Logic
   const filteredConversations = useMemo(() => {
+    console.log('[DEBUG] Filtrando conversas com termo:', searchTerm);
     let result = conversations;
 
-    if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase();
+    if (searchTerm && searchTerm.trim() !== '') {
+      const searchLower = searchTerm.toLowerCase().trim();
       result = result.filter(c => {
         const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
         if (!matchesAgent) return false;
 
-        // 1. Busca fonética (para nomes de pessoas)
+        const name = (c.userName || '').toLowerCase();
+        const establishment = (c.establishmentName || '').toLowerCase();
+        const phone = (c.userId || '').replace(/\D/g, '');
+        const lastMsg = (c.lastMessage || '').toLowerCase();
+        const termClean = searchLower.replace(/\D/g, '');
+
+        // Busca Literal Simples (Mais rápida e garantida)
+        if (name.includes(searchLower)) return true;
+        if (establishment.includes(searchLower)) return true;
+        if (lastMsg.includes(searchLower)) return true;
+        if (termClean && phone.includes(termClean)) return true;
+
+        // Busca Fonética (Fallback)
         if (phoneticMatch(c.userName, searchTerm)) return true;
         if (phoneticMatch(c.establishmentName || '', searchTerm)) return true;
-        if (phoneticMatch(c.lastMessage, searchTerm)) return true;
 
-        // 2. Busca literal (para nomes de empresas e termos exatos)
-        if (c.userName.toLowerCase().includes(searchLower)) return true;
-        if (c.establishmentName?.toLowerCase().includes(searchLower)) return true;
-        if (c.lastMessage.toLowerCase().includes(searchLower)) return true;
-
-        // 3. Busca por telefone (numérica)
-        if (c.userId && c.userId.replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''))) return true;
-
-        // 4. Busca nas mensagens
-        const hasMessageMatch = c.messages.some(m =>
-          phoneticMatch(m.content || '', searchTerm) ||
-          (m.content || '').toLowerCase().includes(searchLower) ||
-          phoneticMatch(m.transcription || '', searchTerm)
-        );
-        return hasMessageMatch;
+        return false;
       });
     } else if (agentFilter) {
       result = result.filter(c => c.agentName === agentFilter);
     }
 
-    // Sort by lastMessageTime DESC (latest first)
+    console.log('[DEBUG] Resultado do filtro:', result.length, 'conversas');
+
+    // Sort by lastMessageTime DESC
     return [...result].sort((a, b) => {
       const timeA = new Date(a.lastMessageTime).getTime();
       const timeB = new Date(b.lastMessageTime).getTime();
