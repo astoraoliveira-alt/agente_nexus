@@ -2295,16 +2295,26 @@ Para alinhar o sistema com a linguagem de vendas B2B, o termo técnico "Sucesso"
 -   Tabelas de Estratégia Outbound.
 -   Rótulos de eixos em gráficos históricos.
 
-### 13.5 Ponte de Conversão (Action Tracking) [V66.14]
-Para elevar a precisão do ROI, o Nexus V66.14 introduz o rastreamento de **Ações Reais** via redirecionador (Bridge).
+### 13.5 Ponte de Conversão (Action Tracking) [V66.20]
+Para elevar a precisão do ROI e a visibilidade operacional, o Nexus V66.20 amadurece o rastreamento de **Ações Reais** via redirecionador (Bridge) com foco em integração total ao Dashboard.
 
-- **A Inteligência**: O sistema não usa uma URL fixa. Ele recupera o `cta_link` personalizado de cada lead (aquele com o token de CNPJ/identificador) diretamente da `outbound_queue`.
-- **O Fluxo**:
-  1. O n8n gera uma URL dinâmica: `https://api.davosnexus.ai/v1/l/{{trace_id}}`.
-  2. Ao clicar, o Porteiro recebe o `trace_id` e aciona a RPC `log_link_conversion`.
-  3. A RPC registra o evento de sucesso na timeline e retorna a URL personalizada do lead.
-  4. O usuário é redirecionado instantaneamente para o seu destino específico na Fiserv.
-- **Vantagem**: Mantém a personalização total dos links (tokens de segurança/origem) enquanto garante 100% de rastreabilidade.
+- **A Inteligência**: O sistema utiliza um redirecionador inteligente (`/v1/l/:trace_id`) que não apenas encaminha o usuário, mas injeta telemetria diretamente na timeline de conversas.
+- **O Fluxo Evoluído**:
+  1. **Disparo**: O n8n gera a URL: `https://api.davosconsulting.com.br/v1/l/{{trace_id}}`.
+  2. **Intercepção**: Ao clicar, o Porteiro aciona a RPC `log_link_conversion` (V66.20).
+  3. **Visibilidade Dashboard**: A conversão agora é gravada como `message_type: 'text'`, garantindo que apareça instantaneamente na timeline do operador.
+  4. **Ordenação Prioritária**: A RPC força um `UPDATE` na tabela `conversations` (`updated_at` e `last_message`), fazendo com que o lead convertido "pule" para o topo da lista de atendimento.
+  5. **Redirecionamento**: O sistema recupera o `cta_link` (com tokens JWT/CNPJ) e encaminha o usuário para o destino final (ex: Fiserv).
+- **Resiliência de Dados**: A RPC utiliza **4 estratégias de fallback** (TraceID, QueueID, MessageID e ConversationID) para garantir o vínculo do clique mesmo em mensagens legadas ou orfãs.
+
+### 13.6 Busca Inteligente & UX de Conversas [V66.20]
+- **Filtro Multi-Campo**: A busca no Dashboard de Conversas agora é híbrida, realizando `phoneticMatch` (fonético) e `indexOf` (literal) simultaneamente.
+- **Busca por Empresa**: Adicionado o suporte para filtrar contatos pelo `establishmentName` (Nome da Empresa), facilitando a localização de leads corporativos como "Davos".
+- **Performance de Filtro**: Otimização do `useMemo` no frontend para garantir filtragem instantânea em bases com milhares de conversas ativas.
+
+### 13.7 Estabilização de RPCs em Lote [V66.20]
+- **Resolução de Ambiguidades**: Correção crítica na RPC `get_next_leads_secure` que eliminou erros de referência ambígua ao `tenant_id`, restaurando a estabilidade dos disparos em massa via n8n.
+- **Prevenção de Colisão**: Aprimoramento da lógica de `FOR UPDATE SKIP LOCKED` para garantir que instâncias paralelas do n8n não processem o mesmo lead simultaneamente.
 
 
 ---
@@ -2317,4 +2327,4 @@ Para garantir a limpeza do repositório, os seguintes arquivos foram consolidado
 - `LEGACY_POLLING_DOCS.md`: (Removido em favor da Seção 3.2)
 
 ---
-*Este documento é a única fonte da verdade (SST) para o Davos Nexus v66.14.*
+*Este documento é a única fonte da verdade (SST) para o Davos Nexus v66.20.*
