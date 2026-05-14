@@ -1,7 +1,7 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V17.27 - INCIDENT & COMPLAINT PRIORITY
-   - Correção: Prioridade Parrot para Reclamações (isComplaint).
-   - Smart Match V2 refinado para frases longas.
-   - Preservação de Sofia Persona e FAQ integral.
+/* 🧭 ROTEADOR DE CONTEXTO - V17.29 - FULL FAQ RESTORATION
+   - Restauração: FAQ Técnico Integral (SST).
+   - Correção: Detecção de 'Como'/'Como assim' para evitar afirmações falsas.
+   - Refinamento: Detecção de 'fone'/'telefone' para entregar 4004-2233.
 */
 
 const rpcData = $node["RPC - Acesso Entrada"].json;
@@ -42,16 +42,16 @@ if (linkAlreadySent) {
 } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço de caixa") || lastSofiaMsg.includes("enviar o link")) {
     currentStep = 'explicacao_agente';
 } else if (assistantMessages.length > 0) {
-    currentStep = 'explicacao_agente'; 
+    currentStep = 'explicacao_agente';
 }
 
 // --- 2) INTENÇÕES ---
 const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
 const isLinkRequest = /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) || (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) || (/^link$/i.test(lastUserLower));
-const isAffirmative = (/\b(sim|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o)\b/i.test(lastUserLower);
+const isAffirmative = (/\b(sim|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower);
 const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
-const isDoubt = /\b(dúvida|duvida|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo)\b/i.test(lastUserLower);
-const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|pessoa|atendente|vendedor|algu[ée]m|especialista|assessor)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa)$/i.test(lastUserLower);
+const isDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo)\b/i.test(lastUserLower);
+const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|pessoa|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
 const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 const isComplaint = /\b(atraso|problema|errado|não recebi|nao recebi|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower);
@@ -85,7 +85,7 @@ if (!forcedIncidentText) {
                 .filter(w => w.length > 3);
 
             const matched = triggerWords.some(w => lastUserLower.includes(w));
-            
+
             if (matched) {
                 isLinkIssue = true;
                 forcedIncidentText = incident.response_message;
@@ -146,15 +146,22 @@ let forcedText = String(activeConfig.rules || "");
 // PRIORIDADE 1: Incidentes Ativos (Dinamismo Total)
 if (isLinkIssue && forcedIncidentText) {
     forcedText = forcedIncidentText;
-} 
+}
 // PRIORIDADE 2: Pedido de Atendente/Humano
 else if (isHumanRequest) {
-    forcedText = `Claro, entendo.
+    const isPhone = /\b(fone|telefone|ligar|ligação)\b/i.test(lastUserLower);
+    if (isPhone) {
+        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*. 
+
+Eles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
+    } else {
+        forcedText = `Claro, entendo.
 
 Vou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.
 
 Enquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
-} 
+    }
+}
 // PRIORIDADE 3: Reclamações (Escuta Ativa)
 else if (isComplaint) {
     forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. 
@@ -254,7 +261,7 @@ Significa que a Fiserv Capital utilizará os seus recebimentos Ticket como garan
 Com quanto tempo de atraso no pagamento via boleto acarretará em desconto via recebíveis Ticket?
 Se o estabelecimento ficar entre 3 a 4 meses sem realizar os devidos pagamentos via boleto bancário, a Fiserv fará o desconto via recebível Ticket. Após a quitação dos boletos em atraso, o pagamento voltará a ser feito via boleto.
 
-SR. O valor que eu solicitar será o valor que será aprovado para mim?
+O valor que eu solicitar será o valor que será aprovado para mim?
 Não necessariamente. O valor desejado é uma base, mas após você informá-lo, faremos uma análise de crédito para avaliar seus dados e definir o limite final, que pode ser menor ou maior que o solicitado. Mas não se preocupe, faremos o possível para ao menos alcançar o valor desejado.
 
 Posso aumentar meu limite aprovado? Como consigo uma oferta de crédito?
@@ -302,7 +309,7 @@ ${isFarewell
 
 <instrucao_de_manejo_de_dúvida>
 Se o cliente insistir em simular com você (Ex: "quero fazer aqui"):
-- Explique: "*Astor, eu adoraria fazer por aqui, mas como a análise da Fiserv consulta seus recebíveis em tempo real para te dar a melhor taxa, ela precisa ser feita no ambiente seguro do site oficial. É super rápido e protege seus dados!*展"
+- Explique: "*${leadInfo.name || "parceiro"}, eu adoraria fazer por aqui, mas como a análise da Fiserv consulta seus recebíveis em tempo real para te dar a melhor taxa, ela precisa ser feita no ambiente seguro do site oficial. É super rápido e protege seus dados!*"
 </instrucao_de_manejo_de_dúvida>
 
 <tom_de_voz>
@@ -312,12 +319,6 @@ Se o cliente insistir em simular com você (Ex: "quero fazer aqui"):
 - EVITE REPETIÇÃO: Se o cliente insistir em um assunto ou fizer perguntas de acompanhamento, evite repetir a mesma resposta anterior palavra por palavra. Varie a explicação mantendo a precisão do FAQ. Verifique o histórico para não ser repetitiva.
 - FOCO NO NEGÓCIO: Se o cliente fizer perguntas totalmente fora de contexto (clima, esportes, notícias), responda de forma gentil que você é uma especialista em crédito e não possui essa informação, convidando-o a tirar dúvidas sobre o reforço de caixa.
 </tom_de_voz>
-
-<empatia_e_personalizacao>
-- EMOJI POR SEGMENTO: Analise o nome da empresa (${leadInfo.name}). Se identificar o tipo de negócio (Ex: Padaria, Farmácia, Restaurante, Oficina), use UM emoji relacionado em momentos oportunos da conversa para gerar empatia. 
-- NATURALIDADE: Não use o emoji em todas as mensagens para não ficar cansativo. Use apenas quando fizer sentido no contexto da explicação ou na saudação/despedida.
-- EXEMPLOS DE MAPEAMENTO: Padaria 🍞, Farmácia 💊, Restaurante 🍽️, Oficina/Auto 🚗, Mercado 🛒, Consultoria/Serviços 💼, Café ☕, Açougue 🥩.
-</empatia_e_personalizacao>
 
 <regra_de_ouro>
 NUNCA invente taxas ou condições. Se a dúvida for sobre o funcionamento técnico, use APENAS os textos da BASE_DE_CONHECIMENTO_FAQ acima.
