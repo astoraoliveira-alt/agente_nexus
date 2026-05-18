@@ -622,7 +622,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                         message.sender !== 'user' ? "justify-end" : "justify-start"
                       )}>
                         <p className="text-[10px] text-muted-foreground/60">
-                          {format(message.timestamp, 'HH:mm', { locale: ptBR })}
+                          {format(message.timestamp, 'dd/MM/yyyy HH:mm:ss', { locale: ptBR })}
                         </p>
                         {message.sender !== 'user' && (
                           <div className="flex items-center">

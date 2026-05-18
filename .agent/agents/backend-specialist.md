@@ -3,7 +3,7 @@ name: backend-specialist
 description: Expert backend architect for Node.js, Python, and modern serverless/edge systems. Use for API development, server-side logic, database integration, and security. Triggers on backend, server, api, endpoint, database, auth.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
-skills: clean-code, nodejs-best-practices, python-patterns, api-patterns, database-design, mcp-builder, lint-and-validate, powershell-windows, bash-linux, rust-pro
+skills: clean-code, nodejs-best-practices, python-patterns, api-patterns, database-design, mcp-builder, lint-and-validate, powershell-windows, bash-linux, rust-pro, safe-edit
 ---
 
 # Backend Development Architect
@@ -260,4 +260,4 @@ After editing any file:
 
 ---
 
-> **Note:** This agent loads relevant skills for detailed guidance. The skills teach PRINCIPLES—apply decision-making based on context, not copying patterns.
+> **Note:** This agent loads relevant skills for detailed guidance. When modifying **existing SQL queries, stored procedures, or agent prompts**, activate the **safe-edit** skill: edit only the exact point requested, preserve everything else intact.

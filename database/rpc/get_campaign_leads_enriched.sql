@@ -104,9 +104,18 @@ BEGIN
           AND m.direction = 'inbound'
           AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
     ) as response_detected,
-    -- [CORREÇÃO V2.2] is_converted APÓS o envio da campanha
+    -- [CORREÇÃO V2.3] is_converted APÓS o envio da campanha (Alinhamento com get_campaign_metrics_v2)
     (
         CASE 
+          -- Conversão explícita pelo clique do link direto (status na fila ou log do sistema)
+          WHEN trim(lower(lws.current_status)) = 'converted' 
+               OR (lws.metadata->>'converted') = 'true' 
+               OR EXISTS (
+                   SELECT 1 FROM public.messages m
+                   WHERE m.conversation_id = lws.conversation_id
+                     AND (m.content ILIKE '%[CONVERSÃO]%' OR m.content ILIKE '%✅ [CONVERSÃO]%')
+                     AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
+               ) THEN TRUE
           WHEN 'CLIENT_RESPONDED' = ANY(lws.success_criteria) THEN
             EXISTS (
                 SELECT 1 FROM public.messages m
@@ -119,8 +128,11 @@ BEGIN
             EXISTS (
                 SELECT 1 FROM public.messages m
                 WHERE m.conversation_id = lws.conversation_id
-                  AND m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system')
-                  AND m.content ILIKE '%' || lws.success_link_filter || '%'
+                  AND (
+                    (m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system') AND m.content ILIKE '%' || lws.success_link_filter || '%')
+                    OR m.content ILIKE '%✅ [CONVERSÃO]%'
+                    OR m.content ILIKE '%[CONVERSÃO]%'
+                  )
                   AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
             )
           ELSE FALSE
@@ -130,3 +142,6 @@ BEGIN
   ORDER BY lws.lead_id DESC;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.get_campaign_leads_enriched(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_campaign_leads_enriched(uuid, uuid) TO service_role;

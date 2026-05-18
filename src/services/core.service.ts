@@ -547,6 +547,82 @@ export const coreService = {
         })) as unknown as Conversation[];
     },
 
+    async searchConversations(tenantId: string, query: string): Promise<Conversation[]> {
+        const q = query.trim();
+        if (!q || q.length < 2) return [];
+
+        const phoneClean = q.replace(/\D/g, '');
+
+        // Search conversations by user_name, user_identifier (phone), establishment name,
+        // or message content (via the messages table JOIN)
+        // Phase 1: search by user_name and user_identifier (phone) only
+        // Note: conversations table has NO last_message column — content lives in messages.content (Phase 2)
+        const orFilters = [`user_name.ilike.%${q}%`];
+        if (phoneClean) orFilters.push(`user_identifier.ilike.%${phoneClean}%`);
+
+        const { data, error } = await supabase
+            .from('conversations')
+            .select('*, agents:agent_id(name, type)')
+            .eq('tenant_id', tenantId)
+            .or(orFilters.join(','))
+            .order('last_message_at', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            console.warn('searchConversations (phase 1) error:', error.message);
+            return [];
+        }
+
+        // Phase 2: also search inside messages table for content matches
+        const { data: msgMatches, error: msgError } = await supabase
+            .from('messages')
+            .select('conversation_id')
+            .eq('tenant_id', tenantId)
+            .ilike('content', `%${q}%`)
+            .limit(100);
+
+        let extraConvIds: string[] = [];
+        if (!msgError && msgMatches && msgMatches.length > 0) {
+            const existingIds = new Set((data || []).map((c: any) => c.id));
+            extraConvIds = [...new Set(msgMatches.map((m: any) => m.conversation_id))]
+                .filter(id => !existingIds.has(id));
+        }
+
+        let extraConvs: any[] = [];
+        if (extraConvIds.length > 0) {
+            const { data: extraData } = await supabase
+                .from('conversations')
+                .select('*, agents:agent_id(name, type)')
+                .eq('tenant_id', tenantId)
+                .in('id', extraConvIds)
+                .order('last_message_at', { ascending: false });
+            extraConvs = extraData || [];
+        }
+
+        const allRows = [...(data || []), ...extraConvs];
+
+        return allRows.map(c => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            agentId: c.agent_id,
+            agentName: c.agents?.name || 'Agente Desconhecido',
+            agentType: c.agents?.type as any,
+            userId: c.user_identifier,
+            userName: c.user_name || 'Cliente Sem Nome',
+            establishmentName: undefined,
+            userStatus: 'active',
+            channel: c.channel,
+            status: c.status,
+            lastMessage: '',
+            lastMessageTime: new Date(c.last_message_at),
+            unreadCount: 0,
+            messageCount: 0,
+            sentiment: c.sentiment ?? null,
+            messages: [],
+            createdAt: new Date(c.created_at)
+        })) as unknown as Conversation[];
+    },
+
 
     async logAudit(tenantId: string, actorId: string, actorName: string, action: string, targetType: string, targetId: string, details: string): Promise<void> {
         const { error } = await supabase

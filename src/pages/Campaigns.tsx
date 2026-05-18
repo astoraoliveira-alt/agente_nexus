@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 const renderWhatsAppText = (text: string) => {
     if (!text) return null;
     
-    let processed = text.replace(/{{nome}}/g, 'Astor');
+    const processed = text.replace(/{{nome}}/g, 'Astor');
     
     return processed.split('\n').map((line, i) => {
         const parts = line.split(/(\*.*?\*)/g);

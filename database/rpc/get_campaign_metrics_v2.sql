@@ -61,6 +61,15 @@ BEGIN
         -- Conversão APÓS o envio
         (
             CASE 
+              -- Conversão explícita pelo clique do link direto (status na fila ou log do sistema)
+              WHEN trim(lower(lws.status)) = 'converted' 
+                   OR (lws.metadata->>'converted') = 'true' 
+                   OR EXISTS (
+                       SELECT 1 FROM public.messages m
+                       WHERE m.conversation_id = lws.conversation_id
+                         AND m.content ILIKE '%[CONVERSÃO]%'
+                         AND (lws.sent_at IS NULL OR m.created_at >= lws.sent_at)
+                   ) THEN TRUE
               WHEN 'CLIENT_RESPONDED' = ANY(lws.success_criteria) THEN
                 EXISTS (
                     SELECT 1 FROM public.messages m

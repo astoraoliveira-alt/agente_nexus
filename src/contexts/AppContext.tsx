@@ -236,19 +236,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // --- REFACTOR [FASE 1]: Realtime Over Polling ---
   const selectedConvIdRef = useRef<string | null>(null);
   
-  // High-performance Fetch Logic (Centralized)
+  // Keep stable refs so Realtime closures never go stale and don't trigger re-subscriptions
+  const fetchMessagesRef = useRef<(convIdOverride?: string) => Promise<void>>(async () => {});
+  const loadConversationsListRef = useRef<() => Promise<void>>(async () => {});
+
   const fetchMessages = useCallback(async (convIdOverride?: string) => {
-    const activeId = convIdOverride || selectedConversation?.id;
+    const activeId = convIdOverride || selectedConvIdRef.current;
     if (!activeId) return;
     
     try {
       const messages = await api.getConversationMessages(activeId);
       
-      // Update states
       setSelectedConversation(prev => {
-        // If we have an override or if it matches the current selection, update it.
         if (convIdOverride || (prev?.id === activeId)) {
-           // We keep the previous object to preserve metadata like summary/status
            return { ...(prev || { id: activeId } as any), messages };
         }
         return prev;
@@ -260,7 +260,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     }
-  }, [selectedConversation?.id]);
+  }, []); // stable — reads from ref, not from state
+
+  // Keep ref in sync
+  useEffect(() => { fetchMessagesRef.current = fetchMessages; }, [fetchMessages]);
 
   const loadConversationsList = useCallback(async () => {
     if (!currentTenant) return;
@@ -295,7 +298,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }
-  }, [currentTenant]);
+  }, [currentTenant?.id]); // ← use only the primitive ID, not the full object
+
+  // Keep ref in sync
+  useEffect(() => { loadConversationsListRef.current = loadConversationsList; }, [loadConversationsList]);
 
   // Keep ref updated for Realtime handlers to avoid stale closures
   useEffect(() => {
@@ -332,14 +338,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     loadHandoffs();
-    loadConversationsList();
+    loadConversationsListRef.current();
 
     // Strategy: Debounce list updates to avoid thrashing during rapid messages
     let refreshTimeout: any;
     const debouncedRefresh = () => {
        if (refreshTimeout) clearTimeout(refreshTimeout);
        refreshTimeout = setTimeout(() => {
-          loadConversationsList();
+          loadConversationsListRef.current();
        }, 500); // 500ms debounce
     };
 
@@ -376,15 +382,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
         async (payload: any) => {
            console.log('💬 Signal: New Message detected via Realtime.', payload.eventType);
-           
-           // If the user is currently looking at a conversation, force a fetch of its latest messages.
-           // This catches the new message regardless of whether the payload had its ID.
            if (selectedConvIdRef.current) {
-              console.log(`📡 Forcing message fetch for active chat: ${selectedConvIdRef.current}`);
-              fetchMessages(selectedConvIdRef.current);
+              fetchMessagesRef.current(selectedConvIdRef.current);
            }
-           
-           // Always refresh the list to keep sidebar snippet & timers accurate
            debouncedRefresh();
         }
       )
@@ -435,7 +435,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .subscribe();
 
     // Health-check Polling (Extreme safety: 10 minutes)
-    const intervalId = setInterval(loadConversationsList, 600000);
+    const intervalId = setInterval(() => loadConversationsListRef.current(), 600000);
 
     return () => {
       console.log("📴 Unsubscribing from Realtime...");
@@ -446,7 +446,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       clearInterval(intervalId);
       if (refreshTimeout) clearTimeout(refreshTimeout);
     };
-  }, [currentTenant?.id, loadConversationsList, fetchMessages]);
+  }, [currentTenant?.id]); // ← only re-subscribe when tenant actually changes
 
   useEffect(() => {
     fetchMessages();

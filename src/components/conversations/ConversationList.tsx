@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle, Building2 } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle, Building2, Loader2 } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useApp } from "@/contexts/AppContext";
 import { maskSensitiveData } from "@/lib/masking";
+import { coreService } from "@/services/core.service";
 
 interface ConversationListProps {
   conversations: Conversation[];
@@ -27,8 +28,11 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ conversations, selectedId, onSelect, searchTerm, onSearchChange }: ConversationListProps) {
-  const { maskingEnabled } = useApp();
+  const { maskingEnabled, currentTenant } = useApp();
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [remoteResults, setRemoteResults] = useState<Conversation[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 1. Extract Unique Agents for Filter
   const uniqueAgents = useMemo(() => {
@@ -36,52 +40,87 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     return Array.from(agents).sort();
   }, [conversations]);
 
-  // 2. Filter & Sort Logic
-  const filteredConversations = useMemo(() => {
-    console.log('[DEBUG] Filtrando conversas com termo:', searchTerm);
-    let result = conversations;
+  // 2. Debounced backend search
+  useEffect(() => {
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
-    if (searchTerm && searchTerm.trim() !== '') {
-      const searchLower = searchTerm.toLowerCase().trim();
-      result = result.filter(c => {
-        const matchesAgent = agentFilter ? c.agentName === agentFilter : true;
-        if (!matchesAgent) return false;
+    const q = searchTerm.trim();
 
-        const name = (c.userName || '').toLowerCase();
-        const establishment = (c.establishmentName || '').toLowerCase();
-        const phone = (c.userId || '').replace(/\D/g, '');
-        const lastMsg = (c.lastMessage || '').toLowerCase();
-        const termClean = searchLower.replace(/\D/g, '');
-
-        // Busca Literal Simples (Mais rápida e garantida)
-        if (name.includes(searchLower)) return true;
-        if (establishment.includes(searchLower)) return true;
-        if (lastMsg.includes(searchLower)) return true;
-        if (termClean && phone.includes(termClean)) return true;
-
-        // Busca Fonética (Fallback)
-        if (phoneticMatch(c.userName, searchTerm)) return true;
-        if (phoneticMatch(c.establishmentName || '', searchTerm)) return true;
-
-        return false;
-      });
-    } else if (agentFilter) {
-      result = result.filter(c => c.agentName === agentFilter);
+    // Clear remote results when search is short
+    if (q.length < 3) {
+      setRemoteResults(null);
+      setIsSearching(false);
+      return;
     }
 
-    console.log('[DEBUG] Resultado do filtro:', result.length, 'conversas');
+    setIsSearching(true);
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        if (!currentTenant?.id) return;
+        const results = await coreService.searchConversations(currentTenant.id, q);
+        setRemoteResults(results);
+      } catch (err) {
+        console.error('[ConversationList] Backend search error:', err);
+        setRemoteResults(null);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 400);
 
-    // Sort by lastMessageTime DESC
-    return [...result].sort((a, b) => {
-      const timeA = new Date(a.lastMessageTime).getTime();
-      const timeB = new Date(b.lastMessageTime).getTime();
-      return timeB - timeA;
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [searchTerm, currentTenant?.id]);
+
+  // 3. Filter & Sort Logic — merges local + remote results
+  const filteredConversations = useMemo(() => {
+    const q = searchTerm.toLowerCase().trim();
+
+    // No search → apply only agent filter
+    if (!q) {
+      const result = agentFilter
+        ? conversations.filter(c => c.agentName === agentFilter)
+        : conversations;
+      return [...result].sort((a, b) =>
+        new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
+      );
+    }
+
+    // Local fast filter (instant, no network)
+    const phoneClean = q.replace(/\D/g, '');
+    const localMatches = conversations.filter(c => {
+      if (agentFilter && c.agentName !== agentFilter) return false;
+      const name = (c.userName || '').toLowerCase();
+      const establishment = (c.establishmentName || '').toLowerCase();
+      const phone = (c.userId || '').replace(/\D/g, '');
+      const lastMsg = (c.lastMessage || '').toLowerCase();
+
+      if (name.includes(q)) return true;
+      if (establishment.includes(q)) return true;
+      if (lastMsg.includes(q)) return true;
+      if (phoneClean && phone.includes(phoneClean)) return true;
+      if (phoneticMatch(c.userName, searchTerm)) return true;
+      if (phoneticMatch(c.establishmentName || '', searchTerm)) return true;
+      return false;
     });
-  }, [conversations, searchTerm, agentFilter]);
+
+    // Merge with backend results (dedup by id, local takes precedence)
+    const merged = [...localMatches];
+    if (remoteResults && remoteResults.length > 0) {
+      const existingIds = new Set(localMatches.map(c => c.id));
+      const extras = remoteResults.filter(c => !existingIds.has(c.id));
+      merged.push(...extras);
+    }
+
+    return merged.sort((a, b) =>
+      new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
+    );
+  }, [conversations, searchTerm, agentFilter, remoteResults]);
 
   const totalMessages = useMemo(() => {
     return filteredConversations.reduce((acc, curr) => acc + (curr.messageCount ?? curr.messages?.length ?? 0), 0);
   }, [filteredConversations]);
+
 
   return (
     <div className="h-full flex flex-col border-r border-border bg-card">
@@ -133,19 +172,21 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         <div className="relative">
           <input
             type="text"
-            placeholder="Buscar por nome ou mensagem..."
+            placeholder="Nome, telefone ou mensagem..."
             value={searchTerm}
             onChange={(e) => onSearchChange(e.target.value)}
             className="w-full pl-3 pr-8 py-2 bg-muted/50 border border-transparent focus:border-accent rounded-md text-sm focus:outline-none transition-all placeholder:text-muted-foreground/50"
           />
-          {searchTerm && (
+          {isSearching ? (
+            <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-accent animate-spin" />
+          ) : searchTerm ? (
             <button
               onClick={() => onSearchChange('')}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="h-3 w-3" />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 

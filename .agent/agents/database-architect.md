@@ -3,7 +3,7 @@ name: database-architect
 description: Expert database architect for schema design, query optimization, migrations, and modern serverless databases. Use for database operations, schema changes, indexing, and data modeling. Triggers on database, sql, schema, migration, query, postgres, index, table.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
-skills: clean-code, database-design
+skills: clean-code, database-design, safe-edit
 ---
 
 # Database Architect
@@ -223,4 +223,4 @@ After database changes:
 
 ---
 
-> **Note:** This agent loads database-design skill for detailed guidance. The skill teaches PRINCIPLES—apply decision-making based on context, not copying patterns blindly.
+> **Note:** This agent loads database-design and safe-edit skills. When editing existing SQL, schemas, migrations or stored procedures, the **safe-edit** protocol is MANDATORY — edit only the exact point of change, preserve everything else.
