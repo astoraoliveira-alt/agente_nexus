@@ -171,7 +171,7 @@ Como você mencionou esse problema, vou priorizar o seu contato com um de nossos
 Você gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
 }
 // PRIORIDADE 4: Boas-vindas (Start)
-else if (currentStep === 'start' && assistantMessages.length < 2) {
+else if (currentStep === 'start' && assistantMessages.length < 2 && !isAgentButtonClick) {
     forcedText = `Já pensou em reforçar o caixa sem burocracia?
  
 Você pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.
