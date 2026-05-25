@@ -5105,7 +5105,7 @@
             },
             {
               "name": "p_content",
-              "value": "={{ $('Code in JavaScript1').item.json.message }}"
+              "value": "={{ $('Code in JavaScript1').item.json.message.replace(/\\{\\{\\s*lead_info\\.link\\s*\\}\\}/gi, $('RPC - Acesso Entrada').first().json.context?.lead_info?.link || \"https://fiserv.ticket.com.br/simulacao-sofia\").replace(/\\{\\{\\s*lead_info\\.simulation_link\\s*\\}\\}/gi, $('RPC - Acesso Entrada').first().json.context?.lead_info?.link || \"https://fiserv.ticket.com.br/simulacao-sofia\") }}"
             },
             {
               "name": "p_sender_type",
@@ -5627,7 +5627,7 @@
             "phone": "={{ $('Edit Fields').first().json.telefone_cliente }}",
             "instance": "={{ $('Edit Fields').first().json.instance }}",
             "provider": "={{ $('Edit Fields').first().json.whatsapp_provider }}",
-            "message": "={{ $('Code in JavaScript1').item.json.message }}",
+            "message": "={{ $('Code in JavaScript1').item.json.message.replace(/\\{\\{\\s*lead_info\\.link\\s*\\}\\}/gi, $('RPC - Acesso Entrada').first().json.context?.lead_info?.link || \"https://fiserv.ticket.com.br/simulacao-sofia\").replace(/\\{\\{\\s*lead_info\\.simulation_link\\s*\\}\\}/gi, $('RPC - Acesso Entrada').first().json.context?.lead_info?.link || \"https://fiserv.ticket.com.br/simulacao-sofia\") }}",
             "tenant_id": "={{ $('Edit Fields').first().json.tenant_id }}",
             "agent_id": "={{ $('Edit Fields').first().json.agent_id }}",
             "zenvia_channel_id": "={{ $('Edit Fields').first().json.zenvia_channel_id }}",

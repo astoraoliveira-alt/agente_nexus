@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.15-BRIDGE';
+const VERSION = 'V66.16-BRIDGE';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -834,7 +834,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
 
                 let { data: originalMsg } = await supabaseAdmin
                     .from('messages')
-                    .select('id, agent_id, tenant_id, metadata, remote_id')
+                    .select('id, tenant_id, metadata, remote_id, conversations(agent_id)')
                     .eq('remote_id', remoteId)
                     .limit(1)
                     .maybeSingle();
@@ -843,7 +843,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (!originalMsg) {
                     const { data: fallbackMsg } = await supabaseAdmin
                         .from('messages')
-                        .select('id, agent_id, tenant_id, metadata, remote_id')
+                        .select('id, tenant_id, metadata, remote_id, conversations(agent_id)')
                         .filter('metadata->>correlationId', 'eq', remoteId)
                         .limit(1)
                         .maybeSingle();
@@ -854,8 +854,14 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     }
                 }
 
-                let agentId = originalMsg?.agent_id;
+                let agentId = (originalMsg as any)?.conversations?.agent_id;
                 let tenantId = originalMsg?.tenant_id;
+
+                if (!originalMsg) {
+                    console.warn(`[ZENVIA] [DLR] ⚠️ Message not found in database for remoteId: ${remoteId}. Body payload: ${JSON.stringify(body)}`);
+                } else if (!agentId) {
+                    console.warn(`[ZENVIA] [DLR] ⚠️ agent_id could not be resolved from conversation for remoteId: ${remoteId}, message_id: ${originalMsg.id}. Body payload: ${JSON.stringify(body)}`);
+                }
 
                 if (!agentId) {
                     // Fallback 1: ID do Canal (amenable-sweatpants)
@@ -1306,26 +1312,37 @@ async function startOutboundRecoveryWorker() {
                 .from('outbound_queue')
                 .select('*')
                 .in('status', ['pending', 'processing'])
-                .lt('updated_at', tenMinutesAgo)
+                .lt('created_at', tenMinutesAgo)
                 .limit(20);
 
-            if (error || !stuckItems || stuckItems.length === 0) return;
+            if (error) {
+                console.error(`[RECOVERY] ❌ Error fetching stuck outbound items in Porteiro: ${error.message} (details: ${JSON.stringify(error)})`);
+                return;
+            }
 
-            console.log(`[RECOVERY] 🔄 Found ${stuckItems.length} STUCK OUTBOUND messages. Re-queueing...`);
+            if (!stuckItems || stuckItems.length === 0) return;
+
+            console.log(`[RECOVERY] 🔄 Found ${stuckItems.length} STUCK OUTBOUND messages in Porteiro. Details: ${JSON.stringify(stuckItems.map(i => ({ id: i.id, tenant_id: i.tenant_id, agent_id: i.agent_id, status: i.status, created_at: i.created_at, phone: i.contact_phone }))) || '[]'}`);
 
             for (const item of stuckItems) {
-                // Reiniciamos o status para pending e zeramos o lock
-                await supabaseAdmin
+                console.log(`[RECOVERY] 🩹 Re-queueing stuck outbound item ID: ${item.id}, Status: ${item.status}, CreatedAt: ${item.created_at}, Phone: ${item.contact_phone}`);
+                const { error: updateError } = await supabaseAdmin
                     .from('outbound_queue')
                     .update({ 
                         status: 'pending', 
-                        updated_at: new Date().toISOString(),
-                        error_message: 'Recovered by Watchdog (Timeout SLA)' 
+                        last_attempt_at: new Date().toISOString(),
+                        error_message: `Recovered by Watchdog (Timeout SLA) - Stuck in ${item.status} since ${item.created_at}` 
                     })
                     .eq('id', item.id);
+
+                if (updateError) {
+                    console.error(`[RECOVERY] ❌ Failed to update stuck outbound item ID: ${item.id} in Porteiro. Error: ${updateError.message}`);
+                } else {
+                    console.log(`[RECOVERY] ✅ Successfully re-queued outbound item ID: ${item.id} in Porteiro`);
+                }
             }
         } catch (err: any) {
-            console.error('[RECOVERY] Outbound Watchdog Error:', err.message);
+            console.error('[RECOVERY] Outbound Watchdog Error in Porteiro:', err.message);
         }
     };
 
@@ -1333,26 +1350,45 @@ async function startOutboundRecoveryWorker() {
 }
 
 async function startInboundRecoveryWorker() {
-    // Este worker agora serve apenas para destravar itens em 'processing' há muito tempo
+    // Este worker agora serve apenas para destravar itens em 'processing' ou 'assigned' há muito tempo
     const recover = async () => {
         try {
             const fiveMinutesAgo = new Date(Date.now() - 300000).toISOString();
             
-            const { data: stuckItems } = await supabaseAdmin
+            const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .in('status', ['processing', 'assigned'])
-                .lt('updated_at', fiveMinutesAgo)
+                .lt('created_at', fiveMinutesAgo)
                 .limit(5);
 
-            if (stuckItems && stuckItems.length > 0) {
-                console.log(`[RECOVERY] 🚑 [V65.0] Rescuing ${stuckItems.length} stagnant items...`);
-                await supabaseAdmin
-                    .from('inbound_queue')
-                    .update({ status: 'pending', updated_at: new Date().toISOString() })
-                    .in('id', stuckItems.map(i => i.id));
+            if (error) {
+                console.error(`[RECOVERY] ❌ Error fetching stuck inbound items: ${error.message} (details: ${JSON.stringify(error)})`);
+                return;
             }
-        } catch (err) { 
+
+            if (stuckItems && stuckItems.length > 0) {
+                console.log(`[RECOVERY] 🚑 [V65.0] Rescuing ${stuckItems.length} stagnant inbound items. Details: ${JSON.stringify(stuckItems.map(i => ({ id: i.id, tenant_id: i.tenant_id, agent_id: i.agent_id, status: i.status, created_at: i.created_at, n8n_execution_id: i.n8n_execution_id }))) || '[]'}`);
+                
+                for (const item of stuckItems) {
+                    console.log(`[RECOVERY] 🚑 Rescuing stuck inbound item ID: ${item.id}, Status: ${item.status}, CreatedAt: ${item.created_at}, n8nExecutionId: ${item.n8n_execution_id}`);
+                    const { error: updateError } = await supabaseAdmin
+                        .from('inbound_queue')
+                        .update({ 
+                            status: 'pending', 
+                            locked_at: null,
+                            error_message: `Recovered by Watchdog (Timeout SLA) - Stuck in ${item.status} since ${item.created_at}` 
+                        })
+                        .eq('id', item.id);
+
+                    if (updateError) {
+                        console.error(`[RECOVERY] ❌ Failed to update stuck inbound item ID: ${item.id}. Error: ${updateError.message}`);
+                    } else {
+                        console.log(`[RECOVERY] ✅ Successfully rescued inbound item ID: ${item.id}`);
+                    }
+                }
+            }
+        } catch (err: any) { 
             console.error("[RECOVERY] ❌ Failed to recover stagnant items:", err);
         }
     };
