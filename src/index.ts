@@ -502,7 +502,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // 1. Find the agent matching this instance
         const { data: agents, error: agentError } = await supabaseAdmin
             .from('agents')
-            .select('id, tenant_id')
+            .select('id, tenant_id, whatsapp_provider')
             .eq('evolution_instance', instance)
             .limit(1);
 
@@ -520,6 +520,29 @@ app.post('/v1/evolution/webhook', async (c) => {
         }
 
         const agent = agents[0];
+
+        // --- 🛡️ ACTIVE PROVIDER VALIDATION (Evolution Gate) ---
+        const activeProvider = agent.whatsapp_provider || 'evolution';
+        if (activeProvider !== 'evolution') {
+            console.log(`[PORTEIRO] ⏭️ Skipping Evolution webhook for instance ${instance}: agent active provider is '${activeProvider}'`);
+            await logIntegration({
+                provider: 'evolution',
+                external_id: externalId || initialTraceId,
+                payload: payload,
+                trace_id: initialTraceId,
+                status: 'ignored',
+                tenant_id: agent.tenant_id,
+                agent_id: agent.id,
+                phone_number: phone,
+                path: '/v1/evolution/webhook',
+                latency_ms: Date.now() - startTime,
+                validation_results: { 
+                    reason: 'agent_provider_not_evolution', 
+                    active_provider: activeProvider 
+                }
+            });
+            return c.json({ status: 'ignored', reason: `agent_provider_not_evolution_active_${activeProvider}` });
+        }
 
         // 2. Upsert Contact (Garante que o contato tenha o ID limpo e o telefone normalizado)
         const { data: contact, error: contactError } = await supabaseAdmin
@@ -983,7 +1006,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 
                 const { data: agents } = await supabaseAdmin
                     .from('agents')
-                    .select('id, name, tenant_id, zenvia_channel_id')
+                    .select('id, name, tenant_id, zenvia_channel_id, whatsapp_provider')
                     .or(`zenvia_channel_id.eq.${channelId},zenvia_aliases.cs.{${channelId}}`)
                     .eq('status', 'active')
                     .limit(1);
@@ -993,6 +1016,29 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     return;
                 }
                 const agent = agents[0];
+
+                // --- 🛡️ ACTIVE PROVIDER VALIDATION (Zenvia Gate) ---
+                const activeProvider = agent.whatsapp_provider || 'evolution';
+                if (activeProvider !== 'zenvia') {
+                    console.log(`[ZENVIA] ⏭️ Skipping Zenvia webhook for channel ${channelId}: agent active provider is '${activeProvider}'`);
+                    await logIntegration({
+                        provider: 'zenvia',
+                        external_id: externalId || traceId,
+                        payload: body,
+                        status: 'ignored',
+                        tenant_id: agent.tenant_id,
+                        agent_id: agent.id,
+                        phone_number: phone,
+                        path: '/v1/zenvia/webhook',
+                        latency_ms: Date.now() - startTime,
+                        validation_results: { 
+                            reason: 'agent_provider_not_zenvia', 
+                            active_provider: activeProvider 
+                        }
+                    });
+                    return;
+                }
+
                 console.log(`[ZENVIA] 👤 Agente mapeado: ${agent.name || agent.id}`);
 
                 // Upsert Contato & Conversa
