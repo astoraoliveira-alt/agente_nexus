@@ -234,7 +234,7 @@ const HandoffHub: React.FC = () => {
                       <div className="flex items-center gap-2 mb-1">
                         <User className="h-4 w-4 text-muted-foreground" />
                         <span className="font-bold text-sm truncate">
-                          {conversations.find(c => c.id === request.conversation_id)?.userName || 'Cliente Desconhecido'}
+                          {request.conversations?.user_name || conversations.find(c => c.id === request.conversation_id)?.userName || 'Cliente Desconhecido'}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground italic bg-slate-50 p-2 rounded border border-black/5">

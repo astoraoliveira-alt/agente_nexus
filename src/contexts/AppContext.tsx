@@ -324,7 +324,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log('🔍 [Handoff] Buscando pedidos (Fila + Hoje) para:', currentTenant.id);
       const { data, error } = await supabase
         .from('handoff_requests')
-        .select('*')
+        .select('*, conversations(user_name, user_identifier)')
         .eq('tenant_id', currentTenant.id)
         .order('requested_at', { ascending: false })
         .limit(50); // Pegamos os últimos 50 para o histórico
@@ -421,12 +421,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
         async (payload: any) => {
           console.log('🔔 Handoff Signal:', payload.eventType);
           if (payload.eventType === 'INSERT') {
-            setHandoffRequests(prev => [payload.new, ...prev]);
+            // Fetch conversation details to populate user_name and user_identifier
+            const { data: conv } = await supabase
+              .from('conversations')
+              .select('user_name, user_identifier')
+              .eq('id', payload.new.conversation_id)
+              .single();
+            
+            const enrichedNew = {
+              ...payload.new,
+              conversations: conv || null
+            };
+            
+            setHandoffRequests(prev => [enrichedNew, ...prev]);
             toast.info("Novo pedido de humano!", {
                description: payload.new.initial_message || "Um cliente solicitou ajuda.",
             });
           } else if (payload.eventType === 'UPDATE') {
-            setHandoffRequests(prev => prev.map(h => h.id === payload.new.id ? payload.new : h));
+            setHandoffRequests(prev => prev.map(h => {
+              if (h.id === payload.new.id) {
+                return { ...payload.new, conversations: h.conversations };
+              }
+              return h;
+            }));
           } else if (payload.eventType === 'DELETE') {
             setHandoffRequests(prev => prev.filter(h => h.id === payload.old.id));
           }
