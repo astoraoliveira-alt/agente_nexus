@@ -117,7 +117,9 @@ export function AppSidebar() {
                 </div>
                 <div className="flex flex-col overflow-hidden">
                   <span className="font-semibold text-white truncate leading-tight">Davos Nexus</span>
-                  <span className="text-[10px] text-white/50 font-medium tracking-wide">v59.0.2</span>
+                  <span className="text-[10px] text-white/50 font-medium tracking-wide">
+                    {import.meta.env.VITE_APP_VERSION || 'v59.0.2'}
+                  </span>
                 </div>
               </>
             )}
