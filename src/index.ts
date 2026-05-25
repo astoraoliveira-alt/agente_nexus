@@ -1398,12 +1398,40 @@ async function startQueueWorker() {
             for (const item of queueItems) {
                 const agent = item.agents as any;
                 const apiType = agent?.whatsapp_api_type || 'evolution';
-                const message = item.metadata?.content || item.metadata?.message;
+                let message = item.metadata?.content || item.metadata?.message;
                 const contactPhone = item.contact_phone;
 
                 if (!message || !contactPhone) {
                     await supabaseAdmin.from('outbound_queue').update({ status: 'failed', error_message: 'Missing message or phone' }).eq('id', item.id);
                     continue;
+                }
+
+                // 🌟 PROTEÇÃO CONTRA ALUCINAÇÃO DE URL (Garante link exato da tabela agent_leads)
+                if (message.includes('fiservcapital.moneymoneyinvest.com.br') || message.includes('fiserv.ticket.com.br') || message.includes('solicite-agora')) {
+                    try {
+                        const cleanPhone = contactPhone.replace(/\D/g, '');
+                        const { data: leads } = await supabaseAdmin
+                            .from('agent_leads')
+                            .select('cta_link')
+                            .or(`whatsapp.eq.${cleanPhone},whatsapp.eq.${cleanPhone.replace(/^55/, '')}`)
+                            .not('cta_link', 'is', null)
+                            .order('created_at', { ascending: false })
+                            .limit(1);
+
+                        if (leads && leads.length > 0 && leads[0].cta_link) {
+                            const exactCtaLink = leads[0].cta_link;
+                            console.log(`[WORKER] 🔗 Resolving link discrepancy for ${cleanPhone}. Replacing with database cta_link: ${exactCtaLink.substring(0, 50)}...`);
+                            
+                            const linkRegex = /(https?:\/\/(?:fiservcapital\.moneymoneyinvest\.com\.br|fiserv\.ticket\.com\.br)[^\s]*)/gi;
+                            if (linkRegex.test(message)) {
+                                message = message.replace(linkRegex, exactCtaLink);
+                            } else {
+                                message = message.replace(/https?:\/\/fiser[^\s]+/gi, exactCtaLink);
+                            }
+                        }
+                    } catch (linkResolveErr: any) {
+                        console.error(`[WORKER] ⚠️ Error resolving exact link for ${contactPhone}:`, linkResolveErr.message);
+                    }
                 }
 
                 try {
