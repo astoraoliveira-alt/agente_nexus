@@ -1274,14 +1274,16 @@ async function startOutboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos mensagens presas em 'processing' ou 'pending' há mais de 10 minutos
+            // Buscamos mensagens presas em 'processing' há mais de 10 minutos (limite de segurança de 24h)
             const tenMinutesAgo = new Date(Date.now() - 10 * 60000).toISOString();
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('outbound_queue')
                 .select('*')
-                .in('status', ['pending', 'processing'])
+                .in('status', ['processing'])
                 .lt('created_at', tenMinutesAgo)
+                .gt('created_at', twentyFourHoursAgo)
                 .limit(20);
 
             if (error) {
@@ -1323,14 +1325,16 @@ async function startInboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos itens presos há mais de 2 minutos (Aumentado para evitar loops com Rate Limits do n8n)
+            // Buscamos itens presos há mais de 2 minutos (limite de segurança de 24h)
             const gracePeriod = new Date(Date.now() - 120000).toISOString();
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
-                .in('status', ['pending', 'processing', 'assigned'])
+                .in('status', ['processing', 'assigned'])
                 .lt('created_at', gracePeriod)
+                .gt('created_at', twentyFourHoursAgo)
                 .limit(50); // Aumentado para 50 para limpar o limbo instantaneamente
 
             if (error || !stuckItems || stuckItems.length === 0) return;

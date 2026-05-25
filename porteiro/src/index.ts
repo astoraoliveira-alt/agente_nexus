@@ -1305,14 +1305,16 @@ async function startOutboundRecoveryWorker() {
     
     const recover = async () => {
         try {
-            // Buscamos mensagens presas em 'processing' ou 'pending' há mais de 10 minutos
+            // Buscamos mensagens presas em 'processing' há mais de 10 minutos (limite de segurança de 24h)
             const tenMinutesAgo = new Date(Date.now() - 10 * 60000).toISOString();
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('outbound_queue')
                 .select('*')
-                .in('status', ['pending', 'processing'])
+                .in('status', ['processing'])
                 .lt('created_at', tenMinutesAgo)
+                .gt('created_at', twentyFourHoursAgo)
                 .limit(20);
 
             if (error) {
@@ -1354,12 +1356,14 @@ async function startInboundRecoveryWorker() {
     const recover = async () => {
         try {
             const fiveMinutesAgo = new Date(Date.now() - 300000).toISOString();
+            const twentyFourHoursAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
             
             const { data: stuckItems, error } = await supabaseAdmin
                 .from('inbound_queue')
                 .select('*')
                 .in('status', ['processing', 'assigned'])
                 .lt('created_at', fiveMinutesAgo)
+                .gt('created_at', twentyFourHoursAgo)
                 .limit(5);
 
             if (error) {
