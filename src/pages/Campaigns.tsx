@@ -1213,7 +1213,6 @@ export default function Campaigns() {
                                                                         value={newCampaign.reengagementWaitHours}
                                                                         onChange={(e) => setNewCampaign({ ...newCampaign, reengagementWaitHours: parseInt(e.target.value) })}
                                                                     >
-                                                                        <option value={12}>12h</option>
                                                                         <option value={24}>24h</option>
                                                                         <option value={48}>48h</option>
                                                                     </select>
@@ -1227,6 +1226,8 @@ export default function Campaigns() {
                                                                     >
                                                                         <option value={1}>1x</option>
                                                                         <option value={2}>2x</option>
+                                                                        <option value={3}>3x</option>
+                                                                        <option value={4}>4x</option>
                                                                     </select>
                                                                 </div>
                                                             </div>
