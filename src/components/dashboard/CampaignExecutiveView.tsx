@@ -235,14 +235,14 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
   };
 
   const getConversionColor = (value: number) => {
-    if (value <= 10) return 'bg-rose-500';
-    if (value <= 15) return 'bg-amber-400';
+    if (value <= 5) return 'bg-rose-500';
+    if (value < 10) return 'bg-amber-400';
     return 'bg-emerald-500';
   };
 
   const getConversionTextColor = (value: number) => {
-    if (value <= 10) return 'text-rose-600';
-    if (value <= 15) return 'text-amber-500';
+    if (value <= 5) return 'text-rose-600';
+    if (value < 10) return 'text-amber-500';
     return 'text-emerald-600';
   };
 
@@ -679,7 +679,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     }
 
     const isSuccess = ['enviada', 'concluída', 'concluida', 'convertida', 'entregue'].includes(normalized);
-    const isError = normalized === 'erro' || !!errorMessage;
+    const isError = ['erro', 'não entregue', 'não_entregue', 'rejeitada', 'failed', 'not_delivered', 'rejected'].includes(normalized);
     const isProcessing = normalized === 'processando';
 
     const classes = isSuccess
@@ -703,11 +703,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
           <Icon className="w-3 h-3" />
           {status}
         </span>
-        {errorMessage && (
-          <span className="text-[8px] font-bold text-rose-500 uppercase tracking-tight max-w-[150px] truncate">
-            {errorMessage}
-          </span>
-        )}
       </div>
     );
   };
@@ -930,9 +925,14 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                 </div>
 
                 {/* Linha 4: Vazamento do Funil */}
-                <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
-                  <KPISquare label="Abandono Leitura" value={Math.max(stats.read_count - stats.response_count, 0)} percentage={stats.read_count > 0 ? Math.min((Math.max(stats.read_count - stats.response_count, 0) / stats.read_count) * 100, 100) : 0} isNegative subLabel="Lidos s/ resposta" />
-                  <KPISquare label="Abandono Conv." value={Math.max(stats.response_count - stats.conversion_count, 0)} percentage={stats.response_count > 0 ? Math.min((Math.max(stats.response_count - stats.conversion_count, 0) / stats.response_count) * 100, 100) : 0} isNegative subLabel="Respondeu s/ Link" />
+                <div className="w-full border-t border-slate-100 pt-3">
+                  <KPISquare 
+                    label="Abandono Conv." 
+                    value={Math.max(stats.response_count - stats.conversion_count, 0)} 
+                    percentage={stats.response_count > 0 ? Math.min((Math.max(stats.response_count - stats.conversion_count, 0) / stats.response_count) * 100, 100) : 0} 
+                    isNegative 
+                    subLabel="Respondeu s/ Link" 
+                  />
                 </div>
               </div>
             </OperationCluster>

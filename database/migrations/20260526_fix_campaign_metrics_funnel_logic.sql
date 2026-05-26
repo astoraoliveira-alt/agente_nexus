@@ -1,8 +1,9 @@
--- ============================================================
--- RPC: get_campaign_metrics_v2
--- Descrição: Agrega métricas de performance de campanhas outbound
--- com isolamento temporal para evitar ruído de conversas antigas.
--- ============================================================
+-- ==========================================================
+-- Migration: Fix Campaign Metrics Funnel Logic
+-- Description: Ensures response_count (Conversas Iniciadas) includes
+-- all converted contacts, preserving the funnel relationship (responses >= conversions).
+-- Date: 2026-05-26
+-- ==========================================================
 
 CREATE OR REPLACE FUNCTION get_campaign_metrics_v2(
   p_campaign_id UUID DEFAULT NULL,

@@ -185,14 +185,21 @@ export default function Consumption() {
 
   const dailyTimeline = useMemo(() => {
     const days: Record<string, any> = {};
-    filteredMetrics.forEach(m => {
+    const now = new Date();
+    
+    // Sempre considera o range de 30 dias para o gráfico de tendência
+    let data = [...realMetrics].filter(m => (now.getTime() - m.timestamp.getTime()) < 30 * 24 * 60 * 60 * 1000);
+    if (agentFilter !== 'all') data = data.filter(m => m.agentId === agentFilter);
+    if (channelFilter !== 'all') data = data.filter(m => m.channel === channelFilter);
+
+    data.forEach(m => {
       const dateStr = m.timestamp.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
       if (!days[dateStr]) days[dateStr] = { date: dateStr, messages: 0, cost: 0 };
       if (m.metricType === 'messages' || m.metricType === 'whatsapp_window_24h') days[dateStr].messages += m.value;
       days[dateStr].cost += m.cost || 0;
     });
     return Object.values(days).reverse();
-  }, [filteredMetrics]);
+  }, [realMetrics, agentFilter, channelFilter]);
 
   const heatmapData = useMemo(() => {
     const daysMap = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];

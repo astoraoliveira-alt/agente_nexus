@@ -990,6 +990,7 @@ export interface Campaign {
   reengagementWaitHours?: number;
   reengagementMaxAttempts?: number;
   reengagementMessage?: string;
+  reengagementTemplateId?: string;
   createdAt: Date;
   updatedAt: Date;
 }

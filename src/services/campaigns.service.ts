@@ -463,6 +463,7 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             reengagementWaitHours: c.reengagement_wait_hours,
             reengagementMaxAttempts: c.reengagement_max_attempts,
             reengagementMessage: c.reengagement_message,
+            reengagementTemplateId: c.reengagement_template_id,
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
         }));
@@ -487,7 +488,8 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             reengagement_enabled: campaign.reengagementEnabled || false,
             reengagement_wait_hours: campaign.reengagementWaitHours || 24,
             reengagement_max_attempts: campaign.reengagementMaxAttempts || 1,
-            reengagement_message: campaign.reengagementMessage || ''
+            reengagement_message: campaign.reengagementMessage || '',
+            reengagement_template_id: campaign.reengagementTemplateId || null
         };
 
         const { data, error } = await supabase
@@ -519,6 +521,7 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             reengagementWaitHours: data.reengagement_wait_hours,
             reengagementMaxAttempts: data.reengagement_max_attempts,
             reengagementMessage: data.reengagement_message,
+            reengagementTemplateId: data.reengagement_template_id,
             createdAt: new Date(data.created_at),
             updatedAt: new Date(data.updated_at)
         } as any;
@@ -542,6 +545,7 @@ async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign
         if (updates.reengagementWaitHours !== undefined) dbPayload.reengagement_wait_hours = updates.reengagementWaitHours;
         if (updates.reengagementMaxAttempts !== undefined) dbPayload.reengagement_max_attempts = updates.reengagementMaxAttempts;
         if (updates.reengagementMessage !== undefined) dbPayload.reengagement_message = updates.reengagementMessage;
+        if (updates.reengagementTemplateId !== undefined) dbPayload.reengagement_template_id = updates.reengagementTemplateId;
         if (updates.totalContacts !== undefined) dbPayload.total_contacts = updates.totalContacts;
         if (updates.sentCount !== undefined) dbPayload.sent_count = updates.sentCount;
         if (updates.responseCount !== undefined) dbPayload.response_count = updates.responseCount;

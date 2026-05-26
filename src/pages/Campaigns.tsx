@@ -233,7 +233,8 @@ export default function Campaigns() {
         reengagementEnabled: false,
         reengagementWaitHours: 24,
         reengagementMaxAttempts: 1,
-        reengagementMessage: ""
+        reengagementMessage: "",
+        reengagementTemplateId: ""
     });
 
     useEffect(() => {
@@ -337,6 +338,7 @@ export default function Campaigns() {
                 reengagementWaitHours: newCampaign.reengagementWaitHours,
                 reengagementMaxAttempts: newCampaign.reengagementMaxAttempts,
                 reengagementMessage: newCampaign.reengagementMessage,
+                reengagementTemplateId: newCampaign.reengagementTemplateId || undefined,
             };
 
             if (newCampaign.id) {
@@ -385,7 +387,8 @@ export default function Campaigns() {
                 reengagementEnabled: false,
                 reengagementWaitHours: 24,
                 reengagementMaxAttempts: 1,
-                reengagementMessage: ""
+                reengagementMessage: "",
+                reengagementTemplateId: ""
             });
             await loadData();
         } catch (error) {
@@ -858,7 +861,8 @@ export default function Campaigns() {
             reengagementEnabled: campaign.reengagementEnabled || false,
             reengagementWaitHours: campaign.reengagementWaitHours || 24,
             reengagementMaxAttempts: campaign.reengagementMaxAttempts || 1,
-            reengagementMessage: campaign.reengagementMessage || ""
+            reengagementMessage: campaign.reengagementMessage || "",
+            reengagementTemplateId: campaign.reengagementTemplateId || ""
         });
         setIsCreateOpen(true);
     };
@@ -1259,6 +1263,20 @@ export default function Campaigns() {
                                                                 disabled={!newCampaign.reengagementEnabled}
                                                             />
                                                         </div>
+                                                        {newCampaign.reengagementEnabled && (
+                                                            <div className="space-y-2 animate-in fade-in duration-200">
+                                                                <Label className="text-[11px] uppercase font-bold text-slate-500">ID do Template de Reengajamento (Zenvia)</Label>
+                                                                <Input
+                                                                    placeholder={newCampaign.templateId || "f1af4efa-92b5-49cd-ba91-990d69989167"}
+                                                                    className="h-10 border-slate-200 focus:ring-accent rounded-none bg-white text-xs font-mono"
+                                                                    value={newCampaign.reengagementTemplateId}
+                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, reengagementTemplateId: e.target.value })}
+                                                                />
+                                                                <p className="text-[10px] text-slate-400">
+                                                                    Deixe em branco para usar o mesmo template principal da campanha (recomendado para aquecimento de leads).
+                                                                </p>
+                                                            </div>
+                                                        )}
                                                         <div className="p-3 bg-slate-50 border border-slate-100 space-y-2">
                                                             <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
                                                                 <Megaphone className="w-3 h-3" /> Preview de Conversa
