@@ -487,8 +487,16 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       };
 
       setStats({
-        ...statsData,
-        ...computed
+        total_contacts: statsData?.total_contacts ?? computed.total_contacts,
+        sent_count: statsData?.sent_count ?? computed.sent_count,
+        delivered_count: statsData?.delivered_count ?? computed.delivered_count,
+        read_count: statsData?.read_count ?? computed.read_count,
+        response_count: statsData?.response_count ?? computed.response_count,
+        conversion_count: statsData?.conversion_count ?? computed.conversion_count,
+        failed_count: statsData?.failed_count ?? computed.failed_count,
+        import_errors: statsData?.import_errors ?? computed.import_errors,
+        conversion_rate: statsData?.conversion_rate ?? 0,
+        success_criteria_used: statsData?.success_criteria_used ?? []
       } as any);
       setLeads(mappedLeads);
     } catch (error) {
@@ -840,13 +848,13 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             <OperationCluster title="Tráfego de Mensagens" subtitle="Envios e interações reais" icon={MessageSquare}>
               <KPISquare label="Enviados" value={stats.total_contacts} percentage={100} subLabel="Base: leads válidos" />
               <div className="grid grid-cols-2 gap-3">
-                <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? (stats.delivered_count / stats.total_contacts) * 100 : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
-                <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
+                <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? Math.min((stats.delivered_count / stats.total_contacts) * 100, 100) : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
+                <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? Math.min((stats.read_count / stats.delivered_count) * 100, 100) : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
               </div>
               <KPISquare 
                 label="Não entregues" 
                 value={Math.max(stats.total_contacts - stats.delivered_count, 0)} 
-                percentage={stats.total_contacts > 0 ? (Math.max(stats.total_contacts - stats.delivered_count, 0) / stats.total_contacts) * 100 : 0} 
+                percentage={stats.total_contacts > 0 ? Math.min((Math.max(stats.total_contacts - stats.delivered_count, 0) / stats.total_contacts) * 100, 100) : 0} 
                 isNegative 
                 accentClass="text-slate-400 opacity-80"
                 subLabel="Não recebidas (Zenvia)" 
@@ -874,7 +882,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Lidos" 
                     value={stats.read_count} 
-                    percentage={stats.delivered_count > 0 ? (stats.read_count / stats.delivered_count) * 100 : 0} 
+                    percentage={stats.delivered_count > 0 ? Math.min((stats.read_count / stats.delivered_count) * 100, 100) : 0} 
                     subLabel="Taxa Leitura" 
                     onClick={() => {
                       setSelectedStatuses(['Lida', 'Respondida', 'Convertida']);
@@ -888,7 +896,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Conversas Iniciadas" 
                     value={stats.response_count} 
-                    percentage={stats.delivered_count > 0 ? (stats.response_count / stats.delivered_count) * 100 : 0} 
+                    percentage={stats.delivered_count > 0 ? Math.min((stats.response_count / stats.delivered_count) * 100, 100) : 0} 
                     isInfo 
                     subLabel="Taxa Interação: (Conversas Iniciadas/Entregues)" 
                     onClick={() => {
@@ -903,7 +911,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Links Enviados" 
                     value={stats.conversion_count} 
-                    percentage={stats.delivered_count > 0 ? (stats.conversion_count / stats.delivered_count) * 100 : 0} 
+                    percentage={stats.delivered_count > 0 ? Math.min((stats.conversion_count / stats.delivered_count) * 100, 100) : 0} 
                     isPositive 
                     subLabel="Conversão/Entregues" 
                     onClick={() => {
@@ -914,7 +922,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   <KPISquare 
                     label="Pos Interação" 
                     value={`${(stats.response_count || 0) > 0 ? Math.min(Math.round(((stats.conversion_count || 0) / (stats.response_count || 0)) * 100), 100) : 0}%`}
-                    percentage={(stats.response_count || 0) > 0 ? (stats.conversion_count / stats.response_count) * 100 : 0}
+                    percentage={(stats.response_count || 0) > 0 ? Math.min((stats.conversion_count / stats.response_count) * 100, 100) : 0}
                     isPositive
                     subLabel="Eficácia Resposta"
                     hideValue={true}
@@ -923,8 +931,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
                 {/* Linha 4: Vazamento do Funil */}
                 <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
-                  <KPISquare label="Abandono Leitura" value={Math.max(stats.read_count - stats.response_count, 0)} percentage={stats.read_count > 0 ? (Math.max(stats.read_count - stats.response_count, 0) / stats.read_count) * 100 : 0} isNegative subLabel="Lidos s/ resposta" />
-                  <KPISquare label="Abandono Conv." value={Math.max(stats.response_count - stats.conversion_count, 0)} percentage={stats.response_count > 0 ? (Math.max(stats.response_count - stats.conversion_count, 0) / stats.response_count) * 100 : 0} isNegative subLabel="Respondeu s/ Link" />
+                  <KPISquare label="Abandono Leitura" value={Math.max(stats.read_count - stats.response_count, 0)} percentage={stats.read_count > 0 ? Math.min((Math.max(stats.read_count - stats.response_count, 0) / stats.read_count) * 100, 100) : 0} isNegative subLabel="Lidos s/ resposta" />
+                  <KPISquare label="Abandono Conv." value={Math.max(stats.response_count - stats.conversion_count, 0)} percentage={stats.response_count > 0 ? Math.min((Math.max(stats.response_count - stats.conversion_count, 0) / stats.response_count) * 100, 100) : 0} isNegative subLabel="Respondeu s/ Link" />
                 </div>
               </div>
             </OperationCluster>

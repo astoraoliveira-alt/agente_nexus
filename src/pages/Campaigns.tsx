@@ -278,6 +278,7 @@ export default function Campaigns() {
 
                 return {
                     ...campaign,
+                    totalContacts: liveStats.total_contacts,
                     sentCount: liveStats.sent_count,
                     deliveredCount: liveStats.delivered_count || 0,
                     readCount: liveStats.read_count || 0,
@@ -920,18 +921,16 @@ export default function Campaigns() {
     const totalCampaigns = campaigns.length;
     const totalInconsistencies = campaigns.reduce((acc, curr) => acc + (curr.importErrorCount || 0), 0);
     const totalLoadedLeads = campaigns.reduce((acc, curr) => {
-        const queueMetrics = queueMetricsByCampaign[curr.id] || { total: 0, sent: 0 };
-        return acc + queueMetrics.total + (curr.importErrorCount || 0);
+        return acc + (curr.totalContacts || 0) + (curr.importErrorCount || 0);
     }, 0);
     const totalValidLeads = campaigns.reduce((acc, curr) => {
-        const queueMetrics = queueMetricsByCampaign[curr.id] || { total: 0, sent: 0 };
-        return acc + queueMetrics.total;
+        return acc + (curr.totalContacts || 0);
     }, 0);
     const totalLinksSent = campaigns.reduce((acc, curr) => acc + (curr.conversionCount || 0), 0);
-    const totalLoadedPct = totalValidLeads > 0 ? (totalLoadedLeads / totalValidLeads) * 100 : 0;
-    const totalValidPct = totalValidLeads > 0 ? 100 : 0;
-    const totalInconsistenciesPct = totalValidLeads > 0 ? (totalInconsistencies / totalValidLeads) * 100 : 0;
-    const totalLinksSentPct = totalValidLeads > 0 ? (totalLinksSent / totalValidLeads) * 100 : 0;
+    const totalLoadedPct = totalLoadedLeads > 0 ? 100 : 0;
+    const totalValidPct = totalLoadedLeads > 0 ? Math.min((totalValidLeads / totalLoadedLeads) * 100, 100) : 0;
+    const totalInconsistenciesPct = totalLoadedLeads > 0 ? Math.min((totalInconsistencies / totalLoadedLeads) * 100, 100) : 0;
+    const totalLinksSentPct = totalValidLeads > 0 ? Math.min((totalLinksSent / totalValidLeads) * 100, 100) : 0;
 
     const filteredCampaigns = campaigns.filter(c =>
         c.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -1599,15 +1598,15 @@ export default function Campaigns() {
                                         {filteredCampaigns.map((campaign) => {
                                             const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0, delivered: 0 };
                                             const totalLoaded = (campaign.totalContacts || 0) + (campaign.importErrorCount || 0);
-                                            const validRecords = queueMetrics.total;
-                                            const sentMessages = campaign.sentCount || queueMetrics.sent;
+                                            const validRecords = campaign.totalContacts || queueMetrics.total || 0;
+                                            const sentMessages = campaign.sentCount || queueMetrics.sent || 0;
                                             const deliveredMessages = campaign.deliveredCount || queueMetrics.delivered || 0;
                                             const linksSent = campaign.conversionCount || 0;
                                             
-                                            const validPct = totalLoaded > 0 ? (validRecords / totalLoaded) * 100 : 0;
-                                            const sentPct = validRecords > 0 ? (sentMessages / validRecords) * 100 : 0;
-                                            const deliveredPct = validRecords > 0 ? (deliveredMessages / validRecords) * 100 : 0;
-                                            const linksPct = validRecords > 0 ? (linksSent / validRecords) * 100 : 0;
+                                            const validPct = totalLoaded > 0 ? Math.min((validRecords / totalLoaded) * 100, 100) : 0;
+                                            const sentPct = validRecords > 0 ? Math.min((sentMessages / validRecords) * 100, 100) : 0;
+                                            const deliveredPct = validRecords > 0 ? Math.min((deliveredMessages / validRecords) * 100, 100) : 0;
+                                            const linksPct = validRecords > 0 ? Math.min((linksSent / validRecords) * 100, 100) : 0;
 
                                             return (
                                                 <TableRow key={campaign.id} className="hover:bg-accent/5">
@@ -1662,13 +1661,13 @@ export default function Campaigns() {
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
                                                             <span className="font-semibold text-emerald-600">{(campaign as any).readCount || 0}</span>
-                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? (((campaign as any).readCount || 0) / validRecords * 100) : 0).toFixed(0)}%</span>
+                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? Math.min((((campaign as any).readCount || 0) / validRecords * 100), 100) : 0).toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
                                                             <span className="font-semibold text-orange-600">{(campaign as any).responseCount || 0}</span>
-                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? (((campaign as any).responseCount || 0) / validRecords * 100) : 0).toFixed(0)}%</span>
+                                                            <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? Math.min((((campaign as any).responseCount || 0) / validRecords * 100), 100) : 0).toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
