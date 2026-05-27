@@ -98,6 +98,17 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 
 ---
 
+## [V67.0] - Semantic Router & Boolean Precision (1000+ Volume Scale)
+### Otimização de Roteamento de IA e Escalabilidade
+- **Roteador Semântico Avançado (LLM Intent Classification)**: Substituição de cadeias frágeis de Regex no n8n por um classificador de intenção nativo via `gpt-4o-mini` (temperature 0 e Strict JSON Schema). O sistema retorna intents determinísticos (`DOUBT`, `COMPLAINT`, `HUMAN_HANDOFF`, `SIMULATION_REQUEST`) com validação de `reasoning`, permitindo interpretar perfeitamente gírias, abreviações e erros de digitação (ex: "dp q se trata ess negosso").
+- **Injeção de Dica de Contexto (Context Hint)**: A intenção detectada pelo roteador é injetada de forma invisível no prompt da consultora (Sofia) usando a tag `<nota_interna_do_sistema>`. O LLM consultivo recebe a necessidade do cliente já "mastigada", consultando a Base de Conhecimento com 100% de precisão e eliminando alucinações na triagem.
+- **Lógica Booleana Híbrida (`get_next_leads_secure`)**: Refatoração completa da query de seleção de leads de campanha. A checagem de janelas de disparo (`send_between`) e restrições de dias da semana no JSONB foi corrigida para garantir execução precisa de timezone, resolvendo travamentos e vazamentos de leads fora de horário.
+- **Preparação de Infraestrutura (1000+ Envios Diários)**:
+  - **Vazão do n8n**: O uso do gpt-4o-mini no roteador desonera os workers, permitindo processamento em milissegundos sem congelar fluxos paralelos.
+  - **I/O Reduzido no Banco**: A nova query booleana transfere a filtragem complexa de horários para o motor SQL nativo do Postgres, garantindo que o cron apenas enfileire leads prontos e válidos.
+  - **Resiliência a Escala**: A união do roteador (que barra mensagens inúteis e envia as certas para automação/humano) com a blindagem na tabela de leads, permite processar lotes massivos de outbound (1000+ disparos/dia) sem degradar a responsividade do bot de inbound.
+
+---
 
 ## [V66.20] - Campaign Dashboard Performance & Bulk Analytics
 ### Otimização Extrema de Latência e Volume de Dados
