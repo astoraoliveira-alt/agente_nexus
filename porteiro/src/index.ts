@@ -1292,14 +1292,15 @@ async function startHeartbeatWorker() {
     setInterval(pulse, 60000);
     // --- PORTARIA WATCHDOG V65.0 (SLOW BURN MODE) ---
     const RECOVERY_ENABLED = true; 
-    const BATCH_SIZE = 2; // Apenas 2 por vez para estabilidade total
+    const BATCH_SIZE = 5; // 5 por vez — seguro com o grace period de 30s
     const PUSH_DELAY = 1500; // 1.5s entre mensagens
     const POLLING_INTERVAL = 10000; // A cada 10 segundos
+    const MAX_RETRIES = 5; // Máximo de tentativas antes de marcar como 'failed'
 
     if (!RECOVERY_ENABLED) {
       console.log(`[SYS] 🛑 [V65.0] Recovery Workers are DISABLED.`);
     } else {
-      console.log(`[SYS] 🔥 [V65.0-SLOW-BURN] Engine ONLINE. Throttling: ${BATCH_SIZE} msg / ${POLLING_INTERVAL/1000}s`);
+      console.log(`[SYS] 🔥 [V66.1-DLQ] Engine ONLINE. Throttling: ${BATCH_SIZE} msg / ${POLLING_INTERVAL/1000}s | Max Retries: ${MAX_RETRIES}`);
       
       // 1. RESGATE DE PENDING
       setInterval(async () => {
@@ -1316,18 +1317,35 @@ async function startHeartbeatWorker() {
             .order('created_at', { ascending: true });
 
           if (pendingItems && pendingItems.length > 0) {
-            console.log(`[RECOVERY] 📉 [V66.0] Sending ${pendingItems.length} items to n8n...`);
+            console.log(`[RECOVERY] 📉 [V66.1] Processing ${pendingItems.length} pending items...`);
             for (const item of pendingItems) {
+              const currentRetries = (item.retry_count || 0) + 1;
+
+              // DLQ: Se atingiu o limite, marca como 'failed' e libera a fila
+              if (currentRetries > MAX_RETRIES) {
+                console.warn(`[RECOVERY] 💀 [DLQ] Item ${item.id} atingiu ${MAX_RETRIES} tentativas. Movendo para FAILED. Trace: ${item.trace_id}`);
+                await supabaseAdmin
+                  .from('inbound_queue')
+                  .update({ 
+                    status: 'failed', 
+                    error_message: `DLQ: Excedeu ${MAX_RETRIES} tentativas de recovery sem sucesso. Última tentativa: ${new Date().toISOString()}`,
+                    processed_at: new Date().toISOString()
+                  })
+                  .eq('id', item.id);
+                continue;
+              }
+
               await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
               
               const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
               if (n8nUrl) {
-                // Atualiza o created_at para NOW() no banco para dar um novo "grace period" de 30 segundos
-                // e evitar que o próximo ciclo de setInterval envie em duplicidade enquanto o n8n inicializa.
-                // Mantemos o status como 'pending' para que o n8n possa consumi-lo via fn_fetch_next_inbound_message.
+                // Atualiza o created_at para NOW() e incrementa retry_count
                 const { error: updateError } = await supabaseAdmin
                   .from('inbound_queue')
-                  .update({ created_at: new Date().toISOString() })
+                  .update({ 
+                    created_at: new Date().toISOString(),
+                    retry_count: currentRetries
+                  })
                   .eq('id', item.id);
 
                 if (updateError) {
@@ -1335,7 +1353,9 @@ async function startHeartbeatWorker() {
                   continue;
                 }
 
-                // PUSH DIRETO NO N8N - Bypassa o Porteiro para não clonar a mensagem
+                console.log(`[RECOVERY] 🔄 [V66.1] Retry ${currentRetries}/${MAX_RETRIES} for item ${item.id} [Trace: ${item.trace_id}]`);
+
+                // PUSH DIRETO NO N8N
                 fetch(n8nUrl, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
@@ -1410,7 +1430,8 @@ async function startOutboundRecoveryWorker() {
 }
 
 async function startInboundRecoveryWorker() {
-    // Este worker agora serve apenas para destravar itens em 'processing' ou 'assigned' há muito tempo
+    const MAX_STUCK_RETRIES = 5;
+    // Este worker destravar itens em 'processing' ou 'assigned' há muito tempo
     const recover = async () => {
         try {
             const fiveMinutesAgo = new Date(Date.now() - 300000).toISOString();
@@ -1430,16 +1451,34 @@ async function startInboundRecoveryWorker() {
             }
 
             if (stuckItems && stuckItems.length > 0) {
-                console.log(`[RECOVERY] 🚑 [V65.0] Rescuing ${stuckItems.length} stagnant inbound items. Details: ${JSON.stringify(stuckItems.map(i => ({ id: i.id, tenant_id: i.tenant_id, agent_id: i.agent_id, status: i.status, created_at: i.created_at, n8n_execution_id: i.n8n_execution_id }))) || '[]'}`);
+                console.log(`[RECOVERY] 🚑 [V66.1] Rescuing ${stuckItems.length} stagnant inbound items. Details: ${JSON.stringify(stuckItems.map(i => ({ id: i.id, status: i.status, retry_count: i.retry_count, created_at: i.created_at }))) || '[]'}`);
                 
                 for (const item of stuckItems) {
-                    console.log(`[RECOVERY] 🚑 Rescuing stuck inbound item ID: ${item.id}, Status: ${item.status}, CreatedAt: ${item.created_at}, n8nExecutionId: ${item.n8n_execution_id}`);
+                    const currentRetries = (item.retry_count || 0) + 1;
+
+                    // DLQ: Se já tentou demais, marca como failed definitivamente
+                    if (currentRetries > MAX_STUCK_RETRIES) {
+                        console.warn(`[RECOVERY] 💀 [DLQ] Stuck item ${item.id} atingiu ${MAX_STUCK_RETRIES} rescues. Movendo para FAILED. Status original: ${item.status}`);
+                        await supabaseAdmin
+                            .from('inbound_queue')
+                            .update({ 
+                                status: 'failed', 
+                                locked_at: null,
+                                error_message: `DLQ: Excedeu ${MAX_STUCK_RETRIES} tentativas de rescue (stuck em '${item.status}'). Última tentativa: ${new Date().toISOString()}`,
+                                processed_at: new Date().toISOString()
+                            })
+                            .eq('id', item.id);
+                        continue;
+                    }
+
+                    console.log(`[RECOVERY] 🚑 Rescuing item ${item.id} (${item.status}, retry ${currentRetries}/${MAX_STUCK_RETRIES})`);
                     const { error: updateError } = await supabaseAdmin
                         .from('inbound_queue')
                         .update({ 
                             status: 'pending', 
                             locked_at: null,
-                            error_message: `Recovered by Watchdog (Timeout SLA) - Stuck in ${item.status} since ${item.created_at}` 
+                            retry_count: currentRetries,
+                            error_message: `Recovered by Watchdog (retry ${currentRetries}/${MAX_STUCK_RETRIES}) - Stuck in ${item.status} since ${item.created_at}` 
                         })
                         .eq('id', item.id);
 
