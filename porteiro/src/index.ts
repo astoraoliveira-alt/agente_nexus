@@ -1304,10 +1304,14 @@ async function startHeartbeatWorker() {
       // 1. RESGATE DE PENDING
       setInterval(async () => {
         try {
+          // Só seleciona mensagens em 'pending' que tenham sido criadas há mais de 30 segundos,
+          // dando tempo para o n8n consumi-las normalmente e marcar como 'assigned' pelo RPC fn_fetch_next_inbound_message.
+          const thirtySecondsAgo = new Date(Date.now() - 30000).toISOString();
           const { data: pendingItems } = await supabaseAdmin
             .from('inbound_queue')
             .select('*')
             .eq('status', 'pending')
+            .lt('created_at', thirtySecondsAgo)
             .limit(BATCH_SIZE)
             .order('created_at', { ascending: true });
 
@@ -1318,14 +1322,16 @@ async function startHeartbeatWorker() {
               
               const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
               if (n8nUrl) {
-                // Marca como assigned imediatamente no banco para evitar concorrência com o próximo loop de setInterval
+                // Atualiza o created_at para NOW() no banco para dar um novo "grace period" de 30 segundos
+                // e evitar que o próximo ciclo de setInterval envie em duplicidade enquanto o n8n inicializa.
+                // Mantemos o status como 'pending' para que o n8n possa consumi-lo via fn_fetch_next_inbound_message.
                 const { error: updateError } = await supabaseAdmin
                   .from('inbound_queue')
-                  .update({ status: 'assigned' })
+                  .update({ created_at: new Date().toISOString() })
                   .eq('id', item.id);
 
                 if (updateError) {
-                  console.error(`[RECOVERY] ❌ Failed to lock item ${item.id}:`, updateError.message);
+                  console.error(`[RECOVERY] ❌ Failed to refresh grace period for item ${item.id}:`, updateError.message);
                   continue;
                 }
 
@@ -1341,14 +1347,7 @@ async function startHeartbeatWorker() {
                     payload: item.payload
                   })
                 })
-                .catch(async e => {
-                  console.error(`[RECOVERY] ❌ Push failed for item ${item.id}: ${e.message}`);
-                  // Se falhar o envio para o n8n, reverte para 'pending' para tentar novamente
-                  await supabaseAdmin
-                    .from('inbound_queue')
-                    .update({ status: 'pending', error_message: `n8n push failure: ${e.message}` })
-                    .eq('id', item.id);
-                });
+                .catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
               }
             }
           }
