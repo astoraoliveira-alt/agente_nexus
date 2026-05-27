@@ -99,6 +99,17 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 ---
 
 
+## [V66.20] - Campaign Dashboard Performance & Bulk Analytics
+### Otimização Extrema de Latência e Volume de Dados
+- **Deduplicação de Requisições de Campanha (RPC get_all_campaigns_metrics_v2)**: Introdução do método unificado para obter estatísticas de todas as campanhas de um inquilino agrupadas no banco de dados. Elimina a tempestade de requisições de 12+ chamadas paralelas síncronas na inicialização do painel executivo.
+- **Resiliência e Zero-Downtime**: Implementação de fallback no frontend (`CampaignExecutiveView.tsx`) que reverte de forma transparente para chamadas de métricas individuais caso o RPC bulk falhe ou não esteja disponível no schema.
+- **Camada de Dados Otimizada (getEnrichedOutboundQueue)**:
+  - **Filtro no Banco de Dados**: Consulta à `outbound_queue` passa a ser filtrada por `campaign_id` diretamente no Supabase em vez de processar toda a base em memória JavaScript.
+  - **Poda de Colunas**: Seleção cirúrgica de campos (`id, conversation_id, sent_at...`), reduzindo o payload de rede em 81,5% (de ~310kB para ~57kB).
+  - **Busca Condicional e Paginada em `agent_leads`**: Fim do download completo da tabela de leads. Agora a busca só ocorre sob demanda usando filtro indexado por lista de telefones (`.in('whatsapp', phones)`), eliminando o gargalo de I/O.
+
+---
+
 ## [V66.9] - Production Stability & Intelligent Context
 ### Estabilização de RPCs e Otimização de Memória
 - **Intelligent Sliding Window (RPC V66.9)**: Migração do histórico de mensagens estático para um modelo de janela deslizante inteligente. A Sofia agora consome o resumo da conversa (`metadata->'summary'`) injetado via sistema, reduzindo o peso do contexto em 70% sem perder a linha de raciocínio.

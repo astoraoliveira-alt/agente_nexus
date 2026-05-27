@@ -136,19 +136,35 @@ export function CampaignExecutiveView() {
         api.getAgents(currentTenant.id)
       ]);
 
-      // Keep summary and detail aligned by hydrating each campaign with the same RPC used in the detail view.
-      const statsResults = await Promise.allSettled(
-        campaignsData.map(async (campaign) => ({
-          campaignId: campaign.id,
-          stats: await api.getCampaignStats(campaign.id, currentTenant.id)
-        }))
-      );
+      // Optimize: Fetch all campaign stats in a single query if possible.
+      let statsByCampaignId = new Map<string, CampaignStats>();
+      let bulkSuccess = false;
 
-      const statsByCampaignId = new Map(
-        statsResults
-          .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: CampaignStats }> => result.status === 'fulfilled')
-          .map((result) => [result.value.campaignId, result.value.stats])
-      );
+      try {
+        const bulkStats = await api.getAllCampaignsStats(currentTenant.id);
+        if (bulkStats && Object.keys(bulkStats).length > 0) {
+          statsByCampaignId = new Map(Object.entries(bulkStats));
+          bulkSuccess = true;
+        }
+      } catch (bulkError) {
+        console.warn("Bulk campaign stats RPC failed or is not deployed. Falling back to individual requests.", bulkError);
+      }
+
+      // Fallback: If bulk stats lookup failed or returned no data, execute individual stats queries in parallel.
+      if (!bulkSuccess) {
+        const statsResults = await Promise.allSettled(
+          campaignsData.map(async (campaign) => ({
+            campaignId: campaign.id,
+            stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+          }))
+        );
+
+        statsByCampaignId = new Map(
+          statsResults
+            .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: CampaignStats }> => result.status === 'fulfilled')
+            .map((result) => [result.value.campaignId, result.value.stats])
+        );
+      }
 
       const campaignsWithLiveStats = campaignsData.map((campaign) => {
         const liveStats = statsByCampaignId.get(campaign.id);
@@ -164,7 +180,7 @@ export function CampaignExecutiveView() {
           deliveredCount: liveStats.delivered_count || 0,
           readCount: liveStats.read_count || 0,
           responseCount: liveStats.response_count,
-          totalMessages: liveStats.total_messages,
+          totalMessages: liveStats.total_messages || 0,
           conversionCount: liveStats.conversion_count,
           conversionRate: liveStats.conversion_rate,
           importErrorCount: liveStats.import_errors

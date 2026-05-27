@@ -130,18 +130,38 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
                 establishment_name: null
             }));
         }
-        const [{ data: leadsData, error: leadsError }, { data: queueContextData, error: queueContextError }] = await Promise.all([
-            supabase
-            .from('agent_leads')
-            .select('whatsapp, name, identifier')
-            .eq('tenant_id', tenantId)
-            .or('whatsapp.not.is.null,identifier.not.is.null'),
-            supabase
-                .from('outbound_queue')
-                .select('*')
-                .eq('tenant_id', tenantId)
-                .order('created_at', { ascending: false })
+
+        // Optimize outbound_queue fetch: filter by campaign_id database-side if campaignId is present,
+        // and only select the necessary columns to minimize memory/payload size.
+        let queueQuery = supabase
+            .from('outbound_queue')
+            .select('id, conversation_id, sent_at, created_at, campaign_id, response_detected')
+            .eq('tenant_id', tenantId);
+
+        if (campaignId) {
+            queueQuery = queueQuery.eq('campaign_id', campaignId);
+        }
+
+        // Fetch queueContextData and agent_leads selectively
+        // Only fetch agent_leads if there was an RPC error OR if we have rows with missing establishment_name
+        const needsAgentLeads = error || queueRows.some((row: any) => !String(row.establishment_name || '').trim());
+        const phonesToFetch = needsAgentLeads ? Array.from(new Set(queueRows.map((r: any) => r.contact_phone).filter(Boolean))) : [];
+
+        const [leadsResult, queueContextResult] = await Promise.all([
+            needsAgentLeads && phonesToFetch.length > 0
+                ? supabase
+                    .from('agent_leads')
+                    .select('whatsapp, name, identifier')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', phonesToFetch)
+                : Promise.resolve({ data: [], error: null }),
+            queueQuery.order('created_at', { ascending: false })
         ]);
+
+        const leadsData = leadsResult.data || [];
+        const leadsError = leadsResult.error;
+        const queueContextData = queueContextResult.data || [];
+        const queueContextError = queueContextResult.error;
 
         if (leadsError) {
             console.error('Error fetching establishment names for outbound queue:', leadsError);
@@ -171,7 +191,6 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
 
         const queueContextById = new Map<string, any>();
         for (const row of queueContextData || []) {
-            if (campaignId && (row as any).campaign_id !== campaignId) continue;
             queueContextById.set((row as any).id, row);
         }
 
@@ -645,6 +664,40 @@ async deleteCampaign(id: string): Promise<void> {
             conversion_rate: number;
             success_criteria_used: string[];
         };
+    },
+
+    async getAllCampaignsStats(tenantId: string): Promise<Record<string, any>> {
+        const { data, error } = await supabase.rpc('get_all_campaigns_metrics_v2', {
+            p_tenant_id: tenantId
+        });
+
+        if (error) {
+            console.error("❌ SUPABASE RPC ERROR (get_all_campaigns_metrics_v2):", {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+            });
+            throw error;
+        }
+
+        const statsMap: Record<string, any> = {};
+        for (const row of (data as any[] || [])) {
+            if (row.campaign_id) {
+                statsMap[row.campaign_id] = {
+                    total_contacts: row.total_contacts,
+                    import_errors: row.import_errors,
+                    sent_count: row.sent_count,
+                    delivered_count: row.delivered_count,
+                    read_count: row.read_count,
+                    response_count: row.response_count,
+                    conversion_count: row.conversion_count,
+                    failed_count: row.failed_count,
+                    conversion_rate: row.conversion_rate
+                };
+            }
+        }
+        return statsMap;
     },
 
     async getLeadsByPhones(tenantId: string, phones: string[]): Promise<any[]> {
