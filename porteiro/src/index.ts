@@ -1318,6 +1318,17 @@ async function startHeartbeatWorker() {
               
               const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
               if (n8nUrl) {
+                // Marca como assigned imediatamente no banco para evitar concorrência com o próximo loop de setInterval
+                const { error: updateError } = await supabaseAdmin
+                  .from('inbound_queue')
+                  .update({ status: 'assigned' })
+                  .eq('id', item.id);
+
+                if (updateError) {
+                  console.error(`[RECOVERY] ❌ Failed to lock item ${item.id}:`, updateError.message);
+                  continue;
+                }
+
                 // PUSH DIRETO NO N8N - Bypassa o Porteiro para não clonar a mensagem
                 fetch(n8nUrl, {
                   method: 'POST',
@@ -1330,11 +1341,14 @@ async function startHeartbeatWorker() {
                     payload: item.payload
                   })
                 })
-                .then(() => {
-                  // Marca como assigned imediatamente para não repetir enquanto o n8n trabalha
-                  supabaseAdmin.from('inbound_queue').update({ status: 'assigned' }).eq('id', item.id).then();
-                })
-                .catch(e => console.error(`[RECOVERY] ❌ Push failed: ${e.message}`));
+                .catch(async e => {
+                  console.error(`[RECOVERY] ❌ Push failed for item ${item.id}: ${e.message}`);
+                  // Se falhar o envio para o n8n, reverte para 'pending' para tentar novamente
+                  await supabaseAdmin
+                    .from('inbound_queue')
+                    .update({ status: 'pending', error_message: `n8n push failure: ${e.message}` })
+                    .eq('id', item.id);
+                });
               }
             }
           }
