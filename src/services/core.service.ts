@@ -463,7 +463,7 @@ export const coreService = {
         let contactsMap = new Map<string, string>();
         const establishmentMap = new Map<string, string>();
         if (userIdentifiers.length > 0) {
-            const [contactsResult, rpcEstablishmentsResult, leadsResult] = await Promise.all([
+            const [contactsResult, rpcEstablishmentsResult] = await Promise.all([
                 supabase
                     .from('contacts')
                     .select('identifier, status')
@@ -472,12 +472,7 @@ export const coreService = {
                 supabase.rpc('get_conversation_establishments', {
                     p_tenant_id: tenantId,
                     p_user_identifiers: userIdentifiers
-                }),
-                supabase
-                    .from('agent_leads')
-                    .select('whatsapp, name')
-                    .eq('tenant_id', tenantId)
-                    .not('whatsapp', 'is', null)
+                })
             ]);
 
             const { data: contactsData } = contactsResult;
@@ -503,18 +498,29 @@ export const coreService = {
                 console.warn('RPC get_conversation_establishments unavailable, falling back to direct agent_leads query:', rpcEstablishmentsResult.error.message);
             }
 
-            if (establishmentMap.size === 0 && leadsResult.error) {
-                console.error('Error fetching establishment names from agent_leads:', leadsResult.error);
-            }
+            // Lazy Fallback: Fetch agent_leads ONLY if RPC returned no names
+            if (establishmentMap.size === 0) {
+                const allVariants = Array.from(new Set(
+                    userIdentifiers.flatMap(id => this.getPhoneVariants(id))
+                ));
 
-            if (establishmentMap.size === 0 && !leadsResult.error && leadsResult.data) {
-                for (const lead of leadsResult.data as any[]) {
-                    const establishmentName = String(lead.name || '').trim();
-                    if (!establishmentName) continue;
+                const leadsResult = await supabase
+                    .from('agent_leads')
+                    .select('whatsapp, name')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', allVariants);
 
-                    for (const variant of this.getPhoneVariants(lead.whatsapp)) {
-                        if (!establishmentMap.has(variant)) {
-                            establishmentMap.set(variant, establishmentName);
+                if (leadsResult.error) {
+                    console.error('Error fetching establishment names from agent_leads:', leadsResult.error);
+                } else if (leadsResult.data) {
+                    for (const lead of leadsResult.data as any[]) {
+                        const establishmentName = String(lead.name || '').trim();
+                        if (!establishmentName) continue;
+
+                        for (const variant of this.getPhoneVariants(lead.whatsapp)) {
+                            if (!establishmentMap.has(variant)) {
+                                establishmentMap.set(variant, establishmentName);
+                            }
                         }
                     }
                 }
