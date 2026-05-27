@@ -916,7 +916,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   />
                   <KPISquare 
                     label="Pos Interação" 
-                    value={`${(stats.response_count || 0) > 0 ? Math.min(Math.round(((stats.conversion_count || 0) / (stats.response_count || 0)) * 100), 100) : 0}%`}
+                    value={`${(stats.response_count || 0) > 0 ? Math.min(((stats.conversion_count || 0) / (stats.response_count || 0)) * 100, 100).toFixed(1) : (0).toFixed(1)}%`}
                     percentage={(stats.response_count || 0) > 0 ? Math.min((stats.conversion_count / stats.response_count) * 100, 100) : 0}
                     isPositive
                     subLabel="Eficácia Resposta"
@@ -1320,7 +1320,7 @@ function KPISquare({
             isInfo ? "bg-blue-50 text-blue-600 border-blue-100" : 
             "bg-slate-50 text-slate-600 border-slate-100"
           )}>
-            {typeof percentage === 'number' ? `${percentage.toFixed(0)}%` : percentage}
+            {typeof percentage === 'number' ? `${percentage.toFixed(1)}%` : percentage}
           </div>
         )}
       </div>

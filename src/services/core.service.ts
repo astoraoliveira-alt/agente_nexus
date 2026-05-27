@@ -653,7 +653,7 @@ export const coreService = {
         return this.updateConversationStatus(conversationId, 'closed');
     },
 
-    async getConsumptionMetrics(tenantId: string, days: number = 30): Promise<any> {
+    async getConsumptionMetrics(tenantId: string, days: number = 30, startDate?: string, endDate?: string): Promise<any> {
         // 1. Fetch Company to get Plan Prices
         const { data: company, error: companyError } = await supabaseReader
             .from('companies')
@@ -671,7 +671,9 @@ export const coreService = {
         // 2. Fetch Detailed Consumption from RPC
         const { data, error } = await supabaseReader.rpc('get_detailed_consumption', {
             p_tenant_id: tenantId,
-            p_days: days
+            p_days: days,
+            p_start_date: startDate || null,
+            p_end_date: endDate || null
         });
 
         if (error) {
@@ -696,7 +698,9 @@ export const coreService = {
                     value: Number(m.value),
                     cost: Number(m.cost),
                     timestamp: m.recorded_at,
-                    tenantId
+                    tenantId,
+                    campaignId: null,
+                    reengagementAttempt: 0
                 })),
                 summary: { totalCost: 0 } // Basic summary on fallback
             };
@@ -728,7 +732,9 @@ export const coreService = {
                 value: value,
                 cost: cost,
                 timestamp: row.recorded_at,
-                tenantId: tenantId
+                tenantId: tenantId,
+                campaignId: row.campaign_id,
+                reengagementAttempt: row.reengagement_attempt
             };
         });
 
