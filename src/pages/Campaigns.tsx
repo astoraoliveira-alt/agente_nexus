@@ -523,12 +523,8 @@ export default function Campaigns() {
             });
             return;
         }
-
+        
         setImportData(processed);
-        toast({
-            title: "Arquivo carregado!",
-            description: `${processed.length} contatos prontos para importação.`
-        });
     };
 
     const handleImportContacts = async () => {

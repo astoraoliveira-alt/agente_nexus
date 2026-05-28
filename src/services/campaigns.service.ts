@@ -389,7 +389,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         };
     },
 
-async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {
+    async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact>[]): Promise<void> {
         const dbPayload = contacts.map(c => ({
             tenant_id: c.tenantId,
             agent_id: c.agentId,
@@ -401,16 +401,20 @@ async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact
             status: c.status || 'pending'
         }));
 
-        const { error } = await supabase
-            .from('outbound_queue')
-            .upsert(dbPayload, {
-                onConflict: 'campaign_id,contact_phone',
-                ignoreDuplicates: true
-            });
+        const chunkSize = 50;
+        for (let i = 0; i < dbPayload.length; i += chunkSize) {
+            const chunk = dbPayload.slice(i, i + chunkSize);
+            const { error } = await supabase
+                .from('outbound_queue')
+                .upsert(chunk, {
+                    onConflict: 'campaign_id,contact_phone',
+                    ignoreDuplicates: true
+                });
 
-        if (error) {
-            console.error('Error adding to outbound queue:', error);
-            throw error;
+            if (error) {
+                console.error(`Error adding to outbound queue (chunk ${i / chunkSize}):`, error);
+                throw error;
+            }
         }
     },
 
@@ -429,16 +433,20 @@ async addToOutboundQueue(contacts: Partial<import('@/lib/types').OutboundContact
             metadata: lead.metadata || {},
         }));
 
-        const { error } = await supabase
-            .from('agent_leads')
-            .upsert(dbPayload, {
-                onConflict: 'tenant_id,identifier',
-                ignoreDuplicates: false,
-            });
+        const chunkSize = 50;
+        for (let i = 0; i < dbPayload.length; i += chunkSize) {
+            const chunk = dbPayload.slice(i, i + chunkSize);
+            const { error } = await supabase
+                .from('agent_leads')
+                .upsert(chunk, {
+                    onConflict: 'tenant_id,identifier',
+                    ignoreDuplicates: false,
+                });
 
-        if (error) {
-            console.error('Error upserting agent leads:', error);
-            throw error;
+            if (error) {
+                console.error(`Error upserting agent leads (chunk ${i / chunkSize}):`, error);
+                throw error;
+            }
         }
     },
 

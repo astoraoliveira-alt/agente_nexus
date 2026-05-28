@@ -428,7 +428,8 @@ export const coreService = {
                 .from('conversations')
                 .select('*, agents:agent_id(name, type)')
                 .eq('tenant_id', tenantId)
-                .order('last_message_at', { ascending: false, nullsFirst: false }),
+                .order('last_message_at', { ascending: false, nullsFirst: false })
+                .limit(300),
             supabase.rpc('get_conversation_message_counts', { p_tenant_id: tenantId })
         ]);
 
@@ -504,22 +505,27 @@ export const coreService = {
                     userIdentifiers.flatMap(id => this.getPhoneVariants(id))
                 ));
 
-                const leadsResult = await supabase
-                    .from('agent_leads')
-                    .select('whatsapp, name')
-                    .eq('tenant_id', tenantId)
-                    .in('whatsapp', allVariants);
+                // Chunk the fallback to prevent 400 Bad Request URL too long
+                const CHUNK_SIZE = 100;
+                for (let i = 0; i < allVariants.length; i += CHUNK_SIZE) {
+                    const chunk = allVariants.slice(i, i + CHUNK_SIZE);
+                    const leadsResult = await supabase
+                        .from('agent_leads')
+                        .select('whatsapp, name')
+                        .eq('tenant_id', tenantId)
+                        .in('whatsapp', chunk);
 
-                if (leadsResult.error) {
-                    console.error('Error fetching establishment names from agent_leads:', leadsResult.error);
-                } else if (leadsResult.data) {
-                    for (const lead of leadsResult.data as any[]) {
-                        const establishmentName = String(lead.name || '').trim();
-                        if (!establishmentName) continue;
+                    if (leadsResult.error) {
+                        console.error('Error fetching establishment names from agent_leads chunk:', leadsResult.error);
+                    } else if (leadsResult.data) {
+                        for (const lead of leadsResult.data as any[]) {
+                            const establishmentName = String(lead.name || '').trim();
+                            if (!establishmentName) continue;
 
-                        for (const variant of this.getPhoneVariants(lead.whatsapp)) {
-                            if (!establishmentMap.has(variant)) {
-                                establishmentMap.set(variant, establishmentName);
+                            for (const variant of this.getPhoneVariants(lead.whatsapp)) {
+                                if (!establishmentMap.has(variant)) {
+                                    establishmentMap.set(variant, establishmentName);
+                                }
                             }
                         }
                     }
