@@ -660,6 +660,7 @@ async deleteCampaign(id: string): Promise<void> {
             });
             throw error;
         }
+        console.log("DEBUG getCampaignStats DATA:", data);
         return data as {
             total_contacts: number;
             import_errors: number;
@@ -691,6 +692,7 @@ async deleteCampaign(id: string): Promise<void> {
 
         const statsMap: Record<string, any> = {};
         for (const row of (data as any[] || [])) {
+            console.log("DEBUG CAMPAIGN METRICS ROW:", row.campaign_id, "BUTTON:", row.conversion_button_count, "CHAT:", row.conversion_chat_count, "TOTAL:", row.conversion_count);
             if (row.campaign_id) {
                 statsMap[row.campaign_id] = {
                     total_contacts: row.total_contacts,
@@ -700,6 +702,8 @@ async deleteCampaign(id: string): Promise<void> {
                     read_count: row.read_count,
                     response_count: row.response_count,
                     conversion_count: row.conversion_count,
+                    conversion_button_count: row.conversion_button_count,
+                    conversion_chat_count: row.conversion_chat_count,
                     failed_count: row.failed_count,
                     conversion_rate: row.conversion_rate
                 };

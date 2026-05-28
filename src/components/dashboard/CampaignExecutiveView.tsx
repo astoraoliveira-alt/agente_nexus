@@ -56,6 +56,8 @@ interface CampaignStats {
     failed_count: number;
     conversion_rate: number;
     total_messages: number;
+    conversion_button_count?: number;
+    conversion_chat_count?: number;
 }
 
 interface LeadResult {
@@ -168,6 +170,7 @@ export function CampaignExecutiveView() {
 
       const campaignsWithLiveStats = campaignsData.map((campaign) => {
         const liveStats = statsByCampaignId.get(campaign.id);
+        console.log(`Render Campaign ${campaign.id}:`, liveStats);
 
         if (!liveStats) {
           return campaign;
@@ -183,7 +186,9 @@ export function CampaignExecutiveView() {
           totalMessages: liveStats.total_messages || 0,
           conversionCount: liveStats.conversion_count,
           conversionRate: liveStats.conversion_rate,
-          importErrorCount: liveStats.import_errors
+          importErrorCount: liveStats.import_errors,
+          conversionButtonCount: liveStats.conversion_button_count || 0,
+          conversionChatCount: liveStats.conversion_chat_count || 0
         };
       });
 
@@ -512,7 +517,9 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         failed_count: statsData?.failed_count ?? computed.failed_count,
         import_errors: statsData?.import_errors ?? computed.import_errors,
         conversion_rate: statsData?.conversion_rate ?? 0,
-        success_criteria_used: statsData?.success_criteria_used ?? []
+        success_criteria_used: statsData?.success_criteria_used ?? [],
+        conversion_button_count: statsData?.conversion_button_count ?? 0,
+        conversion_chat_count: statsData?.conversion_chat_count ?? 0
       } as any);
       setLeads(mappedLeads);
     } catch (error) {
@@ -592,6 +599,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
   const selectedCampaign = campaigns.find(c => c.id === campaignId);
   const selectedAgent = agents.find(agent => agent.id === selectedCampaign?.agentId);
+
+  console.log("DEBUG RENDER CampaignDetailView STATS:", stats);
 
   const statusOptions = useMemo(() => {
     const options = Array.from(new Set(leads.map((lead) => lead.status)));
@@ -917,8 +926,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   />
                 </div>
 
-                {/* Linha 3: Conversão e Eficiência */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Linha 3: Conversão Realizada (Destaque) */}
+                <div className="w-full">
                   <KPISquare 
                     label="Links Enviados" 
                     value={stats.conversion_count} 
@@ -929,7 +938,32 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                       setSelectedStatuses(['Convertida']);
                       document.getElementById('monitor-table')?.scrollIntoView({ behavior: 'smooth' });
                     }}
-                  />
+                  >
+                    <div className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100/50 pt-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-black uppercase text-emerald-600/70 tracking-widest">Botão Inicial</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-emerald-700">{stats.conversion_button_count || 0}</span>
+                          <span className="text-[9px] font-bold text-emerald-600/50">
+                            ({stats.conversion_count > 0 ? Math.round(((stats.conversion_button_count || 0) / stats.conversion_count) * 100) : 0}%)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 border-l border-slate-100/50 pl-3">
+                        <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Via Chat (Agente)</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-black text-slate-700">{stats.conversion_chat_count || 0}</span>
+                          <span className="text-[9px] font-bold text-slate-400/50">
+                            ({stats.conversion_count > 0 ? Math.round(((stats.conversion_chat_count || 0) / stats.conversion_count) * 100) : 0}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </KPISquare>
+                </div>
+
+                {/* Linha 4: Eficiência e Vazamento do Funil */}
+                <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-3">
                   <KPISquare 
                     label="Pos Interação" 
                     value={`${(stats.response_count || 0) > 0 ? Math.min(((stats.conversion_count || 0) / (stats.response_count || 0)) * 100, 100).toFixed(1) : (0).toFixed(1)}%`}
@@ -938,10 +972,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     subLabel="Eficácia Resposta"
                     hideValue={true}
                   />
-                </div>
-
-                {/* Linha 4: Vazamento do Funil */}
-                <div className="w-full border-t border-slate-100 pt-3">
                   <KPISquare 
                     label="Abandono Conv." 
                     value={Math.max(stats.response_count - stats.conversion_count, 0)} 
@@ -1303,7 +1333,8 @@ function KPISquare({
   isNegative = false, 
   isInfo = false,
   isHighlight = false,
-  onClick
+  onClick,
+  children
 }: {
   label: string;
   value: string | number;
@@ -1315,6 +1346,7 @@ function KPISquare({
   isInfo?: boolean;
   isHighlight?: boolean;
   onClick?: () => void;
+  children?: React.ReactNode;
 }) {
   const displayValue = typeof value === 'number' ? value.toLocaleString('pt-BR') : value;
   return (
@@ -1360,6 +1392,7 @@ function KPISquare({
         </div>
         <span className="text-[9px] font-bold uppercase text-slate-400 tracking-tighter">{subLabel}</span>
       </div>
+      {children}
     </div>
   );
 }
