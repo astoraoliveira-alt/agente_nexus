@@ -98,6 +98,15 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 
 ---
 
+## [V67.1] - Massive Outbound Stabilization & UI Rendering Limits (1000+ Leads)
+### Estabilidade Operacional para Escala Massiva
+- **O(1) Trigger Migration (`trg_sync_campaign_stats`)**: O gatilho de atualização de métricas da campanha (enviados, lidos, falhados) foi reescrito. Ele substituiu um `COUNT(*)` O(N) obsoleto (que causava `500 Internal Server Error - Statement Timeout` e congelava o banco sob pressão) por um cálculo diferencial `O(1)`. Agora, ele opera deltas via comparações lógicas usando o estado `EXCLUDED`, permitindo a inserção simultânea de +1000 leads na fila em milissegundos sem sobrecarga transacional.
+- **Bulk Import Chunking**: A importação e o *upsert* de contatos no frontend (`campaigns.service.ts`) tiveram o tamanho do lote otimizado de 200 para 50 registros por vez. Isso suaviza a curva de I/O na tabela `outbound_queue` do Supabase e evita colapsos do PostgREST.
+- **Conversation UI Capping**: Para suportar campanhas massivas (onde a importação de 1000 contatos gera 1000 instâncias inativas de "conversas"), foi aplicada uma restrição de segurança no frontend (`core.service.ts`). A renderização do painel de conversas limita a busca inicial às 300 interações mais recentes (`.limit(300)`). Contatos antigos permanecem perfeitamente acessíveis via a busca de banco indexada sob demanda, impedindo o congelamento da memória RAM do navegador e lentidão crítica da UI.
+- **URI Limit Protection (Fallback Chunking)**: Em caso de indisponibilidade da RPC nativa de cruzamento de dados (`get_conversation_establishments`), o frontend agora fatia a consulta direta em lotes de 100 IDs. Evita a quebra da camada REST do Supabase (`400 Bad Request`) gerada por payloads e URLs hipertrofiadas ao passar milhares de parâmetros num único construtor `.in()`.
+
+---
+
 ## [V67.0] - Semantic Router & Boolean Precision (1000+ Volume Scale)
 ### Otimização de Roteamento de IA e Escalabilidade
 - **Roteador Semântico Avançado (LLM Intent Classification)**: Substituição de cadeias frágeis de Regex no n8n por um classificador de intenção nativo via `gpt-4o-mini` (temperature 0 e Strict JSON Schema). O sistema retorna intents determinísticos (`DOUBT`, `COMPLAINT`, `HUMAN_HANDOFF`, `SIMULATION_REQUEST`) com validação de `reasoning`, permitindo interpretar perfeitamente gírias, abreviações e erros de digitação (ex: "dp q se trata ess negosso").
