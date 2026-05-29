@@ -2364,6 +2364,26 @@ Para elevar a precisão do ROI e a visibilidade operacional, o Nexus V66.20 amad
 
 ---
 
+## 14. Separação de Responsabilidades: Inbound vs Outbound [V67.3]
+Para resolver os problemas de mensagens duplicadas em campanhas massivas e garantir a precisão durante o cruzamento de campanhas concorrentes e respostas de usuários (Inbound), a arquitetura foi estritamente dividida:
+
+### 14.1 O Fluxo de Saída (Outbound Campaigns)
+- **Centralizado no n8n (Cron):** Todo o envio de campanhas é de responsabilidade **exclusiva** de um workflow do n8n que atua via Cron (ex: a cada 30 minutos).
+- **Controle de Gargalo (Banco de Dados):** O n8n **não** carrega toda a campanha de uma vez. Ele consulta a função `get_next_leads_secure()`, que extrai do banco (tabela `outbound_queue`) um lote fixo de registros por vez (utilizando `FOR UPDATE SKIP LOCKED`).
+- **Garantia de Precisão (Válvula Natural):** Múltiplas campanhas agendadas para o mesmo horário não sobrecarregam o sistema, pois o n8n continuará puxando e enviando em lotes controlados.
+- **Idempotência (A Barreira de Aço):** (Fase 4 implementada) Cada envio de campanha no n8n gera e verifica uma `p_idempotency_key`. Isso garante no nível do banco (`ON CONFLICT`) que o mesmo registro da fila nunca possa ser consumido ou gerado duas vezes.
+- **Isolamento do Porteiro:** O worker nativo do Porteiro (`startQueueWorker`) foi permanentemente **DESATIVADO**, eliminando o "cabo de guerra" que existia quando o Porteiro tentava enviar campanhas ao mesmo tempo que o n8n.
+
+### 14.2 O Fluxo de Entrada (Inbound Real-Time)
+- **Centralizado no Porteiro (Gateway):** Quando um cliente responde, a API do WhatsApp (Evolution/Zenvia) bate no webhook do Porteiro.
+- **Via Expressa (Real-Time):** O Porteiro persiste a mensagem na `inbound_queue` e, quase instantaneamente, faz um Push Webhook pro n8n (`N8N_INBOUND_WEBHOOK`).
+- **Scale Guardian Atualizado:** O limite `MAX_CONCURRENT_JOBS` do Porteiro foi elevado de 50 para **75**, garantindo que rajadas de respostas dos clientes não enfileirem demais em memória.
+- **Header de Priorização:** O Porteiro agora injeta o header `X-Nexus-Job-Type: INBOUND` nos webhooks enviados ao n8n, permitindo que o n8n saiba instantaneamente o nível de prioridade da mensagem.
+
+Essa divisão clara transforma o banco de dados no "maestro" seguro do Outbound (cadenciado e sem duplicação) e deixa as vias de rede expressas e livres para o Inbound conversar com os leads em tempo real.
+
+---
+
 ## 24. Consolidação de Documentação & Débitos Técnicos (Tombstone)
 Para garantir a limpeza do repositório, os seguintes arquivos foram consolidados neste SST e **removidos** do sistema:
 - `N8N_VS_NODEJS_MIGRATION.md`: (Consolidado na Seção 2.1)
@@ -2372,4 +2392,4 @@ Para garantir a limpeza do repositório, os seguintes arquivos foram consolidado
 - `LEGACY_POLLING_DOCS.md`: (Removido em favor da Seção 3.2)
 
 ---
-*Este documento é a única fonte da verdade (SST) para o Davos Nexus v66.20.*
+*Este documento é a única fonte da verdade (SST) para o Davos Nexus v67.3.*
