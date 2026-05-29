@@ -2390,16 +2390,16 @@ Como o n8n dispara a mensagem mas a provedora bate no webhook do Porteiro para i
 ### 14.4 Auditoria de Segurança e Contramedidas (Deep Dive)
 Durante a consolidação da arquitetura de mensageria em larga escala, implementamos três contramedidas cirúrgicas para mitigar vulnerabilidades clássicas de sistemas distribuídos:
 
-1. **Determinismo na Chave de Idempotência (Blindagem contra Random UUIDs)**
+1. **Determinismo Duplo na Chave de Idempotência (Blindagem contra Reimportações e Random UUIDs)**
    Em muitos pipelines frágeis, o injetor (n8n) gera um UUID em runtime. Isso quebra a idempotência se houver timeout e *retry*, pois a nova tentativa geraria um UUID diferente.
-   *A Contramedida:* A nossa RPC `handle_outbound_sent` foi projetada para receber o `p_trace_id` (que é extraído diretamente do `id` fixo do registro na `outbound_queue`). Caso a chave primária de idempotência falte, o banco utiliza o ID do registro da fila. O determinismo é inquebrável: independentemente de quantas vezes o n8n tente reprocessar aquele exato lead, a chave atrelada ao `ON CONFLICT` será sempre a mesma, bloqueando magicamente as duplicidades no banco de dados.
+   *A Contramedida:* A nossa RPC `handle_outbound_sent` foi projetada para receber o `p_idempotency_key` (injetado via n8n como `campaign_id_phone`) e, em caso de ausência, fazer fallback para o `p_trace_id` (o `id` fixo do registro na fila). Essa dupla camada garante que mesmo se um lead for reimportado acidentalmente (gerando um novo ID de fila), a combinação de `campaign_id_phone` barra o envio duplicado sumariamente através do `ON CONFLICT`.
 
 2. **Watchdog Implacável (Prevenção de Deadlocks no Outbound)**
    Em filas puramente processadas por Cron, uma grande preocupação é a de leads que ficam com o status de travado (`processing`) caso o *worker* falhe antes de dar a baixa, especialmente fora das janelas de horário de envio de campanhas.
    *A Contramedida:* Na RPC `get_next_leads_secure()`, o *script* de Auto-Recuperação que revoga o status `processing` (para leads travados há mais de 30 minutos) está posicionado **antes** da validação da janela de envio temporal (`IF NOT v_allowed_now`). Logo, o *garbage collection* dos leads paralisados opera indiscriminadamente em todas as execuções, limpando a casa mesmo durante as madrugadas fechadas das campanhas. 
 
-3. **Performance Assertiva e Throughput das Provedoras**
-   *A Contramedida Matemática:* A nossa vazão máxima configurada dita que o cron despacha ~100 leads por minuto, o equivalente a `1.6 mensagens por segundo`. Isso resolve de sobra uma campanha ambiciosa (ex: 2.000 leads em 4 horas exigiriam apenas 8.3 envios por minuto). Essa cadência passa silenciosamente e sem fricções pelos rigorosos *Rate Limits* das operadoras (A Zenvia suporta cerca de 20 a 30 req/s, e a Evolution lida perfeitamente com picos de 10 req/s em instâncias locais).
+3. **Performance Assertiva e Throughput via Batching Controlado**
+   *A Contramedida Matemática:* O fluxo de campanha do n8n roda a cada 30 minutos em formato de lote, utilizando um nó *Wait* de 1 segundo entre cada envio para estabilização de requisições. A vazão real sustentada é de ~60 leads por minuto (1 req/s) durante o processamento do lote. Para campanhas volumosas (ex: 2.000 envios em 8 horas), um limite configurado no DB de ~125 leads por ciclo cron (30 min) mantém o n8n processando o lote por ~2 minutos ininterruptos e descansando 28, passando pacificamente por qualquer gargalo da Zenvia (que suporta 30+ req/s) e Evolution.
 
 ---
 
