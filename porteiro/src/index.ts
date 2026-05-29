@@ -34,7 +34,7 @@ console.warn = (...args) => originalWarn(getTimestamp(), ...args);
 const DEBOUNCE_TIME_MS = 1500; // Tempo de espera para agrupar mensagens
 
 // Ajuste 4: Limite de jobs simultâneos (anti-colapso)
-const MAX_CONCURRENT_JOBS = 50;
+const MAX_CONCURRENT_JOBS = 75;
 let activeJobs = 0;
 
 // Ajuste 5: Backoff exponencial para retries
@@ -734,7 +734,7 @@ app.post('/v1/evolution/webhook', async (c) => {
                         try {
                             const n8nRes = await fetch(n8nWebhookUrl, {
                                 method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
+                                headers: { 'Content-Type': 'application/json', 'X-Nexus-Job-Type': 'INBOUND' },
                                 body: JSON.stringify({
                                     trace_id: traceId,
                                     conversation_id: conversationId,
@@ -1121,7 +1121,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     if (n8nUrl) {
                         fetch(n8nUrl, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', 'X-Nexus-Job-Type': 'INBOUND' },
                             body: JSON.stringify({ trace_id: trace, conversation_id: convId, tenant_id: agent.tenant_id })
                         }).catch((e) => console.error(`[ZENVIA] ❌ Erro ao avisar n8n:`, e));
                     }
@@ -1243,7 +1243,7 @@ app.post('/v1/queue/retry/:id', async (c) => {
     if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
         fetch(n8nWebhookUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Nexus-Job-Type': 'INBOUND' },
             body: JSON.stringify({
                 trace_id: item.trace_id,
                 conversation_id: item.conversation_id,
@@ -1358,7 +1358,7 @@ async function startHeartbeatWorker() {
                 // PUSH DIRETO NO N8N
                 fetch(n8nUrl, {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 'Content-Type': 'application/json', 'X-Nexus-Job-Type': 'INBOUND' },
                   body: JSON.stringify({
                     trace_id: item.trace_id,
                     conversation_id: item.conversation_id,
@@ -1788,7 +1788,7 @@ const port = Number(process.env.PORT) || 3001;
 // Initial start delay to let Supabase settle
 setTimeout(() => {
     console.log(`[SYS] ⏳ Starting Backend Services...`);
-    startQueueWorker(); // Captura mensagens que vêm do Supabase (Outbound)
+    // startQueueWorker(); // DESATIVADO: Outbound agora é 100% responsabilidade do n8n (Cron)
     startInboundRecoveryWorker(); // Recupera mensagens presas (Inbound)
     startOutboundRecoveryWorker(); // NOVO: Watchdog de mensagens presas no Outbound (Ponto 3.1 & 3.4)
     startHeartbeatWorker(); // Inicia pulso de saúde (Observabilidade)

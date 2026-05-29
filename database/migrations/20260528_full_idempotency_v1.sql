@@ -1,17 +1,109 @@
--- ========================================================== --
--- DAVOS NEXUS - HANDLE_OUTBOUND_SENT (V5.4)                 --
--- Cleanup and Strict n8n Compatibility                      --
--- ========================================================== --
+-- ==============================================================================
+-- DAVOS NEXUS - IDEMPOTÊNCIA TOTAL (FASE 4) - OUTBOUND E INBOUND
+-- Data: 2026-05-28
+-- Objetivo: Impedir o duplo disparo de mensagens no n8n causados por retries.
+-- ==============================================================================
 
-DO $$ 
+-- ------------------------------------------------------------------------------
+-- PARTE 1: PROTEÇÃO DO INBOUND (PORTEIRO)
+-- Se a Evolution der timeout e reenviar o webhook, a fila de entrada ignora 
+-- se já estiver processando ou processado, mantendo a lógica de produção intacta.
+-- ------------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION public.fn_enqueue_inbound_message(
+    p_tenant_id uuid,
+    p_agent_id uuid,
+    p_conversation_id uuid,
+    p_external_id text,
+    p_payload jsonb,
+    p_trace_id text DEFAULT NULL,
+    p_message_type text DEFAULT 'conversation',
+    p_latency_ms integer DEFAULT 0
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
-    r RECORD;
+    v_next_seq int;
 BEGIN
-    FOR r IN (SELECT oid::regprocedure as sig FROM pg_proc WHERE proname = 'handle_outbound_sent' AND pronamespace = 'public'::regnamespace) 
-    LOOP
-        EXECUTE 'DROP FUNCTION ' || r.sig;
-    END LOOP;
-END $$;
+    -- Calcula próximo número na sequência se houver conversa
+    IF p_conversation_id IS NOT NULL THEN
+        SELECT COALESCE(MAX(sequence_number), 0) + 1 
+        INTO v_next_seq
+        FROM public.inbound_queue
+        WHERE conversation_id = p_conversation_id;
+    ELSE
+        v_next_seq := 1;
+    END IF;
+
+    INSERT INTO public.inbound_queue (
+        tenant_id, 
+        agent_id, 
+        conversation_id, 
+        external_id, 
+        sequence_number, 
+        payload, 
+        status,
+        trace_id,
+        gateway_latency_ms,
+        message_type
+    )
+    VALUES (
+        p_tenant_id, 
+        p_agent_id, 
+        p_conversation_id, 
+        p_external_id, 
+        v_next_seq, 
+        p_payload, 
+        'pending',
+        p_trace_id,
+        COALESCE(p_latency_ms, 0),
+        COALESCE(p_message_type, 'conversation')
+    )
+    ON CONFLICT (tenant_id, external_id) 
+    DO UPDATE SET 
+        status = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.status 
+            ELSE 'pending' 
+        END,
+        trace_id = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.trace_id
+            ELSE EXCLUDED.trace_id
+        END,
+        created_at = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.created_at
+            ELSE NOW()
+        END,
+        message_type = EXCLUDED.message_type, -- Garante que o tipo seja atualizado no reenvio
+        payload = EXCLUDED.payload; -- Atualiza payload se Zenvia mandar dados novos
+END;
+$$;
+
+-- ------------------------------------------------------------------------------
+-- PARTE 2: PROTEÇÃO DO OUTBOUND QUEUE (CAMPANHAS)
+-- Adiciona idempotency_key e dedup_at para controle exato de tentativas.
+-- ------------------------------------------------------------------------------
+
+-- Adiciona a coluna de chave de idempotência
+ALTER TABLE public.outbound_queue ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(255);
+ALTER TABLE public.outbound_queue ADD COLUMN IF NOT EXISTS dedup_at TIMESTAMPTZ;
+
+-- Backfill das chaves existentes baseado no padrão campaign:phone:1
+UPDATE public.outbound_queue 
+SET idempotency_key = campaign_id || ':' || contact_phone || ':1' 
+WHERE idempotency_key IS NULL;
+
+-- Garante a unicidade da chave por tenant e campanha
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_idempotency 
+ON public.outbound_queue(campaign_id, idempotency_key);
+
+
+-- ------------------------------------------------------------------------------
+-- PARTE 3: ESCUDO DEFINITIVO NA TABELA DE MENSAGENS (O BANCO DE DADOS DECIDE)
+-- Alteração da RPC que insere a mensagem final. Mantém o código de produção original
+-- e adiciona o parâmetro opcional p_idempotency_key.
+-- ------------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.handle_outbound_sent(
     p_tenant_id uuid,

@@ -1,5 +1,5 @@
 -- DAVOS NEXUS - RPC: fn_enqueue_inbound_message (Versão Elite V5.4 - RESILIENTE)
--- Descrição: Apaga versões antigas e cria a nova com suporte total a message_type.
+-- Descrição: Apaga versões antigas e cria a nova com suporte total a message_type e Idempotência Total.
 
 DO $$ 
 DECLARE
@@ -72,9 +72,18 @@ BEGIN
     )
     ON CONFLICT (tenant_id, external_id) 
     DO UPDATE SET 
-        status = 'pending',
-        trace_id = EXCLUDED.trace_id,
-        created_at = NOW(),
+        status = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.status 
+            ELSE 'pending' 
+        END,
+        trace_id = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.trace_id
+            ELSE EXCLUDED.trace_id
+        END,
+        created_at = CASE 
+            WHEN inbound_queue.status IN ('done', 'processing', 'assigned', 'failed') THEN inbound_queue.created_at
+            ELSE NOW()
+        END,
         message_type = EXCLUDED.message_type, -- Garante que o tipo seja atualizado no reenvio
         payload = EXCLUDED.payload; -- Atualiza payload se Zenvia mandar dados novos
 END;

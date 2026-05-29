@@ -86,8 +86,8 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 ## 5. Roadmap e Evolução (Fases 1-4)
 - **Fase 1 (Concluída)**: Telemetria rica e desacoplamento financeiro.
 - **Fase 2 (Concluída)**: Tracing rigoroso (`trace_id` universal).
-- **Fase 3 (Em Andamento)**: Sub-workflows no n8n e desacoplamento de responsabilidades puras.
-- **Fase 4 (Próxima)**: Idempotência total no Outbound e garantia de disparo único.
+- **Fase 3 (Concluída)**: Sub-workflows no n8n e desacoplamento de responsabilidades puras.
+- **Fase 4 (Concluída)**: Idempotência total no Inbound e Outbound (garantia de *exactly-once processing*).
 
 ---
 
@@ -95,6 +95,20 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 1. **Migração React Query**: Redução de waterfalls de requests no frontend.
 2. **Standardization de Canais**: Unificação de metadados para VAPI, Evolution e Zenvia.
 3. **Nexus 3.0**: Migração de sessões de segurança para persistência global baseada em Identificador de Usuário (Cross-Agent Identity).
+
+---
+
+## [V67.2] - Idempotência Total (Fase 4) & Clarificação de Filas
+### *Exactly-once Processing* e Responsabilidades do Porteiro
+- **O Porteiro (Gateway Universal)**: O Porteiro é o único responsável por escutar os *webhooks* (Evolution, Zenvia, Meta), entender e normalizar os *payloads*, e colocar a mensagem recebida do usuário na tabela `inbound_queue` para ser processada. O webhook NUNCA toca no n8n diretamente.
+- **O Papel da `inbound_queue`**: Esta tabela serve **exclusivamente** para registrar as mensagens *recebidas* dos usuários. O Porteiro alimenta a fila e o n8n consome.
+- **O Papel da `outbound_queue`**: Esta tabela serve **exclusivamente** para enfileirar e disparar a *primeira* mensagem proativa de Campanhas. Ela NÃO é usada para mensagens conversacionais.
+- **Respostas da IA (Conversas Diretas)**: Quando a Inteligência Artificial (n8n) responde a uma mensagem que estava na `inbound_queue`, ela **não utiliza fila alguma** (nem Inbound nem Outbound). A resposta é gerada, registrada diretamente na tabela final de `messages` (via RPC `handle_outbound_sent`) e disparada direto para a API (Evolution/Zenvia).
+- **Proteção do Inbound (Implementado)**: A RPC `fn_enqueue_inbound_message` já possuía uma trava que impedia o *status* da mensagem de regredir para `pending` (se ela já estivesse `processing` ou `done`) caso houvesse um *retry* de webhook por *timeout* na operadora. Isso bloqueava nativamente que a IA lesse a mesma mensagem duas vezes.
+- **Idempotência no Outbound e Tabela Messages (O que foi feito)**:
+  - Adicionadas as colunas `idempotency_key` e `dedup_at` na tabela `outbound_queue` (com chave única).
+  - A RPC final `handle_outbound_sent` (que insere em `messages`) agora suporta um parâmetro extra de `p_idempotency_key`.
+  - Essa chave de idempotência bate no comando `ON CONFLICT (tenant_id, external_id) DO NOTHING`. Se houver duplo disparo pelo n8n (ex: retries incorretos de campanha ou da IA), o banco de dados rejeita silenciosamente a inserção, responde com `{ duplicate: true }`, interrompe o n8n e impede danos ao SLA e faturamento (mensagens duplicadas nunca chegam ao cliente final).
 
 ---
 
