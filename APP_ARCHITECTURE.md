@@ -2364,24 +2364,28 @@ Para elevar a precisão do ROI e a visibilidade operacional, o Nexus V66.20 amad
 
 ---
 
-## 14. Separação de Responsabilidades: Inbound vs Outbound [V67.3]
-Para resolver os problemas de mensagens duplicadas em campanhas massivas e garantir a precisão durante o cruzamento de campanhas concorrentes e respostas de usuários (Inbound), a arquitetura foi estritamente dividida:
+## 14. Separação de Responsabilidades e Prevenção de Race Conditions [V67.3]
 
-### 14.1 O Fluxo de Saída (Outbound Campaigns)
-- **Centralizado no n8n (Cron):** Todo o envio de campanhas é de responsabilidade **exclusiva** de um workflow do n8n que atua via Cron (ex: a cada 30 minutos).
-- **Controle de Gargalo (Banco de Dados):** O n8n **não** carrega toda a campanha de uma vez. Ele consulta a função `get_next_leads_secure()`, que extrai do banco (tabela `outbound_queue`) um lote fixo de registros por vez (utilizando `FOR UPDATE SKIP LOCKED`).
-- **Garantia de Precisão (Válvula Natural):** Múltiplas campanhas agendadas para o mesmo horário não sobrecarregam o sistema, pois o n8n continuará puxando e enviando em lotes controlados.
-- **Idempotência (A Barreira de Aço):** (Fase 4 implementada) Cada envio de campanha no n8n gera e verifica uma `p_idempotency_key`. Isso garante no nível do banco (`ON CONFLICT`) que o mesmo registro da fila nunca possa ser consumido ou gerado duas vezes.
-- **Isolamento do Porteiro:** O worker nativo do Porteiro (`startQueueWorker`) foi permanentemente **DESATIVADO**, eliminando o "cabo de guerra" que existia quando o Porteiro tentava enviar campanhas ao mesmo tempo que o n8n.
+Como Engenheiros de Infraestrutura, observamos que o modelo híbrido anterior (onde tanto o Porteiro em Node.js quanto o n8n competiam pelo consumo da `outbound_queue`) gerava race conditions severas sob alta carga (Rajadas de Campanhas), resultando em duplicidade de disparos. Para resolver isso em definitivo, a arquitetura foi desmembrada em dois fluxos estritamente isolados, guiados por locks de banco de dados.
 
-### 14.2 O Fluxo de Entrada (Inbound Real-Time)
-- **Centralizado no Porteiro (Gateway):** Quando um cliente responde, a API do WhatsApp (Evolution/Zenvia) bate no webhook do Porteiro.
-- **Via Expressa (Real-Time):** O Porteiro persiste a mensagem na `inbound_queue` e, quase instantaneamente, faz um Push Webhook pro n8n (`N8N_INBOUND_WEBHOOK`).
-- **Scale Guardian Atualizado:** O limite `MAX_CONCURRENT_JOBS` do Porteiro foi elevado de 50 para **75**, garantindo que rajadas de respostas dos clientes não enfileirem demais em memória.
-- **Header de Priorização:** O Porteiro agora injeta o header `X-Nexus-Job-Type: INBOUND` nos webhooks enviados ao n8n, permitindo que o n8n saiba instantaneamente o nível de prioridade da mensagem.
+### 14.1 Arquitetura de Outbound (Batch / Cron Polling)
+O envio ativo (Campanhas e mensagens frias) foi inteiramente delegado ao n8n, transformando-o no único consumidor da fila de saída.
 
-Essa divisão clara transforma o banco de dados no "maestro" seguro do Outbound (cadenciado e sem duplicação) e deixa as vias de rede expressas e livres para o Inbound conversar com os leads em tempo real.
+- **Mecanismo de Lock (Row-Level Security):** O consumo da fila não é feito por queries abertas. O n8n invoca a RPC `get_next_leads_secure()`, que utiliza internamente `SELECT ... FOR UPDATE SKIP LOCKED`. Isso garante atomicidade: múltiplas instâncias ou execuções sobrepostas do n8n (ex: campanhas simultâneas) jamais conseguirão dar *fetch* na mesma linha concorrentemente.
+- **Controle de Vazão (Rate Limiting via DB):** Ao invés de carregar a campanha inteira em memória (o que gerava OOM ou timeouts no Node), a RPC processa o consumo em lotes estritos limitados por parâmetro (ex: 50 a 100 mensagens por tick do cron).
+- **Barreira de Idempotência Fixa (Fase 4):** Foi introduzido um constraint inquebrável na RPC de atualização de envio (`handle_outbound_sent`). O n8n passa uma `p_idempotency_key` única. Se houver falha de rede e o n8n tentar reexecutar o envio do mesmo lead, a restrição de unicidade no banco abortará o segundo processamento.
+- **Depreciação de Worker Node.js:** O daemon `startQueueWorker` que habitava o Porteiro foi permanentemente **desativado**. O Porteiro não tem mais permissão ou rotina para enviar mensagens proativamente.
 
+### 14.2 Arquitetura de Inbound (Real-Time API Gateway)
+Com a remoção do peso do Outbound, o Porteiro (Node.js) foi otimizado para atuar puramente como um API Gateway de altíssima performance para Ingestão de Dados.
+
+- **Scale Guardian e Memory Management:** A variável `MAX_CONCURRENT_JOBS` foi parametrizada para `75`. Como o Porteiro não lida mais com o dispendioso envio massivo, sua memória é totalmente preservada para paralelizar requisições concorrentes de entrada sem estourar o Event Loop.
+- **Express Push para o n8n:** Toda mensagem de Inbound que chega das provedoras (Zenvia/Evolution) é submetida ao Gatekeeper (verificações de bloqueio, RLS, status da conta) e despachada para o n8n através do webhook Inbound via `HTTP POST`. 
+- **QoS (Quality of Service) Headers:** O Porteiro injeta o cabeçalho `X-Nexus-Job-Type: INBOUND` nas chamadas ao n8n. No futuro, isso permitirá que o balanceador do n8n priorize mensagens de humanos sobre respostas lentas de inteligência artificial.
+
+### 14.3 Resiliência em DLRs (Delivery Receipts) e Assincronicidade
+Como o n8n dispara a mensagem mas a provedora bate no webhook do Porteiro para informar o status (`SENT`, `DELIVERED`, `READ`), há uma latência natural entre o envio e o reconhecimento do `remoteId` no banco.
+- **Engenharia de Fallback:** O Porteiro está preparado para falhas de Lookup de Message ID. Caso um webhook de Status chegue antes do banco consolidar a mensagem enviada pelo n8n, o Porteiro executa rotinas de Fallback (Lookup reverso via Telefone/Canal) para atrelar forçadamente a notificação de leitura/entrega ao contato correto, invocando as RPCs estritamente tipadas para atualizar a tabela `conversations`.
 ---
 
 ## 24. Consolidação de Documentação & Débitos Técnicos (Tombstone)
