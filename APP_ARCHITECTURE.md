@@ -2401,6 +2401,10 @@ Durante a consolidação da arquitetura de mensageria em larga escala, implement
 3. **Performance Assertiva e Throughput via Batching Controlado**
    *A Contramedida Matemática:* O fluxo de campanha do n8n roda a cada 30 minutos em formato de lote, utilizando um nó *Wait* de 1 segundo entre cada envio para estabilização de requisições. A vazão real sustentada é de ~60 leads por minuto (1 req/s) durante o processamento do lote. Para campanhas volumosas (ex: 2.000 envios em 8 horas), um limite configurado no DB de ~125 leads por ciclo cron (30 min) mantém o n8n processando o lote por ~2 minutos ininterruptos e descansando 28, passando pacificamente por qualquer gargalo da Zenvia (que suporta 30+ req/s) e Evolution.
 
+4. **Payload Zenvia Robusto (Prevenção de Falha Silenciosa em Templates)**
+   O provedor Zenvia possui um payload estrito para injeção de links em templates oficiais, exigindo o valor limpo das variáveis. Extrações via funções básicas de split (ex: `.split('?t=')[1]`) geram falhas silenciosas e quebras da requisição caso o *link* venha malformado do banco ou sem parâmetros de tracking.
+   *A Contramedida:* Implementamos um parsing baseado em **Expressão Regular Regex Dinâmica** (`.match(/[?&]t=([^&]+)/)`) diretamente no bloco do n8n. Isso garante que a variável do link seja capturada com segurança, operando com "graceful degradation": se a URL for lixo ou estiver ausente, ela retorna *string vazia* silenciosamente sem interromper o loop de processamento do envio ou engatar em `TypeError` na engine JavaScript do n8n.
+
 ---
 
 ## 24. Consolidação de Documentação & Débitos Técnicos (Tombstone)
