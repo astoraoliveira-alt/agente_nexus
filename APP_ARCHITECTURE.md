@@ -2386,6 +2386,21 @@ Com a remoção do peso do Outbound, o Porteiro (Node.js) foi otimizado para atu
 ### 14.3 Resiliência em DLRs (Delivery Receipts) e Assincronicidade
 Como o n8n dispara a mensagem mas a provedora bate no webhook do Porteiro para informar o status (`SENT`, `DELIVERED`, `READ`), há uma latência natural entre o envio e o reconhecimento do `remoteId` no banco.
 - **Engenharia de Fallback:** O Porteiro está preparado para falhas de Lookup de Message ID. Caso um webhook de Status chegue antes do banco consolidar a mensagem enviada pelo n8n, o Porteiro executa rotinas de Fallback (Lookup reverso via Telefone/Canal) para atrelar forçadamente a notificação de leitura/entrega ao contato correto, invocando as RPCs estritamente tipadas para atualizar a tabela `conversations`.
+
+### 14.4 Auditoria de Segurança e Contramedidas (Deep Dive)
+Durante a consolidação da arquitetura de mensageria em larga escala, implementamos três contramedidas cirúrgicas para mitigar vulnerabilidades clássicas de sistemas distribuídos:
+
+1. **Determinismo na Chave de Idempotência (Blindagem contra Random UUIDs)**
+   Em muitos pipelines frágeis, o injetor (n8n) gera um UUID em runtime. Isso quebra a idempotência se houver timeout e *retry*, pois a nova tentativa geraria um UUID diferente.
+   *A Contramedida:* A nossa RPC `handle_outbound_sent` foi projetada para receber o `p_trace_id` (que é extraído diretamente do `id` fixo do registro na `outbound_queue`). Caso a chave primária de idempotência falte, o banco utiliza o ID do registro da fila. O determinismo é inquebrável: independentemente de quantas vezes o n8n tente reprocessar aquele exato lead, a chave atrelada ao `ON CONFLICT` será sempre a mesma, bloqueando magicamente as duplicidades no banco de dados.
+
+2. **Watchdog Implacável (Prevenção de Deadlocks no Outbound)**
+   Em filas puramente processadas por Cron, uma grande preocupação é a de leads que ficam com o status de travado (`processing`) caso o *worker* falhe antes de dar a baixa, especialmente fora das janelas de horário de envio de campanhas.
+   *A Contramedida:* Na RPC `get_next_leads_secure()`, o *script* de Auto-Recuperação que revoga o status `processing` (para leads travados há mais de 30 minutos) está posicionado **antes** da validação da janela de envio temporal (`IF NOT v_allowed_now`). Logo, o *garbage collection* dos leads paralisados opera indiscriminadamente em todas as execuções, limpando a casa mesmo durante as madrugadas fechadas das campanhas. 
+
+3. **Performance Assertiva e Throughput das Provedoras**
+   *A Contramedida Matemática:* A nossa vazão máxima configurada dita que o cron despacha ~100 leads por minuto, o equivalente a `1.6 mensagens por segundo`. Isso resolve de sobra uma campanha ambiciosa (ex: 2.000 leads em 4 horas exigiriam apenas 8.3 envios por minuto). Essa cadência passa silenciosamente e sem fricções pelos rigorosos *Rate Limits* das operadoras (A Zenvia suporta cerca de 20 a 30 req/s, e a Evolution lida perfeitamente com picos de 10 req/s em instâncias locais).
+
 ---
 
 ## 24. Consolidação de Documentação & Débitos Técnicos (Tombstone)
