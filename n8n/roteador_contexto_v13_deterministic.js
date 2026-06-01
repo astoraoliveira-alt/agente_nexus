@@ -1,11 +1,12 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V17.31 - CONTEXTUAL FAQ UPDATE
+/* 🧭 ROTEADOR DE CONTEXTO - V18.2 - SEMANTIC & REGEX HYBRID
    - Restauração: FAQ Técnico Integral (SST).
    - Atualização: Novo FAQ Institucional/Operacional Ticket.
    - Correção: Evita que 'não recebi reembolso' dispare transbordo (isComplaint) indevido.
-   - Refinamento: Detecção ampliada de dúvidas institucionais (isDoubt).
-   - Emojis: Regra absoluta de no máximo 1 emoji em todo o histórico da conversa.
-   - Simplificação: Explicação padrão do empréstimo sem conceitos de BMP ou trava.
-   - Fix: Substituição resiliente de link para garantir envio exato do banco.
+   - Memória: Injeção do histórico de mensagens no prompt consultivo (Item 2).
+   - Antirrepetição: Detector de loops semânticos para respostas estáticas repetidas.
+   - NOVO: Roteamento Híbrido (Regex + LLM Semântica) com Injeção de Contexto Oculto.
+   - HOTFIX V18.1: Precedência absoluta para o botão "Falar com um agente!"
+   - HOTFIX V18.2: Correção de handoff de loop (remoção da alucinação de dados bancários) e ajuste na Regex de Reclamação (remoção de "cancelar").
 */
 
 const rpcData = $node["RPC - Acesso Entrada"].json;
@@ -28,6 +29,21 @@ const history = ctx.messages_history || [];
 const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
 const lastUserLower = currentMsg.toLowerCase();
 
+// --- 0) LEITURA DO ROTEADOR SEMÂNTICO (LLM PRÉVIA) ---
+let semanticIntent = "OTHER";
+let semanticReasoning = "";
+
+try {
+    // Tenta ler do nó 'Message a model1'. Se renomear o nó no n8n, atualize o nome aqui:
+    const semanticData = $('Message a model1').first()?.json?.output?.[0]?.content?.[0]?.text;
+    if (semanticData) {
+        semanticIntent = semanticData.intent || "OTHER";
+        semanticReasoning = semanticData.reasoning || "";
+    }
+} catch (e) {
+    // Falha silenciosa para não quebrar o fluxo caso o nó seja removido
+}
+
 // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
 const assistantMessages = history.filter(m =>
     ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
@@ -49,33 +65,39 @@ if (linkAlreadySent) {
     currentStep = 'explicacao_agente';
 }
 
-// --- 2) INTENÇÕES ---
+// --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
 const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
 
-// Detecta quando o cliente pede que A SOFIA simule (não pede o link)
 const isSelfSimulationRequest =
     /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
     /\b(vc|voc[eê]|tu|pra mim|por mim|aqui|me faz|poderia|consegue|conseguiria|faz(er)?)\b/i.test(lastUserLower);
 
-// isLinkRequest exclui isSelfSimulationRequest para não disparar parrot errado
 const isLinkRequest = !isSelfSimulationRequest && (
     /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) ||
     (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) ||
-    (/^link$/i.test(lastUserLower))
+    (/^link$/i.test(lastUserLower)) ||
+    semanticIntent === "SIMULATION_REQUEST" // <- Híbrido
 );
 
 const isAffirmative = (/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower);
 const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
 
-// isDoubt ampliado para capturar novos tópicos do FAQ institucional
-const isDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
+// Híbrido: Regex Dúvida + Semantic Dúvida
+const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
+const isDoubt = regexDoubt || semanticIntent === "DOUBT"; 
 
-const isHumanRequest = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
+// Híbrido: Regex Humano + Semantic Humano
+const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
+
+// CORREÇÃO 1: Anula a LLM se for o botão principal da campanha
+const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF") && !isAgentButtonClick;
+
 const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 
-// isComplaint ajustada para não conflitar com a dúvida "Não recebi o reembolso"
-const isComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|cancelar|lixo|merda|falha|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
+// Híbrido: Regex Reclamação + Semantic Reclamação (HOTFIX V18.2: removido "cancelar" para permitir explicação do FAQ)
+const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
+const isComplaint = regexComplaint || semanticIntent === "COMPLAINT";
 
 // --- 3) GESTÃO DINÂMICA DE INCIDENTES (Smart Match V2) ---
 let forcedIncidentText = null;
@@ -85,7 +107,6 @@ let isLinkIssue = false;
 
 const currentCampaignId = rpcData.p_metadata?.campaign_id || leadInfo.campaign_id || ctx.campaign_id;
 
-// Prioridade 1: Broadcast Ativo (ID vindo do payload)
 if (incidentIdFromPayload) {
     const specificIncident = activeIncidents.find(i => i.id === incidentIdFromPayload);
     if (specificIncident) {
@@ -94,7 +115,6 @@ if (incidentIdFromPayload) {
     }
 }
 
-// Prioridade 2: Smart Match Passivo (se não foi forçado pelo payload)
 if (!forcedIncidentText) {
     for (const incident of activeIncidents) {
         if (incident.mode === 'passive' || incident.mode === 'both') {
@@ -144,16 +164,16 @@ if (isAgentButtonClick) {
 
 // --- 5) MODO DE RESPOSTA ---
 let mode = "consultive";
-if ((transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || isComplaint) {
+if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || isComplaint) {
     mode = "parrot";
 }
 if (isLinkRequest && !isDoubt) {
     mode = "parrot";
 }
-if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest && !isLinkIssue) {
+if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
     mode = "consultive";
 }
-if (isSelfSimulationRequest) {
+if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
     mode = "consultive";
 }
 
@@ -163,59 +183,51 @@ if (isAgentButtonClick) activeConfig = blueprint.steps["explicacao_agente"];
 
 let forcedText = String(activeConfig.rules || "");
 
-// --- OVERRIDE DE TEXTOS FIXOS (PRIORIDADE) ---
-
-// PRIORIDADE 1: Incidentes Ativos (Dinamismo Total)
-if (isLinkIssue && forcedIncidentText) {
+// PRIORIDADE MÁXIMA E ABSOLUTA: Lead não credenciado/não encontrado na base
+if (leadInfo.is_lead === false) {
+    forcedText = `Olá${leadInfo.name ? ', ' + leadInfo.name : ''}! Tudo bem?\nNotei aqui que você ainda não possui um credenciamento ativo ou seus dados não constam na nossa base de ofertas pré-aprovadas no momento.\n\nPara realizar o seu credenciamento e ter acesso às nossas soluções de crédito e benefícios da Ticket, envie uma mensagem pelo WhatsApp para a nossa Central no número *11 4004-2233* ou acesse diretamente o link https://wa.me/551140042233.\n\nAssim que estiver tudo certinho, estarei por aqui!`;
+    mode = "parrot";
+    nextStep = "start";
+} 
+// CORREÇÃO 2: A regra do botão "Falar com um agente!" é avaliada primeiro (depois da validação do lead)
+else if (isAgentButtonClick) {
+    forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
+} else if (isLinkIssue && forcedIncidentText) {
     forcedText = forcedIncidentText;
-}
-// PRIORIDADE 2: Pedido de Atendente/Humano
-else if (isHumanRequest) {
+} else if (isHumanRequest) {
     const isPhone = /\b(fone|telefone|ligar|ligação)\b/i.test(lastUserLower);
     if (isPhone) {
-        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*. 
-
-Eles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
+        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*. \n\nEles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
     } else {
-        forcedText = `Claro, entendo.
-
-Vou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.
-
-Enquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
+        forcedText = `Claro, entendo.\n\nVou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.\n\nEnquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
     }
-}
-// PRIORIDADE 3: Reclamações (Escuta Ativa)
-else if (isComplaint) {
-    forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. 
-
-Como você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. 
-
-Você gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
-}
-// PRIORIDADE 4: Boas-vindas (Start)
-else if (currentStep === 'start' && assistantMessages.length < 2 && !isAgentButtonClick) {
-    forcedText = `Já pensou em reforçar o caixa sem burocracia?
- 
-Você pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.
-
-✅ Taxas a partir de *1,89% a.m*;
-✅ Crédito disponível entre *10 mil a 500 mil reais*;
-✅ Recebimento do dinheiro em até *24h*;
-
-👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
-}
-// PRIORIDADE 5: Explicação Sofia
-else if (isAgentButtonClick || nextStep === 'explicacao_agente') {
-    forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!
-
-Explicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.
-
-👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
+} else if (isComplaint) {
+    forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. \n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. \n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
+} else if (currentStep === 'start' && assistantMessages.length < 2) {
+    forcedText = `Já pensou em reforçar o caixa sem burocracia?\n \nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
+} else if (nextStep === 'explicacao_agente') {
+    forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
 }
 
 forcedText = forcedText
     .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
     .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`);
+
+const normalizeText = (text) => {
+    return String(text || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+};
+
+const cleanNextText = normalizeText(forcedText);
+const cleanLastSofiaMsg = normalizeText(lastSofiaMsg);
+const isLoopDetected = cleanNextText === cleanLastSofiaMsg && cleanNextText.length > 0;
+
+let loopDetectedHandoff = false;
+if (isLoopDetected && leadInfo.is_lead !== false) {
+    loopDetectedHandoff = true;
+    // HOTFIX V18.2: Frase genérica de loop sem falar de dados bancários
+    forcedText = `Certo, ${leadInfo.name || "parceiro"}. Vejo que estamos repetindo a mesma orientação e não conseguimos avançar. Para não tomarmos mais seu tempo, estou transferindo você agora mesmo para um especialista humano examinar sua situação detalhadamente. Um instante!`;
+    mode = "parrot";
+}
 
 let finalPrompt = "";
 if (mode === "parrot") {
@@ -231,16 +243,38 @@ ${forcedText}
 </RESPOSTA_OBRIGATORIA>
 </CONTROLE_DE_FLUXO>`;
 } else {
+    const formattedHistory = history.map(m => {
+        const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase());
+        const sender = isBot ? "Sofia (Você)" : "Cliente";
+        return `- ${sender}: "${m.content || m.text || ""}"`;
+    }).join("\n");
+
+    // --- 💡 INJEÇÃO DE CONTEXTO OCULTO PARA A SOFIA ---
+    const hintInjection = semanticReasoning ? `
+<nota_interna_do_sistema>
+[ATENÇÃO SOFIA - TRADUÇÃO DE INTENÇÃO]: O sistema analisou a última mensagem do cliente e concluiu:
+- Intenção Real Detectada: ${semanticIntent}
+- Tradução/Motivo: ${semanticReasoning}
+Use essa nota para entender gírias, abreviações ou erros de digitação. NUNCA mencione que você leu esta nota.
+</nota_interna_do_sistema>
+` : "";
+
     finalPrompt = `<identity>
 Você é Sofia, consultora sênior da Ticket Edenred.
 Sua comunicação deve ser impecável: profissional, segura e visualmente organizada para WhatsApp.
 </identity>
-
+${hintInjection}
 <diretrizes_estilo_visual>
 - NEGRITO: Use *asteriscos* para destacar termos importantes (Ex: *Boleto Bancário*, *Sem conta nova*, *24 parcelas*).
 - EMOJIS (REGRA DE HISTÓRICO COMPLETO): Você está autorizada a usar no máximo **1 único emoji em toda a conversa** (considerando todo o histórico de mensagens). Analise o histórico: se você ou o cliente já usaram algum emoji nas mensagens anteriores, você está **PROIBIDA** de enviar qualquer emoji nesta resposta. Se nenhum emoji foi usado ainda na conversa, você pode enviar **apenas 1**, preferencialmente o emoji correspondente ao segmento da empresa (ex: Padaria 🍞, Farmácia 💊, Restaurante 🍽️, Oficina/Auto 🚗, Mercado 🛒, Café ☕, Geral 📈) posicionado sempre no início ou no fim da mensagem, nunca no meio de frases.
 - PARÁGRAFOS: Use quebras de linha para não criar "paredões" de texto.
 </diretrizes_estilo_visual>
+
+<HISTORICO_CONVERSA>
+As mensagens mais recentes da conversa atual estão listadas abaixo (da mais antiga para a mais recente). 
+Use esse histórico para contextualizar sua resposta, lembrando do que o cliente já confirmou, negou, relatou ou se já se repetiu:
+${formattedHistory}
+</HISTORICO_CONVERSA>
 
 <BASE_DE_CONHECIMENTO_FAQ>
 --- FAQ PRODUTO (OFERTA DE CRÉDITO) ---
@@ -267,7 +301,7 @@ O que significa usar os recebíveis como garantia?
 Significa que a Fiserv Capital utilizará os seus recebimentos Ticket como garantia, assim você não precisa comprometer seus bens como imóvel ou carro para garantia de pagamento da dívida. 
 
 Com quanto tempo de atraso no pagamento via boleto acarretará em desconto via recebíveis Ticket?
-Se o estabelecimento ficar entre 3 a 4 meses sem realizar os devidos pagamentos via boleto bancário, a Fiserv fará o desconto via recebível Ticket. Após a quitação dos boletos em atraso, o pagamento voltará a ser feito via boleto.
+Se o estabelecimento ficar entre 3 a 4 meses sem realizar os devidos pagamentos via boleto bancário, a Fiserv fará o desconto via recebível Ticket. Após a quitação dos boletos in atraso, o pagamento voltará a ser feito via boleto.
 
 O valor que eu solicitar será o valor que será aprovado para mim?
 Não necessariamente. O valor desejado é uma base, mas após você informá-lo, faremos uma análise de crédito para avaliar seus dados e definir o limite final, que pode ser menor ou maior que o solicitado. Mas não se preocupe, faremos o possível para ao menos alcançar o valor desejado.
@@ -291,7 +325,7 @@ O que é BMP?
 BMP Sociedade de Crédito Direto S/A é uma instituição financeira aprovada pelo Banco Central do Brasil parceira da Ticket e Fiserv Capital. Ela oferece soluções bancárias integradas, como contas digitais e pagamentos, permitindo que empresas usem essas funcionalidades sem precisar criar toda a estrutura do zero.
 
 O que seria essa nova conta BMP?
-Para que os seus recebíveis Ticket possam ser utilizados como garantia, faremos a alteração do seu domicílio bancário cadastrado com a Ticket para uma nova conta do banco BMP vinculada a uma trava bancária, que ficará ativa até a quitação total do empréstimo. Os recebíveis Ticket passarão a ser depositados nessa nova conta e serão repassados para a uma conta de preferência que você informará no momento da contratação do empréstimo. Só haverá a retenção do seu recebível Ticket em caso de não pagamento do boleto bancário.
+Para que os seus recebíveis Ticket possam ser utilizados como garantia, faremos a alteração do seu domicílio bancário cadastrado com a Ticket para uma nova conta do banco BMP vinculada a uma trava bancária, que ficará ativa até a quitação total do empréstimo. Os recebíveis Ticket passarão a ser depositados nessa nova conta e serão repassados para a uma conta de preferência que você informará no momento da contratação do empréstimo. Só haverá a retenção do seu recebível Ticket in caso de não pagamento do boleto bancário.
 
 O que é Trava Bancária?
 A trava de domicílio é o que nos permite usar seus recebíveis Ticket como garantia do pagamento, sua vendas futures são bloqueadas e direcionadas automaticamente para o banco BMP para pagamento da dívida, caso o boleto não seja pago. Nesse caso, você não poderá usar esses recebíveis Ticket em outros lugares até a quitação.
@@ -347,7 +381,7 @@ Elas variam conforme seu contrato e a campanha ativa no seu credenciamento. As p
 - Mensalidade: Tarifa de manutenção cobrada mensalmente.
 
 Como funciona o reembolso, a data de corte e o prazo?
-O prazo de reembolso (se em 7 ou 30 dias) segue o que foi contratado. O "período de corte" é o intervalo de 7 dias onde as vendas são acumuladas. O "dia de corte" é o dia da semana em que o reembolso fecha (ex: se o corte for na quarta, acumula as vendas dos últimos 7 dias e gera o lote que será pago em 30 dias). Consulte seu dia de corte no Portal em "Extrato".
+O prazo de reembolso (se in 7 ou 30 dias) segue o que foi contratado. O "período de corte" é o intervalo de 7 dias onde as vendas são acumuladas. O "dia de corte" é o dia da semana em que o reembolso fecha (ex: se o corte for na quarta, acumula as vendas dos últimos 7 dias e gera o lote que será pago em 30 dias). Consulte seu dia de corte no Portal em "Extrato".
 
 Como faço para gerar o relatório dos meus reembolsos?
 Acesse o Portal > "Extrato". Selecione o período, o produto aceito (ex: Ticket Alimentação ou Ticket Restaurante) e filtre para conferir os extratos de Reembolso, Transações ou Detalhado. Você pode exportar o arquivo em Excel ou PDF.
@@ -435,7 +469,6 @@ NUNCA invente taxas ou condições. Se a dúvida for sobre o funcionamento técn
 </CONTEXTO_ATUAL>`;
 }
 
-// Substituição final resiliente no prompt completo para evitar vazamentos/alucinações
 finalPrompt = finalPrompt
     .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
     .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`);
@@ -445,13 +478,13 @@ return {
     p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
     currentStep: nextStep,
     mode: mode,
-    trigger_handoff: (isHumanRequest || isComplaint) && !isAgentButtonClick,
+    trigger_handoff: (isHumanRequest || isComplaint || loopDetectedHandoff) && !isAgentButtonClick,
     handoff_data: {
         initial_message: currentMsg,
         campaign_id: leadInfo.campaign_id || ctx.campaign_id,
         lead_id: leadInfo.id || ctx.lead_id,
         tenant_id: ctx.tenant_id,
-        priority: isComplaint ? 'high' : 'medium'
+        priority: (isComplaint || loopDetectedHandoff) ? 'high' : 'medium'
     },
-    debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId }
+    debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent }
 };

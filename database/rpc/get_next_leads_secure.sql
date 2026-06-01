@@ -95,7 +95,7 @@ BEGIN
                   OR 
                   (
                       camp.reengagement_enabled = true
-                      AND oq.status IN ('sent', 'delivered', 'read')
+                      AND oq.status IN ('delivered', 'read')
                       AND oq.response_detected = false
                       AND oq.reengagement_attempt_count < camp.reengagement_max_attempts
                       AND NOW() >= (

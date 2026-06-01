@@ -1,7 +1,7 @@
 -- =============================================
 -- RPC: close_idle_conversations (Multi-Provider Support)
 -- Purpose: Closes idle conversations and returns routing info for notifications.
--- Versão: 2026.05.02 (Includes Campaign Template Support)
+-- Versão: 2026.05.29 (Includes Batch Limit to prevent Statement Timeout)
 -- =============================================
 
 CREATE OR REPLACE FUNCTION public.close_idle_conversations(p_idle_minutes INT)
@@ -28,6 +28,8 @@ BEGIN
         WHERE 
             (rank = 1 AND (last_message_at < (NOW() - (p_idle_minutes || ' minutes')::interval) OR last_message_at IS NULL))
             OR rank > 1
+        -- LIMIT adicionado aqui previne que o banco de dados trave ao tentar processar um backlog muito grande de uma vez
+        LIMIT 500
     ),
     -- 2. Atualizar status para 'closed'
     updated_rows AS (
