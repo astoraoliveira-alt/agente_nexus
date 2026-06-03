@@ -38,7 +38,8 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
-import { Campaign, Agent } from '@/lib/types';
+import { Campaign, Agent, Message } from '@/lib/types';
+import { WhatsAppView } from '@/components/conversations/WhatsAppView';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -436,9 +437,9 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadResult | null>(null);
-  const [analyticsData, setAnalyticsData] = useState<ConversationAnalytics | null>(null);
-  const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
-  const [analyticsCache, setAnalyticsCache] = useState<Record<string, ConversationAnalytics | null>>({});
+  const [messages, setMessages] = useState<Message[] | null>(null);
+  const [isMessagesLoading, setIsMessagesLoading] = useState(false);
+  const [messagesCache, setMessagesCache] = useState<Record<string, Message[] | null>>({});
   const [sortConfig, setSortConfig] = useState<{
     key: 'cnpj' | 'whatsapp' | 'name' | 'status' | null;
     direction: 'asc' | 'desc';
@@ -533,41 +534,38 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     if (!selectedLead || !currentTenant) return;
 
     const cacheKey = `${selectedLead.id}:${selectedLead.whatsapp}`;
-    if (cacheKey in analyticsCache) {
-      setAnalyticsData(analyticsCache[cacheKey]);
+    if (cacheKey in messagesCache) {
+      setMessages(messagesCache[cacheKey]);
       return;
     }
 
     let active = true;
-    setIsAnalyticsLoading(true);
+    setIsMessagesLoading(true);
 
-    api.getConversationAnalytics(currentTenant.id, {
-      conversationId: selectedLead.conversationId,
-      phone: selectedLead.whatsapp,
-      campaignId: selectedLead.campaignId || (campaignId === 'all_consolidated' ? null : campaignId),
-      leadId: selectedLead.id
-    })
-      .then((result) => {
-        if (!active) return;
-        const analyticsResult = result as ConversationAnalytics | null;
-        setAnalyticsData(analyticsResult);
-        setAnalyticsCache(prev => ({ ...prev, [cacheKey]: analyticsResult }));
-      })
-      .catch((error) => {
-        console.error('Error loading conversation analytics:', error);
-        if (!active) return;
-        setAnalyticsData(null);
-      })
-      .finally(() => {
-        if (active) {
-          setIsAnalyticsLoading(false);
-        }
-      });
+    if (selectedLead.conversationId) {
+      api.getConversationMessages(selectedLead.conversationId)
+        .then((msgs) => {
+          if (!active) return;
+          setMessages(msgs);
+          setMessagesCache(prev => ({ ...prev, [cacheKey]: msgs }));
+        })
+        .catch((error) => {
+          console.error('Error loading conversation messages:', error);
+          if (!active) return;
+          setMessages([]);
+        })
+        .finally(() => {
+          if (active) setIsMessagesLoading(false);
+        });
+    } else {
+      setIsMessagesLoading(false);
+      setMessages([]);
+    }
 
     return () => {
       active = false;
     };
-  }, [selectedLead, currentTenant, analyticsCache]);
+  }, [selectedLead, currentTenant, messagesCache]);
 
   useEffect(() => {
     if (!selectedLead) return;
@@ -663,7 +661,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
 
   const openAnalytics = (lead: LeadResult) => {
     setSelectedLead(lead);
-    setAnalyticsData(null);
+    setMessages(null);
   };
 
   const formatDateTime = (value?: string | null) => {
@@ -1037,8 +1035,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             </div>
             
             <div className={cn(
-              "relative transition-all duration-300",
-              selectedLead ? "lg:pr-[25rem]" : ""
+              "relative transition-all duration-300"
             )}>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
@@ -1096,8 +1093,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                             onClick={() => openAnalytics(lead)}
                             className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50"
                           >
-                            <PanelRightOpen className="w-3.5 h-3.5 mr-1.5" />
-                            Detalhar
+                            <MessagesSquare className="w-3.5 h-3.5 mr-1.5" />
+                            Conversa
                           </Button>
                         </td>
                       </tr>
@@ -1108,14 +1105,23 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
             </div>
             <AnimatePresence>
               {selectedLead && (
-                <motion.aside
-                  ref={analyticsPanelRef}
-                  initial={{ x: 32, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 32, opacity: 0 }}
-                  transition={{ duration: 0.22, ease: 'easeOut' }}
-                  className="absolute inset-y-0 right-0 z-10 w-full border-l border-slate-200 bg-white shadow-2xl md:w-[25rem]"
-                >
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-sm"
+                    onClick={() => setSelectedLead(null)}
+                  />
+                  <motion.aside
+                    ref={analyticsPanelRef}
+                    initial={{ x: '100%', opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    exit={{ x: '100%', opacity: 0 }}
+                    transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                    className="fixed inset-y-0 right-0 z-[101] w-full border-l border-slate-200 bg-white shadow-2xl md:w-[28rem] lg:w-[32rem] flex flex-col"
+                  >
                   <div className="flex h-full flex-col">
                     <div className="flex items-start justify-between border-b border-slate-100 p-6">
                       <div className="space-y-1">
@@ -1135,136 +1141,32 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                       </Button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                      {isAnalyticsLoading ? (
+                    <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
+                      {isMessagesLoading ? (
                         <div className="flex h-full min-h-[240px] items-center justify-center">
                           <div className="flex flex-col items-center gap-3 text-slate-500">
                             <div className="h-7 w-7 animate-spin rounded-full border-b-2 border-[#E5003A]" />
-                            <span className="text-xs font-bold uppercase tracking-widest">Carregando inteligência...</span>
+                            <span className="text-xs font-bold uppercase tracking-widest">Carregando conversa...</span>
                           </div>
                         </div>
-                      ) : analyticsData ? (
-                        <>
-                          <div className="grid grid-cols-2 gap-3">
-                            <AnalyticsMetric icon={Calendar} label="Data/Hora" value={formatDateTime(analyticsData.startedAt)} />
-                            <AnalyticsMetric icon={Clock} label="Última interação" value={formatDateTime(analyticsData.lastInteractionAt)} />
-                            <AnalyticsMetric icon={TimerReset} label="Duração" value={formatDuration(analyticsData.durationSeconds)} />
-                            <AnalyticsMetric icon={MessagesSquare} label="Mensagens" value={String(analyticsData.messageCount)} />
-                            <AnalyticsMetric icon={ArrowUpRight} label="Saídas" value={String(analyticsData.outboundCount)} />
-                            <AnalyticsMetric icon={ArrowRight} label="Entradas" value={String(analyticsData.inboundCount)} />
-                          </div>
-
-                          <AnalyticsBlock title="Visão Executiva" icon={Activity}>
-                            <div className="grid grid-cols-2 gap-3 text-sm">
-                              <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fila</p>
-                                <div className="mt-2">{renderStatusBadge(analyticsData.queueStatus || selectedLead.status, selectedLead.errorMessage)}</div>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Conversão</p>
-                                <p className="mt-2 font-semibold text-slate-900">
-                                  {analyticsData.wasConverted ? 'Convertido' : analyticsData.responseDetected ? 'Interagiu' : 'Sem conversão'}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Canal</p>
-                                <p className="mt-2 font-semibold text-slate-900">{analyticsData.channel || 'Nao informado'}</p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Status da conversa</p>
-                                <p className="mt-2 font-semibold text-slate-900">{analyticsData.conversationStatus || 'Nao informado'}</p>
-                              </div>
-                            </div>
-                          </AnalyticsBlock>
-
-                          {(selectedLead.errorMessage || analyticsData.queueStatus === 'failed') && (
-                            <AnalyticsBlock title="Detalhes da Falha" icon={AlertTriangle}>
-                              <div className="rounded-xl border border-rose-100 bg-rose-50 p-4">
-                                <p className="text-xs font-bold text-rose-600 uppercase tracking-widest mb-1">Motivo identificado:</p>
-                                <p className="text-sm text-rose-700 font-medium leading-relaxed">
-                                  {selectedLead.errorMessage || "Erro desconhecido durante o processamento da mensagem."}
-                                </p>
-                              </div>
-                            </AnalyticsBlock>
-                          )}
-
-                          <AnalyticsBlock title="Participantes" icon={UserRound}>
-                            <p><span className="font-semibold">Contato:</span> {analyticsData.participants.contactName}</p>
-                            <p><span className="font-semibold">Agente:</span> {analyticsData.participants.agentName}</p>
-                            <p><span className="font-semibold">Telefone:</span> {analyticsData.participants.contactPhone}</p>
-                          </AnalyticsBlock>
-
-                          <AnalyticsBlock title="Auditoria" icon={SmilePlus}>
-                            <p>{analyticsData.predominantSentiment}</p>
-                            {typeof analyticsData.score === 'number' && (
-                              <p className="text-xs text-slate-500">Score analítico: {analyticsData.score}/100</p>
-                            )}
-                            <p className="text-xs text-slate-500">
-                              Avaliações: {analyticsData.evaluationCount} {analyticsData.latestAuditAt ? `| Última auditoria: ${formatDateTime(analyticsData.latestAuditAt)}` : ''}
-                            </p>
-                            {analyticsData.aiModel && (
-                              <p className="text-xs text-slate-500">Modelo: {analyticsData.aiModel}</p>
-                            )}
-                          </AnalyticsBlock>
-
-                          <AnalyticsBlock title="Tags de auditoria" icon={MessageSquare}>
-                            {analyticsData.auditTags.length > 0 ? (
-                              <div className="flex flex-wrap gap-2">
-                                {analyticsData.auditTags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="text-[10px] uppercase tracking-widest">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <p>Nenhuma tag de auditoria identificada.</p>
-                            )}
-                          </AnalyticsBlock>
-
-                          <AnalyticsBlock title="Critérios da auditoria" icon={Target}>
-                            {Object.keys(analyticsData.criteriaResults || {}).length > 0 ? (
-                              <div className="grid grid-cols-2 gap-3">
-                                {Object.entries(analyticsData.criteriaResults).map(([key, value]) => (
-                                  <div key={key} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                                    <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                                      {formatMetricLabel(key)}
-                                    </div>
-                                    <div className="mt-1 text-sm font-semibold text-slate-900">{String(value)}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p>Nenhum critério detalhado disponível.</p>
-                            )}
-                          </AnalyticsBlock>
-
-                          <AnalyticsBlock title="Perfil do contato" icon={User}>
-                            <p><span className="font-semibold">Lifecycle:</span> {analyticsData.contactLifecycleStatus || 'Nao informado'}</p>
-                            <p><span className="font-semibold">Status:</span> {analyticsData.contactStatus || 'Nao informado'}</p>
-                            <p><span className="font-semibold">Sentimento:</span> {analyticsData.predominantSentiment}</p>
-                            {analyticsData.contactTags.length > 0 ? (
-                              <div className="flex flex-wrap gap-2 pt-1">
-                                {analyticsData.contactTags.map((tag) => (
-                                  <Badge key={tag} variant="outline" className="text-[10px] uppercase tracking-widest">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <p>Sem tags do contato.</p>
-                            )}
-                          </AnalyticsBlock>
-
-                          <AnalyticsBlock title="Resumo da conversa" icon={Activity}>
-                            <p>{analyticsData.summary || analyticsData.lastMessagePreview || 'Nenhum resumo disponível.'}</p>
-                          </AnalyticsBlock>
-                        </>
+                      ) : messages && messages.length > 0 ? (
+                        <div className="flex-1 overflow-hidden relative">
+                          <WhatsAppView 
+                            conversation={{
+                              id: selectedLead.conversationId || '',
+                              userName: selectedLead.establishmentName || selectedLead.contactName || selectedLead.name,
+                              userId: selectedLead.whatsapp,
+                              messages: messages as any,
+                              lastMessageTime: messages.length > 0 ? messages[messages.length - 1].timestamp : new Date()
+                            } as any}
+                          />
+                        </div>
                       ) : (
-                        <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center">
+                        <div className="flex h-full min-h-[240px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-6 text-center m-6">
                           <div className="space-y-2">
-                            <p className="text-sm font-bold text-slate-700">Nenhum resumo analítico encontrado</p>
+                            <p className="text-sm font-bold text-slate-700">Nenhuma conversa encontrada</p>
                             <p className="text-xs text-slate-500">
-                              Esta linha ainda não possui uma conversa relacionada ou dados analíticos suficientes.
+                              Esta linha ainda não possui mensagens registradas.
                             </p>
                           </div>
                         </div>
@@ -1272,6 +1174,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     </div>
                   </div>
                 </motion.aside>
+                </>
               )}
             </AnimatePresence>
             </div>

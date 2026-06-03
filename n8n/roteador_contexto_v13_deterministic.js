@@ -55,10 +55,24 @@ const historyTexts = history.map(m => String(m.content || m.text || "").toLowerC
 const linkAlreadySent = historyTexts.includes("clicar no link abaixo") || historyTexts.includes("fiservcapital.moneymoneyinvest");
 
 let currentStep = 'start';
-if (linkAlreadySent) {
-    currentStep = 'envio_link';
+if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
+    currentStep = 'finalizacao_sucesso';
+} else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito")) {
+    currentStep = 'recusa_analise';
+} else if (lastSofiaMsg.includes("confirma que deseja prosseguir")) {
+    currentStep = 'confirmacao_cliente';
+} else if (lastSofiaMsg.includes("opções de crédito") || lastSofiaMsg.includes("quantidade de parcelas")) {
+    currentStep = 'apresenta_ofertas';
+} else if (lastSofiaMsg.includes("valor de empréstimo") || lastSofiaMsg.includes("valor de emprestimo") || lastSofiaMsg.includes("deseja simular")) {
+    currentStep = 'coleta_valor';
+} else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento medio mensal")) {
+    currentStep = 'coleta_faturamento';
 } else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("empresa") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação"))) {
     currentStep = 'verificacao_cnpj';
+} else if (lastSofiaMsg.includes("cnpj correto") || lastSofiaMsg.includes("solicitar a inclusão")) {
+    currentStep = 'coleta_cnpj_correto';
+} else if (lastSofiaMsg.includes("nome do estabelecimento")) {
+    currentStep = 'coleta_nome_estabelecimento';
 } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço") || lastSofiaMsg.includes("reforco") || lastSofiaMsg.includes("caixa") || lastSofiaMsg.includes("enviar o link")) {
     currentStep = 'explicacao_agente';
 } else if (assistantMessages.length > 0) {
@@ -147,7 +161,7 @@ if (isAgentButtonClick) {
     transitionApplied = true;
 } else if (currentStep === 'start') {
     if (!isNegative && !isDoubt) {
-        nextStep = 'explicacao_agente';
+        nextStep = 'verificacao_cnpj';
         transitionApplied = true;
     }
 } else if (currentStep === 'explicacao_agente') {
@@ -157,7 +171,47 @@ if (isAgentButtonClick) {
     }
 } else if (currentStep === 'verificacao_cnpj') {
     if (isAffirmative && !isDoubt) {
-        nextStep = 'envio_link';
+        nextStep = 'coleta_faturamento';
+        transitionApplied = true;
+    } else if (isNegative && !isDoubt) {
+        nextStep = 'coleta_cnpj_correto';
+        transitionApplied = true;
+    }
+} else if (currentStep === 'coleta_cnpj_correto') {
+    if (!isDoubt) {
+        nextStep = 'coleta_nome_estabelecimento';
+        transitionApplied = true;
+    }
+} else if (currentStep === 'coleta_nome_estabelecimento') {
+    if (!isDoubt) {
+        nextStep = 'encaminhamento_correcao';
+        transitionApplied = true;
+    }
+} else if (currentStep === 'coleta_faturamento') {
+    if (!isDoubt) {
+        nextStep = 'coleta_valor';
+        transitionApplied = true;
+    }
+} else if (currentStep === 'coleta_valor') {
+    if (!isDoubt) {
+        if (ctx.has_approved_credit === false) {
+            nextStep = 'recusa_analise';
+        } else {
+            nextStep = 'apresenta_ofertas';
+        }
+        transitionApplied = true;
+    }
+} else if (currentStep === 'apresenta_ofertas') {
+    if (!isDoubt) {
+        nextStep = 'confirmacao_cliente';
+        transitionApplied = true;
+    }
+} else if (currentStep === 'confirmacao_cliente') {
+    if (isAffirmative && !isDoubt) {
+        nextStep = 'finalizacao_sucesso';
+        transitionApplied = true;
+    } else if (isNegative && !isDoubt) {
+        nextStep = 'apresenta_ofertas';
         transitionApplied = true;
     }
 }
@@ -170,7 +224,7 @@ if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButt
 if (isLinkRequest && !isDoubt) {
     mode = "parrot";
 }
-if ((isDoubt || isFarewell || currentStep === 'envio_link') && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
+if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
     mode = "consultive";
 }
 if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
@@ -211,7 +265,11 @@ else if (isAgentButtonClick) {
 
 forcedText = forcedText
     .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
-    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`);
+    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
+    .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
+    .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
+    .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
+    .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
 const normalizeText = (text) => {
     return String(text || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
@@ -471,14 +529,18 @@ NUNCA invente taxas ou condições. Se a dúvida for sobre o funcionamento técn
 
 finalPrompt = finalPrompt
     .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
-    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`);
+    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
+    .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
+    .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
+    .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
+    .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
 return {
     final_system_prompt: finalPrompt,
     p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
     currentStep: nextStep,
     mode: mode,
-    trigger_handoff: (isHumanRequest || isComplaint || loopDetectedHandoff) && !isAgentButtonClick,
+    trigger_handoff: (isHumanRequest || isComplaint || loopDetectedHandoff || nextStep === 'finalizacao_sucesso') && !isAgentButtonClick,
     handoff_data: {
         initial_message: currentMsg,
         campaign_id: leadInfo.campaign_id || ctx.campaign_id,

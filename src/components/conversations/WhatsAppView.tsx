@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Conversation, Message } from '@/lib/mock-data';
-import { Check, CheckCheck, Phone, Video, MoreVertical, ArrowLeft, Camera, Mic, Paperclip, Smile } from "lucide-react";
+import { Check, CheckCheck, Phone, Video, MoreVertical, ArrowLeft, Camera, Mic, Paperclip, Smile, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/contexts/AppContext";
 import { maskSensitiveData } from "@/lib/masking";
@@ -141,7 +141,16 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                         const displayText = parsedContent || parsedTranscription;
 
                         return (
-                            <div key={msg.id} className={cn("flex w-full min-w-0 mb-2", isMe ? "justify-end" : "justify-start")}>
+                            <div key={msg.id} className={cn("flex w-full min-w-0 mb-2 group items-center", isMe ? "justify-end" : "justify-start")}>
+                                {isMe && (
+                                    <button 
+                                        onClick={() => navigator.clipboard.writeText(displayText)}
+                                        className="mr-2 p-1.5 rounded-full text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-200/50 dark:hover:bg-slate-700/50 flex-shrink-0"
+                                        title="Copiar mensagem"
+                                    >
+                                        <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
                                 <div className={cn(
                                     "relative w-fit max-w-[85%] min-w-[120px] px-2 pt-1.5 pb-5 pr-14 rounded-lg shadow-sm text-sm leading-[19px]",
                                     isMe
@@ -187,6 +196,15 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                                         )}
                                     </div>
                                 </div>
+                                {isThem && (
+                                    <button 
+                                        onClick={() => navigator.clipboard.writeText(displayText)}
+                                        className="ml-2 p-1.5 rounded-full text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-200/50 dark:hover:bg-slate-700/50 flex-shrink-0"
+                                        title="Copiar mensagem"
+                                    >
+                                        <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
                             </div>
                         );
                     })}
