@@ -1,9 +1,13 @@
 -- =============================================
--- RPC: close_idle_conversations (Multi-Provider Support)
--- Purpose: Closes idle conversations and returns routing info for notifications.
--- Versão: 2026.05.29 (Includes Batch Limit to prevent Statement Timeout)
+-- Migration: 20260604_update_idle_closure_logic.sql
+-- Purpose: Add configurable idle closure to agents and internal log.
 -- =============================================
 
+-- 1. Adicionar as configurações na tabela agents
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS send_idle_closure_message BOOLEAN DEFAULT false;
+ALTER TABLE public.agents ADD COLUMN IF NOT EXISTS idle_closure_message TEXT;
+
+-- 2. Atualizar a função close_idle_conversations
 CREATE OR REPLACE FUNCTION public.close_idle_conversations(p_idle_minutes INT)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -28,7 +32,6 @@ BEGIN
         WHERE 
             (rank = 1 AND (last_message_at < (NOW() - (p_idle_minutes || ' minutes')::interval) OR last_message_at IS NULL))
             OR rank > 1
-        -- LIMIT adicionado aqui previne que o banco de dados trave ao tentar processar um backlog muito grande de uma vez
         LIMIT 1000
     ),
     -- 2. Atualizar status para 'closed'
@@ -40,8 +43,21 @@ BEGIN
         FROM target_actions t
         WHERE c.id = t.id
         RETURNING c.id, c.user_identifier, c.agent_id, c.tenant_id, t.should_notify
+    ),
+    -- 3. Inserir Log Interno na Tabela de Mensagens
+    inserted_logs AS (
+        INSERT INTO public.messages (conversation_id, tenant_id, content, sender_type, created_at)
+        SELECT 
+            u.id,
+            u.tenant_id,
+            'Atendimento encerrado automaticamente pelo sistema devido à inatividade.',
+            'system',
+            NOW()
+        FROM updated_rows u
+        WHERE u.should_notify = TRUE
+        RETURNING id
     )
-    -- 3. Gerar JSON para o n8n incluindo o TEMPLATE da Campanha
+    -- 4. Gerar JSON para o n8n incluindo o TEMPLATE da Campanha e configs do agente
     SELECT jsonb_agg(
         jsonb_build_object(
             'conversation_id', u.id,
@@ -49,6 +65,9 @@ BEGIN
             'provider', COALESCE(a.whatsapp_provider, 'evolution'),
             'agent_id', u.agent_id,
             'tenant_id', u.tenant_id,
+            -- Agent Idle Message Configs
+            'send_idle_closure_message', COALESCE(a.send_idle_closure_message, false),
+            'idle_closure_message', a.idle_closure_message,
             -- Evolution Fields
             'instance', a.evolution_instance,
             'evolution_token', a.evolution_token,
@@ -58,7 +77,7 @@ BEGIN
             -- Zenvia Fields
             'zenvia_api_token', a.zenvia_api_token,
             'zenvia_channel_id', a.zenvia_channel_id,
-            -- Campaign Template (Fills the missing field in n8n)
+            -- Campaign Template
             'template_id', COALESCE(
                 camp.reengagement_template_id, 
                 (camp.metadata->>'template_id')::text
@@ -67,7 +86,6 @@ BEGIN
     ) INTO v_closed_list
     FROM updated_rows u
     JOIN public.agents a ON a.id = u.agent_id
-    -- Join lateral para pegar a campanha vinculada a essa conversa via outbound_queue
     LEFT JOIN LATERAL (
         SELECT c.reengagement_template_id, c.metadata
         FROM public.outbound_queue oq
@@ -78,7 +96,7 @@ BEGIN
     ) camp ON TRUE
     WHERE u.should_notify = TRUE;
 
-    -- 4. Return as Array
+    -- 5. Return as Array
     RETURN COALESCE(v_closed_list, '[]'::jsonb);
 END;
 $$;

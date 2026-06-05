@@ -98,6 +98,26 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 
 ---
 
+## [V68.0] - Deterministic Context Router & Two-Tier AI Architecture
+### Orquestração Híbrida n8n e Prevenção de Alucinação (V19)
+- **Arquitetura Two-Tier (Duas LLMs)**: Substituição do modelo baseado em chamadas de ferramentas únicas por um pipeline com duas LLMs e um Roteador JS central. A LLM 1 atua apenas como Classificador de Intenção (JSON estrito: EXACT_FAQ, CONVERSION_LINK, etc.), e a LLM 2 atua como Gerador de Resposta blindado.
+- **Roteador Determinístico (Modo Parrot vs Consultive)**: O Roteador Javascript avalia o histórico e a intenção para decidir o nível de liberdade da IA. Se engatilhar um passo obrigatório do funil comercial (Saudação, CNPJ, Link), ativa o modo *Parrot* (Papagaio), travando a LLM para ecoar um texto rígido. Se for uma dúvida ou fora do escopo, ativa o modo *Consultive*, permitindo resposta orgânica baseada num FAQ estático.
+- **Anti-Hallucination de Links e Variáveis**: Regras rígidas no prompt final proíbem a criação de URLs falsas. A IA é instruída a devolver placeholders literais (ex: `{{lead_info.link}}`), e a substituição real é feita pós-processamento de forma 100% segura pelo próprio código do Roteador.
+- **Proteção Anti-Loop (V19.16)**: Função `extractStrategy` no Roteador blindada com limite de profundidade (`depth`) e `Set` para referências circulares, impedindo bloqueios de event loop (travamentos do n8n por mais de 2 minutos) ao processar payloads massivos ou aninhados do webhook.
+- **Handoff e Fora de Escopo Fluidos**: Em cenários como `OUT_OF_SCOPE` ou `HUMAN_HANDOFF`, a IA foi liberada do modo *Parrot* e forçada a entrar em modo *Consultivo*, recebendo regras estritas para reagir à mensagem aleatória do cliente antes de redirecionar para crédito, eliminando a robotização e o loop infinito de respostas prontas.
+
+---
+
+## [V67.3] - Idle Session Control & SLA Autonomy
+### Encerramento Configurável e Transparência Operacional
+- **Arquitetura de Encerramento Dinâmico**: A lógica de fechamento de conversas inativas ("Idle Closure") foi refatorada para ser 100% configurável por Agente diretamente pelo painel administrativo (UI), transferindo a autonomia da camada de banco de dados para o time de negócios.
+- **Customização de Notificação (Opt-in)**: Operadores agora gerenciam a chave `send_idle_closure_message` e o campo textual `idle_closure_message` por IA (Tabela `agents` / Interface Frontend). Isso permite configurar políticas de SLA ("Aviso de Timeout") exclusivas para cada agente de forma declarativa.
+- **Transparência Sistêmica (Auditoria Interna)**: Resolução de encerramentos silenciosos. A RPC `close_idle_conversations` agora registra compulsoriamente um log sistêmico de fechamento na tabela `messages` (`sender_type = system`). Operadores recebem feedback visual in-chat do motivo do fechamento, protegendo a auditoria do atendimento.
+- **Integração n8n e Desvio de Fluxo Condicional**: O cron `Agente - (Encerrar Conversas Ativas)` foi refatorado utilizando o padrão *Conditional Routing*. O motor injeta os metadados do agente no batch e um nó `If` intercepta o envio, engatilhando o disparo da Meta/Zenvia apenas para agentes com a chave ativa. A evasão forçada da variável `template_id` no subworkflow garante que a notificação final seja despachada como um texto livre genuíno.
+- **Compliance com Janela de 24h da Meta**: Sincronia matemática na operação de batching. O trigger roda a cada 15m cruzando com um deadline de 23h, absorvendo de 1.000 até 4.000 instâncias/hora. A folga de 60 minutos blinda o disparo textual de ser rejeitado pelos contêineres anti-spam da API Oficial do WhatsApp, respeitando o limite sem necessidade de *templates* burocráticos.
+
+---
+
 ## [V67.2] - Idempotência Total (Fase 4) & Clarificação de Filas
 ### *Exactly-once Processing* e Responsabilidades do Porteiro
 - **O Porteiro (Gateway Universal)**: O Porteiro é o único responsável por escutar os *webhooks* (Evolution, Zenvia, Meta), entender e normalizar os *payloads*, e colocar a mensagem recebida do usuário na tabela `inbound_queue` para ser processada. O webhook NUNCA toca no n8n diretamente.

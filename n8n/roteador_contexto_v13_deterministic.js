@@ -9,40 +9,75 @@
    - HOTFIX V18.2: Correção de handoff de loop (remoção da alucinação de dados bancários) e ajuste na Regex de Reclamação (remoção de "cancelar").
 */
 
-const rpcData = $node["RPC - Acesso Entrada"].json;
-const ctx = rpcData.context || {};
-
-// 🛡️ PROTEÇÃO DE HANDOFF (HITL)
-if (ctx.status === 'human_active') {
-    return {
-        stop_flow: true,
-        reason: "Handoff Ativo: Operador humano está no controle.",
-        conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
-    };
-}
-
-const leadInfo = ctx.lead_info || {};
-const agent = ctx.agent || {};
-const blueprint = agent.workflow_blueprint || { steps: {} };
-const history = ctx.messages_history || [];
-
-const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
-const lastUserLower = currentMsg.toLowerCase();
-
-// --- 0) LEITURA DO ROTEADOR SEMÂNTICO (LLM PRÉVIA) ---
-let semanticIntent = "OTHER";
-let semanticReasoning = "";
-
 try {
-    // Tenta ler do nó 'Message a model1'. Se renomear o nó no n8n, atualize o nome aqui:
-    const semanticData = $('Message a model1').first()?.json?.output?.[0]?.content?.[0]?.text;
-    if (semanticData) {
-        semanticIntent = semanticData.intent || "OTHER";
-        semanticReasoning = semanticData.reasoning || "";
+    const rpcData = $node["RPC - Acesso Entrada"].json;
+    const ctx = rpcData.context || {};
+
+    // 🛡️ PROTEÇÃO DE HANDOFF (HITL)
+    if (ctx.status === 'human_active') {
+        return {
+            stop_flow: true,
+            reason: "Handoff Ativo: Operador humano está no controle.",
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+        };
     }
-} catch (e) {
-    // Falha silenciosa para não quebrar o fluxo caso o nó seja removido
-}
+
+    const leadInfo = ctx.lead_info || {};
+    const agent = ctx.agent || {};
+    const blueprint = agent.workflow_blueprint || { steps: {} };
+    const history = ctx.messages_history || [];
+
+    const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
+    const lastUserLower = currentMsg.toLowerCase();
+
+    // --- 0) LEITURA DO ROTEADOR SEMÂNTICO (LLM PRÉVIA) ---
+    let semanticIntent = "OTHER";
+    let semanticReasoning = "";
+
+    try {
+        // Tenta ler do nó 'Message a model1'. Se renomear o nó no n8n, atualize o nome aqui:
+        const semanticData = $('Message a model1').first()?.json?.output?.[0]?.content?.[0]?.text;
+        if (semanticData) {
+            if (typeof semanticData === 'object' && semanticData !== null) {
+                semanticIntent = semanticData.intent || "OTHER";
+                semanticReasoning = semanticData.reasoning || "";
+            } else if (typeof semanticData === 'string') {
+                const trimmed = semanticData.trim();
+                let parsed = null;
+                if (trimmed.includes('{') && trimmed.includes('}')) {
+                    try {
+                        const startIdx = trimmed.indexOf('{');
+                        const endIdx = trimmed.lastIndexOf('}');
+                        const jsonStr = trimmed.substring(startIdx, endIdx + 1);
+                        parsed = JSON.parse(jsonStr);
+                    } catch (err) {
+                        // Fallback parsing failed
+                    }
+                }
+                
+                if (parsed && typeof parsed === 'object') {
+                    semanticIntent = parsed.intent || "OTHER";
+                    semanticReasoning = parsed.reasoning || "";
+                } else {
+                    // Raw string keyword fallback
+                    const upperStr = trimmed.toUpperCase();
+                    if (upperStr.includes("HUMAN_HANDOFF")) {
+                        semanticIntent = "HUMAN_HANDOFF";
+                    } else if (upperStr.includes("COMPLAINT")) {
+                        semanticIntent = "COMPLAINT";
+                    } else if (upperStr.includes("DOUBT")) {
+                        semanticIntent = "DOUBT";
+                    } else if (upperStr.includes("SIMULATION_REQUEST")) {
+                        semanticIntent = "SIMULATION_REQUEST";
+                    } else if (["OTHER", "HUMAN_HANDOFF", "COMPLAINT", "DOUBT", "SIMULATION_REQUEST"].includes(upperStr)) {
+                        semanticIntent = upperStr;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Falha silenciosa para não quebrar o fluxo caso o nó seja removido
+    }
 
 // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
 const assistantMessages = history.filter(m =>
@@ -110,8 +145,22 @@ const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[é
 const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 
 // Híbrido: Regex Reclamação + Semantic Reclamação (HOTFIX V18.2: removido "cancelar" para permitir explicação do FAQ)
-const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
+// HOTFIX V18.3: Substituído "funciona" por "não funciona|nao funciona" para evitar falso positivo em "como funciona"
+const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
 const isComplaint = regexComplaint || semanticIntent === "COMPLAINT";
+
+// CONTROLE DE PRIMEIRA RECLAMAÇÃO (HOTFIX V18.3)
+const checkIfComplaint = (msgText) => {
+    const textLower = String(msgText || "").toLowerCase();
+    return (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(textLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(textLower) && !/reembolso/i.test(textLower)));
+};
+
+const previousClientComplaints = history
+    .filter(m => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase()))
+    .filter(m => checkIfComplaint(m.content || m.text));
+
+const isFirstComplaint = previousClientComplaints.length === 0;
+const effectiveComplaint = isComplaint && !isFirstComplaint;
 
 // --- 3) GESTÃO DINÂMICA DE INCIDENTES (Smart Match V2) ---
 let forcedIncidentText = null;
@@ -218,7 +267,7 @@ if (isAgentButtonClick) {
 
 // --- 5) MODO DE RESPOSTA ---
 let mode = "consultive";
-if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || isComplaint) {
+if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint) {
     mode = "parrot";
 }
 if (isLinkRequest && !isDoubt) {
@@ -235,7 +284,7 @@ if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
 let activeConfig = blueprint.steps[nextStep] || blueprint.steps["start"];
 if (isAgentButtonClick) activeConfig = blueprint.steps["explicacao_agente"];
 
-let forcedText = String(activeConfig.rules || "");
+let forcedText = String(activeConfig?.rules || "");
 
 // PRIORIDADE MÁXIMA E ABSOLUTA: Lead não credenciado/não encontrado na base
 if (leadInfo.is_lead === false) {
@@ -255,7 +304,7 @@ else if (isAgentButtonClick) {
     } else {
         forcedText = `Claro, entendo.\n\nVou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.\n\nEnquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
     }
-} else if (isComplaint) {
+} else if (effectiveComplaint) {
     forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. \n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. \n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
 } else if (currentStep === 'start' && assistantMessages.length < 2) {
     forcedText = `Já pensou em reforçar o caixa sem burocracia?\n \nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
@@ -277,7 +326,8 @@ const normalizeText = (text) => {
 
 const cleanNextText = normalizeText(forcedText);
 const cleanLastSofiaMsg = normalizeText(lastSofiaMsg);
-const isLoopDetected = cleanNextText === cleanLastSofiaMsg && cleanNextText.length > 0;
+// HOTFIX: Apenas detecta loop (repetição de texto engessado) se o modo for 'parrot'. Se for 'consultive', a resposta será gerada dinamicamente pela LLM.
+const isLoopDetected = mode === 'parrot' && cleanNextText === cleanLastSofiaMsg && cleanNextText.length > 0;
 
 let loopDetectedHandoff = false;
 if (isLoopDetected && leadInfo.is_lead !== false) {
@@ -535,18 +585,68 @@ finalPrompt = finalPrompt
     .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
     .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
-return {
-    final_system_prompt: finalPrompt,
-    p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
-    currentStep: nextStep,
-    mode: mode,
-    trigger_handoff: (isHumanRequest || isComplaint || loopDetectedHandoff || nextStep === 'finalizacao_sucesso') && !isAgentButtonClick,
-    handoff_data: {
-        initial_message: currentMsg,
-        campaign_id: leadInfo.campaign_id || ctx.campaign_id,
-        lead_id: leadInfo.id || ctx.lead_id,
-        tenant_id: ctx.tenant_id,
-        priority: (isComplaint || loopDetectedHandoff) ? 'high' : 'medium'
-    },
-    debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent }
-};
+    return {
+        final_system_prompt: finalPrompt,
+        p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+        currentStep: nextStep,
+        mode: mode,
+        trigger_handoff: (isHumanRequest || effectiveComplaint || loopDetectedHandoff) && !isAgentButtonClick,
+        handoff_data: {
+            initial_message: currentMsg,
+            campaign_id: leadInfo.campaign_id || ctx.campaign_id,
+            lead_id: leadInfo.id || ctx.lead_id,
+            tenant_id: ctx.tenant_id,
+            priority: (effectiveComplaint || loopDetectedHandoff) ? 'high' : 'medium'
+        },
+        debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint }
+    };
+
+} catch (globalError) {
+    let fallbackText = "";
+    try {
+        const blueprint = $node["RPC - Acesso Entrada"].json.context?.agent?.workflow_blueprint || { steps: {} };
+        fallbackText = blueprint.steps?.["start"]?.rules || "";
+    } catch (e) {}
+
+    if (!fallbackText) {
+        fallbackText = "Olá! Sou a Sofia, especialista da *Ticket*. Como posso ajudar você hoje?";
+    }
+
+    try {
+        const history = $node["RPC - Acesso Entrada"].json.context?.messages_history || [];
+        const assistantMessages = history.filter(m =>
+            ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
+        );
+        if (assistantMessages.length > 0) {
+            fallbackText = assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || fallbackText;
+        }
+    } catch (e) {}
+
+    try {
+        const leadInfo = $node["RPC - Acesso Entrada"].json.context?.lead_info || {};
+        fallbackText = fallbackText
+            .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
+            .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
+            .replace(/{{lead_info\.link}}/gi, leadInfo.link || "https://fiserv.ticket.com.br/simulacao-sofia");
+    } catch (e) {}
+
+    return {
+        final_system_prompt: `<RULES>
+- Responda EXATAMENTE o texto em <RESPOSTA_OBRIGATORIA>.
+- NÃO use nenhuma outra informação ou base de conhecimento.
+- NÃO adicione saudações ou textos extras.
+</RULES>
+
+<CONTROLE_DE_FLUXO>
+<RESPOSTA_OBRIGATORIA>
+${fallbackText}
+</RESPOSTA_OBRIGATORIA>
+</CONTROLE_DE_FLUXO>`,
+        p_conversation_id: $node["RPC - Acesso Entrada"].json.conversation?.id || $node["RPC - Acesso Entrada"].json.p_conversation_id,
+        currentStep: 'start',
+        mode: 'parrot',
+        trigger_handoff: false,
+        handoff_data: {},
+        debug: { globalError: globalError.message, stack: globalError.stack }
+    };
+}

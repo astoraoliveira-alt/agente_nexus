@@ -1,11 +1,10 @@
 -- ==========================================================
--- DAVOS NEXUS - SECURE LEAD FETCH (V69.5 - JSON NULL POISON FIX)
--- Protege contra disparos duplicados e flood de contatos.
--- Restaura Lógica de Reengajamento e Exclusão de Convertidos,
--- Mantendo correções de fuso horário e wildcard de sent_at.
--- Fix para NULL no campo metadata e Join do Agent_ID.
--- Fix críto para ANY(NULL) e JSON NULL poison (converted)
+-- Migration: Restore Reengagement Logic (Fix Regression)
+-- Date: 2026-06-04
+-- Description: Restores reengagement and exclusion of converted leads that was accidentally removed during recent timezone/scheduled_at updates.
 -- ==========================================================
+
+DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
 
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
     p_tenant_id uuid,
@@ -140,25 +139,25 @@ BEGIN
               -- [EXCLUSÃO DE LEADS JÁ CONVERTIDOS]
               AND NOT (
                   trim(lower(oq.status)) = 'converted' 
-                  OR COALESCE(oq.metadata->>'converted', 'false') = 'true'
+                  OR (oq.metadata->>'converted') = 'true' 
                   OR EXISTS (
                       SELECT 1 FROM public.messages m
                       WHERE m.conversation_id = oq.conversation_id
                         AND (m.content ILIKE '%[CONVERSÃO]%' OR m.content ILIKE '%✅ [CONVERSÃO]%')
-                        AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                        AND (oq.sent_at IS NULL OR m.created_at >= oq.sent_at)
                   )
                   OR (
-                      'CLIENT_RESPONDED' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
+                      'CLIENT_RESPONDED' = ANY(camp.success_criteria)
                       AND EXISTS (
                           SELECT 1 FROM public.messages m
                           WHERE m.conversation_id = oq.conversation_id
                             AND m.sender_type = 'user'
                             AND m.direction = 'inbound'
-                            AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                            AND (oq.sent_at IS NULL OR m.created_at >= oq.sent_at)
                       )
                   )
                   OR (
-                      'LINK_SENT' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
+                      'LINK_SENT' = ANY(camp.success_criteria)
                       AND COALESCE(camp.success_link_filter, '') <> ''
                       AND EXISTS (
                           SELECT 1 FROM public.messages m
@@ -168,7 +167,7 @@ BEGIN
                               OR m.content ILIKE '%✅ [CONVERSÃO]%'
                               OR m.content ILIKE '%[CONVERSÃO]%'
                             )
-                            AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                            AND (oq.sent_at IS NULL OR m.created_at >= oq.sent_at)
                       )
                   )
               )
@@ -197,7 +196,7 @@ BEGIN
         sl.contact_phone::text as phone,
         sl.contact_name::text,
         sl.campaign_id,
-        c.agent_id,
+        sl.agent_id,
         sl.tenant_id,
         CASE 
             WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_message, c.initial_message)
@@ -221,6 +220,10 @@ BEGIN
         sl.metadata as lead_metadata
     FROM selected_leads sl
     JOIN public.campaigns c ON c.id = sl.campaign_id
-    JOIN public.agents ag ON ag.id = c.agent_id;
+    JOIN public.agents ag ON ag.id = sl.agent_id;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO anon;
