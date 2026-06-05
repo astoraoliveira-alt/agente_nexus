@@ -542,25 +542,47 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     let active = true;
     setIsMessagesLoading(true);
 
-    if (selectedLead.conversationId) {
-      api.getConversationMessages(selectedLead.conversationId)
-        .then((msgs) => {
+    const fetchMessages = async () => {
+      try {
+        let convId = selectedLead.conversationId;
+        console.log('DEBUG fetchMessages start:', { selectedLeadId: selectedLead.id, whatsapp: selectedLead.whatsapp, initialConvId: convId, campaignId: selectedLead.campaignId });
+        
+        if (!convId && selectedLead.whatsapp) {
+          // Fallback to find conversation by phone if not explicitly linked in queue
+          const analytics = await api.getConversationAnalytics(currentTenant.id, {
+            phone: selectedLead.whatsapp,
+            // Pass null for campaignId to broad search if exact campaign is missing in conversations table
+            campaignId: null, 
+            leadId: selectedLead.id
+          });
+          console.log('DEBUG fetchMessages analytics fallback:', analytics);
+          if (analytics?.conversationId) {
+            convId = analytics.conversationId;
+          }
+        }
+
+        console.log('DEBUG fetchMessages final convId:', convId);
+
+        if (!active) return;
+
+        if (convId) {
+          const msgs = await api.getConversationMessages(convId);
+          console.log('DEBUG fetchMessages msgs count:', msgs?.length);
           if (!active) return;
           setMessages(msgs);
           setMessagesCache(prev => ({ ...prev, [cacheKey]: msgs }));
-        })
-        .catch((error) => {
-          console.error('Error loading conversation messages:', error);
-          if (!active) return;
+        } else {
           setMessages([]);
-        })
-        .finally(() => {
-          if (active) setIsMessagesLoading(false);
-        });
-    } else {
-      setIsMessagesLoading(false);
-      setMessages([]);
-    }
+        }
+      } catch (error) {
+        console.error('Error loading conversation messages:', error);
+        if (active) setMessages([]);
+      } finally {
+        if (active) setIsMessagesLoading(false);
+      }
+    };
+
+    fetchMessages();
 
     return () => {
       active = false;

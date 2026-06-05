@@ -1163,6 +1163,31 @@ export default function Agents() {
                           </p>
                         </div>
 
+                        <div className="space-y-4 pt-2 border-t border-border/30 mt-4 animate-in slide-in-from-top-1">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-xs font-bold text-accent">Notificar Cliente no Encerramento</Label>
+                              <p className="text-[9px] text-muted-foreground">Enviar uma mensagem no WhatsApp quando a sessão expirar por inatividade.</p>
+                            </div>
+                            <Switch
+                              checked={formData.send_idle_closure_message || false}
+                              onCheckedChange={(checked) => setFormData({ ...formData, send_idle_closure_message: checked })}
+                            />
+                          </div>
+                          
+                          {formData.send_idle_closure_message && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                              <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Texto de Encerramento Automático</Label>
+                              <Textarea
+                                className="bg-muted/30 text-xs min-h-[60px] resize-none"
+                                placeholder="Ex: Atendimento encerrado por inatividade. Se precisar, basta nos chamar novamente!"
+                                value={formData.idle_closure_message || ''}
+                                onChange={(e) => setFormData({ ...formData, idle_closure_message: e.target.value })}
+                              />
+                            </div>
+                          )}
+                        </div>
+
                         {formData.type === 'whatsapp' && (
                           <>
                             <div className="space-y-2 animate-in slide-in-from-top-1">

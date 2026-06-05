@@ -1,0 +1,93 @@
+<USER_REQUEST>
+hoje o roteador tem o codigo abaixo, a sua sugestão tem mais de 100 linhas a menos, está certo isso? Não podemos quebrar outros fluxos que já funcionam nem perder a FAQ.
+/* 🧭 ROTEADOR DE CONTEXTO - V18.0 - SEMANTIC & REGEX HYBRID
+   - Restauração: FAQ Técnico Integral (SST).
+   - Atualização: Novo FAQ Institucional/Operacional Ticket.
+   - Correção: Evita que 'não recebi reembolso' dispare transbordo (isComplaint) indevido.
+   - Memória: Injeção do histórico de mensagens no prompt consultivo (Item 2).
+   - Antirrepetição: Detector de loops semânticos para respostas estáticas repetidas.
+   - NOVO: Roteamento Híbrido (Regex + LLM Semântica) com Injeção de Contexto Oculto.
+*/
+
+const rpcData = $node["RPC - Acesso Entrada"].json;
+const ctx = rpcData.context || {};
+
+// 🛡️ PROTEÇÃO DE HANDOFF (HITL)
+if (ctx.status === 'human_active') {
+    return {
+        stop_flow: true,
+        reason: "Handoff Ativo: Operador humano está no controle.",
+        conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+    };
+}
+
+const leadInfo = ctx.lead_info || {};
+const agent = ctx.agent || {};
+const blueprint = agent.workflow_blueprint || { steps: {} };
+const history = ctx.messages_history || [];
+
+const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
+const lastUserLower = currentMsg.toLowerCase();
+
+// --- 0) LEITURA DO ROTEADOR SEMÂNTICO (LLM PRÉVIA) ---
+let semanticIntent = "OTHER";
+let semanticReasoning = "";
+
+try {
+    // Tenta ler do nó 'Message a model1'. Se renomear o nó no n8n, atualize o nome aqui:
+    const semanticData = $('Message a model1').first()?.json?.output?.[0]?.content?.[0]?.text;
+    if (semanticData) {
+        semanticIntent = semanticData.intent || "OTHER";
+        semanticReasoning = semanticData.reasoning || "";
+    }
+} catch (e) {
+    // Falha silenciosa para não quebrar o fluxo caso o nó seja removido
+}
+
+// --- 1) HISTÓRICO E DETECÇÃO DE ESTAD
+<truncated 31539 bytes>
+AQ acima — incluindo TODOS os detalhes presentes no FAQ, especialmente prazos e condições específicas.
+</regra_de_ouro>
+
+<CONTEXTO_ATUAL>
+- Passo: ${nextStep}
+- Link Enviado: ${linkAlreadySent}
+- Nome da Empresa: ${leadInfo.name}
+- Encerramento Detectado: ${isFarewell}
+</CONTEXTO_ATUAL>`;
+}
+
+finalPrompt = finalPrompt
+    .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
+    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`);
+
+return {
+    final_system_prompt: finalPrompt,
+    p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+    currentStep: nextStep,
+    mode: mode,
+    trigger_handoff: (isHumanRequest || isComplaint || loopDetectedHandoff) && !isAgentButtonClick,
+    handoff_data: {
+        initial_message: currentMsg,
+        campaign_id: leadInfo.campaign_id || ctx.campaign_id,
+        lead_id: leadInfo.id || ctx.lead_id,
+        tenant_id: ctx.tenant_id,
+        priority: (isComplaint || loopDetectedHandoff) ? 'high' : 'medium'
+    },
+    debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent }
+};
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-05-28T10:42:04-03:00.
+
+The user's current state is as follows:
+Active Document: /Users/user/SaaS - Davos Nexus/agent-nexus-hub/database/migrations/20260527_fix_get_next_leads_boolean_logic.sql (LANGUAGE_UNSPECIFIED)
+Cursor is on line: 154
+Other open documents:
+- /Users/user/SaaS - Davos Nexus/agent-nexus-hub/database/migrations/20260527_detailed_campaign_consumption.sql (LANGUAGE_UNSPECIFIED)
+- /Users/user/SaaS - Davos Nexus/agent-nexus-hub/database/migrations/20260527_optimize_campaign_metrics_bulk.sql (LANGUAGE_UNSPECIFIED)
+- /Users/user/SaaS - Davos Nexus/agent-nexus-hub/database/migrations/20260527_fix_get_next_leads_boolean_logic.sql (LANGUAGE_UNSPECIFIED)
+Running terminal commands:
+- npm run dev (in /Users/user/SaaS - Davos Nexus/agent-nexus-hub, running for 24h48m2s)
+</ADDITIONAL_METADATA>

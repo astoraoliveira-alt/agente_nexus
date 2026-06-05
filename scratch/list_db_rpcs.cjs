@@ -17,17 +17,23 @@ const supabaseKey = env['SUPABASE_SERVICE_ROLE_KEY'];
 const supabase = createClient(supabaseUrl.trim(), supabaseKey.trim());
 
 async function run() {
+  console.log('Querying pg_proc for log_handoff_request...');
   const { data, error } = await supabase
     .from('pg_proc')
-    .select('proname')
-    .ilike('proname', '%exec%');
-    
+    .select('proname, prosrc')
+    .eq('proname', 'log_handoff_request')
+    .limit(1);
+
   if (error) {
-    console.error('Error:', error);
+    console.error('Error querying pg_proc:', error);
     return;
   }
-  
-  console.log('Functions containing exec:', data.map(f => f.proname));
+
+  console.log('Found pg_proc entry:', data);
+  if (data && data.length > 0) {
+    console.log('--- FUNCTION SOURCE CODE ---');
+    console.log(data[0].prosrc);
+  }
 }
 
 run();

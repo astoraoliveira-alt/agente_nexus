@@ -436,6 +436,8 @@ export interface Agent {
   zenvia_channel_id?: string;  // Número Zenvia associado ao agente ("from" nos payloads)
   zenvia_aliases?: string[];   // Lista de números oficiais que este agente pode responder
   zenvia_api_token?: string;   // API Token Zenvia (armazenado criptografado)
+  send_idle_closure_message?: boolean; // Fechamento inativo configurável
+  idle_closure_message?: string;
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
     n8n_webhook_url?: string;

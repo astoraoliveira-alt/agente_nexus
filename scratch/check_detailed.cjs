@@ -1,0 +1,13 @@
+const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs');
+
+const envFile = fs.readFileSync('.env.local', 'utf8');
+const viteUrlMatch = envFile.match(/VITE_SUPABASE_URL=(.*)/);
+const supabaseUrl = viteUrlMatch[1].trim();
+const supabase = createClient(supabaseUrl, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU');
+
+async function run() {
+  const { data: def } = await supabase.rpc('execute_sql', { sql_query: "SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname = 'get_detailed_consumption';" }).catch(() => ({data: null}));
+  console.log(def);
+}
+run();
