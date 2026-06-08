@@ -130,6 +130,8 @@ BEGIN
               AND (
                   (v_capping->>'override_for_incidents')::boolean = true -- Emergência ignora capping
                   OR
+                  (oq.status != 'pending') -- [FIX]: Reengajamento ignora a trava de cooldown do Capping Global para respeitar estritamente o tempo configurado na campanha
+                  OR
                   NOT EXISTS (
                       SELECT 1 FROM public.contact_pressure_logs cpl
                       WHERE cpl.tenant_id = p_tenant_id

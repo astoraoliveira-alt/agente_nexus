@@ -3,6 +3,8 @@
 -- Descrição: Corrige a contagem de links enviados para isolar por campanha.
 -- ============================================================
 
+DROP FUNCTION IF EXISTS get_campaign_dashboard_stats(UUID, UUID);
+
 CREATE OR REPLACE FUNCTION get_campaign_dashboard_stats(
   p_campaign_id UUID DEFAULT NULL,
   p_tenant_id UUID DEFAULT NULL
@@ -51,10 +53,25 @@ BEGIN
       oq.response_detected,
       COALESCE(
         (
+          -- Pega o status mais avançado de QUALQUER mensagem outbound enviada para esse lead na conversa
+          -- Isso garante que um reengajamento (que volta pra status 'sent') não rebaixe um status anterior 'read'
           SELECT lower(msh.status)
-          FROM public.message_status_history msh
-          WHERE msh.message_id = (oq.metadata->>'message_id')::uuid
-          ORDER BY msh.created_at DESC
+          FROM public.messages m
+          JOIN public.message_status_history msh ON msh.message_id = m.id
+          WHERE m.conversation_id = oq.conversation_id
+            AND m.sender_type IN ('ai', 'bot', 'assistant', 'system', 'agent', 'system_trigger')
+          ORDER BY 
+            CASE lower(msh.status)
+              WHEN 'read' THEN 1
+              WHEN 'lida' THEN 1
+              WHEN 'converted' THEN 2
+              WHEN 'delivered' THEN 3
+              WHEN 'entregue' THEN 3
+              WHEN 'sent' THEN 4
+              WHEN 'enviada' THEN 4
+              ELSE 5
+            END ASC,
+            msh.created_at DESC
           LIMIT 1
         ),
         lower(oq.status::text)

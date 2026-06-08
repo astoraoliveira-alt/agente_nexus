@@ -1088,7 +1088,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                       </td>
                     </tr>
                   ) : (
-                    sortedLeads.map((lead, idx) => (
+                    sortedLeads.slice(0, 1000).map((lead, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
                         <td className="px-8 py-5 text-sm font-mono text-slate-600 first:pl-10">
                           <div className="flex items-center gap-2">
@@ -1121,6 +1121,13 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                         </td>
                       </tr>
                     ))
+                  )}
+                  {sortedLeads.length > 1000 && (
+                    <tr>
+                      <td colSpan={5} className="px-8 py-6 text-center text-slate-400 text-xs font-medium bg-slate-50/50">
+                        Mostrando 1000 de {sortedLeads.length} leads. Utilize os filtros ou busca para refinar.
+                      </td>
+                    </tr>
                   )}
                 </tbody>
               </table>

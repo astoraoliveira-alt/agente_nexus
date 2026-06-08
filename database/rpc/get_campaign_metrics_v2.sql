@@ -4,6 +4,8 @@
 -- com isolamento temporal para evitar ruído de conversas antigas.
 -- ============================================================
 
+DROP FUNCTION IF EXISTS get_campaign_metrics_v2(UUID, UUID);
+
 CREATE OR REPLACE FUNCTION get_campaign_metrics_v2(
   p_campaign_id UUID DEFAULT NULL,
   p_tenant_id UUID DEFAULT NULL
@@ -37,10 +39,25 @@ BEGIN
         lb.*,
         COALESCE(
           (
+            -- Pega o status mais avançado de QUALQUER mensagem outbound enviada para esse lead na conversa
+            -- Isso garante que um reengajamento não rebaixe um status anterior
             SELECT trim(lower(msh.status))
-            FROM public.message_status_history msh
-            WHERE msh.message_id = (lb.metadata->>'message_id')::uuid
-            ORDER BY msh.created_at DESC
+            FROM public.messages m
+            JOIN public.message_status_history msh ON msh.message_id = m.id
+            WHERE m.conversation_id = lb.conversation_id
+              AND m.sender_type IN ('ai', 'bot', 'assistant', 'system', 'agent', 'system_trigger')
+            ORDER BY 
+              CASE lower(msh.status)
+                WHEN 'read' THEN 1
+                WHEN 'lida' THEN 1
+                WHEN 'converted' THEN 2
+                WHEN 'delivered' THEN 3
+                WHEN 'entregue' THEN 3
+                WHEN 'sent' THEN 4
+                WHEN 'enviada' THEN 4
+                ELSE 5
+              END ASC,
+              msh.created_at DESC
             LIMIT 1
           ),
           trim(lower(lb.status))
