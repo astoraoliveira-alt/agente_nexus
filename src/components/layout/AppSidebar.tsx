@@ -22,7 +22,8 @@ import {
   PieChart,
   Activity,
   Gauge,
-  Zap
+  Zap,
+  Database
 } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { useApp } from '@/contexts/AppContext';
@@ -47,6 +48,7 @@ const governanceNavItems = [
   { title: 'Qualidade',           url: '/quality',         icon: ShieldCheck, permission: 'quality.view' },
   { title: 'Governança IA',       url: '/governance',      icon: ShieldCheck, permission: 'governance.view' },
   { title: 'Performance & IA',    url: '/ai-performance',  icon: Gauge, permission: 'ai_performance.view' },
+  { title: 'Schema Explorer',     url: '/schema-explorer', icon: Database, permission: 'schema_explorer.view' },
   // { title: 'Logs de Decisão', url: '/decision-logs', icon: Brain },
   // { title: 'Fluxos', url: '/flows', icon: Workflow },
 ];

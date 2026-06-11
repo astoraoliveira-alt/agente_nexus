@@ -112,6 +112,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     { action: 'view', name: 'Acessar Performance & IA', description: 'Visualizar indicadores de performance.' },
     { action: 'export', name: 'Exportar Performance & IA', description: 'Exportar relatórios de performance.' },
   ]),
+  defineModule('schema_explorer', 'Schema Explorer', 'Acesso ao Schema Explorer e construtor de consultas.', 'governanca', [
+    { action: 'view', name: 'Acessar Schema Explorer', description: 'Visualizar a tela do Schema Explorer e realizar consultas.' },
+  ]),
   defineModule('system_status', 'Status do Sistema', 'Monitoramento operacional e saúde da plataforma.', 'admin', [
     { action: 'view', name: 'Acessar Status do Sistema', description: 'Visualizar o painel de status operacional.' },
   ]),
@@ -176,6 +179,7 @@ const viewerPermissions = [
   'quality.view',
   'governance.view',
   'ai_performance.view',
+  'schema_explorer.view',
   'system_status.view',
   'users.view',
   'profiles.view',

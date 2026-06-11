@@ -34,6 +34,7 @@ import AIPerformanceCenter from "./pages/AIPerformanceCenter";
 import ConversationObservatory from "./pages/ConversationObservatory";
 import HandoffHub from "./pages/HandoffHub";
 import IncidentManagement from "./pages/IncidentManagement";
+import SchemaExplorer from "./pages/SchemaExplorer";
 
 
 const queryClient = new QueryClient();
@@ -79,6 +80,7 @@ const App = () => (
             <Route path="/observatory" element={<ProtectedRoute><ConversationObservatory /></ProtectedRoute>} />
             <Route path="/handoff-hub" element={<ProtectedRoute><HandoffHub /></ProtectedRoute>} />
             <Route path="/incidents" element={<ProtectedRoute><IncidentManagement /></ProtectedRoute>} />
+            <Route path="/schema-explorer" element={<ProtectedRoute><SchemaExplorer /></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

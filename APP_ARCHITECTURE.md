@@ -81,6 +81,14 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 - **Prioridade 10**: Mensagens de incidentes passam à frente da fila normal.
 - **Broadcast Preview**: UI para revisão de destinatários e preview de mensagens críticas.
 
+### 📊 4.3. Schema Explorer & Semantic SQL Engine (Enterprise Analytics)
+Permite que tenants realizem explorações analíticas self-service seguras de seus schemas de banco de dados, traduzindo termos técnicos em conceitos de negócio.
+- **Segurança em Camadas (Nexus Readonly Role)**: Toda consulta (gerada via chat de IA ou montada por Query Builder) executa sob a role restrita `nexus_readonly` com timeout transacional máximo de 5 segundos (`statement_timeout = '5s'`) e privilégios estritamente limitados a comandos `SELECT` no schema público.
+- **Camada Semântica & Configuração Curada**: Administradores definem uma allow-list de tabelas e RPCs visíveis para o tenant, mapeando apelidos de negócio para tabelas/colunas, e inserindo colunas sensíveis na deny-list (ex: `agents.meta_api_token`, `companies.api_key`), as quais são bloqueadas imediatamente por validação AST/Regex no backend (`assertReadOnly`).
+- **Canvas Interativo (React Flow)**: Renderiza as tabelas do schema e seus relacionamentos (Joins baseados em Foreign Keys) em uma malha interativa. Os caminhos de Junção e campos acessados são realçados visualmente na cor primária do tenant (`edge-hot` / `field-blink`) de acordo com o plano de execução real (`EXPLAIN VERBOSE`) retornado pelo PostgreSQL.
+- **Construção de Consulta Determinística**: Permite que o usuário monte agregações analíticas (`sum`, `avg`, `count`) selecionando campos diretamente no canvas, disparando a montagem determinística de SQL no backend sem alucinações de LLM.
+- **Chat Text-to-SQL Isolado**: Orquestra a conversão de perguntas em linguagem natural para SQL utilizando LLM (`gpt-4o-mini`), aplicando o contexto do DDL introspectado das tabelas permitidas, aliases semânticos e regras restritas de tradução de enums de status (mantendo chaves nativas em inglês como `active`, `paused` para os filtros do banco de dados).
+
 ---
 
 ## 5. Roadmap e Evolução (Fases 1-4)
@@ -95,6 +103,25 @@ O bastão entre IA e Humano é gerenciado via `conversations.status`:
 1. **Migração React Query**: Redução de waterfalls de requests no frontend.
 2. **Standardization de Canais**: Unificação de metadados para VAPI, Evolution e Zenvia.
 3. **Nexus 3.0**: Migração de sessões de segurança para persistência global baseada em Identificador de Usuário (Cross-Agent Identity).
+
+---
+
+## [V70.0] - Schema Explorer & Semantic Layer (Enterprise Analytics)
+### Exploração Analítica Self-Service com Segurança Multi-Tenant (RLS) e Visualização de Junções
+- **Segurança Fincada em RLS & Privilégios Mínimos**: Implementação da role estritamente leitura `nexus_readonly` e da RPC `exec_readonly_sql(q text)` que executa com `SECURITY INVOKER`, garantindo o respeito às políticas de tenant por token JWT do usuário ativo, sob timeout rígido de 5 segundos.
+- **Deno Edge Function `schema-query`**: Processador backend para geração de SQL via IA (`gpt-4o-mini`) com DDL injetado dinamicamente e modo builder determinístico por cliques de interface.
+- **Mapeamento de Observabilidade via Explain Plan**: Extração detalhada de dependências de query (tabelas, colunas, RPCs e edges de junção) obtidas diretamente do plano de execução do Postgres (`EXPLAIN (VERBOSE, FORMAT JSON)`), alimentando os highlights dinâmicos e caminhos tracejados animados (`edge-hot`) no canvas do frontend.
+- **Canvas de Mapeamento Semântico (`@xyflow/react`)**: Implementação de visualização gráfica do schema no frontend (`SchemaCanvas.tsx`, `TableNode.tsx`) com estado de posicionamento persistido no banco de dados e drag & drop otimizado (atualizado via `applyNodeChanges` no drag-end para evitar loops de re-render).
+- **Interface de Chat Analítico & Query Builder**: Painel de conversação com visualizador de código SQL executado, visualização em tempo real de resultados agregados e modal administrativo para controle de visibilidade, apelidos de negócio e deny-list de colunas confidenciais.
+
+---
+
+## [V69.0] - Hyper-Scale Outbound & Database Offloading
+### Otimização Extrema de Campanhas e Prevenção de Efeito Cascata
+- **O(1) Dashboard Aggregation (`get_all_campaigns_metrics_v2`)**: Remoção de subqueries pesadas (`COUNT`) no Dashboard Executivo. Substituídas por somatórias diretas nas colunas de performance em tempo real, eliminando o Timeout (Erro 500) que paralisava a renderização para instâncias de altíssimo volume.
+- **B-Tree Index Scan (`get_conversation_establishments`)**: A identificação de estabelecimentos via WhatsApp foi refatorada. Eliminado o uso de `regexp_replace` dinâmico (que forçava *Table Scans*). A query agora aplica *Input Expansion* no parâmetro de busca e bate diretamente contra o índice da tabela `agent_leads`, reduzindo a latência de 8 segundos para 10 milissegundos.
+- **Offloading de Estatísticas (N8N Flow)**: Remoção da chamada síncrona `fn_sync_campaign_stats` de dentro da RPC mestre `handle_outbound_sent`. Isso barra o "DDoS acidental" gerado pelo n8n, permitindo disparar lotes de 200 leads por minuto (12.000/hora) sem forçar o PostgreSQL a recalcular a campanha inteira repetidas vezes.
+- **Índices Cirúrgicos de Fila (Anti N+1)**: Criação de índices compostos e condicionais em `messages(conversation_id)`, `outbound_queue(campaign_id, status='pending')` e `contact_pressure_logs`, permitindo que a varredura da fila (`get_next_leads_secure`) encontre leads qualificados com custo computacional quase zero.
 
 ---
 
