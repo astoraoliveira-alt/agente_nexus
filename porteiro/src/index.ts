@@ -60,6 +60,22 @@ const pendingMessages = new Map<string, {
     raw_evolution_payload?: any
 }>();
 
+// --- 🛡️ DYNAMIC WEBHOOK ROUTING ---
+function getN8nWebhookUrl(tenantId: string | null | undefined): string | undefined {
+    let url = process.env.N8N_INBOUND_WEBHOOK;
+    if (tenantId && process.env.N8N_TENANT_WEBHOOKS) {
+        try {
+            const overrides = JSON.parse(process.env.N8N_TENANT_WEBHOOKS);
+            if (overrides[tenantId]) {
+                url = overrides[tenantId];
+            }
+        } catch (e) {
+            console.error('[PORTEIRO] Error parsing N8N_TENANT_WEBHOOKS:', e);
+        }
+    }
+    return url && url !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N' ? url : undefined;
+}
+
 // --- 🛡️ UNIFIED PORTEIRO LOGGING (V52 - Total Traceability) ---
 
 /**
@@ -727,8 +743,8 @@ app.post('/v1/evolution/webhook', async (c) => {
                     console.error(`[PORTEIRO] ❌ Erro ao enfileirar na Inbound Queue:`, queueError);
                 } else {
                     // --- 5. CALL n8n WEBHOOK (REALTIME TRIGGER) ---
-                    const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
-                    if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
+                    const n8nWebhookUrl = getN8nWebhookUrl(dataToProcess.tenantId);
+                    if (n8nWebhookUrl) {
                         console.log(`[PORTEIRO] 🚀 Triggering n8n Webhook for [Trace: ${traceId}]`);
                         
                         try {
@@ -1117,7 +1133,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         console.log(`[ZENVIA] ✅ Mensagem enfileirada e salva: ${phone} [Trace: ${trace}]`);
                     }
 
-                    const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+                    const n8nUrl = getN8nWebhookUrl(agent.tenant_id);
                     if (n8nUrl) {
                         fetch(n8nUrl, {
                             method: 'POST',
@@ -1239,8 +1255,8 @@ app.post('/v1/queue/retry/:id', async (c) => {
 
     // Opcional: Trigger n8n immediately? (A recuperação já faz isso, mas aqui damos um gás)
     const item = data[0];
-    const n8nWebhookUrl = process.env.N8N_INBOUND_WEBHOOK;
-    if (n8nWebhookUrl && n8nWebhookUrl !== 'SUBSTITUA_PELA_SUA_URL_DO_N8N') {
+    const n8nWebhookUrl = getN8nWebhookUrl(item.tenant_id);
+    if (n8nWebhookUrl) {
         fetch(n8nWebhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-Nexus-Job-Type': 'INBOUND' },
@@ -1337,7 +1353,7 @@ async function startHeartbeatWorker() {
 
               await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
               
-              const n8nUrl = process.env.N8N_INBOUND_WEBHOOK;
+              const n8nUrl = getN8nWebhookUrl(item.tenant_id);
               if (n8nUrl) {
                 // Atualiza o created_at para NOW() e incrementa retry_count
                 const { error: updateError } = await supabaseAdmin
