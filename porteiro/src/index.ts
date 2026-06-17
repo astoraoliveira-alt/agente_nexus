@@ -177,6 +177,7 @@ app.use('/v1/*', async (c, next) => {
         c.req.path === '/v1/evolution/webhook' ||
         c.req.path === '/v1/zenvia/webhook' ||
         c.req.path === '/v1/zenvia/status' ||
+        c.req.path === '/v1/edenred/status' ||
         c.req.path.startsWith('/v1/queue/') ||
         c.req.path.startsWith('/v1/l/')
     ) {
@@ -234,6 +235,64 @@ app.get('/v1/l/:trace_id', async (c) => {
     } catch (err: any) {
         console.error(`[BRIDGE] ❌ Critical Failure for ${trace_id}:`, err.message);
         return c.redirect('https://fiservcapital.moneymoneyinvest.com.br/ticket/solicite-agora');
+    }
+});
+
+/**
+ * Edenred Status Integration Webhook (White-label)
+ * Authenticates via Bearer Token and forwards to n8n
+ */
+app.post('/v1/edenred/status', async (c) => {
+    console.log(`[EDENRED] 🔔 Status update received!`);
+    
+    // 1. Validate Token
+    const authHeader = c.req.header('Authorization');
+    const expectedToken = process.env.EDENRED_API_TOKEN;
+    
+    if (!expectedToken) {
+        console.error('[EDENRED] ❌ EDENRED_API_TOKEN is not configured in .env');
+        return c.json({ error: 'Server configuration error' }, 500);
+    }
+
+    if (!authHeader || authHeader.replace('Bearer ', '') !== expectedToken) {
+        console.warn('[EDENRED] 🛡️ Unauthorized status update attempt');
+        return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // 2. Parse payload
+    let payload;
+    try {
+        payload = await c.req.json();
+    } catch (e) {
+        return c.json({ error: 'Invalid JSON payload' }, 400);
+    }
+
+    console.log(`[EDENRED] 📦 Payload:`, JSON.stringify(payload).substring(0, 200));
+
+    // 3. Forward to n8n
+    const n8nWebhookUrl = process.env.EDENRED_N8N_WEBHOOK;
+    
+    if (!n8nWebhookUrl) {
+        console.error('[EDENRED] ❌ EDENRED_N8N_WEBHOOK is not configured in .env');
+        return c.json({ error: 'Webhook configuration error' }, 500);
+    }
+
+    try {
+        const n8nRes = await fetch(n8nWebhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!n8nRes.ok) {
+            throw new Error(`n8n returned status ${n8nRes.status}`);
+        }
+
+        console.log(`[EDENRED] ✅ Successfully forwarded to n8n`);
+        return c.json({ status: 'success', message: 'Status updated successfully' });
+    } catch (err: any) {
+        console.error(`[EDENRED] ❌ Failed to reach n8n Webhook:`, err.message);
+        return c.json({ error: 'Failed to process status update' }, 500);
     }
 });
 
