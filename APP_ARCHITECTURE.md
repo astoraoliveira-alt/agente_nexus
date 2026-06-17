@@ -106,6 +106,15 @@ Permite que tenants realizem explorações analíticas self-service seguras de s
 
 ---
 
+## [V70.1] - Multi-Tenant Isolation & White-Label Webhook Security
+### Isolamento Estrito de Fila e Proteção de Endpoint B2B
+- **Isolamento Multi-Tenant na `inbound_queue`**: A RPC mestra `fn_fetch_next_inbound_message` foi atualizada para receber o parâmetro opcional `p_tenant_id`. Isso garante que instâncias separadas do n8n (operando sob tenants distintos) consumam **apenas** as mensagens pertencentes ao seu próprio escopo organizacional, blindando o cruzamento indevido de dados quando múltiplos webhooks atuam simultaneamente no mesmo banco.
+- **Webhook White-Label Seguro (Porteiro API)**: Criação da rota `POST /v1/edenred/status` no Porteiro para atuar como proxy reverso de integrações de parceiros. Isso permite que sistemas de terceiros interajam com a plataforma utilizando o domínio oficial (`api.davosconsulting.com.br`) sem expor a URL interna e as rotas do n8n.
+- **Autenticação Bearer via Gateway**: A nova rota White-Label valida rigorosamente a presença de um Bearer Token (`EDENRED_API_TOKEN`) no cabeçalho antes de qualquer processamento JSON. Tentativas de acesso sem token, ou com token inválido, recebem um bloqueio imediato (HTTP 401) com tempo de resposta na casa dos ~2ms, impedindo que ataques de negação de serviço (DoS) onerosos alcancem a camada de orquestração do n8n.
+- **Roteamento Interno Transparente**: Uma vez que a chamada passa pelo escudo do Porteiro, o payload íntegro é repassado (forwarding) para o endpoint real do n8n configurado em `EDENRED_N8N_WEBHOOK`. Para o webhook do n8n, a configuração de "Authentication" é mantida como `None`, pois a confiança da requisição já foi atestada na borda pela arquitetura do Gateway.
+
+---
+
 ## [V70.0] - Schema Explorer & Semantic Layer (Enterprise Analytics)
 ### Exploração Analítica Self-Service com Segurança Multi-Tenant (RLS) e Visualização de Junções
 - **Segurança Fincada em RLS & Privilégios Mínimos**: Implementação da role estritamente leitura `nexus_readonly` e da RPC `exec_readonly_sql(q text)` que executa com `SECURITY INVOKER`, garantindo o respeito às políticas de tenant por token JWT do usuário ativo, sob timeout rígido de 5 segundos.
