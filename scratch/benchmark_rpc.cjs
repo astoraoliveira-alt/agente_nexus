@@ -8,25 +8,26 @@ const supabase = createClient(viteUrlMatch[1].trim(), serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false }
 });
 
+const tenantId = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 const campaignId = 'bf607c72-4e7e-4222-a208-feb888ae3615';
 
-async function checkStatus() {
-  const { data, error } = await supabase
-    .from('outbound_queue')
-    .select('status')
-    .eq('campaign_id', campaignId);
-    
+async function testPerformance() {
+  console.log('Testing RPC Performance...');
+  const start = Date.now();
+  
+  const { data, error } = await supabase.rpc('get_next_leads_secure', {
+    p_tenant_id: tenantId,
+    p_campaign_id: campaignId,
+    p_limit: 50
+  });
+  
+  const end = Date.now();
+  
   if (error) {
-    console.error(error);
-    return;
+    console.error('RPC Error:', error);
+  } else {
+    console.log(`RPC returned ${data ? data.length : 0} rows in ${end - start} ms`);
   }
-  
-  const counts = data.reduce((acc, row) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    return acc;
-  }, {});
-  
-  console.log(counts);
 }
 
-checkStatus();
+testPerformance();

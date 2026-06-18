@@ -127,7 +127,12 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
                 status: row.status,
                 metadata: row.metadata,
                 cnpj: row.metadata?.cnpj || null,
-                establishment_name: null
+                establishment_name: null,
+                error_message: row.errorMessage,
+                response_detected: row.responseDetected,
+                is_converted: false,
+                sent_at: row.sentAt,
+                clicked_button: false
             }));
         }
 
@@ -209,9 +214,10 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             metadata: d.metadata,
             cnpj: d.cnpj,
             conversationId: (queueContextById.get(d.id) as any)?.conversation_id || d.conversation_id || d.metadata?.conversation_id || null,
-            responseDetected: Boolean(d.response_detected || (queueContextById.get(d.id) as any)?.response_detected),
-            response_detected: Boolean(d.response_detected || (queueContextById.get(d.id) as any)?.response_detected),
+            responseDetected: Boolean(d.response_detected),
+            response_detected: Boolean(d.response_detected),
             is_converted: Boolean(d.is_converted),
+            clickedButton: Boolean(d.clicked_button),
             sentAt: (queueContextById.get(d.id) as any)?.sent_at || null,
             createdAt: (queueContextById.get(d.id) as any)?.created_at || null,
             campaignId: (queueContextById.get(d.id) as any)?.campaign_id || campaignId || null
@@ -724,6 +730,49 @@ async deleteCampaign(id: string): Promise<void> {
             return [];
         }
 
+        return data;
+    },
+
+    async executeManualReengagement(campaignId: string, tenantId: string, targets: string[]): Promise<string | null> {
+        const { data, error } = await supabase.rpc('execute_manual_reengagement_v2', {
+            p_campaign_id: campaignId,
+            p_tenant_id: tenantId,
+            p_targets_str: targets.join(',')
+        });
+        if (error) {
+            console.error('Error executing manual reengagement:', JSON.stringify(error, null, 2), error.message, error.details, error.hint);
+            return null;
+        }
+        return data;
+    },
+
+    async completeManualReengagement(logId: string): Promise<boolean> {
+        const { data, error } = await supabase.rpc('complete_manual_reengagement', {
+            p_log_id: logId
+        });
+        if (error) {
+            console.error('Error completing manual reengagement:', error);
+            return false;
+        }
+        return !!data;
+    },
+
+    async getCampaignRecoveryLogs(tenantId: string, campaignId?: string): Promise<any[]> {
+        let query = supabase
+            .from('campaign_recovery_logs')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .order('started_at', { ascending: false });
+            
+        if (campaignId) {
+            query = query.eq('campaign_id', campaignId);
+        }
+        
+        const { data, error } = await query;
+        if (error) {
+            console.error('Error fetching campaign recovery logs:', error);
+            return [];
+        }
         return data;
     }
 };

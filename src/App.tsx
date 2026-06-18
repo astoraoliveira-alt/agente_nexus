@@ -10,6 +10,7 @@ import Conversations from "./pages/Conversations";
 import Consumption from "./pages/Consumption";
 import Agents from "./pages/Agents";
 import Campaigns from "./pages/Campaigns";
+import CampaignRecovery from "./pages/CampaignRecovery";
 import Alerts from "./pages/Alerts";
 import Settings from "./pages/Settings";
 import Users from "./pages/Users";
@@ -61,6 +62,7 @@ const App = () => (
             <Route path="/consumption" element={<ProtectedRoute><Consumption /></ProtectedRoute>} />
             <Route path="/agents" element={<ProtectedRoute><Agents /></ProtectedRoute>} />
             <Route path="/campaigns" element={<ProtectedRoute><Campaigns /></ProtectedRoute>} />
+            <Route path="/campaign-recovery" element={<ProtectedRoute><CampaignRecovery /></ProtectedRoute>} />
             <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/users" element={<ProtectedRoute><Users /></ProtectedRoute>} />

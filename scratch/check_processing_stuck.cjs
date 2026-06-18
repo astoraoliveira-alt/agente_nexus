@@ -10,23 +10,26 @@ const supabase = createClient(viteUrlMatch[1].trim(), serviceKey, {
 
 const campaignId = 'bf607c72-4e7e-4222-a208-feb888ae3615';
 
-async function checkStatus() {
+async function checkProcessing() {
   const { data, error } = await supabase
     .from('outbound_queue')
-    .select('status')
-    .eq('campaign_id', campaignId);
+    .select('id, status, last_attempt_at, scheduled_at, error_message')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'processing');
     
   if (error) {
     console.error(error);
     return;
   }
   
-  const counts = data.reduce((acc, row) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    return acc;
-  }, {});
+  console.log(`Found ${data.length} processing items.`);
   
-  console.log(counts);
+  if (data.length > 0) {
+    const first = data[0];
+    const last = data[data.length - 1];
+    console.log('Sample processing item 1:', first);
+    console.log('Sample processing item N:', last);
+  }
 }
 
-checkStatus();
+checkProcessing();

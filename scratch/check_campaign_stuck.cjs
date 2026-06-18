@@ -10,23 +10,27 @@ const supabase = createClient(viteUrlMatch[1].trim(), serviceKey, {
 
 const campaignId = 'bf607c72-4e7e-4222-a208-feb888ae3615';
 
-async function checkStatus() {
-  const { data, error } = await supabase
-    .from('outbound_queue')
-    .select('status')
-    .eq('campaign_id', campaignId);
+async function check() {
+  const { data: campaign, error: campErr } = await supabase
+    .from('campaigns')
+    .select('*')
+    .eq('id', campaignId)
+    .single();
     
-  if (error) {
-    console.error(error);
-    return;
-  }
+  console.log('--- Campaign ---');
+  if (campErr) console.error(campErr);
+  else console.log(campaign);
   
-  const counts = data.reduce((acc, row) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    return acc;
-  }, {});
-  
-  console.log(counts);
+  const { data: queue, error: queueErr } = await supabase
+    .from('outbound_queue')
+    .select('*')
+    .eq('campaign_id', campaignId)
+    .eq('status', 'pending')
+    .limit(3);
+    
+  console.log('\n--- Sample Pending Queue Items ---');
+  if (queueErr) console.error(queueErr);
+  else console.log(queue);
 }
 
-checkStatus();
+check();

@@ -10,23 +10,17 @@ const supabase = createClient(viteUrlMatch[1].trim(), serviceKey, {
 
 const campaignId = 'bf607c72-4e7e-4222-a208-feb888ae3615';
 
-async function checkStatus() {
-  const { data, error } = await supabase
+async function fixProcessing() {
+  console.log('Voltando os processing para pending...');
+  const { data: updatedP, error: uPErr } = await supabase
     .from('outbound_queue')
-    .select('status')
-    .eq('campaign_id', campaignId);
+    .update({ status: 'pending', sent_at: null })
+    .eq('campaign_id', campaignId)
+    .eq('status', 'processing')
+    .select();
     
-  if (error) {
-    console.error(error);
-    return;
-  }
-  
-  const counts = data.reduce((acc, row) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    return acc;
-  }, {});
-  
-  console.log(counts);
+  if (uPErr) console.error('Erro ao atualizar processing:', uPErr);
+  else console.log(`Atualizados ${updatedP.length} registros (processing -> pending).`);
 }
 
-checkStatus();
+fixProcessing();

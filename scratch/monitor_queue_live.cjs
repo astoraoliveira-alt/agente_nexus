@@ -10,23 +10,25 @@ const supabase = createClient(viteUrlMatch[1].trim(), serviceKey, {
 
 const campaignId = 'bf607c72-4e7e-4222-a208-feb888ae3615';
 
-async function checkStatus() {
-  const { data, error } = await supabase
-    .from('outbound_queue')
-    .select('status')
-    .eq('campaign_id', campaignId);
+async function monitor() {
+  for (let i = 0; i < 4; i++) {
+    const { data } = await supabase
+      .from('outbound_queue')
+      .select('status')
+      .eq('campaign_id', campaignId);
+      
+    if (data) {
+      const counts = data.reduce((acc, row) => {
+        acc[row.status] = (acc[row.status] || 0) + 1;
+        return acc;
+      }, {});
+      console.log(`[${new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo' })}] Status:`, counts);
+    }
     
-  if (error) {
-    console.error(error);
-    return;
+    if (i < 3) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
   }
-  
-  const counts = data.reduce((acc, row) => {
-    acc[row.status] = (acc[row.status] || 0) + 1;
-    return acc;
-  }, {});
-  
-  console.log(counts);
 }
 
-checkStatus();
+monitor();

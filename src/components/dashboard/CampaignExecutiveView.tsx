@@ -30,8 +30,10 @@ import {
   FileText,
   Building2,
   Check,
-  ArrowLeft
+  ArrowLeft,
+  Download
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -72,9 +74,11 @@ interface LeadResult {
     establishmentName?: string;
     conversationId?: string | null;
     responseDetected?: boolean;
+    isConverted?: boolean;
     sentAt?: string | null;
-    createdAt?: string | null;
+    clickedButton?: boolean;
     campaignId?: string | null;
+    createdAt?: string | null;
 }
 
 interface ConversationAnalytics {
@@ -468,30 +472,34 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
           conversationId: c.conversationId || null,
           responseDetected: Boolean(c.responseDetected || c.response_detected),
           isConverted: Boolean(c.isConverted || c.is_converted), // Suporte a camelCase e snake_case
-          sentAt: c.sentAt || null,
+          sentAt: c.sentAt || c.sent_at || null,
+          clickedButton: Boolean(c.clickedButton || c.clicked_button),
           createdAt: c.createdAt || null,
           campaignId: c.campaignId || null,
           status: (() => {
             const s = String(c.status || '').toLowerCase();
             
-            // REGRA DE OURO (V3.1): Hierarquia de status refinada
+            // REGRA DE OURO (V3.1): Hierarquia de status para refletir EXATAMENTE a tela
             // 1. Conversão é o status máximo.
             if (c.is_converted || c.isConverted || ['converted', 'convertida'].includes(s)) return 'Convertida';
             
-            // 2. Resposta (Interação real)
-            // Se houver conversão, já retornamos acima. Se não, verificamos resposta.
-            if (c.response_detected || c.responseDetected || s === 'respondida') return 'Respondida';
+            // 2. Respondeu
+            if (c.response_detected || c.responseDetected || ['responded', 'respondida'].includes(s)) {
+              return 'Respondida';
+            }
             
-            // 3. Leitura (Nível base de interação)
-            if (s === 'read' || s === 'lida') return 'Lida';
+            // 3. Status base da mensagem
+            if (['read', 'lida'].includes(s)) return 'Lida';
             
-            if (['delivered', 'entregue'].includes(s)) return 'Entregue';
-            if (['sent', 'enviada'].includes(s)) return 'Enviada';
-            if (['failed', 'erro'].includes(s)) return 'Erro';
+            // Agrupar "Enviada" e "Entregue" como "Entregue" para bater com a tela
+            if (['delivered', 'entregue', 'sent', 'enviada'].includes(s)) return 'Entregue';
+            
+            // Agrupar falhas e rejeições como "Não Entregue" para bater com a tela (Total - Entregues)
+            if (['failed', 'erro', 'not_delivered', 'rejected', 'rejeitada'].includes(s)) return 'Não Entregue';
+            
             if (['pending', 'pendente'].includes(s)) return 'Pendente';
             if (['processing', 'processando'].includes(s)) return 'Processando';
-            if (s === 'not_delivered') return 'Não Entregue';
-            if (s === 'rejected') return 'Rejeitada';
+            
             return c.status || 'Pendente';
           })(),
           errorMessage: c.error_message || null
@@ -671,6 +679,54 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     return sortConfig.direction === 'asc' 
       ? <ChevronUp className="w-3 h-3 text-slate-900 ml-1 inline" /> 
       : <ChevronDown className="w-3 h-3 text-slate-900 ml-1 inline" />;
+  };
+  const handleExportExcel = () => {
+    // Preparar os dados
+    const exportData = leads.map(lead => {
+      // Regra de comportamento
+      let comportamento = '';
+      if (lead.isConverted) {
+        if (lead.clickedButton) {
+          comportamento = 'Botão Inicial';
+        } else {
+          comportamento = 'Interagiu via Chat';
+        }
+      }
+
+      // Formatar data
+      let dataDisparo = '';
+      if (lead.sentAt) {
+        dataDisparo = new Date(lead.sentAt).toLocaleString('pt-BR');
+      }
+
+      return {
+        'CNPJ': lead.cnpj || '-',
+        'Telefone': lead.whatsapp || '-',
+        'Data Disparo': dataDisparo,
+        'Último Status': lead.status || '-',
+        'Comportamento': comportamento
+      };
+    });
+
+    // Criar planilha e workbook
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Contatos');
+
+    // Ajustar largura das colunas
+    const wscols = [
+      { wch: 20 }, // CNPJ
+      { wch: 15 }, // Telefone
+      { wch: 20 }, // Data Disparo
+      { wch: 15 }, // Status
+      { wch: 20 }, // Comportamento
+    ];
+    worksheet['!cols'] = wscols;
+
+    // Gerar e baixar
+    const currentCampaign = campaigns.find(c => c.id === campaignId);
+    const fileName = `exportacao_${currentCampaign?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'campanha'}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
   };
 
   const toggleStatusFilter = (status: string) => {
@@ -861,6 +917,14 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  <Button 
+                    variant="ghost" 
+                    onClick={handleExportExcel}
+                    className="h-8 px-4 rounded-lg border border-emerald-200 text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 font-bold uppercase text-[9px] tracking-widest flex items-center gap-2 transition-all shadow-sm"
+                  >
+                    <Download className="w-3 h-3" />
+                    Exportar Relatório (Excel)
+                  </Button>
                   <Button 
                     variant="ghost" 
                     onClick={onBack}
