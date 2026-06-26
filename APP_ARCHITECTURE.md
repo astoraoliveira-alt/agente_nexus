@@ -52,10 +52,19 @@ O Nexus gerencia a transição IA -> Humano através de uma fila dedicada de alt
 
 ## 3. Infraestrutura Operacional
 ### 🚧 3.1. Porteiro Gateway (The Defender)
-O serviço Node.js (Hono) que guarda a entrada do sistema:
-- **Debounce de 1.5s**: Agrupa mensagens fragmentadas do usuário para evitar múltiplas respostas da IA.
-- **Scale Guardian**: Limite de 50 jobs simultâneos para evitar colapso de infraestrutura.
-- **Realtime Handshake**: Dispara o trigger para o orquestrador (n8n/Node) apenas após o commit bem-sucedido no banco de dados.
+O serviço Node.js/TypeScript publicado na VPS raiz que guarda a entrada do sistema e atua como o **Gateway Universal de Webhooks**.
+
+**Responsabilidades e Fluxo:**
+- **Ponto Único de Entrada**: Recebe todos os webhooks de provedores (Zenvia, Evolution API, Meta) na rota de entrada (ex: `/v1/zenvia/webhook`).
+- **Comunicação Direta com o Banco de Dados**: Usa o SDK do Supabase (`supabaseAdmin`) para interagir diretamente com o banco. Ele realiza *upsert* de Contatos (tabela `contacts`), busca o status da conversa ativa (tabela `conversations`) e enfileira a nova mensagem.
+- **Isolamento da Fila**: É o único serviço responsável por gravar na tabela `inbound_queue`. A mensagem recebida do usuário é carimbada com um `trace_id` e colocada na fila, sem que o provedor toque no n8n diretamente.
+- **Roteamento Interno (n8n)**: Após gravar no banco, o Porteiro faz requisições HTTP internas (`fetch` / chamadas REST) para o n8n (orquestrador local ou via rede VPC) para avisar que há uma nova mensagem a ser processada.
+- **Segurança e Debounce**: 
+  - Aplica validações de token White-Label (Bearer Token) antes do processamento.
+  - **Debounce de 1.5s**: Agrupa mensagens fragmentadas do usuário para evitar múltiplas respostas da IA.
+  - **Scale Guardian**: Limite de 50 jobs simultâneos para evitar colapso de infraestrutura.
+- **Desacoplamento Assíncrono**: Responde rapidamente ao webhook do provedor (HTTP 200) para evitar timeouts (o limite da Zenvia é de 5 segundos), enquanto o processamento real, verificação de fila e disparos pro n8n ocorrem em Background Tasks.
+
 
 ### 📡 3.2. Realtime Event Bus (Supabase Channels)
 A partir da V51, o Nexus abandonou o polling curto em favor de uma arquitetura baseada 100% em eventos via Supabase Realtime (WebSockets).

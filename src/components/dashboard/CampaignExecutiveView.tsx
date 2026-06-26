@@ -318,7 +318,6 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Interagiram</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Links Enviados</th>
                 <th className="px-4 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">% Conversão</th>
-                <th className="px-6 py-5 text-[10px] font-black uppercase text-slate-400 tracking-widest last:pr-8">Agente</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -402,16 +401,6 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
                       </div>
                         );
                       })()}
-                    </td>
-                    <td className="px-6 py-5 last:pr-8">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-slate-100 flex items-center justify-center">
-                          <User className="w-3 h-3 text-slate-400" />
-                        </div>
-                        <span className="text-xs font-medium text-slate-600 truncate max-w-[120px]">
-                          {getAgentName(c.agentId)}
-                        </span>
-                      </div>
                     </td>
                   </motion.tr>
                 ))
@@ -953,14 +942,13 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
               <KPISquare label="Enviados" value={stats.total_contacts} percentage={100} subLabel="Base: leads válidos" />
               <div className="grid grid-cols-2 gap-3">
                 <KPISquare label="Entregues" value={stats.delivered_count} percentage={stats.total_contacts > 0 ? Math.min((stats.delivered_count / stats.total_contacts) * 100, 100) : 0} isPositive subLabel="Taxa Entrega: (Entregues/Enviados)" />
-                <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? Math.min((stats.read_count / stats.delivered_count) * 100, 100) : 0} isPositive accentClass="text-emerald-600" subLabel="Taxa Leitura: (Lidas/Entregues)" />
+                <KPISquare label="Lidas" value={stats.read_count} percentage={stats.delivered_count > 0 ? Math.min((stats.read_count / stats.delivered_count) * 100, 100) : 0} isPositive subLabel="Taxa Leitura: (Lidas/Entregues)" />
               </div>
               <KPISquare 
                 label="Não entregues" 
                 value={Math.max(stats.total_contacts - stats.delivered_count, 0)} 
                 percentage={stats.total_contacts > 0 ? Math.min((Math.max(stats.total_contacts - stats.delivered_count, 0) / stats.total_contacts) * 100, 100) : 0} 
                 isNegative 
-                accentClass="text-slate-400 opacity-80"
                 subLabel="Não recebidas (Zenvia)" 
                 onClick={() => {
                   setSelectedStatuses(['Erro', 'Não Entregue', 'Rejeitada', 'Pendente', 'Processando']);
@@ -1054,7 +1042,6 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                     percentage={(stats.response_count || 0) > 0 ? Math.min((stats.conversion_count / stats.response_count) * 100, 100) : 0}
                     isPositive
                     subLabel="Eficácia Resposta"
-                    hideValue={true}
                   />
                   <KPISquare 
                     label="Abandono Conv." 

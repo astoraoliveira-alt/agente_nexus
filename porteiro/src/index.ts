@@ -1099,7 +1099,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         agent_id: agent.id,
                         phone_number: phone,
                         path: '/v1/zenvia/webhook',
-                        latency_ms: Date.now() - startTime,
+                        latency_ms: Date.now() - startTime_znv,
                         validation_results: { 
                             reason: 'agent_provider_not_zenvia', 
                             active_provider: activeProvider 
@@ -1137,7 +1137,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 let convId = conv?.id;
                 
                 if (convId) {
-                    if (conv.status === 'closed') {
+                    if (conv?.status === 'closed') {
                         console.log(`[ZENVIA] 🔓 [${traceId}] Reabrindo conversa fechada (${convId})...`);
                         await supabaseAdmin.from('conversations')
                             .update({ status: 'ai_active', updated_at: new Date().toISOString() })
