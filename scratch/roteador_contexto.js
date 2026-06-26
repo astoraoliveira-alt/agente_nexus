@@ -1,13 +1,4 @@
-/* 🧭 ROTEADOR DE CONTEXTO - V18.2 - SEMANTIC & REGEX HYBRID
-   - Restauração: FAQ Técnico Integral (SST).
-   - Atualização: Novo FAQ Institucional/Operacional Ticket.
-   - Correção: Evita que 'não recebi reembolso' dispare transbordo (isComplaint) indevido.
-   - Memória: Injeção do histórico de mensagens no prompt consultivo (Item 2).
-   - Antirrepetição: Detector de loops semânticos para respostas estáticas repetidas.
-   - NOVO: Roteamento Híbrido (Regex + LLM Semântica) com Injeção de Contexto Oculto.
-   - HOTFIX V18.1: Precedência absoluta para o botão "Falar com um agente!"
-   - HOTFIX V18.2: Correção de handoff de loop (remoção da alucinação de dados bancários) e ajuste na Regex de Reclamação (remoção de "cancelar").
-*/
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV COM EXTRAÇÃO E MEMÓRIA */
 
 try {
     const rpcData = $node["RPC - Acesso Entrada"].json;
@@ -30,7 +21,7 @@ try {
     const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
     const lastUserLower = currentMsg.toLowerCase();
 
-    // --- 🛠️ HELPER FUNCTIONS FOR NATIVE SIMULATION PARSING ---
+    // --- 🛠️ FUNÇÕES AUXILIARES DE PARSING ---
     function parseNumber(text) {
         if (!text) return null;
         let clean = text.toLowerCase().trim();
@@ -87,7 +78,6 @@ try {
     let semanticReasoning = "";
 
     try {
-        // Tenta ler do nó 'Message a model1'. Se renomear o nó no n8n, atualize o nome aqui:
         const semanticData = $('Message a model1').first()?.json?.output?.[0]?.content?.[0]?.text;
         if (semanticData) {
             if (typeof semanticData === 'object' && semanticData !== null) {
@@ -102,16 +92,13 @@ try {
                         const endIdx = trimmed.lastIndexOf('}');
                         const jsonStr = trimmed.substring(startIdx, endIdx + 1);
                         parsed = JSON.parse(jsonStr);
-                    } catch (err) {
-                        // Fallback parsing failed
-                    }
+                    } catch (err) {}
                 }
                 
                 if (parsed && typeof parsed === 'object') {
                     semanticIntent = parsed.intent || "OTHER";
                     semanticReasoning = parsed.reasoning || "";
                 } else {
-                    // Raw string keyword fallback
                     const upperStr = trimmed.toUpperCase();
                     if (upperStr.includes("HUMAN_HANDOFF")) {
                         semanticIntent = "HUMAN_HANDOFF";
@@ -127,292 +114,274 @@ try {
                 }
             }
         }
-    } catch (e) {
-        // Falha silenciosa para não quebrar o fluxo caso o nó seja removido
+    } catch (e) {}
+
+    // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
+    const assistantMessages = history.filter(m =>
+        ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
+    );
+
+    const lastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
+    const historyTexts = history.map(m => String(m.content || m.text || "").toLowerCase().replace(/\*/g, '')).join(" ");
+
+    const linkAlreadySent = historyTexts.includes("clicar no link abaixo") || historyTexts.includes("fiservcapital.moneymoneyinvest");
+
+    let currentStep = 'start';
+    if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
+        currentStep = 'finalizacao_sucesso';
+    } else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito")) {
+        currentStep = 'recusa_analise';
+    } else if (lastSofiaMsg.includes("enviei suas informações para a fiserv") || lastSofiaMsg.includes("análise e geração das ofertas") || lastSofiaMsg.includes("aguarde que eu já te chamo") || lastSofiaMsg.includes("gostaria de iniciar a simulação")) {
+        currentStep = 'aguardando_fiserv';
+    } else if (lastSofiaMsg.includes("confirma que deseja prosseguir")) {
+        currentStep = 'confirmacao_cliente';
+    } else if (lastSofiaMsg.includes("opções de crédito") || lastSofiaMsg.includes("quantidade de parcelas")) {
+        currentStep = 'apresenta_ofertas';
+    } else if (lastSofiaMsg.includes("valor de empréstimo") || lastSofiaMsg.includes("valor de emprestimo") || lastSofiaMsg.includes("deseja simular")) {
+        currentStep = 'coleta_valor';
+    } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento medio mensal")) {
+        currentStep = 'coleta_faturamento';
+    } else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("empresa") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação"))) {
+        currentStep = 'verificacao_cnpj';
+    } else if (lastSofiaMsg.includes("cnpj correto") || lastSofiaMsg.includes("solicitar a inclusão")) {
+        currentStep = 'coleta_cnpj_correto';
+    } else if (lastSofiaMsg.includes("nome do estabelecimento")) {
+        currentStep = 'coleta_nome_estabelecimento';
+    } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço") || lastSofiaMsg.includes("reforco") || lastSofiaMsg.includes("caixa") || lastSofiaMsg.includes("enviar o link")) {
+        currentStep = 'explicacao_agente';
+    } else if (assistantMessages.length > 0) {
+        currentStep = 'explicacao_agente';
     }
 
-// --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
-const assistantMessages = history.filter(m =>
-    ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
-);
+    // Extrair faturamento e valor solicitado do histórico de mensagens
+    let revenue = findValueForQuestion(history, ["faturamento médio mensal", "faturamento medio mensal"]);
+    let requested_amount = findValueForQuestion(history, ["valor de empréstimo", "valor de emprestimo", "deseja simular"]);
 
-const lastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
-const historyTexts = history.map(m => String(m.content || m.text || "").toLowerCase().replace(/\*/g, '')).join(" ");
-
-const linkAlreadySent = historyTexts.includes("clicar no link abaixo") || historyTexts.includes("fiservcapital.moneymoneyinvest");
-
-let currentStep = 'start';
-if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
-    currentStep = 'finalizacao_sucesso';
-} else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito")) {
-    currentStep = 'recusa_analise';
-} else if (lastSofiaMsg.includes("enviei suas informações para a fiserv") || lastSofiaMsg.includes("análise e geração das ofertas") || lastSofiaMsg.includes("aguarde que eu já te chamo") || lastSofiaMsg.includes("gostaria de iniciar a simulação")) {
-    currentStep = 'aguardando_fiserv';
-} else if (lastSofiaMsg.includes("confirma que deseja prosseguir")) {
-    currentStep = 'confirmacao_cliente';
-} else if (lastSofiaMsg.includes("opções de crédito") || lastSofiaMsg.includes("quantidade de parcelas")) {
-    currentStep = 'apresenta_ofertas';
-} else if (lastSofiaMsg.includes("valor de empréstimo") || lastSofiaMsg.includes("valor de emprestimo") || lastSofiaMsg.includes("deseja simular")) {
-    currentStep = 'coleta_valor';
-} else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento medio mensal")) {
-    currentStep = 'coleta_faturamento';
-} else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("empresa") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação"))) {
-    currentStep = 'verificacao_cnpj';
-} else if (lastSofiaMsg.includes("cnpj correto") || lastSofiaMsg.includes("solicitar a inclusão")) {
-    currentStep = 'coleta_cnpj_correto';
-} else if (lastSofiaMsg.includes("nome do estabelecimento")) {
-    currentStep = 'coleta_nome_estabelecimento';
-} else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço") || lastSofiaMsg.includes("reforco") || lastSofiaMsg.includes("caixa") || lastSofiaMsg.includes("enviar o link")) {
-    currentStep = 'explicacao_agente';
-} else if (assistantMessages.length > 0) {
-    currentStep = 'explicacao_agente';
-}
-
-// Parse monthly revenue (faturamento) and desired amount from history or current message
-let revenue = findValueForQuestion(history, ["faturamento médio mensal", "faturamento medio mensal"]);
-let requested_amount = findValueForQuestion(history, ["valor de empréstimo", "valor de emprestimo", "deseja simular"]);
-
-if (currentStep === 'coleta_faturamento') {
-    const parsedCurrent = parseNumber(currentMsg);
-    if (parsedCurrent !== null) revenue = parsedCurrent;
-} else if (currentStep === 'coleta_valor') {
-    const parsedCurrent = parseNumber(currentMsg);
-    if (parsedCurrent !== null) requested_amount = parsedCurrent;
-}
-
-// --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
-const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
-
-const isSelfSimulationRequest =
-    /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
-    /\b(vc|voc[eê]|tu|pra mim|por mim|para mim|me faz|poderia|consegue|conseguiria|faz(er)? (para |pra |por )?mim|faz (voc[eê]|vc))(?![a-z0-9])/i.test(lastUserLower);
-
-const isLinkRequest = !isSelfSimulationRequest && (
-    /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) ||
-    (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) ||
-    (/^link$/i.test(lastUserLower)) ||
-    semanticIntent === "SIMULATION_REQUEST" // <- Híbrido
-);
-
-const isAffirmative = (/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower);
-const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
-
-// Híbrido: Regex Dúvida + Semantic Dúvida
-const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
-const isDoubt = regexDoubt || semanticIntent === "DOUBT"; 
-
-// Híbrido: Regex Humano + Semantic Humano
-const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
-
-// CORREÇÃO 1: Anula a LLM se for o botão principal da campanha
-const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF") && !isAgentButtonClick;
-
-const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
-const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
-
-// Híbrido: Regex Reclamação + Semantic Reclamação (HOTFIX V18.2: removido "cancelar" para permitir explicação do FAQ)
-// HOTFIX V18.3: Substituído "funciona" por "não funciona|nao funciona" para evitar falso positivo em "como funciona"
-const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
-const isComplaint = regexComplaint || semanticIntent === "COMPLAINT";
-
-// CONTROLE DE PRIMEIRA RECLAMAÇÃO (HOTFIX V18.3)
-const checkIfComplaint = (msgText) => {
-    const textLower = String(msgText || "").toLowerCase();
-    return (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(textLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(textLower) && !/reembolso/i.test(textLower)));
-};
-
-const previousClientComplaints = history
-    .filter(m => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase()))
-    .filter(m => checkIfComplaint(m.content || m.text));
-
-const isFirstComplaint = previousClientComplaints.length === 0;
-const effectiveComplaint = isComplaint && !isFirstComplaint;
-
-// --- 3) GESTÃO DINÂMICA DE INCIDENTES (Smart Match V2) ---
-let forcedIncidentText = null;
-const activeIncidents = agent.active_incidents || [];
-const incidentIdFromPayload = rpcData.payload?.incident_id;
-let isLinkIssue = false;
-
-const currentCampaignId = rpcData.p_metadata?.campaign_id || leadInfo.campaign_id || ctx.campaign_id;
-
-if (incidentIdFromPayload) {
-    const specificIncident = activeIncidents.find(i => i.id === incidentIdFromPayload);
-    if (specificIncident) {
-        forcedIncidentText = specificIncident.response_message;
-        isLinkIssue = true;
+    if (currentStep === 'coleta_faturamento') {
+        const parsedCurrent = parseNumber(currentMsg);
+        if (parsedCurrent !== null) revenue = parsedCurrent;
+    } else if (currentStep === 'coleta_valor') {
+        const parsedCurrent = parseNumber(currentMsg);
+        if (parsedCurrent !== null) requested_amount = parsedCurrent;
     }
-}
 
-if (!forcedIncidentText) {
-    for (const incident of activeIncidents) {
-        if (incident.mode === 'passive' || incident.mode === 'both') {
-            if (incident.campaign_id && incident.campaign_id !== currentCampaignId) continue;
+    // --- 2) INTENÇÕES ---
+    const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
 
-            const triggerWords = incident.problem_description.toLowerCase()
-                .split(/[\s,.\/]/)
-                .filter(w => w.length > 3);
+    const isSelfSimulationRequest =
+        /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
+        /\b(vc|voc[eê]|tu|pra mim|por mim|para mim|me faz|poderia|consegue|conseguiria|faz(er)? (para |pra |por )?mim|faz (voc[eê]|vc))(?![a-z0-9])/i.test(lastUserLower);
 
-            const matched = triggerWords.some(w => lastUserLower.includes(w));
+    const isLinkRequest = !isSelfSimulationRequest && (
+        /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) ||
+        (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) ||
+        (/^link$/i.test(lastUserLower)) ||
+        semanticIntent === "SIMULATION_REQUEST"
+    );
 
-            if (matched) {
-                isLinkIssue = true;
-                forcedIncidentText = incident.response_message;
-                if (incident.campaign_id === currentCampaignId) break;
+    const isAffirmative = (/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower);
+    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower);
+
+    const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
+    const isDoubt = regexDoubt || semanticIntent === "DOUBT"; 
+
+    const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
+    const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF") && !isAgentButtonClick;
+
+    const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
+    const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
+
+    const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
+    const isComplaint = regexComplaint || semanticIntent === "COMPLAINT";
+
+    const checkIfComplaint = (msgText) => {
+        const textLower = String(msgText || "").toLowerCase();
+        return (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(textLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(textLower) && !/reembolso/i.test(textLower)));
+    };
+
+    const previousClientComplaints = history
+        .filter(m => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase()))
+        .filter(m => checkIfComplaint(m.content || m.text));
+
+    const isFirstComplaint = previousClientComplaints.length === 0;
+    const effectiveComplaint = isComplaint && !isFirstComplaint;
+
+    // --- 3) GESTÃO DINÂMICA DE INCIDENTES ---
+    let forcedIncidentText = null;
+    const activeIncidents = agent.active_incidents || [];
+    const incidentIdFromPayload = rpcData.payload?.incident_id;
+    let isLinkIssue = false;
+
+    const currentCampaignId = rpcData.p_metadata?.campaign_id || leadInfo.campaign_id || ctx.campaign_id;
+
+    if (incidentIdFromPayload) {
+        const specificIncident = activeIncidents.find(i => i.id === incidentIdFromPayload);
+        if (specificIncident) {
+            forcedIncidentText = specificIncident.response_message;
+            isLinkIssue = true;
+        }
+    }
+
+    if (!forcedIncidentText) {
+        for (const incident of activeIncidents) {
+            if (incident.mode === 'passive' || incident.mode === 'both') {
+                if (incident.campaign_id && incident.campaign_id !== currentCampaignId) continue;
+                const triggerWords = incident.problem_description.toLowerCase().split(/[\s,.\/]/).filter(w => w.length > 3);
+                const matched = triggerWords.some(w => lastUserLower.includes(w));
+                if (matched) {
+                    isLinkIssue = true;
+                    forcedIncidentText = incident.response_message;
+                    if (incident.campaign_id === currentCampaignId) break;
+                }
             }
         }
     }
-}
 
-const lastAssistantMsg = String(assistantMessages[assistantMessages.length - 1]?.content || "").toLowerCase();
-const humanAlreadyRequested = lastAssistantMsg.includes("assessor entre em contato") || lastAssistantMsg.includes("aguardar o retorno de um especialista");
+    const lastAssistantMsg = String(assistantMessages[assistantMessages.length - 1]?.content || "").toLowerCase();
+    const humanAlreadyRequested = lastAssistantMsg.includes("assessor entre em contato") || lastAssistantMsg.includes("aguardar o retorno de um especialista");
 
-// --- 4) TRANSIÇÕES DE ESTADO ---
-let nextStep = currentStep;
-let transitionApplied = false;
+    // --- 4) TRANSIÇÕES DE ESTADO ---
+    let nextStep = currentStep;
+    let transitionApplied = false;
 
-if (isAgentButtonClick) {
-    nextStep = 'explicacao_agente';
-    transitionApplied = true;
-} else if (currentStep === 'start') {
-    if (!isNegative && !isDoubt) {
-        nextStep = 'verificacao_cnpj';
+    if (isAgentButtonClick) {
+        nextStep = 'explicacao_agente';
         transitionApplied = true;
+    } else if (currentStep === 'start') {
+        if (!isNegative && !isDoubt) {
+            nextStep = 'verificacao_cnpj';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'explicacao_agente') {
+        if (isAffirmative && !isDoubt) {
+            nextStep = 'verificacao_cnpj';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'verificacao_cnpj') {
+        if (isAffirmative && !isDoubt) {
+            nextStep = 'coleta_faturamento';
+            transitionApplied = true;
+        } else if (isNegative && !isDoubt) {
+            nextStep = 'coleta_cnpj_correto';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'coleta_cnpj_correto') {
+        if (!isDoubt) {
+            nextStep = 'coleta_nome_estabelecimento';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'coleta_nome_estabelecimento') {
+        if (!isDoubt) {
+            nextStep = 'encaminhamento_correcao';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'coleta_faturamento') {
+        if (!isDoubt) {
+            nextStep = 'coleta_valor';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'coleta_valor') {
+        if (!isDoubt) {
+            nextStep = 'aguardando_fiserv';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'aguardando_fiserv') {
+        if (isAffirmative && !isDoubt) {
+            nextStep = 'apresenta_ofertas';
+            transitionApplied = true;
+        } else if (isNegative && !isDoubt) {
+            nextStep = 'recusa_analise';
+            transitionApplied = true;
+        } else {
+            nextStep = 'aguardando_fiserv';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'apresenta_ofertas') {
+        if (!isDoubt) {
+            nextStep = 'confirmacao_cliente';
+            transitionApplied = true;
+        }
+    } else if (currentStep === 'confirmacao_cliente') {
+        if (isAffirmative && !isDoubt) {
+            nextStep = 'finalizacao_sucesso';
+            transitionApplied = true;
+        } else if (isNegative && !isDoubt) {
+            nextStep = 'apresenta_ofertas';
+            transitionApplied = true;
+        }
     }
-} else if (currentStep === 'explicacao_agente') {
-    if (isAffirmative && !isDoubt) {
-        nextStep = 'verificacao_cnpj';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'verificacao_cnpj') {
-    if (isAffirmative && !isDoubt) {
-        nextStep = 'coleta_faturamento';
-        transitionApplied = true;
-    } else if (isNegative && !isDoubt) {
-        nextStep = 'coleta_cnpj_correto';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'coleta_cnpj_correto') {
-    if (!isDoubt) {
-        nextStep = 'coleta_nome_estabelecimento';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'coleta_nome_estabelecimento') {
-    if (!isDoubt) {
-        nextStep = 'encaminhamento_correcao';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'coleta_faturamento') {
-    if (!isDoubt) {
-        nextStep = 'coleta_valor';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'coleta_valor') {
-    if (!isDoubt) {
-        nextStep = 'aguardando_fiserv';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'aguardando_fiserv') {
-    if (isAffirmative && !isDoubt) {
-        nextStep = 'apresenta_ofertas';
-        transitionApplied = true;
-    } else if (isNegative && !isDoubt) {
-        nextStep = 'recusa_analise';
-        transitionApplied = true;
-    } else {
-        nextStep = 'aguardando_fiserv';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'apresenta_ofertas') {
-    if (!isDoubt) {
-        nextStep = 'confirmacao_cliente';
-        transitionApplied = true;
-    }
-} else if (currentStep === 'confirmacao_cliente') {
-    if (isAffirmative && !isDoubt) {
-        nextStep = 'finalizacao_sucesso';
-        transitionApplied = true;
-    } else if (isNegative && !isDoubt) {
-        nextStep = 'apresenta_ofertas';
-        transitionApplied = true;
-    }
-}
 
-// --- 5) MODO DE RESPOSTA ---
-let mode = "consultive";
-if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint) {
-    mode = "parrot";
-}
-if (isLinkRequest && !isDoubt) {
-    mode = "parrot";
-}
-if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
-    mode = "consultive";
-}
-if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
-    mode = "consultive";
-}
-
-// --- 6) PROMPT FINAL ---
-let activeConfig = blueprint.steps[nextStep] || blueprint.steps["start"];
-if (isAgentButtonClick) activeConfig = blueprint.steps["explicacao_agente"];
-
-let forcedText = String(activeConfig?.rules || "");
-
-// PRIORIDADE MÁXIMA E ABSOLUTA: Lead não credenciado/não encontrado na base
-if (leadInfo.is_lead === false) {
-    forcedText = `Olá${leadInfo.name ? ', ' + leadInfo.name : ''}! Tudo bem?\nNotei aqui que você ainda não possui um credenciamento ativo ou seus dados não constam na nossa base de ofertas pré-aprovadas no momento.\n\nPara realizar o seu credenciamento e ter acesso às nossas soluções de crédito e benefícios da Ticket, envie uma mensagem pelo WhatsApp para a nossa Central no número *11 4004-2233* ou acesse diretamente o link https://wa.me/551140042233.\n\nAssim que estiver tudo certinho, estarei por aqui!`;
-    mode = "parrot";
-    nextStep = "start";
-} 
-// CORREÇÃO 2: A regra do botão "Falar com um agente!" é avaliada primeiro (depois da validação do lead)
-else if (isAgentButtonClick) {
-    forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
-} else if (isLinkIssue && forcedIncidentText) {
-    forcedText = forcedIncidentText;
-} else if (isHumanRequest) {
-    const isPhone = /\b(fone|telefone|ligar|ligação)\b/i.test(lastUserLower);
-    if (isPhone) {
-        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*. \n\nEles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
-    } else {
-        forcedText = `Claro, entendo.\n\nVou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.\n\nEnquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
+    // --- 5) MODO DE RESPOSTA ---
+    let mode = "consultive";
+    if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint) {
+        mode = "parrot";
     }
-} else if (effectiveComplaint) {
-    forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. \n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. \n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
-} else if (currentStep === 'start' && assistantMessages.length < 2) {
-    forcedText = `Já pensou em reforçar o caixa sem burocracia?\n \nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
-} else if (nextStep === 'explicacao_agente') {
-    forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
-}
+    if (isLinkRequest && !isDoubt) {
+        mode = "parrot";
+    }
+    if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
+        mode = "consultive";
+    }
+    if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
+        mode = "consultive";
+    }
 
-forcedText = forcedText
-    .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
-    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
-    .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
-    .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
-    .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
-    .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
+    // --- 6) PROMPT FINAL ---
+    let activeConfig = blueprint.steps[nextStep] || blueprint.steps["start"];
+    if (isAgentButtonClick) activeConfig = blueprint.steps["explicacao_agente"];
 
-const normalizeText = (text) => {
-    return String(text || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-};
+    let forcedText = String(activeConfig?.rules || "");
 
-const cleanNextText = normalizeText(forcedText);
-const cleanLastSofiaMsg = normalizeText(lastSofiaMsg);
-// HOTFIX: Apenas detecta loop (repetição de texto engessado) se o modo for 'parrot'. Se for 'consultive', a resposta será gerada dinamicamente pela LLM.
-const isLoopDetected = mode === 'parrot' && cleanNextText === cleanLastSofiaMsg && cleanNextText.length > 0;
+    if (leadInfo.is_lead === false) {
+        forcedText = `Olá${leadInfo.name ? ', ' + leadInfo.name : ''}! Tudo bem?\nNotei aqui que você ainda não possui um credenciamento ativo ou seus dados não constam na nossa base de ofertas pré-aprovadas no momento.\n\nPara realizar o seu credenciamento e ter acesso às nossas soluções de crédito e benefícios da Ticket, envie uma mensagem pelo WhatsApp para a nossa Central no número *11 4004-2233* ou acesse diretamente o link https://wa.me/551140042233.\n\nAssim que estiver tudo certinho, estarei por aqui!`;
+        mode = "parrot";
+        nextStep = "start";
+    } 
+    else if (isAgentButtonClick) {
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
+    } else if (isLinkIssue && forcedIncidentText) {
+        forcedText = forcedIncidentText;
+    } else if (isHumanRequest) {
+        const isPhone = /\b(fone|telefone|ligar|ligação)\b/i.test(lastUserLower);
+        if (isPhone) {
+            forcedText = `Certo, ${leadInfo.name || "parceiro"}! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*. \n\nEles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
+        } else {
+            forcedText = `Claro, entendo.\n\nVou solicitar para que um assessor entre em contato com você pelo WhatsApp em até 2 dias úteis e siga com o seu atendimento.\n\nEnquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
+        }
+    } else if (effectiveComplaint) {
+        forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiênca atual esteja sendo assim. \n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa. \n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
+    } else if (currentStep === 'start' && assistantMessages.length < 2) {
+        forcedText = `Já pensou em reforçar o caixa sem burocracia?\n \nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?`;
+    } else if (nextStep === 'explicacao_agente') {
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Posso te enviar o link seguro para você simular o valor exato agora ou prefere tirar alguma dúvida antes? 📈`;
+    }
 
-let loopDetectedHandoff = false;
-if (isLoopDetected && leadInfo.is_lead !== false) {
-    loopDetectedHandoff = true;
-    // HOTFIX V18.2: Frase genérica de loop sem falar de dados bancários
-    forcedText = `Certo, ${leadInfo.name || "parceiro"}. Vejo que estamos repetindo a mesma orientação e não conseguimos avançar. Para não tomarmos mais seu tempo, estou transferindo você agora mesmo para um especialista humano examinar sua situação detalhadamente. Um instante!`;
-    mode = "parrot";
-}
+    forcedText = forcedText
+        .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
+        .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
+        .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
+        .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
+        .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
+        .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
-let finalPrompt = "";
-if (mode === "parrot") {
-    finalPrompt = `<RULES>
+    const normalizeText = (text) => {
+        return String(text || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+    };
+
+    const cleanNextText = normalizeText(forcedText);
+    const cleanLastSofiaMsg = normalizeText(lastSofiaMsg);
+    const isLoopDetected = mode === 'parrot' && cleanNextText === cleanLastSofiaMsg && cleanNextText.length > 0;
+
+    let loopDetectedHandoff = false;
+    if (isLoopDetected && leadInfo.is_lead !== false) {
+        loopDetectedHandoff = true;
+        forcedText = `Certo, ${leadInfo.name || "parceiro"}. Vejo que estamos repetindo a mesma orientação e não conseguimos avançar. Para não tomarmos mais seu tempo, estou transferindo você agora mesmo para um especialista humano examinar sua situação detalhadamente. Um instante!`;
+        mode = "parrot";
+    }
+
+    let finalPrompt = "";
+    if (mode === "parrot") {
+        finalPrompt = `<RULES>
 - VOCÊ ESTÁ EM MODO MÁQUINA DE REPETIÇÃO (PARROT MODE).
 - É ESTRITAMENTE PROIBIDO RESPONDER À MENSAGEM DO USUÁRIO OU ADICIONAR QUALQUER CONTEXTO.
 - SUA ÚNICA E EXCLUSIVA FUNÇÃO É REPETIR O TEXTO EXATO FORNECIDO DENTRO DA TAG <RESPOSTA_OBRIGATORIA>.
@@ -426,15 +395,14 @@ if (mode === "parrot") {
 ${forcedText}
 </RESPOSTA_OBRIGATORIA>
 </CONTROLE_DE_FLUXO>`;
-} else {
-    const formattedHistory = history.map(m => {
-        const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase());
-        const sender = isBot ? "Sofia (Você)" : "Cliente";
-        return `- ${sender}: "${m.content || m.text || ""}"`;
-    }).join("\n");
+    } else {
+        const formattedHistory = history.map(m => {
+            const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase());
+            const sender = isBot ? "Sofia (Você)" : "Cliente";
+            return `- ${sender}: "${m.content || m.text || ""}"`;
+        }).join("\n");
 
-    // --- 💡 INJEÇÃO DE CONTEXTO OCULTO PARA A SOFIA ---
-    const hintInjection = semanticReasoning ? `
+        const hintInjection = semanticReasoning ? `
 <nota_interna_do_sistema>
 [ATENÇÃO SOFIA - TRADUÇÃO DE INTENÇÃO]: O sistema analisou a última mensagem do cliente e concluiu:
 - Intenção Real Detectada: ${semanticIntent}
@@ -443,7 +411,7 @@ Use essa nota para entender gírias, abreviações ou erros de digitação. NUNC
 </nota_interna_do_sistema>
 ` : "";
 
-    finalPrompt = `<identity>
+        finalPrompt = `<identity>
 Você é Sofia, consultora sênior da Ticket Edenred.
 Sua comunicação deve ser impecável: profissional, segura e visualmente organizada para WhatsApp.
 </identity>
@@ -590,7 +558,7 @@ Você o localiza no "slip" (o comprovante de venda impresso pela maquininha). Se
 Onde posso alterar os meus dados cadastrais?
 Acesse o Portal, vá em "Minha Conta" > "Dados Cadastrais" e clique em "Editar" para atualizar seu e-mail de acesso, nome Fantasia, endereço e telefone do estabelecimento. Alterações de endereço exigem o anexo de um comprovante e levam até 5 dias úteis. Outros dados (como contato principal ou interlocutor) só podem ser alterados via Central 4004-2233.
 
-Tenho mais de um CNPJ. Como faço para ter visão unificada no Portal?
+Tenho mais de um CNPJ. Como faço para tener visão unificada no Portal?
 Acesse o Portal, clique na seta ao lado de sua Razão Social (topo) e selecione "Administrar CNPJs" > "Agrupar CNPJ". Insira o CNPJ e senha dos acessos que deseja agrupar.
 
 Como funciona a Assistência 24h para estabelecimentos (cobertura e custos)?
@@ -654,15 +622,15 @@ NUNCA invente taxas ou condições. Se a dúvida for sobre o funcionamento técn
 - Nome da Empresa: ${leadInfo.name}
 - Encerramento Detectado: ${isFarewell}
 </CONTEXTO_ATUAL>`;
-}
+    }
 
-finalPrompt = finalPrompt
-    .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
-    .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
-    .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
-    .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
-    .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
-    .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
+    finalPrompt = finalPrompt
+        .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
+        .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
+        .replace(/{{simulation_offers}}/gi, ctx.simulation_offers || "Não há propostas disponíveis")
+        .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
+        .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
+        .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
     return {
         final_system_prompt: finalPrompt,

@@ -106,6 +106,76 @@ Permite que tenants realizem explorações analíticas self-service seguras de s
 
 ---
 
+## 7. Arquitetura do Motor de Crédito Fiserv (V70+)
+Esta seção detalha o ecossistema de orquestração construído especificamente para o produto de crédito da Fiserv, coordenando LLMs, roteamento determinístico e integrações assíncronas.
+
+### 7.1 Motor Semântico e Detecção de Intenção (LLM de Intenção)
+- **Classificador de Intenção (GPT-4o-Mini)**: Atua como a primeira barreira do sistema. Recebe a mensagem do usuário, analisa o contexto e extrai dados críticos em formato JSON estrito (ex: Intent, Funnel Step, Extracted Amount, Extracted Installments).
+- **Proteção contra Alucinação de Histórico**: Como a LLM tende a sofrer "vazamento de contexto" (ex: o usuário envia apenas "sim", mas a LLM preenche o JSON com os valores de 25.000 e 10x de uma simulação anterior como se fossem novos inputs), o sistema foi blindado para **não confiar cegamente** na extração em passos de confirmação crítica.
+
+### 7.2 Roteador Determinístico Híbrido (Javascript Node)
+O Roteador (nó `Router Custom` no n8n) atua como o cérebro que sobrepõe regras de negócio rígidas às saídas probabilísticas da LLM.
+- **Override de Ground-Truth (O Fim das Alucinações)**: Para evitar que a LLM de intenção sequestre a máquina de estados, o Roteador confia primariamente na **última mensagem enviada pela IA (Sofia)**. Exemplo: se a Sofia acabou de perguntar *"Podemos seguir com a formalização?"*, o Roteador força o estado para `confirmacao_cliente`, ignorando completamente o `semanticFunnelStep` devolvido pela LLM.
+- **Gestão de Prioridades**: No estado `confirmacao_cliente`, se o usuário responde de forma afirmativa (detectado via `isAffirmative`), o Roteador ignora qualquer número fantasma que tenha vindo da LLM e crava a transição direta para `finalizacao_sucesso`. Se o usuário usar expressões ativas como "simular" ou "recalcular", o fluxo volta organicamente para `solicitar_simulacao`.
+- **Modos de Resposta (`consultive` vs `parrot`)**:
+  - **Consultive**: Aplicado quando faltam dados (ex: valor preenchido, mas parcela ausente) ou para lidar com dúvidas (`isDoubt`) de forma orgânica, deixando a IA guiar o usuário.
+  - **Parrot**: Forçado durante envios de Links de Opt-in, Termos de Aceite ou apresentação de Propostas Financeiras. Isso obriga a LLM a atuar como um "papagaio", evitando que ela reescreva e desformate valores como Taxa de Juros, IOF e Custo Efetivo Total (CET).
+- **Fallback de Segurança Integrado ao Banco**: O Roteador cruza o estado da conversa com o estado gravado no Supabase (`fiserv_status` e `fiserv_external_status`). Se o webhook já carimbou o lead como "Pré-aprovado", a lógica corrige rotas defasadas (ex: `start` ou `explicacao_agente`) saltando imediatamente para a etapa de `apresenta_ofertas`.
+
+### 7.3 Sub-Workflow Específico da Fiserv (O Motor de Integração)
+- A lógica pesada da Fiserv (criação de lead, simulações em tempo real e consolidação de termos) é roteada pelo n8n via requisições HTTP (`/simulate`, `/create_lead`, etc).
+- **Extração Precisa de Payloads**: Retornos complexos da Fiserv (como `VlrParcela`, `VlrTotalDivida`, `PercJurosMensal`) são mapeados dentro do Roteador Javascript e estruturados em layouts de fácil leitura para o WhatsApp (exibindo Valores, Taxas, Custo Efetivo e Resumo Final).
+- As transições dependem diretamente dos *HTTP Status* (ex: 200 = exibe simulação; 400 = convida para atendimento humano via *Handoff* em caso de divergência ou limite não aprovado).
+
+### 7.4 Assincronismo: Webhook de Status e Poller (Conciliação)
+Devido ao modelo assíncrono de avaliação de crédito da Fiserv, o pipeline opera de forma desanexada para não travar a conversa do usuário:
+- **Webhook de Status (Notificação Passiva)**: Um endpoint n8n específico (`/v1/edenred/status`) recebe de forma proativa as atualizações de status. Protegido por uma camada de White-Label e autenticação Bearer Token no Gateway Hono, o webhook traduz a aprovação do Comitê, estrutura os dados da oferta, registra na tabela `messages` e dispara um push ativo via WhatsApp para o usuário.
+- **Poller de Conciliação (Verificação Ativa)**: Uma rotina de cron varre periodicamente a base de dados em busca de *Leads* que estão em status pendente (`aguardando_fiserv`) por longos períodos. O Poller realiza chamadas à API da Fiserv para checar se houve mudança de estado, mitigando eventuais *timeouts* ou quebras de entrega de webhooks HTTP. Isso garante que nenhum cliente seja esquecido no funil.
+
+---
+
+## [V70.4] - Campaign UI Refresh & Re-engagement Status Lock
+### Proteção de Retenção de Status e Melhorias na Lista de Conversas
+- **Re-engagement Status Lock (Anti-Regressão de Dashboard)**: A query de agregação do dashboard de campanhas (`get_all_campaigns_metrics_v2`) e a lógica de processamento do PostgreSQL foram ajustadas para garantir que contatos que já atingiram estados de sucesso (Entregue, Lido, Interagido ou Convertido) em envios anteriores de uma campanha NÃO sofram regressão de status caso a mesma campanha seja reenviada/reengajada (o que coloca novos registros como `pending` na `outbound_queue`). O dashboard agora preserva o *high-water mark* do sucesso do usuário.
+- **Dynamic Campaign Tags (UI)**: O painel de conversas (`ConversationList.tsx`) agora consolida as conversas ativas exibindo nativamente a qual campanha o lead pertence (em vez de um texto estático do agente), aplicando a informação em tempo real na listagem visual através do enriquecimento de dados da `outbound_queue`.
+- **UI/UX Pixel-Perfect Adjustments**: Correção profunda na disposição de ícones do chat:
+  - Implementação da logo oficial (inline SVG) do WhatsApp como *channel badge*.
+  - Reposicionamento da bolinha de *Status do Agente* (verde piscante para `ai_active`) sobre o avatar do lead usando `self-start`, resolvendo bugs visuais onde ela acompanhava erroneamente a altura máxima do card.
+  - Ordenação correta com o ícone do canal posicionado antes do número de telefone.
+  - Ocultação inteligente (condicional) de linhas vazias quando um chat gerado via campanha não possui um `lastMessage`, eliminando espaços fantasmas na lista de contatos.
+
+---
+
+## [V70.3] - Contextual Natural Language Router & Lead Persistence
+### Refinamento Semântico e Conversação Humanizada
+- **Intelligent Re-Simulation Loop (Roteador)**: Unificação das lógicas de `solicitar_simulacao` e `confirmacao_cliente` no Roteador (JS). Agora, se o cliente enviar um novo valor sem informar as parcelas durante uma re-simulação (ou após um erro 422 da Fiserv), o fluxo regride graciosamente para `apresenta_ofertas` com o `mode: consultive`, permitindo que a IA pergunte o número de parcelas de forma natural sem quebrar a máquina de estados.
+- **Naturalidade de CTA (`<REGRA_MENSAGENS_NATURAIS>`)**: Substituição da diretiva antiga que forçava a IA a anexar a pergunta robótica *"Posso seguir com a simulação?"* em todos os turnos. A IA agora compreende o contexto conversacional e se abstém de usar CTAs genéricos quando já elaborou uma pergunta direta (ex: "Em quantas parcelas?"), elevando o realismo do atendimento.
+- **Integração de Human Handoff Dinâmico**: A padronização da mensagem de erro de API (ex: `Invalid requested amount`) na UI agora convida o cliente ativamente para conversar com um humano caso a simulação falhe por regras de negócio. Isso engatilha diretamente a intenção `HUMAN_HANDOFF` pré-existente no classificador.
+
+### Mapeamento Integral de Opt-In (Fiserv Create Lead)
+- **Extração Preemptiva de Dados de Contato e Opt-In**: O motor de intenções e coleta já engloba todos os parâmetros críticos para a criação do Lead na Fiserv. O objeto de saída `lead_info` carrega dados financeiros extraídos (`revenue`, `requested_amount`) e carimbos de auditoria em `lead_info.consent` (`timestamp`, `ip`, `channel`, `message_id`, `confirmation_message`). Isso permite o mapeamento O(1) diretamente nos nós de formatação HTTP do n8n sem complexidade lógica adicional.
+
+---
+
+## [V70.2] - Fiserv Integration: Dual-Path Flow & UI Sync
+### Arquitetura de Caminhos Duplos (Fast-Track Nativo vs LangChain)
+- **Unified Output Node (Code in JavaScript1)**: O fluxo do n8n foi otimizado para lidar com mensagens oriundas de duas fontes distintas em um único gargalo de saída (Envia Msg):
+  - **Rota 1 (Fiserv Nativo / Fast-Track)**: Bypass de limpeza de IA que repassa diretamente os textos fixos gerados pelo roteador (como o de Confirmação de CNPJ), convertendo `\\n` nativos para quebras de linha reais.
+  - **Rota 2 (LangChain Agent)**: Mantém o parsing recursivo focado em processar saídas textuais quebradas ou aninhadas geradas pela IA, limpando aspas isoladas e JSON incompleto.
+  - **Detecção Segura de Caminho**: A detecção sobre "qual caminho rodou" foi implementada dentro do código via `try/catch` analisando o nó de Normalização do Agente. Isso elimina os clássicos erros *ExpressionError: Node hasn't been executed* do n8n que paralisavam o bot.
+- **Sincronização com UI (Tabela Messages)**: A gravação visual da mensagem na interface (via `HTTP Request Criar Mensagem IA1`) foi reposicionada na "esteira" do n8n para ocorrer **após** a formatação do texto e disparo do WhatsApp.
+  - **Compatibilidade de Sub-Fluxos**: Garantida a segurança para gravações sem `p_remote_id` quando os sub-fluxos do sistema (como o node `Envia Msg`) devolvem apenas `success: true`. Mensagens outbound autônomas registram normalmente sem id externo, aguardando reconciliação natural no Webhook de Delivery.
+
+### Orquestração Assíncrona de API: Webhook & Poller (Fiserv)
+- **Desacoplamento de Status**: O ciclo de vida do "Lead Fiserv" é gerenciado de forma assíncrona para não prender a resposta de inbound do usuário. Após a criação do lead, a aprovação/recusa do comitê é monitorada por mecanismos redundantes:
+  - **Webhook Passivo**: Endpoint (n8n Webhook) dedicado para receber callbacks em tempo real da Fiserv com transições de status (`approved`, `declined`, `cancelled`).
+  - **Poller Ativo (Cron)**: Fluxo que varre a base de leads ativos e consulta o status na API da Fiserv para garantir resiliência e conciliação caso o webhook falhe ou sofra *timeout* na entrega.
+- **Mensageria Assíncrona e Visibilidade de Interface (UI)**:
+  - Ao identificar a finalização da avaliação, o Webhook/Poller monta uma mensagem formatada de acordo com o status (ex: valores aprovados) e utiliza o módulo comum `UTIL - Send WhatsApp Message` para disparar ao usuário de forma proativa.
+  - Simultaneamente, uma chamada direta à RPC `record_message` registra a notificação na tabela `messages`. Isso garante que o evento externo e o envio da mensagem apareçam em tempo real no Chat do Operador na tela do sistema, preservando a auditoria da trilha de eventos.
+
+---
+
 ## [V70.1] - Multi-Tenant Isolation & White-Label Webhook Security
 ### Isolamento Estrito de Fila e Proteção de Endpoint B2B
 - **Isolamento Multi-Tenant na `inbound_queue`**: A RPC mestra `fn_fetch_next_inbound_message` foi atualizada para receber o parâmetro opcional `p_tenant_id`. Isso garante que instâncias separadas do n8n (operando sob tenants distintos) consumam **apenas** as mensagens pertencentes ao seu próprio escopo organizacional, blindando o cruzamento indevido de dados quando múltiplos webhooks atuam simultaneamente no mesmo banco.

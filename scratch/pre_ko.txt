@@ -1,0 +1,609 @@
+
+--- PAGE 1 ---
+16/jan/2026
+POC Agente Comercial
+Plano Preliminar
+
+--- PAGE 2 ---
+Objetivos da reunião
+▪ O principal objetivo da reunião é apresentar a proposta de plano de trabalho, para a implementação da POC de 
+Agente de IA para Venda de Crédito a Edenred. 
+▪ Adicionalmente serão apresentadas as versões iniciais do fluxo conversacional e questionário de qualificação e 
+personalidade para alinhamento preliminar das características do agente e início dos desenvolvimentos.
+▪ Por fim, serão validados documentos adicionais necessários à configuração do agente.
+--- PAGE 3 ---
+Objetivo do Projeto (POC)
+Conclusão do Processo (sucesso)
+O processo bem sucedido se conclui 
+com a disponibilização e acesso do 
+cliente a um link que o conduzirá ao 
+portal do parceiro comercial Edenred, 
+no qual ele seguirá com as simulações 
+e contratação.
+Critério de Sucesso
+A POC será considerada “bem sucedida” 
+caso consiga atinja 10% de clientes que 
+atendam ao estabelecido como 
+“Conclusão do Processo (sucesso)” .
+O objetivo do Projeto é desenvolver um agente de IA com alta capacidade de interação (conversacional), através de whatsapp que 
+apoie o cliente na jornada de despertar interesse, esclarecer dúvidas do produto e seguir para o próximo passo de contratação.
+Características
+• Operação “stand alone”, sem integração com 
+sistemas Edenred
+• Poderá ser estabelecido processo de troca de 
+arquivos para complementar a base de clientes 
+a ser acessada.
+• O fluxo se baseará no WPP disponibilizado e nos 
+ajustes já identificados durante operação piloto 
+com operadores humanos
+• Estão previstas 5.000 interações por whatsapp.
+• Interações adicionais poderão ser contratadas 
+durante vigência da POC
+• Prazo: expectativa de reduzir para 30 dias o 
+prazo de execução da POC, conforme acurácia e 
+efetividade do agente.
+--- PAGE 4 ---
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Fluxo conversacional
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Preliminar
+Etapas da Conversão
+--- PAGE 5 ---
+Fluxo conversacional
+Opa, pode falar
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Objetivo
+• Estabelecer legitimidade imediata e 
+transmitir contexto
+• Identificação clara como Ticket 
+Edenred
+• Contextualização do motivo do 
+contato (condição financeira)
+• Linguagem simples, sem “pitch de 
+venda”
+• Crédito citado de forma leve e não 
+técnica
+Olá! Sou a LIA, 
+assistente digital da 
+Ticket Edenred.
+Estamos entrando em
+contato com alguns
+estabelecimentos
+credenciados para falar
+sobre condições
+financeiras
+disponíveis para 
+apoiar o fluxo de caixa
+do dia a dia.
+--- PAGE 6 ---
+Fluxo conversacional
+Objetivo
+• Validar informação e gerar confiança
+• IA demonstra que já conhece o 
+cliente
+• Evita pedir dados sensíveis
+• Reforça legitimidade de forma 
+implícita
+• Prepara terreno para o tema 
+financeiro
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Opa, pode falar
+Obrigada! 
+Antes de seguir, será
+que pode só me 
+confirmer que estou
+falando com a pessoa
+certa?
+Estou falando com o 
+Café Il Barista, CNPJ 
+final 265/**01-34, 
+correto?
+--- PAGE 7 ---
+Fluxo conversacional
+Objetivo
+• Corrigir divergência sem fricção
+• Tratar divergência como algo 
+comum
+• Evitar sensação de erro ou bloqueio
+• Manter porta aberta para 
+continuidade
+• Caso o cliente apresente outro 
+CNPJ e não estiver na base online: 
+“Entendi. Vou verificar o cadastro na nossa 
+base. Caso o estabelecimento seja elegível ao 
+produto, retornamos o contato, ok?”
+• Qualquer outra opção, encerrar de 
+forma cordial
+Então, é do Il Barista 
+sim, mas o CNPJ é outro
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Ah, entendo! Deve 
+haver mais de um 
+CNPJ cadastrado. 
+Você possui outro 
+CNPJ conosco? Pode 
+nos passar para eu
+confirmar?
+O que eu uso é
+13.234.543/0001-23
+Correto, verifiquei aqui, 
+está como Il Barista 
+Cafés Especiais LTDA, 
+correto?
+Isso mesmo
+--- PAGE 8 ---
+Fluxo conversacional
+Objetivo
+• Despertar curiosidade sem rejeição
+• Introdução clara, mas suave, do tema 
+crédito
+• Foco em benefício, não produto
+• Linguagem simples, sem termos 
+financeiros
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Isso mesmo
+Identificamos que seu
+estabelecimento pode ter
+acesso a uma linha de 
+crédito com condições
+diferenciadas, pensada
+para ajudar no equilíbrio
+do fluxo de caixa, sem
+complicar a operação.
+Posso te explicar
+rapidamente como
+funciona?
+Ok, mas não sei se vou
+fechar nada não. 
+--- PAGE 9 ---
+Fluxo conversacional
+Objetivo
+• Manter interesse e preparar CTA.
+• Falar apenas de benefícios
+• Não entrar em detalhes operacionais
+• Reforçar simplicidade e digitalização
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Ok, mas não sei se vou
+fechar nada não. 
+Claro! É uma solução
+com contratação
+digital, condições
+competitivas e pensada
+para quem já opera com 
+a Ticket Edenred.
+Tudo é explicado com 
+clareza antes de 
+qualquer decisão.
+Você recebe o valor em
+sua conta, parcelado e 
+cobrado em boletos
+bancários e seus
+recebíveis futuros são a 
+garantia da operação, 
+para obtermos taxas
+bastante competitivas
+--- PAGE 10 ---
+Fluxo conversacional
+Objetivo
+• Remover objeções sem derrubar 
+conversão:
+• Instituição Financeira --->
+• Domicílio Bancário --->
+• Forma de Pagamento
+O pagamento das parcelas é feito 
+exclusivamente por boleto bancário.
+• Uso de Recebíveis como Garantia
+Os recebíveis só são utilizados em caso de 
+atraso no pagamento do boleto. Se o boleto 
+for pago normalmente, não há qualquer 
+desconto nos recebíveis.
+• Reforço de Transparência
+Todos esses pontos ficam claros no link, com 
+taxas, prazos e regras antes de qualquer 
+contratação.
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Então, não entendi…
+A operação é feita pela […] 
+uma instituição financeira
+parceira da Edenred, 
+devidamente regulada, 
+responsável pela concessão
+do crédito.
+E a história de domicílio?
+Para viabilizar o crédito, o 
+domicílio bancário dos 
+recebíveis Ticket passa a 
+ser direcionado para essa
+instituição financeira.
+Isso é necessário porque
+os recebíveis funcionam
+como garantia da 
+operação.
+--- PAGE 11 ---
+Fluxo conversacional
+Objetivo
+• Levar ao link
+• CTA claro
+• Sem pressão
+• Link como “próximo passo natural”
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+No link a seguir você
+consegue ver quanto tem
+disponível, além de taxas, 
+prazos e condições, tudo
+de forma transparente. 
+Tudo sem compromisso
+até que você entenda
+direitinho e efetive a 
+contratação
+Pode deixar
+https://creditopj.ticket.com.br
+Avalie as condições e, se 
+houver qualquer problema de 
+acesso, é só voltar aqui
+comigo
+--- PAGE 12 ---
+Fluxo conversacional
+Objetivo
+• Garantir avanço ou deixar porta 
+aberta
+• Retomar conversa para:
+• Validar se houve acesso
+• Identificar / tratar problemas de 
+acesso
+• Tratar “abandono de carrinho”
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Pode deixar
+Oi, tudo bem?
+Passando para 
+confirmar se conseguiu
+acessar e se deu tudo
+certo
+Hoje
+Ontem
+Vi lá e tô avaliando. Não
+sei se vou seguir, mas 
+qualquer coisa, aviso.
+Sem problema. Quando 
+quiser, é só voltar aqui
+que eu te ajudo.
+--- PAGE 13 ---
+Fluxo conversacional
+Objetivo
+• Não perder o lead
+• Manter canal aberto e disponível 
+para futuras consultas
+• Pode ser usado para tratar retorno 
+da Fiserv, como:
+Cliente que não acessou
+Cliente que tentou e teve erro de acesso 
+(cadastro, senha etc.)
+Cliente que acessou e não seguiu na 
+simulação
+Cliente que iniciou a simulação, mas não 
+seguiu (abandono de carrinho)
+Cliente que chegou ao final, mas não 
+contratou.
+1
+2
+3
+4
+5
+6
+7
+8
+9
+Abertura Institucional
+Confirmação do Estabelecimento
+Ajuste do Estabelecimento
+Gatilho de Interesse (progressivo)
+Explicação do Produto (inicial)
+Tratamento de Dúvidas
+CTA Final
+Confirmação do Acesso
+Encerramento Aberto
+Oi, tudo bem?
+Passando para 
+confirmar se conseguiu
+acessar e se deu tudo
+certo
+Vi lá e tô avaliando. Não
+sei se vou seguir, mas 
+qualquer coisa, aviso.
+Sem problema. Quando 
+quiser, é só voltar aqui
+que eu te ajudo.
+Fico à disposição caso
+queira retomar depois ou
+tirar alguma dúvida. 
+Obrigada pelo seu
+tempo!
+
+--- PAGE 14 ---
+Fluxo conversacional - Exceções
+1. Cliente acha que é golpe
+Cliente: Isso parece golpe, não confio
+IA: Entendo sua preocupação. Este é um contato oficial da Ticket Edenred, 
+inclusive estou falando sobre o CNPJ final XXXX, já credenciado conosco. Se 
+preferir, posso te explicar rapidamente ou te direcionar para o link oficial.
+2. Cliente pergunta se vai “mexer no banco”
+Cliente: Isso vai mudar meu banco?
+IA: O crédito é concedido por uma instituição financeira parceira da Edenred. 
+O domicílio dos recebíveis Ticket fica vinculado a ela apenas como 
+garantia, e tudo é explicado com clareza no link antes de qualquer decisão.
+3. Cliente confunde com antecipação de recebíveis
+Cliente: Isso é antecipação?
+IA: Não exatamente. É uma linha de crédito, onde os recebíveis Ticket 
+funcionam como garantia, mas o pagamento acontece por boleto, com 
+regras bem claras no link.
+4. Cliente questiona desconto automático
+Cliente: Vocês vão descontar direto do meu faturamento?
+IA: Não. O pagamento é feito por boleto bancário. Os recebíveis só são 
+utilizados se houver atraso no pagamento do boleto, como garantia.
+Preliminar
+O agente será preparado para tratar diversos casos excepcionais e, em caso de situação não prevista ou de risco, como 
+reclamação, fraude ou insatisfação, será definido procedimento a ser aplicado
+Exemplos de casos excepcionais:
+5. Cliente diz que não precisa de crédito
+Cliente: Não preciso de crédito agora
+IA: Sem problema.  A ideia é só te mostrar que existe uma condição 
+disponível, caso faça sentido no futuro. Posso te enviar o link para você 
+conhecer, sem compromisso?
+6. Cliente pede tudo por escrito
+Cliente: Prefiro ver tudo por escrito
+IA: Perfeito. No link você encontra valores, taxas, prazos e regras, tudo 
+documentado e transparente.
+7. Cliente pergunta quem é a instituição financeira
+Cliente: Quem é o banco por trás disso?
+IA: A operação é feita por uma instituição financeira parceira da Edenred, 
+devidamente regulada. O nome e todos os detalhes aparecem no link antes 
+da contratação.
+8. Cliente demonstra interesse, mas pede para falar depois
+Cliente: Agora não posso ver isso
+IA: Sem problema. Quando for um bom momento, é só me chamar aqui que 
+retomamos de onde paramos.
+--- PAGE 15 ---
+Cronograma da POC Preliminar
+• Validar necessidade
+• Relacionar público
+• Lançar convite
+A partir da 2ª semana de operação do agente haverá revisões semanais 
+de eficácia e decisão de conversão da POC para operação regular 
+--- PAGE 16 ---
+Questionário de qualificação do agente
+1. Gênero do Agente
+• Como o agente se apresentará ao cliente?
+• Opções: Feminino | Masculino
+• Sugestão Davos: Feminino
+• Quando infromar tratar-se de agente de IA? Sugestão: somente se necessário
+2. Nome do Agente
+• Como o agente se apresentará ao cliente?
+• Opções: próximo slide
+3. Dinâmica da Conversa
+• Como a agente deve conduzir a conversa?
+• Opções: Sempre proativa | Proativa após resposta | Progressiva | Reativa
+• Sugestão Davos: Modelo progressivo.
+4. Coleta Inicial de Informações
+• Quais dados pedir antes da primeira busca?
+• Opções: Nome, CNPJ, ambos
+• Sugestão Davos: ambos
+As questões a seguir precisam ser confirmadas e retornadas para início do desenvolvimento do agente
+5. Idiomas
+• Idiomas suportados?
+• Opções: PT | PT-EN | PT-EN-ES
+• Sugestão Davos: PT / EN / ES.
+• Quando trocar idioma? Sugestão: Inferência automática.
+6. WhatsApp – Texto vs Áudio
+• Como responder a áudios?
+• Opções: Texto | Texto + oferta | Espelhar | Híbrido
+• Sugestão Davos: Espelhar usuário.
+7. Personalidade
+• Qual personalidade da agente?
+• Opções: Muito informal | Informal profissional | Neutra
+• Sugestão Davos: Informal profissional
+--- PAGE 17 ---
+Opções de Nome
+Nome Motivos Risco de marca / colisão
+LIA
+• Curto e memorável
+• Associa naturalmente a IA sem soar técnico
+• Excelente fluidez em conversas (“fala com a Lia”)
+• Funciona bem em app, WhatsApp e voz
+• Baixo–Médio (nome curto e comum, mas muito usado em IA)
+• Risco mitigável com co-branding “LIA da Ticket”
+• Boa defensabilidade como personagem, não produto isolado
+NINA
+• Nome humano e simpático
+• Gera proximidade e confiança
+• Excelente para atendimento e suporte contínuo
+• Baixo (nome comum, pouco usado como marca de IA)
+• Ótimo para personificação
+• Baixo risco de confusão no contexto de fidelidade
+MAIA
+• Nome moderno e confiável
+• Transmite inteligência e preparo
+• Escala bem para funções mais sofisticadas
+• Baixo (nome menos explorado em assistentes no Brasil)
+• Boa diferenciação no contexto Ticket
+• Forte como identidade premium
+LUNA
+• Associa-se a movimento e orientação
+• Nome leve e emocional
+• Excelente para experiência e encantamento
+• Médio (nome bastante usado em marcas diversas)
+• Risco reduzido ao usar sempre com “Ticket”
+• Forte apelo emocional, não funcional
+SOFIA
+• Remete a sabedoria e boas escolhas
+• Passa confiança em decisões complexas
+• Excelente para esclarecimentos e comparações
+• Médio–Baixo (nome comum, mas pouco usado como IA no Brasil)
+• Forte associação conceitual positiva
+• Boa aceitação institucional
+--- PAGE 18 ---
+Próximos Passos
+Definição de Kick Off | Edenred | 16/01
+Definir se haverá, definer modelo (presencial / remoto), selecionar participantes e enviar convite
+1
+Devolução do Questionário e Exceções | Edenred | 16/01
+Validar ou alterar definições conforme apresentados neste material
+2
+Envio de Documento | Edenred | 19/01
+Encaminhar materiais referentes ao produto, planilha da base de clientes que será objeto da POC 
+(formato), informações Edenred / Ticket (Institucional), modelo de respostas padrão / históricas FAQ 
+(opcional), regras de resposta / guard-rails (ex: não falar de concorrentes ou outros assuntos que não 
+sejam objeto do produto) etc.
+2
+--- PAGE 19 ---

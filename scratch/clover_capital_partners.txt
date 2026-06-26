@@ -1,0 +1,645 @@
+
+--- PAGE 1 ---
+Provides a set of endpoints that allow partners to simulate, submit, and retrieve loan requests.
+These endpoints enable integration with the Clover Capital loan system, offering functionality to
+preview loan terms, initiate funding requests, and track the status of existing loan requests.
+Base endpoint
+All API requests must be directed to one of the following base URL’s
+EnvironmentURL
+Production https://api.moneymoneyinvest.com.br
+Sandbox https://apidev.moneymoneyinvest.com.br
+This base endpoint serves as the root for accessing all available API resources. Ensure that all
+requests are properly formatted and authenticated according to the API documentation.
+🔒  Authentication
+The API uses JWT (JSON Web Token) for secure authentication.
+During the integration process, partners must provide a previously registered email and
+password. Using these credentials, the partner can authenticate by calling the appropriate
+login endpoint to obtain an token.
+This token must be included in the Authorization header of all subsequent requests to access
+protected endpoints like so:
+Ensure that the token is stored securely and refreshed as needed according to the token
+expiration policy.
+🌐  Endpoints
+Authorization: Bearer <token>
+--- PAGE 2 ---
+Login
+POST /business-partners/api/v2/login
+This endpoint is used to obtain a JWT (JSON Web Token) for authenticating requests to the
+API. To access this endpoint, the partner must provide valid credentials — specifically the email
+and password that were registered during the integration process.
+Upon successful authentication, the API will return an token, which must be included in the
+Authorization header of all subsequent requests to protected endpoints.
+Request body
+Field Type Description Example Required
+email string Partner email registered 
+in integration
+“example_user@gmail.com” Yes
+passwordstring Partner password 
+registed in integration
+“my_password” Yes
+Responses
+200
+When valid credentials are provided the api returns a token and refresh token to be used in
+other protected endpoints.
+401
+{
+"token": "eyJhbCc3OiJIUCI1NiI7InR5...",
+"refresh_token": "eyJhbCc3OiJIUCI1NiI7InR5..."
+}
+--- PAGE 3 ---
+If invalid credentials are provided, the API will return an error indicating that the authentication
+has failed. In this case, ensure that the email and password submitted are correct and match
+the credentials registered during the integration process.
+Retrieve loan request
+GET /business-partners/clover-capital/loan-requests/{document}
+Retrieves the details of an existing loan request by providing the borrower's CNPJ (Brazilian
+National Registry of Legal Entities) number. This endpoint allows partners to query and access
+information related to a previously submitted loan request, using the CNPJ as a unique
+identifier.
+URL parameters
+Field Description
+documentBorrower CNPJ number
+Responses
+200
+If loan request exists in our database the API will return a JSON response containing the data
+associated with that loan request. Additionally a unique loan_request_id is included in the
+response. The identifier can be used with other endpoints to check the status, simulate
+conditions or confirm a loan request.
+Note: The offer_data field contains detailed loan simulation information and is only
+populated for loan requests in eligible stages. When the loan request status is in_progress,
+{
+"errors": {
+"detail": "não autorizado"
+}
+}
+--- PAGE 4 ---
+denied, cancelled, fails_to_process, or lost, the offer_data field will return an
+empty object ({}) for security and business policy reasons.
+Note: The trackings array provides an audit trail of the credit proposal lifecycle, capturing
+each status change and its corresponding timestamp. For more details on status consult
+Tracking Status Table on schemas section.
+401
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token .
+When a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+{
+"amount": 100402.32,
+"installments": 24,
+"loan_request_id": 900,
+"status": "approved",
+"external_status": "Pré-aprovado",
+"trackings": [
+{"status": "Pré-aprovado", "date": "2026-01-22 15:01:36.000"},
+{"status": "Proposta", "date": "2026-01-23 15:01:36.000"},
+{"status": "Assinatura", "date": "2026-01-23 15:01:36.000"},
+{"status": "Dinheiro na conta!", "date": "2026-01-26 15:01:36.000"},
+],
+"offer_data": {
+"PercCETAnual": 79.61,
+"PercCETMensal": 5,
+"PercJurosAnual": 74.12,
+"PercJurosMensal": 4.73,
+"VlrIOF": 2819.25,
+"VlrParcela": 7643.15,
+"VlrTAC": 20,
+"VlrTotalCredito": 103241.57,
+"VlrTotalDivida": 183435.6
+}
+}
+--- PAGE 5 ---
+404
+The provided loan_request_id was not found in our database.
+This may occur for one of the following reasons:
+Please verify the identifier and try again.
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+{
+"error": "unauthenticated"
+}
+The loan request has been deleted or is no longer available.
+An incorrect or invalid loan_request_id was provided.
+{
+"errors": {
+"detail": "Loan request not found"
+}
+}
+{
+"errors": {
+"detail": "Internal Server Error"
+}
+--- PAGE 6 ---
+Simulate loan request
+POST /business-partners/clover-capital/loan-requests/{loanRequestId}/simulation
+Simulates a funding request based on the specified amount and number of installments.
+This endpoint is used for simulation purposes only — no actual funding is requested or
+processed.
+URL parameters
+Field Description
+loanRequestIdID of loan request retrieved in consult route
+Request body
+Field Type Description Example Required
+requested_amount number The requested amount 
+value
+100402.32Yes
+requested_installmentsintegerThe number of 
+installments
+24 Yes
+Responses
+200
+The API returns a JSON response containing simulation data based on the provided conditions
+for an existing loan request.
+{
+"loan_request_id": 900,
+"requested_amount": 100402.32,
+"requested_installments": 24,
+"simulation_data": {
+"PercCETAnual": 79.61,
+"PercCETMensal": 5,
+--- PAGE 7 ---
+401
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token When
+a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+404
+The provided loan_request_id was not found in our database.
+This may occur for one of the following reasons:
+Please verify the identifier and try again.
+"PercJurosAnual": 74.12,
+"PercJurosMensal": 4.73,
+"VlrIOF": 2819.25,
+"VlrParcela": 7643.15,
+"VlrTAC": 20,
+"VlrTotalCredito": 103241.57,
+"VlrTotalDivida": 183435.6
+}
+{
+"error": "unauthenticated"
+}
+The loan request has been deleted or is no longer available.
+An incorrect or invalid loan_request_id was provided.
+{
+"errors": {
+"detail": "Loan request not found"
+}
+--- PAGE 8 ---
+422
+The requested amount is invalid.
+Please ensure the value meets the minimum and maximum limits allowed by the system in the
+consult request.
+422
+The requested installments is invalid.
+Please ensure the value meets the minimum and maximum limits allowed by the system in the
+consult request.
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+}
+{
+"errors": {
+"detail": "Invalid requested limit"
+}
+}
+{
+"errors": {
+"detail": "Invalid requested duration"
+}
+}
+--- PAGE 9 ---
+Get loan request status
+GET /business-partners/clover-capital/loan-requests/{loanRequestId}/status
+Retrieves the current status of a loan request.
+URL parameters
+Field Description
+loanRequestIdID of loan request retrieved in consult route
+Responses
+200
+The API will return a JSON containing the loan_request_id and a status field that
+represents the current state of a given loan request. Consult the Loan request status table
+and loan request external status table for more information.
+401
+{
+"errors": {
+"detail": "Internal Server Error"
+}
+}
+{
+"external_status": "Pré-aprovado",
+"loan_request_id": 1,
+"status": "approved"
+}
+--- PAGE 10 ---
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token.
+When a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+404
+The provided loan_request_id was not found in our database.
+This may occur for one of the following reasons:
+Please verify the identifier and try again.
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+{
+"error": "unauthenticated"
+}
+The loan request has been deleted or is no longer available.
+An incorrect or invalid loan_request_id was provided.
+{
+"errors": {
+"detail": "Loan request not found"
+}
+}
+--- PAGE 11 ---
+Confirm loan request
+POST /business-partners/clover-capital/loan-requests/{loanRequestId}/confirm_simulation
+This endpoint is used to confirm a previously simulated loan request on database. It finalizes
+the funding process for a loan request that has already been created and simulated.
+To confirm a loan, a valid loan_request_id must be provided. This ID should reference an
+existing loan request that has successfully passed through prior steps. Upon successful
+confirmation, the loan is officially registered and processed by the system.
+URL parameters
+Field Description
+loanRequestIdID of loan request retrieved in consult route
+Request body
+Field Type DescriptionExample Required
+contact_name string Contact 
+name
+“João Silva” Yes
+contact_email string Contact 
+email
+“example_user@gmail.com” Yes
+contact_phone_numberstring Contact 
+phone 
+number
+“11996937265” Yes
+installments integerNumber of 
+requested 
+installments
+12 Yes
+{
+"errors": {
+"detail": "Internal Server Error"\
+}
+}
+--- PAGE 12 ---
+Field Type DescriptionExample Required
+requested_amount number Requested 
+amount 
+value
+1500.42 Yes
+Responses
+200
+Succesful request
+401
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token
+When a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+404
+The provided loan_request_id was not found in our database.
+This may occur for one of the following reasons:
+*No body returned for response*
+{
+"error": "unauthenticated"
+}
+--- PAGE 13 ---
+Please verify the identifier and try again.
+422
+The requested amount is invalid.
+Please ensure the value meets the minimum and maximum limits allowed by the system in the
+consult request.
+422
+The requested installments is invalid.
+Please ensure the value meets the minimum and maximum limits allowed by the system in the
+consult request.
+The loan request has been deleted or is no longer available.
+An incorrect or invalid loan_request_id was provided.
+{
+"errors": {
+"detail": "Loan request not found"
+}
+}
+{
+"errors": {
+"detail": "Invalid requested limit"
+}
+}
+{
+"errors": {
+--- PAGE 14 ---
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+Update contact number
+PATCH/business-partners/clover-capital/loan-requests/{loan_request_id}/change-contact-
+number
+Updates the contact phone number for a loan request that failed initial contact attempts. When
+successful, the loan request status is rolled back from fail_to_contact to
+contact_request_sent, triggering a new contact attempt within the next 24 hours. This
+operation is only permitted when the current status is fail_to_contact.
+URL parameters
+Field Description
+loan_request_idUnique identifier of a the lead
+Request body
+"detail": "Invalid requested duration"
+}
+}
+{
+"errors": {
+"detail": "Internal Server Error"
+}
+}
+--- PAGE 15 ---
+Field Type Description Required
+contact_phone_numberstring The new contact phone number that will 
+be used in lead proccess.
+true
+contact_name string New contact name tha will used in lead 
+process.
+false
+Responses
+200
+Contact number successfully updated
+400
+Invalid body request
+400
+The lead can’t be updated on current status.
+{
+"message": "Contact for this lead was updated."
+}
+{
+"errors": {
+"detail": "Bad Request"
+}
+}
+--- PAGE 16 ---
+401
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token When
+a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+404
+Provided lead id not found
+422
+{
+"errors": {
+"detail": "Cannot update lead contact information. Current status: 
+'in_progress'. This operation is only allowed when status is 
+'fail_to_contact'."
+}
+}
+{
+"error": "unauthenticated"
+}
+{
+"errors": {
+"detail": "Lead not found"
+}
+}
+--- PAGE 17 ---
+If the contact_phone_number is invalid the API will return a Unprocessable Entity error.
+The accept number format is a string with 11 numeric digits.
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+Create a new loan request
+POST /business-partners/clover-capital/loan-requests
+This endpoint is used to create a new loan request. Upon successful creation, the loan is
+officially registered and processed by the system.
+Duplicate Prevention & Caching Logic:
+To avoid duplicate loan requests, the system implements a caching mechanism:
+{
+"errors": {
+"contact_phone_number": [
+"Phone fields should be only numbers and contain 11 digits."
+]
+}}
+{
+"errors": {
+"detail": "Internal Server Error"
+}
+}
+--- PAGE 18 ---
+Note:
+The 30-day interval is configurable and may change based on our business logic. The
+current configuration value is provided in response.
+Request body
+Field Type DescriptionExample Required
+contact_name string Contact 
+name
+“João Silva” Yes
+contact_email string Contact 
+email
+“example_user@gmail.com” No
+contact_phone_numberstring Contact 
+phone 
+number
+“11996937265” Yes
+registration_codestring Borrower 
+CNPJ 
+number
+93464951000100 Yes
+revenue number Monthly 
+average 
+revenue of 
+company
+84500.00 Yes
+requested_amount number Requested 
+amount 
+value
+75000.00 Yes
+opt_in booleanIndicates 
+customer 
+consent for 
+data 
+processing
+true No
+If a loan request already exists for the same registration document (CNPJ) and was created
+within the last 30 days, the existing loan request will be returned instead of creating a new
+one.
+Update on Specific Statuses: When attempting to create a new loan request for an
+existing cached lead with status fail_to_contact, contact_updated, in_progress, or
+in_quoting, the system will update the existing loan request with the new information
+provided in the request body, rather than returning it unchanged.
+If the existing loan request is older than 30 days, a new loan request will be created
+regardless of its status.
+--- PAGE 19 ---
+Field Type DescriptionExample Required
+opt_in_ip string Client IP 
+address at 
+the time of 
+consent
+"192.168.1.100" No*
+opt_in_timestamp string ISO 8601 
+timestamp 
+of when 
+consent 
+was given
+"2026-06-02T15:30:00Z"No*
+opt_in_signer_namestring Name of 
+the person 
+who gave 
+consent
+"João Silva" No*
+*Opt-in fields: When opt_in is true, the fields opt_in_ip, opt_in_timestamp, and
+opt_in_signer_name are required. These fields are used to create a consent record
+associated with the loan request. When opt_in is false or not provided, these fields are
+ignored.
+Responses
+200
+Proposal successfully registered.
+401
+If the token is expired or invalid, the API will return an unauthenticated error. To resolve this,
+you can re-authenticate by logging in again using valid credentials to obtain a new token
+When a token expires or are invalid a unauthenticated error is returned. To address this error is
+possible to try login again.
+{
+"loan_request_id": 123,
+"message": "Lead registered successfully",
+"created_at": "2026-01-27 17:45:17",
+"duplication_interval_in_days": 30
+}
+--- PAGE 20 ---
+500
+An unexpected internal error has occurred.
+Please contact the system administrator or support team for further assistance.
+Webhook - Status Change Notification
+Whenever the status of a loan request changes, the system automatically sends a webhook
+notification to the partner's registered endpoint via an HTTP POST request.
+This allows partners to receive real-time updates about the lifecycle of their loan requests
+without the need to poll the API.
+Configuration
+During the integration process, the partner must provide a webhook URL where notifications
+will be
+delivered. This URL is registered internally and associated with the partner's account.
+Request body (sent by our API)
+The webhook payload varies depending on the current status of the loan request.
+For eligible statuses (approved, comite_approved, formalization, won):
+{
+"error": "unauthenticated"
+}
+{
+"errors": {
+"detail": "Internal Server Error"
+}
+}
+--- PAGE 21 ---
+For non-eligible statuses (denied, lost, in_progress, etc.):
+Webhook body fields
+Field Type Description
+id integer The unique identifier of the loan request.
+status string The current status of the loan request. 
+Consult the Loan request status 
+table for possible values.
+details string or null Additional details about the status change. 
+Populated for denied/lost 
+{
+"id": 900,
+"status": "approved",
+"details": null,
+"rating": "B2",
+"availableCredit": 100402.32,
+"loanTerm": 24,
+"loanTax": 4.73,
+"created_at": "2026-01-22T15:01:36"
+}
+{
+"id": 900,
+"status": "denied",
+"details": "Credit policy restriction",
+"rating": null,
+"offerUrl": null,
+"availableCredit": null,
+"loanTerm": null,
+"loanTax": null,
+"created_at": "2026-01-22T15:01:36"
+}
+--- PAGE 22 ---
+Field Type Description
+statuses, null otherwise.
+rating string or null The credit rating assigned to the loan 
+request. Only available for eligible 
+statuses.
+availableCreditnumber or null The approved credit amount. Only 
+available for eligible statuses.
+loanTerm integer or null The loan term in months. Only available 
+for eligible statuses.
+loanTax number or null The monthly interest rate. Only available 
+for eligible statuses.
+created_at string The timestamp of when the loan request 
+was created.
+Expected response
+The partner's webhook endpoint should return an HTTP 2xx status code to acknowledge
+receipt of the
+notification. If the request fails, the system will retry up to 3 times within a 7-day window.
+📄  Schemas
+Loan request external status table
+Status Description
+Pré-aprovado The loan has been pre-approved based 
+on initial analysis and is ready to move 
+to the next stage.
+Solicitação de contato enviada The request was send and in analisys.
+Proposta The committee has reviewed and 
+approved the loan request.
+Assinatura The loan signature was ben requested 
+and waiting for signers
+Dinheiro na conta! The loan was paid.
+Não conseguimos contato, verifique seu 
+número e tentaremos novamente
+Unable to contact the registered 
+number on the lead
+--- PAGE 23 ---
+Status Description
+Tentaremos contato novamente em até 24hThe phone number on the lead has 
+been updated. A new contact attempt 
+will be made within 24 hours.
+Proposta cancelada The loan request has been cancelled 
+and is no longer active.
+Analisamos sua solicitação e desta vez 
+não conseguimos aprová-la devido a 
+políticas internas de crédito.
+The loan request has been rejected 
+after review.
+Ocorreu um erro. Entraremos em contato 
+em até 24hs úteis.
+An error occurred, and the loan request 
+could not be processed.
+Cliente desistiu da oferta The opportunity for this loan was lost 
+(e.g., the client opted out or went with 
+another provider).
+Tracking Status Table
+Data table specifying details about loan tracking statuses
+Status Description
+Pré-aprovado The loan has been pre-approved based on initial analysis and is ready 
+to move to the next stage.
+Proposta The committee has reviewed and approved the loan request.
+Assinatura The loan signature was ben requested and waiting for signers
+Dinheiro na 
+conta!
+The loan was paid.
+Não aprovado The loan request has been rejected after review.
+Loan request status table
+Data table specifying details about loan request status
+Status Description
+in_progress The loan request is currently being processed.
+fails_to_processAn error occurred, and the loan request could not be processed
+fail_to_contactThe loan request is on hold due to failure to contact the customer 
+using the provided contact phone number.
+--- PAGE 24 ---
+Status Description
+contact_updatedThe contact phone number has been updated. A new contact attempt 
+will be made within the next 24 hours.
+approved The loan request has been approved.
+in_quoting The loan request is in the quotation phase.
+denied The loan request has been rejected after review.
+comite The loan request is under review by a credit or decision committee.
+comite_approvedThe committee has reviewed and approved the loan request.
+formalization The loan is in the formalization phase, awaiting signatures or 
+document processing.
+lost The opportunity for this loan was lost (e.g., the client opted out or 
+went with another provider).
+won The loan request was successful and secured the business.
+API version 1.0.10

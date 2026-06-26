@@ -270,12 +270,12 @@ BEGIN
             'workflow_blueprint', v_agent.workflow_blueprint
         ),
 
-        'lead_info', jsonb_build_object(
+        'lead_info', (COALESCE(v_lead.metadata, '{}'::jsonb) || jsonb_build_object(
             'is_lead', (v_lead.id IS NOT NULL),
             'name', COALESCE(v_lead.name, v_record.payload->>'name', 'Usuário'),
             'link', COALESCE(v_lead.cta_link, ''),
             'cnpj', COALESCE(v_lead.identifier, '')
-        ),
+        )),
 
         'conversation', jsonb_build_object(
             'id', v_record.conversation_id,

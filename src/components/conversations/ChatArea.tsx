@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown, Check, CheckCheck, AlertCircle } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown, Check, CheckCheck, AlertCircle, Megaphone, Flame, Activity, Hash, Clock } from 'lucide-react';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -320,7 +320,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
 
   return (
     <div className={cn(
-      "flex-1 flex flex-col bg-background relative",
+      "flex-1 flex flex-col min-w-0 bg-background relative",
       conversation.evaluation && conversation.evaluation.score < 40 && "ring-2 ring-red-600 ring-inset z-50 shadow-[0_0_20px_rgba(220,38,38,0.2)]"
     )}>
       {/* Alert Banner for Low Score */}
@@ -349,18 +349,20 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
         </div>
       )}
 
-      {/* Chat Header */}
+               {/* Chat Header - 3 Column Layout */}
       <div className={cn(
-        "min-h-14 px-4 py-2 flex items-center justify-between gap-4 border-b transition-colors shrink-0",
+        "min-h-[72px] px-5 py-3 flex items-center justify-between gap-6 border-b transition-colors shrink-0",
         conversation.evaluation && conversation.evaluation.score < 40
           ? "bg-red-50 border-red-200"
           : conversation.status !== 'closed'
             ? "bg-emerald-500/5 border-emerald-500/20"
             : "bg-card border-border"
       )}>
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+        
+        {/* Column 1: Identity */}
+        <div className="flex items-center gap-3 min-w-[200px] max-w-[35%] shrink-0">
           <div className={cn(
-            "w-10 h-10 flex items-center justify-center rounded-full border transition-colors",
+            "w-11 h-11 flex items-center justify-center rounded-full border transition-colors shrink-0",
             conversation.status !== 'closed'
               ? "bg-emerald-100 border-emerald-200 text-emerald-700"
               : "bg-muted border-border text-muted-foreground"
@@ -369,154 +371,195 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           </div>
           <div className="flex flex-col min-w-0">
             <h3 className={cn(
-              "font-medium flex items-center gap-2 truncate",
+              "font-semibold truncate text-[15px] leading-tight mb-0.5",
               conversation.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-foreground"
             )}>
               {conversation.userName}
-              {conversation.channel === 'voice' && (
-                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-500 text-[10px] font-bold uppercase border border-purple-500/20 flex-shrink-0">
-                  Voice Call
-                </span>
-              )}
             </h3>
-            <span className="text-[10px] text-muted-foreground font-mono leading-none">{conversation.userId}</span>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5" title="Total de mensagens">
-              <MessageSquare className={cn(
-                "h-3.5 w-3.5",
-                conversation.status !== 'closed' ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"
-              )} />
-              <span className={cn(
-                "font-bold",
-                conversation.status !== 'closed' ? "text-black dark:text-white" : "text-muted-foreground"
-              )}>{conversation.messageCount ?? conversation.messages.length}</span>
+            <div className="flex items-center gap-1.5 text-slate-500">
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 fill-[#25D366]">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.888-.788-1.489-1.761-1.663-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51a12.8 12.8 0 0 0-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 0 1-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 0 1 2.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 0 0 5.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 0 0-3.48-8.413Z"/>
+              </svg>
+              <span className="text-[11px] font-mono leading-none">{conversation.userId}</span>
             </div>
-            <span className="text-border">|</span>
-            <div className="flex items-center gap-1.5">
-              <span className={cn(
-                'status-dot',
-                conversation.status === 'ai_active' ? 'bg-emerald-500 animate-pulse' :
-                  conversation.status === 'closed' ? 'bg-muted-foreground' : 'bg-success'
-              )} />
-              <span>
-                {conversation.status === 'ai_active' ? 'IA Ativa' :
-                  conversation.status === 'closed' ? 'Conversa Fechada' :
-                    (conversation.assignedOperator || 'Operador Humano')}
-              </span>
-            </div>
-
-            {conversation.voiceStatus && (
-              <>
-                <span className="text-border">|</span>
-                <span className={cn(
-                  "uppercase font-bold text-[10px]",
-                  conversation.voiceStatus === 'speaking' ? "text-green-500 animate-pulse" :
-                    conversation.voiceStatus === 'processing' ? "text-amber-500" :
-                      conversation.voiceStatus === 'listening' ? "text-blue-500" : "text-muted-foreground"
-                )}>
-                  {conversation.voiceStatus === 'speaking' ? 'Falando...' :
-                    conversation.voiceStatus === 'processing' ? 'Pensando...' :
-                      conversation.voiceStatus === 'listening' ? 'Ouvindo...' : 'Silêncio'}
-                </span>
-              </>
-            )}
-
-
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="flex items-center bg-muted/50 p-1 rounded-lg border border-border">
-            <button
-              onClick={() => setViewMode('default')}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              title="Visão Padrão (SaaS)"
-            >
-              <Monitor className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('mobile')}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              title="Visão Cliente (WhatsApp)"
-            >
-              <Smartphone className="h-4 w-4" />
-            </button>
-          </div>
-
-          <button
-            onClick={() => setArtifactsDrawerOpen(true)}
-            className="flex items-center gap-1.5 hover:text-primary transition-colors cursor-pointer bg-muted/50 px-3 py-0.5 rounded-md border border-border/50 h-8 mr-1 shadow-sm"
-            title="Ver arquivos e gravações da conversa"
-          >
-            <Paperclip className="h-4 w-4 text-muted-foreground" />
-            <span className="font-medium text-muted-foreground text-xs hidden xl:inline-block">Arquivos (WAV/Docs)</span>
-          </button>
-
-          {/* Control Buttons */}
-          <div className="flex items-center gap-2">
-            {isReadOnly ? (
-              <Badge
-                variant="outline"
-                className="gap-1 border-dashed text-muted-foreground bg-muted/50"
-              >
-                <Info className="h-3 w-3" />
-                Somente Leitura
+        {/* Column 2: Context & Intelligence */}
+        <div className="flex flex-col min-w-0 flex-1 gap-1.5 pl-5 border-l border-border/60 justify-center">
+          <div className="flex items-center gap-2 overflow-hidden">
+            {conversation.campaignName && (
+              <Badge variant="outline" className="px-1.5 py-0 h-5 text-[10px] bg-slate-50 text-slate-600 border-slate-200 font-medium rounded-sm flex items-center gap-1 whitespace-nowrap shrink-0">
+                <Megaphone className="h-3 w-3 text-slate-400 shrink-0" />
+                {conversation.campaignName}
               </Badge>
-            ) : isHumanActive ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => returnToAI(conversation.id)}
-                className="text-accent border-accent hover:bg-accent hover:text-accent-foreground"
-              >
-                <Bot className="h-4 w-4 mr-2" />
-                IA Continua
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTakeover}
-                className="text-success border-success hover:bg-success hover:text-success-foreground"
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Assumir Conversa
-              </Button>
+            )}
+
+            {conversation.createdAt && (
+              <Badge variant="outline" className="px-1.5 py-0 h-5 text-[10px] bg-slate-50 text-slate-600 border-slate-200 font-medium rounded-sm flex items-center gap-1.5 whitespace-nowrap shrink-0" title="Início do Atendimento">
+                <Clock className="h-3 w-3 text-slate-400 shrink-0" />
+                {format(new Date(conversation.createdAt), "dd/MM 'às' HH:mm", { locale: ptBR })}
+              </Badge>
+            )}
+            
+            <Badge variant="secondary" className="px-1.5 py-0 h-5 text-[10px] bg-slate-100 text-slate-600 hover:bg-slate-100 border-transparent rounded-sm flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <MessageSquare className={cn("h-3 w-3 shrink-0", conversation.status !== 'closed' ? "text-emerald-600" : "text-muted-foreground")} />
+              <span className="font-bold">{conversation.messages?.length || 0}</span>
+            </Badge>
+          </div>
+          
+          <div className="flex items-center gap-3 mt-0.5 overflow-hidden whitespace-nowrap">
+            {conversation.sentiment && (
+              <span className="text-[11px] flex items-center gap-1 font-medium text-slate-600 shrink-0">
+                <Flame className={cn("h-3.5 w-3.5", conversation.sentiment === 'interessado' ? "text-orange-500" : "text-slate-400")} />
+                Sentimento: <span className="capitalize">{conversation.sentiment}</span>
+              </span>
+            )}
+
+            {conversation.complianceScore !== undefined && (
+              <>
+                <span className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                <span className={cn(
+                  "text-[11px] font-medium flex items-center gap-1 shrink-0",
+                  conversation.complianceScore >= 80 ? "text-emerald-600" :
+                  conversation.complianceScore >= 50 ? "text-amber-600" : "text-red-600"
+                )}>
+                  Compliance: {conversation.complianceScore}/100
+                </span>
+              </>
+            )}
+            
+            {conversation.voiceStatus && (
+               <>
+                 <span className="w-1 h-1 rounded-full bg-slate-300 shrink-0" />
+                 <span className={cn(
+                   "uppercase font-bold text-[10px] flex items-center gap-1 shrink-0",
+                   conversation.voiceStatus === 'speaking' ? "text-emerald-600 animate-pulse" :
+                   conversation.voiceStatus === 'processing' ? "text-amber-600" :
+                   conversation.voiceStatus === 'listening' ? "text-sky-600" : "text-slate-500"
+                 )}>
+                   <Activity className="h-3 w-3" />
+                   {conversation.voiceStatus === 'speaking' ? 'Falando...' :
+                    conversation.voiceStatus === 'processing' ? 'Pensando...' :
+                    conversation.voiceStatus === 'listening' ? 'Ouvindo...' : 'Silêncio'}
+                 </span>
+               </>
             )}
           </div>
+        </div>
 
-          {/* More Options */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="h-5 w-5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => openSlideOver('conversation-details', conversation)}>
-                <Info className="h-4 w-4 mr-2" />
-                Ver Detalhes
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => {
-                  if (confirm('Tem certeza que deseja encerrar esta conversa?')) {
-                    closeConversation(conversation.id);
-                  }
-                }}
+        {/* Column 3: Status & Controls */}
+        <div className="flex items-center justify-end gap-3 shrink-0 border-l border-border/60 pl-5">
+          <Badge variant="outline" className={cn(
+            "px-2 py-0.5 h-6 text-xs font-semibold rounded-md flex items-center gap-2 shadow-sm shrink-0",
+            conversation.status === 'ai_active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+            conversation.status === 'closed' ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+          )}>
+            <span className={cn(
+              'w-2 h-2 rounded-full',
+              conversation.status === 'ai_active' ? 'bg-emerald-500 animate-pulse' :
+              conversation.status === 'closed' ? 'bg-slate-400' : 'bg-blue-500'
+            )} />
+            {conversation.status === 'ai_active' ? 'IA Ativa' :
+             conversation.status === 'closed' ? 'Fechada' :
+             (conversation.assignedOperator || 'Operador')}
+          </Badge>
+
+          <div className="flex items-center gap-1.5">
+            <div className="flex items-center bg-muted/50 p-0.5 rounded-md border border-border mr-1">
+              <button
+                onClick={() => setViewMode('default')}
+                className={cn(
+                  "p-1 rounded-sm transition-all flex items-center justify-center",
+                  viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Visão Padrão (SaaS)"
               >
-                Encerrar Conversa
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <Monitor className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('mobile')}
+                className={cn(
+                  "p-1 rounded-sm transition-all flex items-center justify-center",
+                  viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Visão Mobile"
+              >
+                <Smartphone className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setArtifactsDrawerOpen(true)}
+              className="h-8 gap-1.5 text-slate-600 border-border/60 bg-muted/30 hover:bg-muted shrink-0"
+              title="Ver arquivos e gravações da conversa"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              <span className="hidden xl:inline-block">Arquivos</span>
+            </Button>
+            
+            {/* Control Buttons */}
+            <div className="flex items-center shrink-0">
+              {isReadOnly ? (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-dashed text-slate-500 bg-slate-50 h-8 px-3 rounded-md font-medium"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                  Somente Leitura
+                </Badge>
+              ) : isHumanActive ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => returnToAI(conversation.id)}
+                  className="h-8 gap-2 text-sky-700 border-sky-200 bg-sky-50 hover:bg-sky-100 hover:text-sky-800 shadow-sm"
+                >
+                  <Bot className="h-3.5 w-3.5" />
+                  IA Continua
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleTakeover}
+                  className="h-8 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+                  disabled={conversation.status !== 'ai_active'}
+                >
+                  <UserPlus className="h-3.5 w-3.5" />
+                  Assumir
+                </Button>
+              )}
+            </div>
+
+            {/* More Options */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 ml-0.5">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openSlideOver('conversation-details', conversation)}>
+                  <Info className="h-4 w-4 mr-2" />
+                  Ver Detalhes
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-rose-600 focus:text-rose-700 focus:bg-rose-50"
+                  onClick={() => {
+                    if (confirm('Tem certeza que deseja encerrar esta conversa?')) {
+                      closeConversation(conversation.id);
+                    }
+                  }}
+                >
+                  Encerrar Conversa
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
 

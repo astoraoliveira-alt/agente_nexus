@@ -719,6 +719,7 @@ export interface Conversation {
   userStatus?: string;
   userAvatar?: string;
   agentName?: string;
+  campaignName?: string;
   agentType?: 'embedded' | 'whatsapp' | 'conversational';
   channel: 'text' | 'voice' | 'whatsapp';
   status: 'ai_active' | 'human_active' | 'closed';

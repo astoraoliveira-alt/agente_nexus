@@ -62,7 +62,7 @@ async function run() {
   
   const isSelfSimulationRequest =
       /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
-      /\b(vc|voc[eê]|tu|pra mim|por mim|aqui|me faz|poderia|consegue|conseguiria|faz(er)?)\b/i.test(lastUserLower);
+      /\b(vc|voc[eê]|tu|pra mim|por mim|para mim|me faz|poderia|consegue|conseguiria|faz(er)? (para |pra |por )?mim|faz (voc[eê]|vc))(?![a-z0-9])/i.test(lastUserLower);
       
   const semanticIntent = "HUMAN_HANDOFF"; // Let's test with the worst case
   

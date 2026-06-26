@@ -1,0 +1,172 @@
+
+--- PAGE 1 ---
+10/fev/2026
+POC Agente ComercialLiberação de Testes
+
+--- PAGE 2 ---
+Objetivosda reunião
+§O principal objetivo da reunião é apresentar a versão inicial do agente, considerando todos as etapas do fluxo conversacional definido.§Adicionalmente será apresentado os casos de teste para apoiar a homologação por Edenred.§Por fim, serão validados o modelo de planilha necessário à execução do agente.
+--- PAGE 3 ---
+Objetivodo Projeto (POC)
+Macro-Fluxo do Agente*
+A
+A
+Mapeamento do ProcessoDurante as etapas 1 e 2 do projeto, serão detalhadas as informações e demais condições a serem tratadas durante a interação com o clienteInício do ProcessoAtravés da aplicação Edenred, haverá uma primeira mensagem ativa para o cliente, apenas para iniciar o processo de conversação. A partir da primeira resposta, qualquer que seja, nosso agente de IA assume a conversaçãoConclusão do Processo (sucesso)O processo bem sucedido se conclui com a disponibilização e acesso do cliente a um link que o conduzirá ao portal do parceiro comercial Edenred, no qual ele seguirá com as simulações e contratação.Critério de SucessoA POC será considerada “bem sucedida” caso consiga aKnja 10% de clientes que atendam ao estabelecido como “Conclusão do Processo (sucesso)”.* Macro-ﬂuxopreliminar. Descrição legível das etapas foi disponibilizado por Edenredatravés de link Miro
+Conclusão do Processo (sucesso)O processo bem sucedido se conclui com a disponibilização e acesso do cliente a um link que o conduzirá ao portal do parceiro comercial Edenred, no qual ele seguirá com as simulações e contratação.
+Critério de SucessoA POC será considerada “bem sucedida” caso consiga atinja 10% de clientes que atendam ao estabelecido como “Conclusão do Processo (sucesso)”.
+O objetivo do Projeto é desenvolver um agente de IA com alta capacidade de interação (conversacional), através de whatsapp que apoie o cliente na jornada de despertar interesse, esclarecer dúvidas do produto e seguir para o próximo passo de contratação.
+Características•Operação “stand alone”, sem integração com sistemas Edenred•Poderá ser estabelecido processo de troca de arquivospara complementar a base de clientes a ser acessada.•O fluxo se baseará no WPP disponibilizado e nos ajustes já identificados durante operação piloto com operadores humanos•Estão previstas 5.000 interaçõespor whatsapp.•Interações adicionais poderão ser contratadas durante vigência da POC•Prazo: expectativa de reduzir para 30 diaso prazo de execução da POC, conforme acurácia e efetividade do agente.
+--- PAGE 4 ---
+123456789
+FluxoconversacionalAbertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Etapas da Conversão
+--- PAGE 5 ---
+Fluxoconversacional123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Objetivo•Estabelecer legitimidade imediata e transmitir contexto•Identificação clara como Ticket Edenred•Contextualização do motivo do contato (condição financeira)•Linguagem simples, sem “pitchde venda”•Crédito citado de forma leve e não técnica
+Exemplo de Caso de T este
+--- PAGE 6 ---
+FluxoconversacionalObjetivo•Va l i d a r  i nfo r ma çã o  e  ge ra r  co nf i a n ça•IA demonstra que já conhece o cliente•Evita pedir dados sensíveis•Reforça legitimidade de forma implícita•Prepara terreno para o tema financeiro
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 7 ---
+FluxoconversacionalObjetivo•Corrigir divergência sem fricção•Tratar divergência como algo comum•Evitar sensação de erro ou bloqueio•Manter porta aberta para continuidade•Caso o cliente apresente outro CNPJ e não estiver na base online: “Entendi. Vou verificar o cadastro na nossa base. Caso o estabelecimento seja elegível ao produto, retornamos o contato, ok?”•Qualquer outra opção, encerrar de forma cordial
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+Será melhor explorado após carga da base
+--- PAGE 8 ---
+FluxoconversacionalObjetivo•Despertar curiosidade sem rejeição•Introdução clara, mas suave, do tema crédito•Foco em benefício, não produto•Linguagem simples, sem termos financeiros
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 9 ---
+FluxoconversacionalObjetivo•Manter interesse e preparar CT A.•Falar apenas de benefícios•Não entrar em detalhes operacionais•Reforçar simplicidade e digitalização
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 10 ---
+Fluxoconversacional123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Receio de golpeReceio e dúvidas da ofertaDúvida sobre recebíveis
+Objetivo: Remover objeções sem derrubar conversão:
+Exemplos de Caso de T este (1/3)
+--- PAGE 11 ---
+Fluxoconversacional123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Explicações sobre a ofertaExplicações sobre parceiro
+Receio sobre antecipações
+Dúvida sobre forma de pagto
+Objetivo: Remover objeções sem derrubar conversão:
+Exemplos de Caso de T este (2/3)
+--- PAGE 12 ---
+FluxoconversacionalObjetivo: Remover objeções sem derrubar conversão:123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Pede para falar mais tardeNão precisa de créditoNão é o estabelecimentoExemplos de Caso de T este (3/3)
+--- PAGE 13 ---
+FluxoconversacionalObjetivo•Levar ao link•CTA claro•Sem pressão•Link como “próximo passo natural”
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 14 ---
+FluxoconversacionalObjetivo•Garantir avanço ou deixar porta aberta•Retomar conversa para:•Validar se houve acesso•Identificar / tratar problemas de acesso•Tratar “abandono de carrinho”
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 15 ---
+FluxoconversacionalObjetivo•Não perder o lead•Manter canal aberto e disponível para futuras consultas•Pode ser usado para tratar retorno da Fiserv, como:Cliente que não acessouCliente que tentou e teve erro de acesso (cadastro, senha etc.)Cliente que acessou e não seguiu na simulaçãoCliente que iniciou a simulação, mas não seguiu (abandono de carrinho)Cliente que chegou ao final, mas não contratou.
+123456789
+Abertura InstitucionalConfirmação do EstabelecimentoAjuste do EstabelecimentoGatilho de Interesse (progressivo)Explicação do Produto (inicial)Tratamento de DúvidasCT A FinalConfirmação do AcessoEncerramento Aberto
+Exemplo de Caso de T este
+--- PAGE 16 ---
+Fluxoconversacional -Exceções
+1. Cliente acha que é golpeCliente:Isso	parece	golpe,	não	confioIA:Entendo	sua	preocupação.	Este	é	um	contato	oficial	da	Ticket	Edenred,	inclusive	estou	falando	sobre	o	CNPJ	final	XXXX,	já	credenciado	conosco.	Se	preferir ,	posso	te	explicar	rapidamente	ou	te	direcionar	para	o	link	oficial.2. Cliente pergunta se vai “mexer no banco”Cliente:Isso	vai	mudar	meu	banco?IA:O	crédito	é	concedido	por	uma	instituição	financeira	parceira	da	Edenred.	O	domicílio	dos	recebíveis	Ticket	fica	vinculado	a	ela	apenas	como	garantia,	e	tudo	é	explicado	com	clareza	no	link	antes	de	qualquer	decisão.3. Cliente confunde com antecipação de recebíveisCliente:Isso	é	antecipação?IA:Não	exatamente.	É	uma	linha	de	crédito,	onde	os	recebíveis	Ticket	funcionam	como	garantia,	mas	o	pagamento	acontece	por	boleto,	com	regras	bem	claras	no	link.4. Cliente questiona desconto automáticoCliente:Vocês	vão	descontar	direto	do	meu	faturamento?IA:Não.	O	pagamento	é	feito	por	boleto	bancário.	Os	recebíveis	só	são	utilizados	se	houver	atraso	no	pagamento	do	boleto,	como	garantia.
+PreliminarO agente será preparado para tratar diversos casos excepcionais e, em caso de situação não prevista ou de risco, como reclamação, fraude ou insatisfação, será definido procedimento a ser aplicadoExemplos de casos excepcionais:5. Cliente diz que não precisa de créditoCliente:Não	preciso	de	crédito	agoraIA:Sem	problema.		A	ideia	é	só	te	mostrar	que	existe	uma	condição	disponível,	caso	faça	sentido	no	futuro.	Posso	te	enviar	o	link	para	você	conhecer ,	sem	compromisso?6. Cliente pede tudo por escritoCliente:Prefiro	ver	tudo	por	escritoIA:Perfeito.	No	link	você	encontra	valores,	taxas,	prazos	e	regras,	tudo	documentado	e	transparente.7. Cliente pergunta quem é a instituição financeiraCliente:Quem	é	o	banco	por	trás	disso?IA:A	operação	é	feita	por	uma	instituição	financeira	parceira	da	Edenred,	devidamente	regulada.	O	nome	e	todos	os	detalhes	aparecem	no	link	antes	da	contratação.8. Cliente demonstra interesse, mas pede para falar depoisCliente:	Agora	não	posso	ver	issoIA:Sem	problema.	Quando	for	um	bom	momento,	é	só	me	chamar	aqui	que	retomamos	de	onde	paramos.
+
+--- PAGE 17 ---
+Questionário de qualificação do agente1. Gênero do Agente•Como o agente se apresentará ao cliente?•Opções: Feminino | Masculino•Sugestão Davos: Feminino•Quando informar tratar-se de agente de IA? Sugestão: somente se necessário (alterado)
+2. Nome do Agente•Como o agente se apresentará ao cliente?•Opção escolhida: Sofia3. Dinâmica da Conversa•Como a agente deve conduzir a conversa?•Opções: Sempre proativa | Proativa após resposta | Progressiva | Reativa•Sugestão Davos: Modelo progressivo.
+4. Coleta Inicial de Informações•Quais dados pedir antes da primeira busca?•Opções: Nome, CNPJ, ambos•Sugestão Davos: ambos
+As questões a seguir precisam ser confirmadas e retornadas para início do desenvolvimento do agente5. Idiomas•Idiomas suportados?•Opções: PT | PT-EN | PT-EN-ES•Sugestão Davos: PT / EN / ES.•Quando trocar idioma? Sugestão:Inferência automática.
+6. WhatsApp –Texto vsÁudio•Como responder a áudios?•Opções: Texto | Texto + oferta | Espelhar | Híbrido•Sugestão Davos: Espelhar usuário.
+7. Personalidade•Qual personalidade da agente?•Opções: Muito informal | Informal profissional | Neutra•Sugestão Davos: Informal profissional
+
+--- PAGE 18 ---
+Script para testeFLUXO CONVERSACIONALCASO DE TESTEOK1Abertura InstitucionalMensagem padrão2Confirmação do EstabelecimentoMensagem padrão3Ajuste do EstabelecimentoConfirma os dadosNão confirma e não informa outro CNPJInforma ser outro estabelecimento ou não ser ECNão confirma e informa outro CNPJ que está na base NOK 1
+Não confirma e informa outro CNPJ que NÃO está na base NOK 1
+4Gatilho de Interesse (progressivo)Mensagem padrão5Explicação do Produto (inicial)Mensagem padrão6Tratamento de Dúvidas / ExceçõesReceio de GolpeDúvidas da OfertaDúvidas sobre recebíveisDúvidas sobre domicílio bancárioDúvidas sobre parceiro financeiroDúvidas sobre forma de pagamentoDúvidas sobre antecipaçõesPedido para falar mais tardeNOK 2
+Não precisa de créditoPede tudo por escrito
+NOK 1: Será testado após base de carga de teste, previsão sex, 13NOK2: não tem agendamento / retorno no dia seguinte (mesmo horário do término da conversa) -previsão sex, 13
+FLUXO CONVERSACIONALCASO DE TESTEOK7CTA FinalMensagem padrão8Confirmação do AcessoDúvidas sobre senhaValidação se conseguiu acessarN/AGhosting NOK9Encerramento AbertoMensagem padrãoXExceçõesInsistir em falar com HumanoNOKEsgotamento de dúvidas (sem receber link)Insatifação institucionalTentativa de FraudeEscalonamento de Insatisfação / agressividadeXIdioma PortuguêsPortuguês com inferência automáticaN/AInglêsInglês com inferência automáticaEspanholEspanhol com inferência automática
+--- PAGE 19 ---
+ETAPAS
+12/Jan
+13/Jan
+14/Jan
+15/Jan
+16/Jan
+19/Jan
+20/Jan
+21/Jan
+22/Jan
+23/Jan
+26/Jan
+27/Jan
+28/Jan
+29/Jan
+30/Jan
+02/Feb
+03/Feb
+04/Feb
+05/Feb
+06/Feb
+09/Feb
+10/Feb
+11/Feb
+12/Feb
+13/Feb
+16/Feb
+17/Feb
+18/Feb
+19/Feb
+20/Feb
+23/Feb
+24/Feb
+25/Feb
+26/Feb
+27/Feb
+02/Mar
+03/Mar
+04/Mar
+05/Mar
+06/Mar
+09/Mar
+10/Mar
+11/Mar
+12/Mar
+13/Mar
+ Kick Off
+Preenchimento Questionário
+Envio Documentos
+(produto, processo, empresa, FAQ etc)
+Preparaçao Agente Whatsapp + Dashboard
+Testes e Homologação interna
+Treinamento e Apresentação
+Testes e Homologação Cliente
+Go live - POC
+Utilização / Ajustes
+Acompanhamento Resultados
+Apuração de Resultados e Elab Plano de Implantação
+Apresentação Resultados / Plano Implantação
+Encerramento POC
+Sem 7Sem 5 Sem 6 Sem 8Sem 0 Sem 1 Sem 2 Sem 3 Sem 4
+Cronograma da POC
+A partir da 2ª semana de operação do agente haverá revisões semanais de eficácia e decisão de conversão da POC para operação regular 
+--- PAGE 20 ---
+PróximosPassosBase de T este| Edenred| 12/02Encaminhar base de testes AS IS para validação de carga e eventual ajuste de lay-out1
+Te s t e s  c o m  c a s o s  d e  u s o  p r o p o s t o s  |  Edenred| 13/02Seguir fluxo de casos de teste e quaisquer outras situações que venham a ser identificadas.Validarfluxosdeexceção
+2
+Complementar cenários pendentes | Davos e Une | 13/02Complementar cenários identificados como NOK 1 e NOK 2 nos casos de teste e apresentar 1ª versão do dashboard.
+2
+--- PAGE 21 ---

@@ -463,8 +463,9 @@ export const coreService = {
         const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
         let contactsMap = new Map<string, string>();
         const establishmentMap = new Map<string, string>();
+        const campaignMap = new Map<string, string>();
         if (userIdentifiers.length > 0) {
-            const [contactsResult, rpcEstablishmentsResult] = await Promise.all([
+            const [contactsResult, rpcEstablishmentsResult, campaignsResult] = await Promise.all([
                 supabase
                     .from('contacts')
                     .select('identifier, status')
@@ -473,10 +474,27 @@ export const coreService = {
                 supabase.rpc('get_conversation_establishments', {
                     p_tenant_id: tenantId,
                     p_user_identifiers: userIdentifiers
-                })
+                }),
+                supabase
+                    .from('outbound_queue')
+                    .select('contact_phone, campaigns(name)')
+                    .eq('tenant_id', tenantId)
+                    .in('contact_phone', userIdentifiers)
+                    .order('created_at', { ascending: false })
             ]);
 
             const { data: contactsData } = contactsResult;
+            
+            if (campaignsResult.data) {
+                for (const row of campaignsResult.data as any[]) {
+                    if (!campaignMap.has(row.contact_phone)) {
+                        const campName = Array.isArray(row.campaigns) ? row.campaigns[0]?.name : row.campaigns?.name;
+                        if (campName) {
+                            campaignMap.set(row.contact_phone, campName);
+                        }
+                    }
+                }
+            }
 
             if (contactsData) {
                 contactsMap = new Map(contactsData.map(c => [c.identifier, c.status]));
@@ -544,6 +562,7 @@ export const coreService = {
             establishmentName: this.getPhoneVariants(c.user_identifier)
                 .map(variant => establishmentMap.get(variant))
                 .find(Boolean),
+            campaignName: campaignMap.get(c.user_identifier) || undefined,
             userStatus: contactsMap.get(c.user_identifier) || 'active',
             channel: c.channel,
             status: c.status,

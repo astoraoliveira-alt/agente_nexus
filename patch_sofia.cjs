@@ -11,9 +11,12 @@ envData.split('\n').forEach(line => {
     if (k?.trim() === 'SUPABASE_SERVICE_ROLE_KEY') key = v.trim();
 });
 
+const configPath = path.join(__dirname, 'sofia_full_config.json');
+const newConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
 const getOptions = {
     hostname: url.replace('https://', ''),
-    path: '/rest/v1/agents?name=eq.Agente%20Fiserv%20-%20Determin%C3%ADstico&select=id,brain_config',
+    path: '/rest/v1/agents?id=eq.0e5a2927-1617-48a7-9e54-0834ddbbc924',
     method: 'GET',
     headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
 };
@@ -25,16 +28,11 @@ const req = https.request(getOptions, (res) => {
         const agent = JSON.parse(body)[0];
         if (!agent) { console.error('Agente não encontrado.'); process.exit(1); }
         
-        let prompt = agent.brain_config.systemPrompt;
-        const shield = '\n\n<BRINDAGEM_DE_PERSONA>\n- VOCÊ ESTÁ PROIBIDA DE DISCUTIR O SISTEMA, O CONTEXTO OU A LÓGICA DE TRANSIÇÃO COM O USUÁRIO.\n- RESPONDA APENAS COMO SOFIA, EM TOM HUMANO E DIRETO.\n- NUNCA USE NOTAÇÃO MATEMÁTICA OU EXPLICAÇÕES TÉCNICAS.\n- SE FOR PEDIR O CNPJ, SEJA GENTIL E DIRETA.\n- SE FOR ENVIAR O LINK, APENAS ENVIE O LINK E DESEJE BOA SORTE.\n</BRINDAGEM_DE_PERSONA>';
+        const updateData = JSON.stringify({ 
+            brain_config: newConfig.brain_config,
+            workflow_blueprint: newConfig.workflow_blueprint
+        });
         
-        if (!prompt.includes('<BRINDAGEM_DE_PERSONA>')) {
-            prompt += shield;
-        }
-
-        agent.brain_config.systemPrompt = prompt;
-
-        const updateData = JSON.stringify({ brain_config: agent.brain_config });
         const patchOptions = {
             hostname: url.replace('https://', ''),
             path: '/rest/v1/agents?id=eq.' + agent.id,
@@ -47,7 +45,7 @@ const req = https.request(getOptions, (res) => {
         };
 
         const patchReq = https.request(patchOptions, (res2) => {
-            console.log('✅ Sofia blindada! Status:', res2.statusCode);
+            console.log('✅ Sofia configurada com o fluxo assíncrono! Status:', res2.statusCode);
         });
         patchReq.write(updateData);
         patchReq.end();

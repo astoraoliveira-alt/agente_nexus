@@ -168,7 +168,7 @@ export default function CampaignRecovery() {
     if (!currentTenant) return;
     
     let isFinished = false;
-    let startTime = Date.now();
+    const startTime = Date.now();
     let hasLoggedRecordsAffected = false;
     
     const interval = setInterval(async () => {
