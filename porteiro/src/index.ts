@@ -643,7 +643,7 @@ app.post('/v1/evolution/webhook', async (c) => {
         // 1. Tenta achar pelo Identificador Limpo (Regra de Ouro: Apenas números)
         const { data: conversationDataResult, error: findError } = await supabaseAdmin
             .from('conversations')
-            .select('id, user_identifier')
+            .select('id, user_identifier, status')
             .eq('tenant_id', agent.tenant_id)
             .eq('agent_id', agent.id)
             .eq('user_identifier', cleanUserIdentifier)
@@ -657,7 +657,7 @@ app.post('/v1/evolution/webhook', async (c) => {
             
             const { data: heritage, error: heritageError } = await supabaseAdmin
                 .from('conversations')
-                .select('id, user_identifier')
+                .select('id, user_identifier, status')
                 .eq('tenant_id', agent.tenant_id)
                 .eq('agent_id', agent.id)
                 .like('user_identifier', `${phone}%`)
@@ -713,14 +713,19 @@ app.post('/v1/evolution/webhook', async (c) => {
         const conversationId = conversationData.id;
         console.log(`[PORTEIRO] 🛡️ Using Unified Conversation ID: ${conversationId} for ${remoteID}`);
 
-        // 4. Atualiza metadados de última atividade para garantir visibilidade no Dashboard
+        // 4. Atualiza metadados de última atividade para garantir visibilidade no Dashboard (preservando o status de human_active se aplicável)
+        const updates: any = { 
+            last_message_at: new Date().toISOString(),
+            user_name: pushName 
+        };
+        
+        if (conversationData.status !== 'human_active') {
+            updates.status = 'ai_active';
+        }
+
         await supabaseAdmin
             .from('conversations')
-            .update({ 
-                last_message_at: new Date().toISOString(),
-                status: 'ai_active',
-                user_name: pushName 
-            })
+            .update(updates)
             .eq('id', conversationId);
 
         // 5. Update last_message_at (Touch conversation)
