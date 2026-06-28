@@ -469,6 +469,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetchMessages();
   }, [selectedConversation?.id, fetchMessages]);
 
+  // Sincroniza a conversa selecionada sempre que a lista de conversas for atualizada (Realtime, etc.)
+  useEffect(() => {
+    if (selectedConversation) {
+      const current = conversations.find(c => c.id === selectedConversation.id);
+      if (current) {
+        const hasMetadataChanged =
+          current.status !== selectedConversation.status ||
+          current.assignedOperator !== selectedConversation.assignedOperator ||
+          current.sentiment !== selectedConversation.sentiment ||
+          current.complianceScore !== selectedConversation.complianceScore ||
+          current.userStatus !== selectedConversation.userStatus;
+
+        if (hasMetadataChanged) {
+          console.log(`🔄 Syncing selectedConversation metadata: ${selectedConversation.id} -> ${current.status}`);
+          setSelectedConversation(prev => prev ? {
+            ...prev,
+            status: current.status,
+            assignedOperator: current.assignedOperator,
+            sentiment: current.sentiment,
+            complianceScore: current.complianceScore,
+            userStatus: current.userStatus
+          } : null);
+        }
+      }
+    }
+  }, [conversations, selectedConversation?.id]);
+
 
   useEffect(() => {
     if (isDarkMode) {
@@ -554,37 +581,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       timestamp: new Date(),
     };
 
-    let updated: any = null;
+    // Find current conversation state to update optimistically
+    const currentConv = conversations.find(c => c.id === conversationId);
+    if (!currentConv) return;
 
-    // 2. Atualização Otimista
-    setConversations(prev => {
-      const newList = prev.map(conv => {
-        if (conv.id === conversationId) {
-          const updatedConv = {
-            ...conv,
-            status: 'human_active' as const,
-            assignedOperator: currentUser.name,
-            messages: [...(conv.messages || []), systemMsg]
-          };
-          updated = updatedConv;
-          return updatedConv;
-        }
-        return conv;
-      });
-      return newList;
-    });
+    const updatedConv = {
+      ...currentConv,
+      status: 'human_active' as const,
+      assignedOperator: currentUser.name,
+      messages: [...(currentConv.messages || []), systemMsg]
+    };
 
-    if (updated) {
-      setSelectedConversation(updated);
-    }
+    // 2. Atualização Otimista Síncrona
+    setConversations(prev => prev.map(conv => conv.id === conversationId ? updatedConv : conv));
+    setSelectedConversation(updatedConv);
 
     try {
       await api.assignConversation(conversationId, currentUser.id, currentUser.name);
       await api.sendMessage(conversationId, `🔄 ${currentUser.name} assumiu a conversa`, 'ai');
-      return updated;
+      return updatedConv;
     } catch (error) {
       console.error(error);
-      return updated;
+      return updatedConv;
     }
   };
 
