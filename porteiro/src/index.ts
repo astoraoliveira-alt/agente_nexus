@@ -734,6 +734,24 @@ app.post('/v1/evolution/webhook', async (c) => {
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
 
+        // 🛡️ HUMAN ACTIVE BYPASS: Se um humano está atendendo, grava a msg do cliente
+        // diretamente no banco e não enfileira para o n8n. Isso previne o echo de duplicação
+        // onde a resposta do operador via WhatsApp volta como webhook e seria reprocessada.
+        if (conversationData.status === 'human_active') {
+            console.log(`[PORTEIRO] 👤 human_active — recording client msg silently, skipping n8n queue.`);
+            await supabaseAdmin.rpc('record_message', {
+                p_conversation_id: conversationId,
+                p_tenant_id: agent.tenant_id,
+                p_content: textContent,
+                p_sender_type: 'user',
+                p_sender_name: pushName,
+                p_external_id: externalId,
+                p_remote_id: externalId,
+                p_direction: 'inbound'
+            });
+            return c.json({ status: 'ok', reason: 'human_active_bypass', recorded: true });
+        }
+
         // 6. --- DEBOUNCE & ENQUEUE (Item 3.2 do Plano Elite) ---
         
         // Se já existe um debounce para esta conversa, cancelamos o anterior
@@ -1553,6 +1571,27 @@ async function startInboundRecoveryWorker() {
                                 locked_at: null,
                                 error_message: `DLQ: Excedeu ${MAX_STUCK_RETRIES} tentativas de rescue (stuck em '${item.status}'). Última tentativa: ${new Date().toISOString()}`,
                                 processed_at: new Date().toISOString()
+                            })
+                            .eq('id', item.id);
+                        continue;
+                    }
+
+                    // 🛡️ HUMAN ACTIVE GUARD: se conversa é humana, fechar silenciosamente
+                    // sem reenviar para o n8n — evita duplicação de mensagens do operador
+                    const { data: conv } = await supabaseAdmin
+                        .from('conversations')
+                        .select('status')
+                        .eq('id', item.conversation_id)
+                        .single();
+
+                    if (conv?.status === 'human_active') {
+                        console.log(`[RECOVERY] 👤 human_active — closing item ${item.id} silently without n8n trigger.`);
+                        await supabaseAdmin
+                            .from('inbound_queue')
+                            .update({ 
+                                status: 'done', 
+                                locked_at: null,
+                                error_message: 'Closed by recovery: human_active conversation'
                             })
                             .eq('id', item.id);
                         continue;
