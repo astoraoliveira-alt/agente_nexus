@@ -1407,6 +1407,23 @@ async function startInboundRecoveryWorker() {
             console.log(`[RECOVERY] ⚡ [${VERSION}] FLASH RESCUE: ${stuckItems.length} messages found. Resetting timestamps...`);
 
             for (const item of stuckItems) {
+                // 🛡️ HUMAN ACTIVE GUARD: se um humano está atendendo, fechar o item silenciosamente
+                // sem reenviar para o n8n — evita duplicação de mensagens do operador
+                const { data: conv } = await supabaseAdmin
+                    .from('conversations')
+                    .select('status')
+                    .eq('id', item.conversation_id)
+                    .single();
+
+                if (conv?.status === 'human_active') {
+                    console.log(`[RECOVERY] 👤 Skipping human_active conversation ${item.conversation_id} — marking item ${item.id} as done.`);
+                    await supabaseAdmin.from('inbound_queue').update({ 
+                        status: 'done',
+                        error_message: 'Closed by recovery: human_active conversation'
+                    }).eq('id', item.id);
+                    continue;
+                }
+
                 // Ao resetar, atualizamos o created_at para agora para dar mais tempo ao n8n
                 await supabaseAdmin.from('inbound_queue').update({ 
                     status: 'pending',
@@ -1433,6 +1450,7 @@ async function startInboundRecoveryWorker() {
                     console.error(`[RECOVERY] ❌ Push failed:`, e.message);
                 }
             }
+
         } catch (globalError: any) {
             console.error('[RECOVERY] Global Error:', globalError.message);
         }
