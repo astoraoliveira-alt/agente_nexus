@@ -663,8 +663,27 @@ app.post('/v1/evolution/webhook', async (c) => {
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
 
+        // 🛡️ HUMAN ACTIVE BYPASS: Se um humano está atendendo, grava a msg do cliente
+        // diretamente no banco e não enfileira para o n8n. Isso previne o echo de duplicação
+        // onde a resposta do operador via WhatsApp volta como webhook e seria reprocessada.
+        if (conversationData.status === 'human_active') {
+            console.log(`[PORTEIRO] 👤 human_active — recording client msg silently, skipping n8n queue.`);
+            await supabaseAdmin.rpc('record_message', {
+                p_conversation_id: conversationId,
+                p_tenant_id: agent.tenant_id,
+                p_content: textContent,
+                p_sender_type: 'user',
+                p_sender_name: pushName,
+                p_external_id: externalId,
+                p_remote_id: externalId,
+                p_direction: 'inbound'
+            });
+            return c.json({ status: 'ok', reason: 'human_active_bypass', recorded: true });
+        }
+
         // 6. --- DEBOUNCE & ENQUEUE (Item 3.2 do Plano Elite) ---
         
+
         // Se já existe um debounce para esta conversa, cancelamos o anterior
         // Debounce Logic: Update existing or create new entry
         if (pendingMessages.has(conversationId)) {

@@ -295,6 +295,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
         });
       });
+
+      // 🔧 Fix bolinha cinza: sync selectedConversation metadata (status, etc.) when list refreshes
+      setSelectedConversation(prev => {
+        if (!prev) return prev;
+        const fresh = tenantConversations.find(c => c.id === prev.id);
+        if (!fresh) return prev;
+        // Only update if something changed (avoid unnecessary renders)
+        if (fresh.status === prev.status && fresh.lastMessageTime?.getTime() === prev.lastMessageTime?.getTime()) return prev;
+        return { ...fresh, messages: prev.messages };
+      });
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }
@@ -307,6 +317,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     selectedConvIdRef.current = selectedConversation?.id || null;
   }, [selectedConversation?.id]);
+
+  // 🔄 Polling fallback: refresh messages every 5s when a chat is open
+  // Ensures new msgs appear even if Supabase Realtime WebSocket event is missed (RLS edge cases)
+  useEffect(() => {
+    if (!selectedConversation?.id) return;
+    const convId = selectedConversation.id;
+    const interval = setInterval(() => {
+      fetchMessagesRef.current(convId);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [selectedConversation?.id]);
+
 
   // Combined Realtime Subscription Effect
   useEffect(() => {
