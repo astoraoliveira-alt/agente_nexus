@@ -63,9 +63,16 @@ const pendingMessages = new Map<string, {
 // --- 🛡️ DYNAMIC WEBHOOK ROUTING ---
 function getN8nWebhookUrl(tenantId: string | null | undefined): string | undefined {
     let url = process.env.N8N_INBOUND_WEBHOOK;
-    if (tenantId && process.env.N8N_TENANT_WEBHOOKS) {
+    let rawWebhooks = process.env.N8N_TENANT_WEBHOOKS;
+
+    if (tenantId && rawWebhooks) {
         try {
-            const overrides = JSON.parse(process.env.N8N_TENANT_WEBHOOKS);
+            let sanitized = rawWebhooks.trim();
+            if ((sanitized.startsWith("'") && sanitized.endsWith("'")) || 
+                (sanitized.startsWith('"') && sanitized.endsWith('"'))) {
+                sanitized = sanitized.slice(1, -1);
+            }
+            const overrides = JSON.parse(sanitized);
             if (overrides[tenantId]) {
                 url = overrides[tenantId];
             }
