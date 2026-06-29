@@ -705,17 +705,22 @@ async deleteCampaign(id: string): Promise<void> {
     },
 
     async getAllCampaignsStats(tenantId: string): Promise<Record<string, any>> {
+        if ((window as any)._isStatsCircuitBreakerOpen) {
+            return {};
+        }
+
         const { data, error } = await supabase.rpc('get_all_campaigns_metrics_v2', {
             p_tenant_id: tenantId
         });
 
         if (error) {
-            console.error("❌ SUPABASE RPC ERROR (get_all_campaigns_metrics_v2):", {
-                message: error.message,
-                details: error.details,
-                hint: error.hint,
-                code: error.code
-            });
+            if (error.code === '57014') {
+                console.warn("🛡️ DB OVERLOADED (57014) no BULK. Ativando Circuit Breaker.");
+                (window as any)._isStatsCircuitBreakerOpen = true;
+                setTimeout(() => { (window as any)._isStatsCircuitBreakerOpen = false; }, 60000);
+                return {};
+            }
+            console.error("❌ BULK SUPABASE RPC ERROR (get_all_campaigns_metrics_v2):", error);
             throw error;
         }
 
