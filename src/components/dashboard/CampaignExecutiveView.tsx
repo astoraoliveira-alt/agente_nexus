@@ -157,14 +157,20 @@ export function CampaignExecutiveView() {
         console.warn("Bulk campaign stats RPC failed or is not deployed. Falling back to individual requests.", bulkError);
       }
 
-      // Fallback: If bulk stats lookup failed or returned no data, execute individual stats queries in parallel.
+      // Fallback: If bulk stats lookup failed or returned no data, execute individual stats queries in parallel chunks.
       if (!bulkSuccess) {
-        const statsResults = await Promise.allSettled(
-          campaignsData.map(async (campaign) => ({
-            campaignId: campaign.id,
-            stats: await api.getCampaignStats(campaign.id, currentTenant.id)
-          }))
-        );
+        const statsResults: any[] = [];
+        const chunkSize = 3;
+        for (let i = 0; i < campaignsData.length; i += chunkSize) {
+            const chunk = campaignsData.slice(i, i + chunkSize);
+            const chunkResults = await Promise.allSettled(
+                chunk.map(async (campaign) => ({
+                    campaignId: campaign.id,
+                    stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+                }))
+            );
+            statsResults.push(...chunkResults);
+        }
 
         statsByCampaignId = new Map(
           statsResults

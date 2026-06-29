@@ -260,12 +260,19 @@ export default function Campaigns() {
                 api.getOutboundQueueMetricsByCampaign(currentTenant.id)
             ]);
 
-            const statsResults = await Promise.allSettled(
-                campaignsData.map(async (campaign) => ({
-                    campaignId: campaign.id,
-                    stats: await api.getCampaignStats(campaign.id, currentTenant.id)
-                }))
-            );
+            // OTIMIZAÇÃO: Buscar as métricas individuais em lotes pequenos (chunks) para não derrubar o banco (Thundering Herd)
+            const statsResults: any[] = [];
+            const chunkSize = 3;
+            for (let i = 0; i < campaignsData.length; i += chunkSize) {
+                const chunk = campaignsData.slice(i, i + chunkSize);
+                const chunkResults = await Promise.allSettled(
+                    chunk.map(async (campaign) => ({
+                        campaignId: campaign.id,
+                        stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+                    }))
+                );
+                statsResults.push(...chunkResults);
+            }
 
             const statsByCampaignId = new Map(
                 statsResults

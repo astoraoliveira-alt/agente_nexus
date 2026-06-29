@@ -362,13 +362,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadHandoffs();
     loadConversationsListRef.current();
 
-    // Strategy: Debounce list updates to avoid thrashing during rapid messages
+    // Strategy: Throttle list updates to avoid thrashing during rapid messages
     let refreshTimeout: any;
     const debouncedRefresh = () => {
-       if (refreshTimeout) clearTimeout(refreshTimeout);
+       // Se já tem um refresh agendado, não faz nada (evita starvation contínuo)
+       if (refreshTimeout) return;
+       
        refreshTimeout = setTimeout(() => {
+          refreshTimeout = null;
           loadConversationsListRef.current();
-       }, 500); // 500ms debounce
+       }, 10000); // 10000ms throttle para suportar envios em massa sem travar o painel
     };
 
     // 1. Subscribe to Conversations (Update list automatically)
@@ -404,9 +407,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
         async (payload: any) => {
            console.log('💬 Signal: New Message detected via Realtime.', payload.eventType);
-           if (selectedConvIdRef.current) {
+           
+           // Apenas atualiza a conversa ABERTA se a mensagem for dela
+           const newMsgConvId = payload.new?.conversation_id;
+           if (selectedConvIdRef.current && newMsgConvId === selectedConvIdRef.current) {
               fetchMessagesRef.current(selectedConvIdRef.current);
            }
+           
+           // 🔥 OTIMIZAÇÃO CRÍTICA: Se a mensagem for nossa (ex: disparo em massa da campanha),
+           // NÃO recarregamos a lista de conversas. Só recarregamos quando o LEAD responde!
+           // Isso impede que campanhas causem DDOS no Supabase e gerem Timeout (57014).
+           if (payload.new && (payload.new.from_me === true || payload.new.fromMe === true)) {
+               return; 
+           }
+           
            debouncedRefresh();
         }
       )
