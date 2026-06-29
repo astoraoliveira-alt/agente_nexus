@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
 // Initialize Supabase Clients
-const VERSION = 'V66.17-HUMANBP';
+const VERSION = 'V66.18-HUMANBP2';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -1440,6 +1440,26 @@ async function startHeartbeatWorker() {
                 continue;
               }
 
+              // 🛡️ HUMAN ACTIVE GUARD: se conversa tem humano ativo, fecha sem reenviar ao n8n
+              const { data: convStatus } = await supabaseAdmin
+                .from('conversations')
+                .select('status')
+                .eq('id', item.conversation_id)
+                .single();
+
+              if (convStatus?.status === 'human_active') {
+                console.log(`[RECOVERY] 👤 [V66.1] human_active — closing pending item ${item.id} silently. Trace: ${item.trace_id}`);
+                await supabaseAdmin
+                  .from('inbound_queue')
+                  .update({ 
+                    status: 'done',
+                    error_message: 'Closed by recovery: human_active conversation',
+                    processed_at: new Date().toISOString()
+                  })
+                  .eq('id', item.id);
+                continue;
+              }
+
               await new Promise(resolve => setTimeout(resolve, PUSH_DELAY));
               
               const n8nUrl = getN8nWebhookUrl(item.tenant_id);
@@ -1476,6 +1496,7 @@ async function startHeartbeatWorker() {
               }
             }
           }
+
         } catch (err) {
           console.error('[RECOVERY] ❌ Watchdog Error:', err);
         }
