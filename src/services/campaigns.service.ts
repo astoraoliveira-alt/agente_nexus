@@ -650,6 +650,18 @@ async deleteCampaign(id: string): Promise<void> {
     },
 
     async getCampaignStats(campaignId: string | null, tenantId: string, _useReplica: boolean = false): Promise<any> {
+        // OTIMIZAÇÃO: Circuit Breaker
+        // Se o banco de dados já deu timeout recentemente nas métricas, 
+        // nós abortamos novas tentativas por 60 segundos para não enfileirar mais consultas pesadas
+        // e travar completamente a UI para o usuário.
+        if ((window as any)._isStatsCircuitBreakerOpen) {
+            return {
+                total_contacts: 0, import_errors: 0, sent_count: 0, delivered_count: 0,
+                read_count: 0, response_count: 0, conversion_count: 0, failed_count: 0,
+                conversion_rate: 0, success_criteria_used: []
+            };
+        }
+
         // FORCE PRIMARY: ignore replica for dashboard stats to avoid sync lag 404s
         const client = supabase;
         const { data, error } = await client.rpc('get_campaign_metrics_v2', {
@@ -658,6 +670,18 @@ async deleteCampaign(id: string): Promise<void> {
         });
 
         if (error) {
+            if (error.code === '57014') {
+                console.warn("🛡️ DB OVERLOADED (57014). Ativando Circuit Breaker de métricas por 60 segundos.");
+                (window as any)._isStatsCircuitBreakerOpen = true;
+                setTimeout(() => { (window as any)._isStatsCircuitBreakerOpen = false; }, 60000);
+                
+                return {
+                    total_contacts: 0, import_errors: 0, sent_count: 0, delivered_count: 0,
+                    read_count: 0, response_count: 0, conversion_count: 0, failed_count: 0,
+                    conversion_rate: 0, success_criteria_used: []
+                };
+            }
+
             console.error("❌ SUPABASE RPC ERROR (get_campaign_metrics_v2):", {
                 message: error.message,
                 details: error.details,
@@ -666,7 +690,6 @@ async deleteCampaign(id: string): Promise<void> {
             });
             throw error;
         }
-        console.log("DEBUG getCampaignStats DATA:", data);
         return data as {
             total_contacts: number;
             import_errors: number;
