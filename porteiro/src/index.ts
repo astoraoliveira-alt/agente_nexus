@@ -734,6 +734,19 @@ app.post('/v1/evolution/webhook', async (c) => {
             .update({ last_message_at: new Date().toISOString() })
             .eq('id', conversationId);
 
+        // 🛡️ RESET COMMAND INTERCEPTOR: Se o cliente mandar #reset, tira de human_active 
+        // e volta pra active forçadamente, permitindo que o N8N processe o reset.
+        if (textContent.trim().toLowerCase() === '#reset') {
+            if (conversationData.status !== 'active') {
+                console.log(`[PORTEIRO] 🔄 #reset received. Forcing conversation to 'active'.`);
+                await supabaseAdmin
+                    .from('conversations')
+                    .update({ status: 'active' })
+                    .eq('id', conversationId);
+                conversationData.status = 'active'; // Atualiza o objeto em memória para bypassar o if abaixo
+            }
+        }
+
         // 🛡️ HUMAN ACTIVE BYPASS: Se um humano está atendendo, grava a msg do cliente
         // diretamente no banco e não enfileira para o n8n. Isso previne o echo de duplicação
         // onde a resposta do operador via WhatsApp volta como webhook e seria reprocessada.
