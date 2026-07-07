@@ -156,6 +156,7 @@ export default function Campaigns() {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [isContactsViewOpen, setIsContactsViewOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [timeFilter, setTimeFilter] = useState<'30days' | 'all'>('30days');
     const [importData, setImportData] = useState<CampaignImportRow[]>([]);
     const [isImporting, setIsImporting] = useState(false);
     const [isLoadingContacts, setIsLoadingContacts] = useState(false);
@@ -260,25 +261,41 @@ export default function Campaigns() {
                 api.getOutboundQueueMetricsByCampaign(currentTenant.id)
             ]);
 
-            // OTIMIZAÇÃO: Buscar as métricas individuais em lotes pequenos (chunks) para não derrubar o banco (Thundering Herd)
-            const statsResults: any[] = [];
-            const chunkSize = 3;
-            for (let i = 0; i < campaignsData.length; i += chunkSize) {
-                const chunk = campaignsData.slice(i, i + chunkSize);
-                const chunkResults = await Promise.allSettled(
-                    chunk.map(async (campaign) => ({
-                        campaignId: campaign.id,
-                        stats: await api.getCampaignStats(campaign.id, currentTenant.id)
-                    }))
-                );
-                statsResults.push(...chunkResults);
+            // OTIMIZAÇÃO: Tentar buscar métricas em lote (1 única chamada RPC) para máxima performance
+            let statsByCampaignId = new Map<string, any>();
+            let bulkSuccess = false;
+
+            try {
+                const bulkStats = await api.getAllCampaignsStats(currentTenant.id);
+                if (bulkStats && Object.keys(bulkStats).length > 0) {
+                    statsByCampaignId = new Map(Object.entries(bulkStats));
+                    bulkSuccess = true;
+                }
+            } catch (bulkErr) {
+                console.warn("RPC em lote falhou ou não está disponível. Usando fallback individual.", bulkErr);
             }
 
-            const statsByCampaignId = new Map(
-                statsResults
-                    .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: Awaited<ReturnType<typeof api.getCampaignStats>> }> => result.status === 'fulfilled')
-                    .map((result) => [result.value.campaignId, result.value.stats])
-            );
+            // Fallback: Se a RPC em lote falhar, buscar em lotes paralelos (chunks) apenas para as campanhas filtradas
+            if (!bulkSuccess) {
+                const statsResults: any[] = [];
+                const chunkSize = 5;
+                for (let i = 0; i < campaignsData.length; i += chunkSize) {
+                    const chunk = campaignsData.slice(i, i + chunkSize);
+                    const chunkResults = await Promise.allSettled(
+                        chunk.map(async (campaign) => ({
+                            campaignId: campaign.id,
+                            stats: await api.getCampaignStats(campaign.id, currentTenant.id)
+                        }))
+                    );
+                    statsResults.push(...chunkResults);
+                }
+
+                statsByCampaignId = new Map(
+                    statsResults
+                        .filter((result): result is PromiseFulfilledResult<{ campaignId: string; stats: any }> => result.status === 'fulfilled')
+                        .map((result) => [result.value.campaignId, result.value.stats])
+                );
+            }
 
             const campaignsWithLiveStats = campaignsData.map((campaign) => {
                 const liveStats = statsByCampaignId.get(campaign.id);
@@ -785,6 +802,79 @@ export default function Campaigns() {
         });
     };
 
+    const handleExportCampaigns = () => {
+        if (!filteredCampaigns.length) {
+            toast({
+                title: "Sem dados para exportar",
+                description: "Não há campanhas listadas no filtro atual para exportar.",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        const rows = filteredCampaigns.map((campaign) => {
+            const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0, delivered: 0 };
+            const totalLoaded = (campaign.totalContacts || 0) + (campaign.importErrorCount || 0);
+            const validRecords = campaign.totalContacts || queueMetrics.total || 0;
+            const sentMessages = campaign.sentCount || queueMetrics.sent || 0;
+            const deliveredMessages = campaign.deliveredCount || queueMetrics.delivered || 0;
+            const readMessages = (campaign as any).readCount || 0;
+            const responseMessages = (campaign as any).responseCount || 0;
+            const linksSent = campaign.conversionCount || 0;
+
+            const validPct = totalLoaded > 0 ? ((validRecords / totalLoaded) * 100).toFixed(1) + '%' : '0%';
+            const sentPct = validRecords > 0 ? ((sentMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
+            const deliveredPct = validRecords > 0 ? ((deliveredMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
+            const readPct = validRecords > 0 ? ((readMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
+            const responsePct = validRecords > 0 ? ((responseMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
+            const linksPct = validRecords > 0 ? ((linksSent / validRecords) * 100).toFixed(1) + '%' : '0%';
+
+            const agentName = agents.find(a => a.id === campaign.agentId)?.name || 'Agente';
+
+            let statusLabel = 'Rascunho';
+            if (campaign.status === 'active') statusLabel = 'Ativa';
+            else if (campaign.status === 'paused') statusLabel = 'Pausada';
+            else if (campaign.status === 'completed') statusLabel = 'Concluída';
+            else if (campaign.status === 'cancelled') statusLabel = 'Cancelada';
+
+            return {
+                "Nome da Campanha": campaign.name,
+                "ID da Campanha": campaign.id,
+                "Agente": agentName,
+                "Status": statusLabel,
+                "Leads Carregados": totalLoaded,
+                "Inconsistentes (Logs)": campaign.importErrorCount || 0,
+                "Leads Válidos": validRecords,
+                "% Válidos": validPct,
+                "Enviados": sentMessages,
+                "% Enviados": sentPct,
+                "Entregues": deliveredMessages,
+                "% Entregues": deliveredPct,
+                "Msgs Lidas": readMessages,
+                "% Lidas": readPct,
+                "Respondidas": responseMessages,
+                "% Respondidas": responsePct,
+                "Links Enviados": linksSent,
+                "% Links": linksPct,
+                "Data de Início": campaign.startDate ? format(new Date(campaign.startDate), "dd/MM/yyyy") : '',
+                "Horário": `${campaign.startTime || '09:00'} - ${campaign.endTime || '18:00'}`,
+                "Limite Diário": campaign.dailyLimit || 0,
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Historico de Campanhas');
+
+        const dateStr = format(new Date(), "yyyy-MM-dd");
+        XLSX.writeFile(workbook, `historico_campanhas_${dateStr}.xlsx`);
+
+        toast({
+            title: "Exportação concluída",
+            description: `${rows.length} campanha(s) exportada(s) para Excel com sucesso!`,
+        });
+    };
+
     const handleTogglePause = async (campaign: Campaign) => {
         try {
             const newStatus = campaign.status === 'active' ? 'paused' : 'active';
@@ -925,23 +1015,43 @@ export default function Campaigns() {
         }
     };
 
-    const totalCampaigns = campaigns.length;
-    const totalInconsistencies = campaigns.reduce((acc, curr) => acc + (curr.importErrorCount || 0), 0);
-    const totalLoadedLeads = campaigns.reduce((acc, curr) => {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const filteredCampaigns = campaigns.filter(c => {
+        const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase());
+        if (!matchesSearch) return false;
+        
+        if (timeFilter === '30days') {
+            const refDate = (c.startDate && !isNaN(c.startDate.getTime())) ? c.startDate : (c.createdAt || new Date(0));
+            return refDate >= thirtyDaysAgo;
+        }
+        return true;
+    });
+
+    // Filtro especial para os Cards Totalizadores: considerar apenas campanhas do filtro corrente que já iniciaram e não estão pausadas ou canceladas
+    const cardCampaigns = filteredCampaigns.filter(c => {
+        if (['paused', 'cancelled', 'draft', 'scheduled'].includes(c.status)) return false;
+        const refDate = (c.startDate && !isNaN(new Date(c.startDate).getTime())) ? new Date(c.startDate) : (c.createdAt ? new Date(c.createdAt) : new Date());
+        return refDate <= now || (c.sentCount || 0) > 0 || (c.deliveredCount || 0) > 0;
+    });
+
+    const totalCampaigns = cardCampaigns.length;
+    const totalLoadedLeads = cardCampaigns.reduce((acc, curr) => {
         return acc + (curr.totalContacts || 0) + (curr.importErrorCount || 0);
     }, 0);
-    const totalValidLeads = campaigns.reduce((acc, curr) => {
+    const totalValidLeads = cardCampaigns.reduce((acc, curr) => {
         return acc + (curr.totalContacts || 0);
     }, 0);
-    const totalLinksSent = campaigns.reduce((acc, curr) => acc + (curr.conversionCount || 0), 0);
+    const totalDelivered = cardCampaigns.reduce((acc, curr) => acc + (curr.deliveredCount || 0), 0);
+    const totalRead = cardCampaigns.reduce((acc, curr) => acc + (curr.readCount || 0), 0);
+    const totalLinksSent = cardCampaigns.reduce((acc, curr) => acc + (curr.conversionCount || 0), 0);
+
     const totalLoadedPct = totalLoadedLeads > 0 ? 100 : 0;
     const totalValidPct = totalLoadedLeads > 0 ? Math.min((totalValidLeads / totalLoadedLeads) * 100, 100) : 0;
-    const totalInconsistenciesPct = totalLoadedLeads > 0 ? Math.min((totalInconsistencies / totalLoadedLeads) * 100, 100) : 0;
+    const totalDeliveredPct = totalValidLeads > 0 ? Math.min((totalDelivered / totalValidLeads) * 100, 100) : 0;
+    const totalReadPct = totalValidLeads > 0 ? Math.min((totalRead / totalValidLeads) * 100, 100) : 0;
     const totalLinksSentPct = totalValidLeads > 0 ? Math.min((totalLinksSent / totalValidLeads) * 100, 100) : 0;
-
-    const filteredCampaigns = campaigns.filter(c =>
-        c.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
 
     // Lógica de Filtro e Ordenação dos Contatos
     const processedContacts = viewContacts.filter(contact => {
@@ -1508,7 +1618,7 @@ export default function Campaigns() {
 
                 <div className="p-6 space-y-6">
                     {/* Stats Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                         <Card className="bg-slate-500/5 border-slate-300/60">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
@@ -1545,17 +1655,31 @@ export default function Campaigns() {
                             </CardContent>
                         </Card>
 
-                        <Card className="bg-red-500/5 border-red-500/20">
+                        <Card className="bg-sky-500/5 border-sky-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Inconsistentes</span>
-                                    <AlertCircle className="h-4 w-4 text-red-500" />
+                                    <span className="text-sm font-medium text-muted-foreground">Leads Entregues</span>
+                                    <CheckCheck className="h-4 w-4 text-sky-500" />
                                 </div>
                                 <div className="flex items-end gap-2">
-                                    <div className="text-2xl font-bold text-red-500">{totalInconsistencies}</div>
-                                    <div className="pb-0.5 text-xs font-bold text-red-400">{totalInconsistenciesPct.toFixed(1)}%</div>
+                                    <div className="text-2xl font-bold text-sky-600">{totalDelivered}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-sky-500">{totalDeliveredPct.toFixed(1)}%</div>
                                 </div>
-                                <p className="text-xs text-muted-foreground">Registros inválidos na importação</p>
+                                <p className="text-xs text-muted-foreground">Mensagens entregues com sucesso</p>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="bg-sky-500/5 border-sky-500/20">
+                            <CardContent className="pt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-sm font-medium text-muted-foreground">Msgs Lidas</span>
+                                    <Eye className="h-4 w-4 text-sky-500" />
+                                </div>
+                                <div className="flex items-end gap-2">
+                                    <div className="text-2xl font-bold text-sky-600">{totalRead}</div>
+                                    <div className="pb-0.5 text-xs font-bold text-sky-500">{totalReadPct.toFixed(1)}%</div>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Mensagens lidas pelos leads</p>
                             </CardContent>
                         </Card>
 
@@ -1576,12 +1700,53 @@ export default function Campaigns() {
 
                     {/* Campaigns Table */}
                     <Card className="border-accent/10">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                Histórico de Estratégias
-                                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                            </CardTitle>
-                            <CardDescription>Acompanhe a performance de cada campanha cadastrada.</CardDescription>
+                        <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    Histórico de Estratégias
+                                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                                </CardTitle>
+                                <CardDescription>Acompanhe a performance de cada campanha cadastrada.</CardDescription>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Buscar campanha..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="h-9 pl-8 w-[200px] bg-white text-xs"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-lg border border-slate-200/60">
+                                    <Button
+                                        variant={timeFilter === '30days' ? 'default' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => setTimeFilter('30days')}
+                                        className="h-7 text-xs font-medium px-3 shadow-none"
+                                    >
+                                        Últimos 30 dias
+                                    </Button>
+                                    <Button
+                                        variant={timeFilter === 'all' ? 'default' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => setTimeFilter('all')}
+                                        className="h-7 text-xs font-medium px-3 shadow-none"
+                                    >
+                                        Todas as campanhas
+                                    </Button>
+                                </div>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handleExportCampaigns}
+                                    className="h-9 px-3 text-xs font-medium gap-1.5 border-slate-200 hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 transition-colors shadow-sm bg-white"
+                                    title="Exportar dados da tabela para Excel"
+                                >
+                                    <Download className="h-3.5 w-3.5 text-emerald-600" />
+                                    <span>Exportar Excel</span>
+                                </Button>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             {isLoading ? (
@@ -1670,13 +1835,13 @@ export default function Campaigns() {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-blue-600">{(campaign as any).sentCount || 0}</span>
+                                                            <span className="font-semibold text-blue-600">{sentMessages}</span>
                                                             <span className="text-[11px] text-muted-foreground">{sentPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-emerald-600">{(campaign as any).deliveredCount || 0}</span>
+                                                            <span className="font-semibold text-emerald-600">{deliveredMessages}</span>
                                                             <span className="text-[11px] text-muted-foreground">{deliveredPct.toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>
@@ -1688,7 +1853,7 @@ export default function Campaigns() {
                                                     </TableCell>
                                                     <TableCell className="px-2 py-4 text-center">
                                                         <div className="flex flex-col items-center">
-                                                            <span className="font-semibold text-orange-600">{(campaign as any).responseCount || 0}</span>
+                                                            <span className="font-semibold text-emerald-600">{(campaign as any).responseCount || 0}</span>
                                                             <span className="text-[11px] text-muted-foreground">{(validRecords > 0 ? Math.min((((campaign as any).responseCount || 0) / validRecords * 100), 100) : 0).toFixed(0)}%</span>
                                                         </div>
                                                     </TableCell>

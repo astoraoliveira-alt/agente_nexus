@@ -1,30 +1,30 @@
 -- ============================================================
 -- RPC: get_all_campaigns_metrics_v2
+-- Descrição: Agrega métricas de performance de campanhas bulk
+-- preservando o high-water mark de sucesso do lead nas reinterações.
 -- ============================================================
 DROP FUNCTION IF EXISTS get_all_campaigns_metrics_v2(UUID);
 
-CREATE OR REPLACE FUNCTION get_all_campaigns_metrics_v2(
-  p_tenant_id UUID
-)
-RETURNS TABLE (
-  campaign_id UUID,
-  total_contacts BIGINT,
-  sent_count BIGINT,
-  delivered_count BIGINT,
-  read_count BIGINT,
-  response_count BIGINT,
-  conversion_count BIGINT,
-  conversion_button_count BIGINT,
-  conversion_chat_count BIGINT,
-  failed_count BIGINT,
-  import_errors BIGINT,
-  conversion_rate NUMERIC
-)
-LANGUAGE plpgsql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
+CREATE OR REPLACE FUNCTION get_all_campaigns_metrics_v2(p_tenant_id UUID)
+ RETURNS TABLE (
+    campaign_id uuid,
+    total_contacts bigint,
+    sent_count bigint,
+    delivered_count bigint,
+    read_count bigint,
+    response_count bigint,
+    conversion_count bigint,
+    conversion_button_count bigint,
+    conversion_chat_count bigint,
+    failed_count bigint,
+    import_errors bigint,
+    conversion_rate numeric
+ )
+ LANGUAGE plpgsql
+ STABLE
+ SECURITY DEFINER
+ SET search_path = public
+ AS $$
 BEGIN
   RETURN QUERY
   WITH leads_base AS (
@@ -39,7 +39,7 @@ BEGIN
         c.success_link_filter,
         oq.campaign_id
       FROM public.outbound_queue oq
-      LEFT JOIN public.campaigns c ON c.id = oq.campaign_id
+      JOIN public.campaigns c ON c.id = oq.campaign_id
       WHERE oq.tenant_id = p_tenant_id
         AND oq.campaign_id IS NOT NULL
   ),
@@ -47,10 +47,10 @@ BEGIN
       SELECT DISTINCT ON (m.conversation_id)
         m.conversation_id,
         trim(lower(msh.status)) as current_status
-      FROM public.messages m
+      FROM leads_base lb
+      JOIN public.messages m ON m.conversation_id = lb.conversation_id
       JOIN public.message_status_history msh ON msh.message_id = m.id
-      WHERE m.conversation_id IN (SELECT conversation_id FROM leads_base WHERE conversation_id IS NOT NULL)
-        AND m.sender_type IN ('ai', 'bot', 'assistant', 'system', 'agent', 'system_trigger')
+      WHERE m.sender_type IN ('ai', 'bot', 'assistant', 'system', 'agent', 'system_trigger')
       ORDER BY 
         m.conversation_id,
         CASE lower(msh.status)
@@ -138,7 +138,7 @@ BEGIN
     mg.conversion_button_count,
     mg.conversion_chat_count,
     mg.failed_count,
-    COALESCE(eg.import_errors, 0) as import_errors,
+    COALESCE(eg.import_errors, 0)::bigint as import_errors,
     CASE WHEN mg.delivered_count > 0 THEN ROUND((mg.conversion_count::NUMERIC / mg.delivered_count) * 100, 1) ELSE 0 END as conversion_rate
   FROM metrics_grouped mg
   LEFT JOIN errors_grouped eg ON eg.campaign_id = mg.campaign_id;
