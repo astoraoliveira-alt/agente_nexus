@@ -206,6 +206,41 @@ export default function Campaigns() {
         }
     };
 
+    const isValidCNPJ = (cnpj: string): boolean => {
+        const clean = cnpj.replace(/\D/g, '');
+        if (clean.length !== 14) return false;
+        if (/^(\d)\1{13}$/.test(clean)) return false;
+
+        let size = clean.length - 2;
+        let numbers = clean.substring(0, size);
+        const digits = clean.substring(size);
+        let sum = 0;
+        let pos = size - 7;
+
+        for (let i = size; i >= 1; i--) {
+            sum += Number(numbers.charAt(size - i)) * pos--;
+            if (pos < 2) pos = 9;
+        }
+
+        let result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+        if (result !== Number(digits.charAt(0))) return false;
+
+        size = size + 1;
+        numbers = clean.substring(0, size);
+        sum = 0;
+        pos = size - 7;
+
+        for (let i = size; i >= 1; i--) {
+            sum += Number(numbers.charAt(size - i)) * pos--;
+            if (pos < 2) pos = 9;
+        }
+
+        result = sum % 11 < 2 ? 0 : 11 - (sum % 11);
+        if (result !== Number(digits.charAt(1))) return false;
+
+        return true;
+    };
+
     const defaultInitialMessage =
         "Já pensou em reforçar o caixa *sem burocracia*?\n\n" +
         "Você pode ter *até R$500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é *rápida e sem compromisso*.\n\n" +
@@ -597,7 +632,21 @@ export default function Campaigns() {
                         contactName: item.name,
                         contactPhone: rawPhone,
                         errorType: 'OTHER',
-                        errorMessage: 'CNPJ/identificador inválido ou ausente.',
+                        errorMessage: 'CNPJ ausente ou com menos de 14 dígitos.',
+                        rawData: item
+                    });
+                    return;
+                }
+
+                if (!isValidCNPJ(cleanIdentifier)) {
+                    importLogs.push({
+                        campaignId: campaign.id,
+                        tenantId: currentTenant.id,
+                        rowNumber: item.rowNumber,
+                        contactName: item.name,
+                        contactPhone: rawPhone,
+                        errorType: 'OTHER',
+                        errorMessage: 'CNPJ inválido (cálculo de dígitos verificadores incorreto).',
                         rawData: item
                     });
                     return;
@@ -618,8 +667,6 @@ export default function Campaigns() {
                     });
                     return;
                 }
-
-
 
                 // 2. Normalização
                 let phone = cleanPhone;
@@ -725,10 +772,20 @@ export default function Campaigns() {
 
             const added = finalContactsToInsert.length;
             const errors = importLogs.length;
+            const cnpjErrors = importLogs.filter(l => l.errorMessage?.includes('CNPJ')).length;
+
+            let errorSummary = '';
+            if (errors > 0) {
+                if (cnpjErrors > 0) {
+                    errorSummary = `${errors} rejeitados (${cnpjErrors} por CNPJ inválido/incorreto). Verifique o relatório de inconsistências.`;
+                } else {
+                    errorSummary = `${errors} inconsistências registradas.`;
+                }
+            }
 
             toast({
                 title: "Importação concluída!",
-                description: `${added} contatos adicionados e sincronizados em agent_leads. ${errors > 0 ? `${errors} inconsistências registradas.` : ''}`,
+                description: `${added} contatos adicionados e sincronizados em agent_leads. ${errorSummary}`,
             });
             setIsImportOpen(false);
             setImportData([]);
