@@ -63,7 +63,7 @@ const pendingMessages = new Map<string, {
 // --- 🛡️ DYNAMIC WEBHOOK ROUTING ---
 function getN8nWebhookUrl(tenantId: string | null | undefined): string | undefined {
     let url = process.env.N8N_INBOUND_WEBHOOK;
-    let rawWebhooks = process.env.N8N_TENANT_WEBHOOKS;
+    const rawWebhooks = process.env.N8N_TENANT_WEBHOOKS;
 
     if (tenantId && rawWebhooks) {
         try {

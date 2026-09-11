@@ -31,7 +31,8 @@ import {
   Building2,
   Check,
   ArrowLeft,
-  Download
+  Download,
+  Search
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
@@ -122,6 +123,17 @@ export function CampaignExecutiveView() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('15days');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(15);
+  const [totalCampaignsCount, setTotalCampaignsCount] = useState(0);
+
+  const [globalStats, setGlobalStats] = useState({
+    totalCampaigns: 0,
+    totalContacts: 0,
+    deliveredCount: 0,
+    conversionCount: 0
+  });
 
   useEffect(() => {
     if (currentTenant) {
@@ -132,23 +144,59 @@ export function CampaignExecutiveView() {
     setCampaigns([]);
     setAgents([]);
     setIsLoading(false);
-  }, [currentTenant]);
+  }, [currentTenant, currentPage, timeFilter]);
 
   const loadInitialData = async () => {
     if (!currentTenant) return;
     setIsLoading(true);
     try {
-      const [campaignsData, agentsData] = await Promise.all([
-        api.getCampaigns(currentTenant.id, false),
-        api.getAgents(currentTenant.id)
+      const now = new Date();
+      let startDate: Date | undefined;
+      if (timeFilter === '15days') {
+          startDate = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
+      } else if (timeFilter === '30days') {
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      } else if (timeFilter === '90days') {
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      }
+
+      const [campaignsResult, agentsData, globalStatsRaw] = await Promise.all([
+        api.getCampaignsPaginated(currentTenant.id, {
+            startDate,
+            page: currentPage,
+            pageSize: pageSize,
+            useReplica: false
+        }),
+        api.getAgents(currentTenant.id),
+        api.getAllCampaignsStats(currentTenant.id, [], startDate)
       ]);
+
+      let globalTotals = {
+        totalCampaigns: campaignsResult.totalCount,
+        totalContacts: 0,
+        deliveredCount: 0,
+        conversionCount: 0
+      };
+
+      if (globalStatsRaw) {
+        Object.values(globalStatsRaw).forEach((stats: any) => {
+          globalTotals.totalContacts += (stats.total_contacts || 0);
+          globalTotals.deliveredCount += (stats.delivered_count || 0);
+          globalTotals.conversionCount += (stats.conversion_count || 0);
+        });
+      }
+      setGlobalStats(globalTotals);
+
+      const campaignsData = campaignsResult.campaigns;
+      setTotalCampaignsCount(campaignsResult.totalCount);
 
       // Optimize: Fetch all campaign stats in a single query if possible.
       let statsByCampaignId = new Map<string, CampaignStats>();
       let bulkSuccess = false;
 
       try {
-        const bulkStats = await api.getAllCampaignsStats(currentTenant.id);
+        const campaignIds = campaignsData.map(c => c.id);
+        const bulkStats = await api.getAllCampaignsStats(currentTenant.id, campaignIds);
         if (bulkStats && Object.keys(bulkStats).length > 0) {
           statsByCampaignId = new Map(Object.entries(bulkStats));
           bulkSuccess = true;
@@ -187,17 +235,33 @@ export function CampaignExecutiveView() {
           return campaign;
         }
 
+        const totalContacts = (liveStats.total_contacts !== undefined && liveStats.total_contacts > 0)
+          ? liveStats.total_contacts
+          : (campaign.totalContacts || 0);
+
+        const sentCount = (liveStats.sent_count !== undefined && liveStats.sent_count > 0)
+          ? liveStats.sent_count
+          : (campaign.sentCount || 0);
+
+        const responseCount = (liveStats.response_count !== undefined && liveStats.response_count > 0)
+          ? liveStats.response_count
+          : (campaign.responseCount || 0);
+
+        const conversionCount = (liveStats.conversion_count !== undefined && liveStats.conversion_count > 0)
+          ? liveStats.conversion_count
+          : (campaign.conversionCount || 0);
+
         return {
           ...campaign,
-          totalContacts: liveStats.total_contacts,
-          sentCount: liveStats.sent_count,
-          deliveredCount: liveStats.delivered_count || 0,
-          readCount: liveStats.read_count || 0,
-          responseCount: liveStats.response_count,
-          totalMessages: liveStats.total_messages || 0,
-          conversionCount: liveStats.conversion_count,
-          conversionRate: liveStats.conversion_rate,
-          importErrorCount: liveStats.import_errors,
+          totalContacts,
+          sentCount,
+          deliveredCount: (liveStats.delivered_count !== undefined && liveStats.delivered_count > 0) ? liveStats.delivered_count : (campaign.deliveredCount || 0),
+          readCount: (liveStats.read_count !== undefined && liveStats.read_count > 0) ? liveStats.read_count : (campaign.readCount || 0),
+          responseCount,
+          totalMessages: liveStats.total_messages || campaign.totalMessages || 0,
+          conversionCount,
+          conversionRate: (liveStats.conversion_rate !== undefined && liveStats.conversion_rate > 0) ? liveStats.conversion_rate : (campaign.conversionRate || 0),
+          importErrorCount: liveStats.import_errors ?? campaign.importErrorCount ?? 0,
           conversionButtonCount: liveStats.conversion_button_count || 0,
           conversionChatCount: liveStats.conversion_chat_count || 0
         };
@@ -227,7 +291,14 @@ export function CampaignExecutiveView() {
             <CampaignSummaryView 
                 campaigns={campaigns} 
                 agents={agents} 
-                onSelectCampaign={setSelectedCampaignId} 
+                onSelectCampaign={setSelectedCampaignId}
+                timeFilter={timeFilter}
+                setTimeFilter={setTimeFilter}
+                currentPage={currentPage}
+                setCurrentPage={setCurrentPage}
+                pageSize={pageSize}
+                totalCampaignsCount={totalCampaignsCount}
+                globalStats={globalStats}
             />
         ) : (
             <CampaignDetailView 
@@ -248,17 +319,40 @@ interface CampaignSummaryViewProps {
   campaigns: Campaign[];
   agents: Agent[];
   onSelectCampaign: (id: string) => void;
+  timeFilter: '15days' | '30days' | '90days' | 'all';
+  setTimeFilter: (val: '15days' | '30days' | '90days' | 'all') => void;
+  currentPage: number;
+  setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
+  pageSize: number;
+  totalCampaignsCount: number;
+  globalStats: {
+    totalCampaigns: number;
+    totalContacts: number;
+    deliveredCount: number;
+    conversionCount: number;
+  };
 }
 
-function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSummaryViewProps) {
+function CampaignSummaryView({ 
+  campaigns, 
+  agents, 
+  onSelectCampaign, 
+  timeFilter, 
+  setTimeFilter, 
+  currentPage, 
+  setCurrentPage, 
+  pageSize, 
+  totalCampaignsCount,
+  globalStats
+}: CampaignSummaryViewProps) {
   const getAgentName = (agentId: string) => {
     return agents.find(a => a.id === agentId)?.name || 'Agente';
   };
 
-  const totalCampaigns = campaigns.length;
-  const totalValidLeads = campaigns.reduce((sum, campaign) => sum + (campaign.totalContacts || 0), 0);
-  const totalLinksSent = campaigns.reduce((sum, campaign) => sum + (campaign.conversionCount || 0), 0);
-  const totalDelivered = campaigns.reduce((sum, campaign) => sum + (campaign.deliveredCount || 0), 0);
+  const totalCampaigns = globalStats.totalCampaigns;
+  const totalValidLeads = globalStats.totalContacts;
+  const totalLinksSent = globalStats.conversionCount;
+  const totalDelivered = globalStats.deliveredCount;
   const overallConversionRate = totalDelivered > 0 ? (totalLinksSent / totalDelivered) * 100 : 0;
 
   const calculateConversion = (campaign: Campaign) => {
@@ -305,6 +399,43 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
             />
           </div>
 
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-2 bg-slate-100/50 p-1 rounded-lg">
+            <Button
+                variant={timeFilter === '15days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setTimeFilter('15days'); setCurrentPage(1); }}
+                className={cn("h-8 px-4 text-xs font-medium rounded-md transition-all shadow-none", timeFilter === '15days' ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50")}
+            >
+                15 Dias
+            </Button>
+            <Button
+                variant={timeFilter === '30days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setTimeFilter('30days'); setCurrentPage(1); }}
+                className={cn("h-8 px-4 text-xs font-medium rounded-md transition-all shadow-none", timeFilter === '30days' ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50")}
+            >
+                30 Dias
+            </Button>
+            <Button
+                variant={timeFilter === '90days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setTimeFilter('90days'); setCurrentPage(1); }}
+                className={cn("h-8 px-4 text-xs font-medium rounded-md transition-all shadow-none", timeFilter === '90days' ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50")}
+            >
+                90 Dias
+            </Button>
+            <Button
+                variant={timeFilter === 'all' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => { setTimeFilter('all'); setCurrentPage(1); }}
+                className={cn("h-8 px-4 text-xs font-medium rounded-md transition-all shadow-none", timeFilter === 'all' ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50")}
+            >
+                Tudo
+            </Button>
         </div>
       </div>
 
@@ -414,6 +545,31 @@ function CampaignSummaryView({ campaigns, agents, onSelectCampaign }: CampaignSu
             </tbody>
           </table>
         </div>
+        <div className="flex items-center justify-between p-4 border-t border-slate-100">
+            <div className="text-xs text-slate-500">
+                Mostrando {totalCampaignsCount > 0 ? ((currentPage - 1) * pageSize) + 1 : 0} até {Math.min(currentPage * pageSize, totalCampaignsCount)} de {totalCampaignsCount} campanhas
+            </div>
+            <div className="flex items-center gap-2">
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="h-8 text-xs"
+                >
+                    Anterior
+                </Button>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    disabled={currentPage * pageSize >= totalCampaignsCount}
+                    className="h-8 text-xs"
+                >
+                    Próxima
+                </Button>
+            </div>
+        </div>
       </div>
     </div>
   );
@@ -443,6 +599,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     key: 'cnpj' | 'whatsapp' | 'name' | 'status' | null;
     direction: 'asc' | 'desc';
   }>({ key: null, direction: 'asc' });
+  const [searchQuery, setSearchQuery] = useState("");
   const analyticsPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -637,16 +794,27 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
   }, [leads]);
 
   const filteredLeads = useMemo(() => {
-    if (selectedStatuses.length === 0) return leads;
-    return leads.filter((lead) => {
-      // Se o filtro 'Convertida' estiver ativo, incluímos leads com status visual 'Convertida'
-      // OU leads que tenham a flag real de conversão isConverted como true.
-      if (selectedStatuses.includes('Convertida') && lead.isConverted) {
-        return true;
-      }
-      return selectedStatuses.includes(lead.status);
-    });
-  }, [leads, selectedStatuses]);
+    let result = leads;
+    if (selectedStatuses.length > 0) {
+      result = result.filter((lead) => {
+        return selectedStatuses.some(status => {
+           if (status === 'Lida') return ['Lida', 'Respondida', 'Convertida'].includes(lead.status);
+           if (status === 'Respondida') return ['Respondida', 'Convertida'].includes(lead.status);
+           if (status === 'Entregue') return ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida'].includes(lead.status);
+           if (status === 'Não Entregue') return ['Erro', 'Não Entregue', 'Rejeitada'].includes(lead.status);
+           return lead.status === status;
+        });
+      });
+    }
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter((lead) => 
+        (lead.name && lead.name.toLowerCase().includes(query)) ||
+        (lead.whatsapp && lead.whatsapp.toLowerCase().includes(query))
+      );
+    }
+    return result;
+  }, [leads, selectedStatuses, searchQuery]);
 
   const sortedLeads = useMemo(() => {
     const items = [...filteredLeads];
@@ -1075,7 +1243,13 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                   </div>
                   {statusOptions.map((status) => {
                     const isSelected = selectedStatuses.includes(status);
-                    const count = leads.filter((lead) => lead.status === status).length;
+                    const count = leads.filter((lead) => {
+                       if (status === 'Lida') return ['Lida', 'Respondida', 'Convertida'].includes(lead.status);
+                       if (status === 'Respondida') return ['Respondida', 'Convertida'].includes(lead.status);
+                       if (status === 'Entregue') return ['Enviada', 'Entregue', 'Lida', 'Respondida', 'Convertida'].includes(lead.status);
+                       if (status === 'Não Entregue') return ['Erro', 'Não Entregue', 'Rejeitada'].includes(lead.status);
+                       return lead.status === status;
+                    }).length;
                     return (
                       <Button
                         key={status}
@@ -1085,8 +1259,8 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                         className={cn(
                           "h-8 rounded-full border px-3 text-[10px] font-black uppercase tracking-widest transition-all",
                           isSelected
-                            ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
-                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                            ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800 hover:text-white"
+                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                         )}
                       >
                         {status}
@@ -1109,6 +1283,16 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                 </div>
               </div>
               <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar nome ou telefone..."
+                    className="h-9 w-64 rounded-xl border border-slate-200 bg-white pl-9 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 transition-all"
+                  />
+                </div>
                 {isLoading && <Clock className="w-4 h-4 text-[#E5003A] animate-spin" />}
               </div>
             </div>

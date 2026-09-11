@@ -456,6 +456,77 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         }
     },
 
+    async getCampaignsPaginated(
+        tenantId: string,
+        options: {
+            startDate?: Date;
+            endDate?: Date;
+            status?: string;
+            search?: string;
+            page: number;
+            pageSize: number;
+            useReplica?: boolean;
+        }
+    ): Promise<{ campaigns: import('@/lib/types').Campaign[]; totalCount: number }> {
+        const client = options.useReplica ? supabaseReader : supabase;
+        let query = client
+            .from('campaigns')
+            .select('*', { count: 'exact' })
+            .eq('tenant_id', tenantId);
+
+        if (options.startDate) query = query.gte('start_date', options.startDate.toISOString());
+        if (options.endDate) query = query.lte('start_date', options.endDate.toISOString());
+        if (options.status && options.status !== 'all') query = query.eq('status', options.status);
+        if (options.search) query = query.ilike('name', `%${options.search}%`);
+
+        const offset = (options.page - 1) * options.pageSize;
+        query = query.range(offset, offset + options.pageSize - 1).order('created_at', { ascending: false });
+
+        const { data, count, error } = await query;
+
+        if (error) {
+            console.error('Error fetching paginated campaigns:', error);
+            return { campaigns: [], totalCount: 0 };
+        }
+
+        const campaigns = data.map((c: any) => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            agentId: c.agent_id,
+            name: c.name,
+            description: c.description,
+            status: c.status,
+            startDate: parseLocalDate(c.start_date),
+            endDate: c.end_date ? parseLocalDate(c.end_date) : undefined,
+            dailyLimit: c.daily_limit,
+            totalContacts: c.total_contacts,
+            sentCount: c.sent_count,
+            deliveredCount: c.delivered_count || 0,
+            readCount: c.read_count || 0,
+            failedCount: c.failed_count,
+            responseCount: c.response_count,
+            totalMessages: c.total_messages || 0,
+            conversionCount: c.conversion_count || 0,
+            conversionRate: c.delivered_count > 0 ? Number(((c.conversion_count || 0) / c.delivered_count * 100).toFixed(1)) : 0,
+            importErrorCount: c.import_error_count,
+            startTime: c.start_time,
+            endTime: c.end_time,
+            initialMessage: c.initial_message,
+            successCriteria: c.success_criteria,
+            successLinkFilter: c.success_link_filter,
+            metadata: c.metadata,
+            reengagementEnabled: c.reengagement_enabled,
+            reengagementWaitHours: c.reengagement_wait_hours,
+            reengagementMaxAttempts: c.reengagement_max_attempts,
+            reengagementMessage: c.reengagement_message,
+            reengagementTemplateId: c.reengagement_template_id,
+            createdAt: new Date(c.created_at),
+            updatedAt: new Date(c.updated_at)
+        }));
+
+        return { campaigns, totalCount: count || 0 };
+    },
+
 async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<import('@/lib/types').Campaign[]> {
         const client = useReplica ? supabaseReader : supabase;
         const { data, error } = await client
@@ -481,10 +552,13 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             dailyLimit: c.daily_limit,
             totalContacts: c.total_contacts,
             sentCount: c.sent_count,
+            deliveredCount: c.delivered_count || 0,
+            readCount: c.read_count || 0,
             failedCount: c.failed_count,
             responseCount: c.response_count,
             totalMessages: c.total_messages || 0,
             conversionCount: c.conversion_count || 0,
+            conversionRate: c.delivered_count > 0 ? Number(((c.conversion_count || 0) / c.delivered_count * 100).toFixed(1)) : 0,
             importErrorCount: c.import_error_count,
             startTime: c.start_time,
             endTime: c.end_time,
@@ -655,11 +729,7 @@ async deleteCampaign(id: string): Promise<void> {
         // nós abortamos novas tentativas por 60 segundos para não enfileirar mais consultas pesadas
         // e travar completamente a UI para o usuário.
         if ((window as any)._isStatsCircuitBreakerOpen) {
-            return {
-                total_contacts: 0, import_errors: 0, sent_count: 0, delivered_count: 0,
-                read_count: 0, response_count: 0, conversion_count: 0, failed_count: 0,
-                conversion_rate: 0, success_criteria_used: []
-            };
+            return null;
         }
 
         // FORCE PRIMARY: ignore replica for dashboard stats to avoid sync lag 404s
@@ -675,11 +745,7 @@ async deleteCampaign(id: string): Promise<void> {
                 (window as any)._isStatsCircuitBreakerOpen = true;
                 setTimeout(() => { (window as any)._isStatsCircuitBreakerOpen = false; }, 60000);
                 
-                return {
-                    total_contacts: 0, import_errors: 0, sent_count: 0, delivered_count: 0,
-                    read_count: 0, response_count: 0, conversion_count: 0, failed_count: 0,
-                    conversion_rate: 0, success_criteria_used: []
-                };
+                return null;
             }
 
             console.error("❌ SUPABASE RPC ERROR (get_campaign_metrics_v2):", {
@@ -704,14 +770,20 @@ async deleteCampaign(id: string): Promise<void> {
         };
     },
 
-    async getAllCampaignsStats(tenantId: string): Promise<Record<string, any>> {
+    async getAllCampaignsStats(tenantId: string, campaignIds?: string[], startDate?: Date): Promise<Record<string, any>> {
         if ((window as any)._isStatsCircuitBreakerOpen) {
             return {};
         }
 
-        const { data, error } = await supabase.rpc('get_all_campaigns_metrics_v2', {
-            p_tenant_id: tenantId
-        });
+        const rpcArgs: any = { p_tenant_id: tenantId };
+        if (campaignIds && campaignIds.length > 0) {
+            rpcArgs.p_campaign_ids = campaignIds;
+        }
+        if (startDate) {
+            rpcArgs.p_start_date = startDate.toISOString();
+        }
+
+        const { data, error } = await supabase.rpc('get_all_campaigns_metrics_v2', rpcArgs);
 
         if (error) {
             if (error.code === '57014') {

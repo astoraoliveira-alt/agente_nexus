@@ -170,7 +170,7 @@ try {
 
     // EXTRAÇÃO INTELIGENTE DE VALORES E PARCELAS
     let fallbackNumber = parseNumber(lastUserLower.replace(/ parcelas?/g, ""));
-    
+
     // Ignorar LLM hallucination do valor do empréstimo quando estamos perguntando o faturamento
     if (currentStep === 'coleta_faturamento') {
         semanticAmount = null;
@@ -439,7 +439,7 @@ try {
     if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
         mode = "consultive";
     }
-    
+
     // EXCEÇÃO: apresenta_ofertas nunca deve ser parrot puro (a menos que seja falha), pois usa variáveis dinâmicas do LLM.
     if (nextStep === 'apresenta_ofertas' && mode === 'parrot') {
         mode = 'consultive';
@@ -473,27 +473,33 @@ try {
     } else if (nextStep === 'explicacao_agente') {
         forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
     } else if (nextStep === 'coleta_faturamento') {
-        forcedText = `Perfeito, ${leadInfo.name || "parceiro"}! Antes de solicitar a análise do seu crédito, preciso saber: *qual o faturamento médio mensal atual da sua empresa?*`;
+        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Antes de solicitar a análise do seu crédito, preciso saber: qual o *faturamento médio mensal atual* da sua empresa?\n\nExemplo: *80 mil*`;
         mode = "parrot";
     } else if (nextStep === 'coleta_valor') {
-        forcedText = `Obrigada! E *qual valor aproximado você gostaria de solicitar nessa análise?*`;
+        forcedText = `Obrigada! E qual *valor aproximado* você gostaria de solicitar nessa análise?\n\nExemplo: *10 mil*`;
         mode = "parrot";
     } else if (nextStep === 'consentimento_optin') {
-        forcedText = `Para analisar seu crédito de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}*, a Fiserv precisa consultar seus recebíveis e informações de crédito (SCR/Bacen e bureaus como a Serasa), conforme a LGPD.\n\n📄 Termo completo: {LINK_TERMO_FISERV}\nVocê autoriza a Fiserv a fazer as consultas?`;
+        forcedText = `Para analisar seu crédito de *R$ ${Number(requested_amount || 30000).toLocaleString('pt-BR')}*, a Fiserv precisa consultar seus recebíveis e informações de crédito (SCR/Bacen e bureaus como a Serasa), conforme a LGPD.\n\nApós a leitura do Termo de Autorização de Consulta da Fiserv, você autoriza a realização das consultas?`;
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema, ${leadInfo.name || "parceiro"}. Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
     } else if (nextStep === 'aguardando_fiserv') {
-        forcedText = `Sua solicitação já está em análise pelo comitê da Fiserv! ⏳\n\nEstamos acompanhando de perto e, assim que tivermos um retorno sobre os valores liberados para o seu CNPJ *${leadInfo.cnpj || ""}*, eu te aviso por aqui mesmo.\n\nEnquanto esperamos, posso te ajudar com mais alguma dúvida?`;
+        forcedText = `Sua solicitação já está em análise pelo comitê da Fiserv! ⏳\n\nEstamos acompanhando de perto e, assim que tivermos um retorno sobre os valores liberados para o seu CNPJ *${leadInfo.cnpj || ""}*, chamaremos você por aqui mesmo com o resultado.\n\nEnquanto esperamos, posso te ajudar com mais alguma dúvida?`;
     } else if (nextStep === 'recusa_analise') {
         forcedText = `Poxa, ${leadInfo.name || "parceiro"}. Recebemos o retorno da Fiserv e, neste momento, não foi possível liberar uma oferta pré-aprovada de crédito para o seu CNPJ.\n\nAs análises de crédito são dinâmicas e baseadas em diversos critérios de mercado e volume de transações Ticket. Continue transacionando e, em breve, podemos ter novas oportunidades!\n\nPosso te ajudar com alguma outra dúvida sobre sua conta Ticket?`;
         // V19: Mensagem de confirmação antes de chamar a API Fiserv (Avaliação de Crédito - Passo 6)
     } else if (nextStep === 'criar_lead') {
-        forcedText = `Perfeito, ${leadInfo.name || "parceiro"}! ✅\n\nVou enviar suas informações agora para a Fiserv fazer a avaliação de crédito do seu CNPJ *${leadInfo.cnpj || ""}*.\n\nA análise é rápida e te retorno aqui mesmo com o resultado em instantes. Aguarde um momento! 🔄`;
+        forcedText = `Perfeito! Mandei sua solicitação para o comitê Fiserv.\n\n⏳ Avaliando em ~1 minuto...\nAssim que tivermos o retorno, chamaremos aqui com o resultado!`;
     } else if (nextStep === 'apresenta_ofertas' && requested_amount && !requested_installments) {
-        forcedText = `Ótimo, ${leadInfo.name || "parceiro"}! Entendi que você deseja simular o valor de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}*.\n\nPara prosseguirmos e eu enviar os dados para a Fiserv, por favor, me informe: em quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a 24 parcelas).`;
+        const approvedLimit = leadInfo.approved_limit || leadInfo.max_amount || leadInfo.credit_limit || leadInfo.approved_amount || ctx.approved_limit || 0;
+        const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
+        if (approvedLimit > 0 && requested_amount > approvedLimit) {
+            forcedText = `O valor de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}* que você solicitou excede o seu limite pré-aprovado de *R$ ${Number(approvedLimit).toLocaleString('pt-BR')}*.\n\nPor favor, informe o valor que deseja solicitar (até R$ ${Number(approvedLimit).toLocaleString('pt-BR')}) e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
+        } else {
+            forcedText = `Ótimo, ${leadInfo.name || "parceiro"}! Entendi que você deseja simular o valor de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}*.\n\nEm quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a ${maxTerm} parcelas).`;
+        }
         mode = "parrot";
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && requested_installments) {
-        forcedText = `Certo, você gostaria de simular em *${requested_installments} parcelas*.\n\nPara prosseguirmos e eu enviar os dados para a Fiserv, qual o valor exato que você deseja solicitar nessa simulação? (Você pode simular entre R$ 10 mil e R$ 500 mil).`;
+        forcedText = `Certo, você gostaria de simular em *${requested_installments} parcelas*.\n\nPara prosseguirmos, qual o valor exato que você deseja solicitar nessa simulação?`;
         mode = "parrot";
     } else if (nextStep === 'finalizacao_sucesso') {
         forcedText = `Maravilha, ${leadInfo.name || "parceiro"}! 🎉\n\nJá registramos o seu interesse nessas condições e enviei a sua solicitação para formalização.\n\nUm dos nossos especialistas entrará em contato com você o mais rápido possível para prosseguir com a assinatura digital e liberar o valor na sua conta.\n\nEnquanto isso, se tiver qualquer outra dúvida, estou por aqui!`;
@@ -564,6 +570,7 @@ ${hintInjection}
 - NEGRITO: Use *asteriscos* para destacar termos importantes (Ex: *Boleto Bancário*, *Sem conta nova*, *24 parcelas*).
 - EMOJIS (REGRA DE HISTÓRICO COMPLETO): Você está autorizada a usar no máximo **1 único emoji em toda a conversa** (considerando todo o histórico de mensagens). Analise o histórico: se você ou o cliente já usaram algum emoji nas mensagens anteriores, você está **PROIBIDA** de enviar qualquer emoji nesta resposta. Se nenhum emoji foi usado ainda na conversa, você pode enviar **apenas 1**, preferencialmente o emoji correspondente ao segmento da empresa (ex: Padaria 🍞, Farmácia 💊, Restaurante 🍽️, Oficina/Auto 🚗, Mercado 🛒, Café ☕, Geral 📈) posicionado sempre no início ou no fim da mensagem, nunca no meio de frases.
 - PARÁGRAFOS: Use quebras de linha para não criar "paredões" de texto.
+- PROIBIÇÃO ABSOLUTA DE LINKS / URLS: NUNCA gere links, URLs ou textos de redirecionamento no formato markdown como [Clique aqui](https://...) ou URLs fictícias/exemplo (como example.com). Toda comunicação de propostas e valores é feita via texto no próprio chat.
 </diretrizes_estilo_visual>
 
 <HISTORICO_CONVERSA>
@@ -777,12 +784,20 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
 
     let interactive_buttons = null;
-    if (nextStep === 'consentimento_optin') {
+    if (nextStep === 'verificacao_cnpj') {
         interactive_buttons = {
             tipo: "botoes",
-            opcoes: ["✅ SIM, AUTORIZO", "NÃO"]
+            opcoes: ["Sim", "Não"],
+            pre_message: null
+        };
+    } else if (nextStep === 'consentimento_optin') {
+        interactive_buttons = {
+            tipo: "botoes",
+            opcoes: ["✅ SIM, AUTORIZO", "NÃO"],
+            pre_message: `📄 *Termo de Autorização de Consulta - Fiserv*\n\nO (Cliente) outorga à Fiserv Sociedade de Crédito Direto S.A., CNPJ nº 50.053.267/0001-15, às empresas de seu grupo econômico e a seus parceiros de negócio *autorização irrevogável e irretratável* para: *acessar* sua Agenda de Recebíveis, perante Entidades Registradoras, instituições de pagamento ou financeiras credenciadoras, a fim de identificar Unidades de Recebíveis atuais e futuras para fins de gravame; *consultar* o SCR/Bacen, sistemas equivalentes ou complementares e bureaus de crédito, para análise e eventual oferta de crédito; *compartilhar* informações obtidas via SCR com sociedades do grupo econômico da Fiserv SCD e com o Parceiro, nos termos da LC nº 105/2001; e *tratar* seus dados pessoais e financeiros conforme a LGPD, exclusivamente para as finalidades autorizadas, com segurança e confidencialidade.\nO (Cliente) declara que a autorização foi concedida por representante legal habilitado e assume responsabilidade civil por eventual ausência ou insuficiência de poderes.`
         };
     }
+
 
     return {
         final_system_prompt: finalPrompt,
@@ -815,15 +830,21 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         consent: (currentStep === 'consentimento_optin' && isOptInAccepted) ? {
             opt_in: true,
             opt_in_timestamp: new Date().toISOString(),
-            opt_in_ip: rpcData.ip || "0.0.0.0",
+            opt_in_ip: rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
+            opt_in_ip_address: rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
             opt_in_signer_name: leadInfo.name || "Cliente",
             consent_channel: "whatsapp",
-            consent_phone: leadInfo.phone || "Não informado",
+            consent_phone: leadInfo.phone || leadInfo.whatsapp || rpcData.phone || rpcData.user_identifier || "Não informado",
             consent_text_version: "v1-2026-06",
             consent_text_hash: "b919e74d1075bbd1c44fcef663f7e691932d5eb1fe1e54f8b30a3032c2b30d8b",
             confirmation_message: lastUserLower,
-            confirmation_message_id: rpcData.message_id || ""
-        } : null
+            confirmation_message_id: rpcData.message_id || rpcData.wamid || ""
+        } : null,
+        fiserv_funnel: {
+            step1_optin: (currentStep === 'consentimento_optin' && isOptInAccepted) ? new Date().toISOString() : null,
+            step3_simulation: (requested_amount && requested_amount > 0) ? new Date().toISOString() : null,
+            step4_confirmed: ((isHumanRequest || effectiveComplaint || loopDetectedHandoff) && !isAgentButtonClick) ? new Date().toISOString() : null
+        }
     };
 
 } catch (globalError) {

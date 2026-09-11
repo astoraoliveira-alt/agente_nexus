@@ -156,7 +156,36 @@ export default function Campaigns() {
     const [isImportOpen, setIsImportOpen] = useState(false);
     const [isContactsViewOpen, setIsContactsViewOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
-    const [timeFilter, setTimeFilter] = useState<'30days' | 'all'>('30days');
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+    const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('15days');
+    const [statusFilter, setStatusFilter] = useState<string>("all");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize] = useState(15);
+    const [totalCampaignsCount, setTotalCampaignsCount] = useState(0);
+
+    const [globalStats, setGlobalStats] = useState({
+        totalCampaigns: 0,
+        totalContacts: 0,
+        importErrorCount: 0,
+        deliveredCount: 0,
+        readCount: 0,
+        conversionCount: 0
+    });
+
+    useEffect(() => {
+        if (currentTenant) {
+            loadData();
+        }
+    }, [currentTenant, currentPage, timeFilter, statusFilter, debouncedSearchTerm]);
+
+    // Debounce search term
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedSearchTerm(searchTerm);
+            setCurrentPage(1); // Reset to first page on search
+        }, 500);
+        return () => clearTimeout(handler);
+    }, [searchTerm]);
     const [importData, setImportData] = useState<CampaignImportRow[]>([]);
     const [isImporting, setIsImporting] = useState(false);
     const [isLoadingContacts, setIsLoadingContacts] = useState(false);
@@ -280,28 +309,63 @@ export default function Campaigns() {
         }
     }, [agents, newCampaign.agentId]);
 
-    useEffect(() => {
-        if (currentTenant) {
-            loadData();
-        }
-    }, [currentTenant]);
-
     const loadData = async () => {
         if (!currentTenant) return;
         setIsLoading(true);
         try {
-            const [campaignsData, agentsData, queueMetricsData] = await Promise.all([
-                api.getCampaigns(currentTenant.id),
+            const now = new Date();
+            let startDate: Date | undefined;
+            if (timeFilter === '15days') {
+                startDate = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
+            } else if (timeFilter === '30days') {
+                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            } else if (timeFilter === '90days') {
+                startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+            }
+
+            const [campaignsResult, agentsData, queueMetricsData, globalStatsRaw] = await Promise.all([
+                api.getCampaignsPaginated(currentTenant.id, {
+                    startDate,
+                    status: statusFilter,
+                    search: debouncedSearchTerm,
+                    page: currentPage,
+                    pageSize: pageSize
+                }),
                 api.getAgents(currentTenant.id),
-                api.getOutboundQueueMetricsByCampaign(currentTenant.id)
+                api.getOutboundQueueMetricsByCampaign(currentTenant.id),
+                api.getAllCampaignsStats(currentTenant.id, [], startDate)
             ]);
+
+            let globalTotals = {
+                totalCampaigns: campaignsResult.totalCount,
+                totalContacts: 0,
+                importErrorCount: 0,
+                deliveredCount: 0,
+                readCount: 0,
+                conversionCount: 0
+            };
+
+            if (globalStatsRaw) {
+                Object.values(globalStatsRaw).forEach((stats: any) => {
+                    globalTotals.totalContacts += (stats.total_contacts || 0);
+                    globalTotals.importErrorCount += (stats.import_errors || 0);
+                    globalTotals.deliveredCount += (stats.delivered_count || 0);
+                    globalTotals.readCount += (stats.read_count || 0);
+                    globalTotals.conversionCount += (stats.conversion_count || 0);
+                });
+            }
+            setGlobalStats(globalTotals);
+
+            const campaignsData = campaignsResult.campaigns;
+            setTotalCampaignsCount(campaignsResult.totalCount);
 
             // OTIMIZAÇÃO: Tentar buscar métricas em lote (1 única chamada RPC) para máxima performance
             let statsByCampaignId = new Map<string, any>();
             let bulkSuccess = false;
 
             try {
-                const bulkStats = await api.getAllCampaignsStats(currentTenant.id);
+                const campaignIds = campaignsData.map((c) => c.id);
+                const bulkStats = await api.getAllCampaignsStats(currentTenant.id, campaignIds);
                 if (bulkStats && Object.keys(bulkStats).length > 0) {
                     statsByCampaignId = new Map(Object.entries(bulkStats));
                     bulkSuccess = true;
@@ -860,7 +924,7 @@ export default function Campaigns() {
     };
 
     const handleExportCampaigns = () => {
-        if (!filteredCampaigns.length) {
+        if (!campaigns.length) {
             toast({
                 title: "Sem dados para exportar",
                 description: "Não há campanhas listadas no filtro atual para exportar.",
@@ -869,7 +933,7 @@ export default function Campaigns() {
             return;
         }
 
-        const rows = filteredCampaigns.map((campaign) => {
+        const rows = campaigns.map((campaign) => {
             const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0, delivered: 0 };
             const totalLoaded = (campaign.totalContacts || 0) + (campaign.importErrorCount || 0);
             const validRecords = campaign.totalContacts || queueMetrics.total || 0;
@@ -884,7 +948,7 @@ export default function Campaigns() {
             const deliveredPct = validRecords > 0 ? ((deliveredMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
             const readPct = validRecords > 0 ? ((readMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
             const responsePct = validRecords > 0 ? ((responseMessages / validRecords) * 100).toFixed(1) + '%' : '0%';
-            const linksPct = validRecords > 0 ? ((linksSent / validRecords) * 100).toFixed(1) + '%' : '0%';
+            const linksPct = deliveredMessages > 0 ? ((linksSent / deliveredMessages) * 100).toFixed(1) + '%' : '0%';
 
             const agentName = agents.find(a => a.id === campaign.agentId)?.name || 'Agente';
 
@@ -1073,42 +1137,26 @@ export default function Campaigns() {
     };
 
     const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const filteredCampaigns = campaigns.filter(c => {
-        const matchesSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase());
-        if (!matchesSearch) return false;
-        
-        if (timeFilter === '30days') {
-            const refDate = (c.startDate && !isNaN(c.startDate.getTime())) ? c.startDate : (c.createdAt || new Date(0));
-            return refDate >= thirtyDaysAgo;
-        }
-        return true;
-    });
 
     // Filtro especial para os Cards Totalizadores: considerar apenas campanhas do filtro corrente que já iniciaram e não estão pausadas ou canceladas
-    const cardCampaigns = filteredCampaigns.filter(c => {
+    const cardCampaigns = campaigns.filter(c => {
         if (['paused', 'cancelled', 'draft', 'scheduled'].includes(c.status)) return false;
         const refDate = (c.startDate && !isNaN(new Date(c.startDate).getTime())) ? new Date(c.startDate) : (c.createdAt ? new Date(c.createdAt) : new Date());
         return refDate <= now || (c.sentCount || 0) > 0 || (c.deliveredCount || 0) > 0;
     });
 
-    const totalCampaigns = cardCampaigns.length;
-    const totalLoadedLeads = cardCampaigns.reduce((acc, curr) => {
-        return acc + (curr.totalContacts || 0) + (curr.importErrorCount || 0);
-    }, 0);
-    const totalValidLeads = cardCampaigns.reduce((acc, curr) => {
-        return acc + (curr.totalContacts || 0);
-    }, 0);
-    const totalDelivered = cardCampaigns.reduce((acc, curr) => acc + (curr.deliveredCount || 0), 0);
-    const totalRead = cardCampaigns.reduce((acc, curr) => acc + (curr.readCount || 0), 0);
-    const totalLinksSent = cardCampaigns.reduce((acc, curr) => acc + (curr.conversionCount || 0), 0);
+    const totalCampaigns = globalStats.totalCampaigns;
+    const totalLoadedLeads = globalStats.totalContacts + globalStats.importErrorCount;
+    const totalValidLeads = globalStats.totalContacts;
+    const totalDelivered = globalStats.deliveredCount;
+    const totalRead = globalStats.readCount;
+    const totalLinksSent = globalStats.conversionCount;
 
     const totalLoadedPct = totalLoadedLeads > 0 ? 100 : 0;
     const totalValidPct = totalLoadedLeads > 0 ? Math.min((totalValidLeads / totalLoadedLeads) * 100, 100) : 0;
     const totalDeliveredPct = totalValidLeads > 0 ? Math.min((totalDelivered / totalValidLeads) * 100, 100) : 0;
     const totalReadPct = totalValidLeads > 0 ? Math.min((totalRead / totalValidLeads) * 100, 100) : 0;
-    const totalLinksSentPct = totalValidLeads > 0 ? Math.min((totalLinksSent / totalValidLeads) * 100, 100) : 0;
+    const totalLinksSentPct = totalDelivered > 0 ? Math.min((totalLinksSent / totalDelivered) * 100, 100) : 0;
 
     // Lógica de Filtro e Ordenação dos Contatos
     const processedContacts = viewContacts.filter(contact => {
@@ -1765,34 +1813,53 @@ export default function Campaigns() {
                                 </CardTitle>
                                 <CardDescription>Acompanhe a performance de cada campanha cadastrada.</CardDescription>
                             </div>
-                            <div className="flex flex-wrap items-center gap-3">
-                                <div className="relative">
-                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Buscar campanha..."
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
-                                        className="h-9 pl-8 w-[200px] bg-white text-xs"
-                                    />
-                                </div>
-                                <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-lg border border-slate-200/60">
-                                    <Button
-                                        variant={timeFilter === '30days' ? 'default' : 'ghost'}
-                                        size="sm"
-                                        onClick={() => setTimeFilter('30days')}
-                                        className="h-7 text-xs font-medium px-3 shadow-none"
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Buscar campanha..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="h-9 pl-8 w-[200px] bg-white text-xs border-slate-200"
+                                        />
+                                    </div>
+                                    <select
+                                        className="h-9 px-3 rounded-md border border-slate-200 bg-white text-xs outline-none focus:border-accent"
+                                        value={statusFilter}
+                                        onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
                                     >
-                                        Últimos 30 dias
-                                    </Button>
-                                    <Button
-                                        variant={timeFilter === 'all' ? 'default' : 'ghost'}
-                                        size="sm"
-                                        onClick={() => setTimeFilter('all')}
-                                        className="h-7 text-xs font-medium px-3 shadow-none"
-                                    >
-                                        Todas as campanhas
-                                    </Button>
-                                </div>
+                                        <option value="all">Todos os Status</option>
+                                        <option value="active">Ativas</option>
+                                        <option value="paused">Pausadas</option>
+                                        <option value="completed">Concluídas</option>
+                                        <option value="cancelled">Canceladas</option>
+                                    </select>
+                                    <div className="flex items-center gap-1 bg-slate-100/80 p-1 rounded-lg border border-slate-200/60">
+                                        <Button
+                                            variant={timeFilter === '15days' ? 'default' : 'ghost'}
+                                            size="sm"
+                                            onClick={() => { setTimeFilter('15days'); setCurrentPage(1); }}
+                                            className="h-7 text-xs font-medium px-3 shadow-none"
+                                        >
+                                            15 dias
+                                        </Button>
+                                        <Button
+                                            variant={timeFilter === '30days' ? 'default' : 'ghost'}
+                                            size="sm"
+                                            onClick={() => { setTimeFilter('30days'); setCurrentPage(1); }}
+                                            className="h-7 text-xs font-medium px-3 shadow-none"
+                                        >
+                                            30 dias
+                                        </Button>
+                                        <Button
+                                            variant={timeFilter === 'all' ? 'default' : 'ghost'}
+                                            size="sm"
+                                            onClick={() => { setTimeFilter('all'); setCurrentPage(1); }}
+                                            className="h-7 text-xs font-medium px-3 shadow-none"
+                                        >
+                                            Todas
+                                        </Button>
+                                    </div>
                                 <Button
                                     variant="outline"
                                     size="sm"
@@ -1810,13 +1877,14 @@ export default function Campaigns() {
                                 <div className="flex justify-center items-center py-20">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent"></div>
                                 </div>
-                            ) : filteredCampaigns.length === 0 ? (
+                            ) : campaigns.length === 0 ? (
                                 <div className="text-center py-20">
                                     <Megaphone className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
                                     <h3 className="text-lg font-medium">Nenhuma campanha estratégica</h3>
                                     <p className="text-muted-foreground text-sm">Crie sua primeira campanha para começar os disparos.</p>
                                 </div>
                             ) : (
+                                <>
                                 <div className="w-full rounded-xl border border-slate-100 overflow-hidden">
                                 <Table className="w-full table-fixed">
                                     <TableHeader>
@@ -1839,7 +1907,7 @@ export default function Campaigns() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredCampaigns.map((campaign) => {
+                                        {campaigns.map((campaign) => {
                                             const queueMetrics = queueMetricsByCampaign[campaign.id] || { total: 0, sent: 0, delivered: 0 };
                                             const totalLoaded = (campaign.totalContacts || 0) + (campaign.importErrorCount || 0);
                                             const validRecords = campaign.totalContacts || queueMetrics.total || 0;
@@ -1850,7 +1918,7 @@ export default function Campaigns() {
                                             const validPct = totalLoaded > 0 ? Math.min((validRecords / totalLoaded) * 100, 100) : 0;
                                             const sentPct = validRecords > 0 ? Math.min((sentMessages / validRecords) * 100, 100) : 0;
                                             const deliveredPct = validRecords > 0 ? Math.min((deliveredMessages / validRecords) * 100, 100) : 0;
-                                            const linksPct = validRecords > 0 ? Math.min((linksSent / validRecords) * 100, 100) : 0;
+                                            const linksPct = deliveredMessages > 0 ? Math.min((linksSent / deliveredMessages) * 100, 100) : 0;
 
                                             return (
                                                 <TableRow key={campaign.id} className="hover:bg-accent/5">
@@ -1967,6 +2035,32 @@ export default function Campaigns() {
                                     </TableBody>
                                 </Table>
                                 </div>
+                                <div className="flex items-center justify-between p-4 border-t border-slate-100">
+                                    <div className="text-xs text-slate-500">
+                                        Mostrando {totalCampaignsCount > 0 ? ((currentPage - 1) * pageSize) + 1 : 0} até {Math.min(currentPage * pageSize, totalCampaignsCount)} de {totalCampaignsCount} campanhas
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                            disabled={currentPage === 1}
+                                            className="h-8 text-xs"
+                                        >
+                                            Anterior
+                                        </Button>
+                                        <Button 
+                                            variant="outline" 
+                                            size="sm" 
+                                            onClick={() => setCurrentPage(p => p + 1)}
+                                            disabled={currentPage * pageSize >= totalCampaignsCount}
+                                            className="h-8 text-xs"
+                                        >
+                                            Próxima
+                                        </Button>
+                                    </div>
+                                </div>
+                                </>
                             )}
                         </CardContent>
                     </Card>

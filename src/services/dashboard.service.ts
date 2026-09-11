@@ -124,6 +124,12 @@ export const dashboardService = {
         total_contacts: number;
         link_sent_contacts: number;
         conversion_rate: number;
+        step1_analysis_requested?: number;
+        step2_credit_approved?: number;
+        step3_simulation_done?: number;
+        step4_proposal_confirmed?: number;
+        edenred_conversion_rate?: number;
+        fiserv_conversion_rate?: number;
     }> {
         const { data, error } = await supabaseReader.rpc('get_edenred_conversion_funnel', {
             p_tenant_id: tenantId
@@ -134,7 +140,17 @@ export const dashboardService = {
             return { total_contacts: 0, link_sent_contacts: 0, conversion_rate: 0 };
         }
 
-        return data as { total_contacts: number; link_sent_contacts: number; conversion_rate: number };
+        return data as {
+            total_contacts: number;
+            link_sent_contacts: number;
+            conversion_rate: number;
+            step1_analysis_requested?: number;
+            step2_credit_approved?: number;
+            step3_simulation_done?: number;
+            step4_proposal_confirmed?: number;
+            edenred_conversion_rate?: number;
+            fiserv_conversion_rate?: number;
+        };
     },
 
     async getExecutiveInsights(tenantId: string, days: number): Promise<any> {

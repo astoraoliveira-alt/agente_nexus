@@ -7,6 +7,24 @@ import { cn } from "@/lib/utils";
 import { useApp } from "@/contexts/AppContext";
 import { maskSensitiveData } from "@/lib/masking";
 import { normalizeMessagingText } from "@/lib/message-formatting";
+import { format, isToday, isYesterday } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+const formatDateDivider = (dateStr: string | Date | undefined) => {
+    if (!dateStr) return 'Hoje';
+    const date = new Date(dateStr);
+    if (isToday(date)) return 'Hoje';
+    if (isYesterday(date)) return 'Ontem';
+    return format(date, "dd 'de' MMMM 'de' yyyy", { locale: ptBR });
+};
+
+const formatWaDate = (dateStr: string | Date | undefined) => {
+    if (!dateStr) return 'hoje';
+    const date = new Date(dateStr);
+    if (isToday(date)) return 'hoje';
+    if (isYesterday(date)) return 'ontem';
+    return format(date, "dd/MM/yyyy");
+};
 
 // Helper to format time like WhatsApp (HH:mm)
 const formatWaTime = (dateStr: string) => {
@@ -107,7 +125,7 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                     </Avatar>
                     <div className="flex-1 min-w-0 cursor-pointer">
                         <h3 className="font-medium text-base truncate leading-tight">{conversation.userName || conversation.userId}</h3>
-                        <p className="text-xs text-white/80 truncate">online hoje às {formatWaTime(conversation.lastMessageTime?.toISOString() || new Date().toISOString())}</p>
+                        <p className="text-xs text-white/80 truncate">online {formatWaDate(conversation.lastMessageTime || new Date())} às {formatWaTime(conversation.lastMessageTime?.toISOString() || new Date().toISOString())}</p>
                     </div>
                     <div className="flex items-center gap-4 mr-2">
                         <Video className="w-5 h-5 cursor-pointer" />
@@ -120,27 +138,35 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
             {/* Messages Area */}
             <ScrollArea className="flex-1 min-w-0" ref={scrollRef}>
                 <div className="w-full min-w-0 px-3 py-2 space-y-2 relative z-10 overflow-x-hidden">
-                    {/* Date Divider Example */}
-                    <div className="flex justify-center my-3">
-                        <span className="bg-[#E4ECEC] dark:bg-[#1f2c34] text-[#5e6c71] dark:text-[#8696a0] text-xs px-2 py-1 rounded-md shadow-sm">
-                            Hoje
-                        </span>
-                    </div>
+                    {(() => {
+                        let lastDateStr = '';
+                        return conversation.messages?.map((msg) => {
+                            // Robust check for "Me" (Agent) vs "Them" (User)
+                            const rawRole = (msg.sender || (msg as any).sender_type || '').toLowerCase().trim();
 
-                    {conversation.messages?.map((msg) => {
-                        // Robust check for "Me" (Agent) vs "Them" (User)
-                        const rawRole = (msg.sender || (msg as any).sender_type || '').toLowerCase().trim();
+                            // Mirror the desktop rule exactly:
+                            // only explicit "user" stays on the left, everything else goes to the right.
+                            const isThem = rawRole === 'user';
+                            const isMe = !isThem;
 
-                        // Mirror the desktop rule exactly:
-                        // only explicit "user" stays on the left, everything else goes to the right.
-                        const isThem = rawRole === 'user';
-                        const isMe = !isThem;
+                            const parsedContent = parseMessageContent(msg.content || '');
+                            const parsedTranscription = parseMessageContent((msg as any).transcription || '');
+                            const displayText = parsedContent || parsedTranscription;
 
-                        const parsedContent = parseMessageContent(msg.content || '');
-                        const parsedTranscription = parseMessageContent((msg as any).transcription || '');
-                        const displayText = parsedContent || parsedTranscription;
+                            const msgDateObj = msg.timestamp ? new Date(msg.timestamp) : new Date();
+                            const msgDateStr = msgDateObj.toDateString();
+                            const showDateDivider = msgDateStr !== lastDateStr;
+                            lastDateStr = msgDateStr;
 
-                        return (
+                            return (
+                                <React.Fragment key={msg.id}>
+                                    {showDateDivider && (
+                                        <div className="flex justify-center my-3">
+                                            <span className="bg-[#E4ECEC] dark:bg-[#1f2c34] text-[#5e6c71] dark:text-[#8696a0] text-xs px-2 py-1 rounded-md shadow-sm">
+                                                {formatDateDivider(msgDateObj)}
+                                            </span>
+                                        </div>
+                                    )}
                             <div key={msg.id} className={cn("flex w-full min-w-0 mb-2 group items-center", isMe ? "justify-end" : "justify-start")}>
                                 {isMe && (
                                     <button 
@@ -205,9 +231,11 @@ export function WhatsAppView({ conversation, onBack }: WhatsAppViewProps) {
                                         <Copy className="w-3.5 h-3.5" />
                                     </button>
                                 )}
-                            </div>
-                        );
-                    })}
+                                </div>
+                                </React.Fragment>
+                            );
+                        });
+                    })()}
                     <div ref={messagesEndRef} />
                 </div>
             </ScrollArea>
