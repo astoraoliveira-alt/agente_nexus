@@ -30,7 +30,8 @@ import {
   Calendar,
   Building2,
   Phone,
-  UserCheck
+  UserCheck,
+  MessageSquare
 } from 'lucide-react';
 import { formatDistanceToNow, differenceInHours } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -129,20 +130,23 @@ export default function SalesCockpit() {
       const data = await api.getSalesCockpitLeads(currentTenant.id);
       setLeads(data);
 
-      if (data.length > 0 && !activeLeadId) {
+      if (data.length > 0) {
         // Encontrar primeiro pendente ou o primeiro da lista
-        const firstPending = data.find(l => l.pipelineStage === 'pending_contact') || data[0];
-        setActiveLeadId(firstPending.id);
-        if (firstPending.conversation) {
-          setSelectedConversation(firstPending.conversation);
+        const firstLead = data.find(l => l.pipelineStage === 'pending_contact') || data[0];
+        setActiveLeadId(firstLead.id);
+        if (firstLead.conversation) {
+          setSelectedConversation(firstLead.conversation);
         } else {
-          api.getOrCreateConversationForLead(firstPending, currentTenant.id).then(conv => {
+          api.getOrCreateConversationForLead(firstLead, currentTenant.id).then(conv => {
             if (conv) {
-              setLeads(prev => prev.map(l => l.id === firstPending.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
+              setLeads(prev => prev.map(l => l.id === firstLead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
               setSelectedConversation(conv);
             }
           }).catch(console.error);
         }
+      } else {
+        setActiveLeadId(null);
+        setSelectedConversation(null);
       }
     } catch (error) {
       console.error('Erro ao carregar leads do Cockpit:', error);
@@ -153,6 +157,8 @@ export default function SalesCockpit() {
   };
 
   useEffect(() => {
+    setActiveLeadId(null);
+    setSelectedConversation(null);
     loadLeads();
   }, [currentTenant?.id]);
 
@@ -163,6 +169,7 @@ export default function SalesCockpit() {
 
   // Lead Ativo Atual
   const activeLead = useMemo(() => {
+    if (leads.length === 0) return null;
     return leads.find(l => l.id === activeLeadId) || leads[0] || null;
   }, [leads, activeLeadId]);
 
@@ -430,13 +437,10 @@ export default function SalesCockpit() {
                             : "hover:bg-slate-50 dark:hover:bg-card/70 border-slate-200 dark:border-slate-800"
                         )}
                       >
-                        {/* Topo do Card: Razão Social + Badge Aprovado Fiserv */}
+                        {/* Topo do Card: Razão Social */}
                         <div className="flex items-start justify-between gap-1.5 mb-1">
-                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate block max-w-[170px]" title={lead.name}>
+                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate block w-full" title={lead.name}>
                             {lead.name}
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 flex-shrink-0">
-                            <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" /> Aprovado Fiserv
                           </span>
                         </div>
 
@@ -458,11 +462,17 @@ export default function SalesCockpit() {
                           </span>
                         </div>
 
-                        {/* Rodapé do Card: Status do Funil + Tempo de Espera SLA */}
+                        {/* Rodapé do Card: Tempo de Espera SLA / Status */}
                         <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px]">
-                          <span className={cn("px-2 py-0.5 rounded-md font-semibold border", stageMeta.bgClass, stageMeta.textClass, stageMeta.borderClass)}>
-                            {stageMeta.label}
-                          </span>
+                          {selectedStage === 'all' ? (
+                            <span className={cn("px-2 py-0.5 rounded-md font-semibold border", stageMeta.bgClass, stageMeta.textClass, stageMeta.borderClass)}>
+                              {stageMeta.label}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              {lead.assignedOperator || 'Aguardando Operador'}
+                            </span>
+                          )}
                           
                           <span className={cn("px-1.5 py-0.5 rounded flex items-center font-medium", slaAlert.badgeClass)} title={slaAlert.tooltip}>
                             {slaAlert.icon}
@@ -508,73 +518,85 @@ export default function SalesCockpit() {
           {/* COLUNA 2: Chat com Atendimento Humano Exclusivo (Flex)        */}
           {/* ============================================================ */}
           <div className="flex-1 flex flex-col min-w-0 border-r border-border bg-background relative h-full overflow-hidden">
-            {/* Barra de Ação HITL para o Operador Formalizar no WhatsApp */}
-            <div className="px-4 py-2 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2 flex-shrink-0">
-              {selectedConversation?.status === 'human_active' ? (
-                <>
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                      <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-                      Atendente: <strong className="text-emerald-700 dark:text-emerald-400 font-extrabold">{(!selectedConversation.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador')) ? (currentUser?.name || 'Carlos Silva') : selectedConversation.assignedOperator}</strong>
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden lg:inline">
-                      • Sofia pausada • WhatsApp oficial ativo
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleReturnToAI}
-                      className="h-7 text-xs font-semibold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
-                    >
-                      Devolver para IA
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleFinalizeFormalization}
-                      className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Finalizar Formalização
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-2 w-2 rounded-full bg-blue-500" />
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                      Atendimento com Sofia (IA)
-                    </span>
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
-                      • Operador disponível: <strong className="text-slate-800 dark:text-slate-200 font-medium">{currentUser?.name || 'Carlos Silva'}</strong>
-                    </span>
-                  </div>
-                  {hasPermission('sales_cockpit.takeover') && (
-                    <Button
-                      size="sm"
-                      onClick={handleTakeover}
-                      className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-                    >
-                      <User className="h-3.5 w-3.5" />
-                      Assumir Atendimento (Handoff HITL)
-                    </Button>
+            {activeLead && selectedConversation ? (
+              <>
+                {/* Barra de Ação HITL para o Operador Formalizar no WhatsApp */}
+                <div className="px-4 py-2 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2 flex-shrink-0">
+                  {selectedConversation?.status === 'human_active' ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                          <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
+                          Atendente: <strong className="text-emerald-700 dark:text-emerald-400 font-extrabold">{(!selectedConversation.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador')) ? (currentUser?.name || 'Carlos Silva') : selectedConversation.assignedOperator}</strong>
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden lg:inline">
+                          • Sofia pausada • WhatsApp oficial ativo
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleReturnToAI}
+                          className="h-7 text-xs font-semibold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
+                        >
+                          Devolver para IA
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleFinalizeFormalization}
+                          className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          Finalizar Formalização
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-2 w-2 rounded-full bg-blue-500" />
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                          Atendimento com Sofia (IA)
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
+                          • Operador disponível: <strong className="text-slate-800 dark:text-slate-200 font-medium">{currentUser?.name || 'Carlos Silva'}</strong>
+                        </span>
+                      </div>
+                      {hasPermission('sales_cockpit.takeover') && (
+                        <Button
+                          size="sm"
+                          onClick={handleTakeover}
+                          className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+                        >
+                          <User className="h-3.5 w-3.5" />
+                          Assumir Atendimento (Handoff HITL)
+                        </Button>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
+                </div>
 
-            {/* Componente Oficial de Chat - Input fixo e ativo sem IA */}
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative w-full">
-              <ChatArea 
-                conversation={selectedConversation} 
-                highlightTerm={searchTerm}
-                alwaysAllowInput={true}
-                hideAiControls={true}
-              />
-            </div>
+                {/* Componente Oficial de Chat - Input fixo e ativo sem IA */}
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative w-full">
+                  <ChatArea 
+                    conversation={selectedConversation} 
+                    highlightTerm={searchTerm}
+                    alwaysAllowInput={true}
+                    hideAiControls={true}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
+                <MessageSquare className="h-12 w-12 stroke-[1.5] mb-3 text-slate-300 dark:text-slate-700" />
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Nenhum lead selecionado</p>
+                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                  Selecione um lead da fila à esquerda para visualizar a conversa e o raio-x da proposta de crédito.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ============================================================ */}

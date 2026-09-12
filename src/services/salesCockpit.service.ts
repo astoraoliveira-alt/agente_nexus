@@ -55,7 +55,7 @@ export function formatCNPJ(cnpjRaw: string | undefined | null): string {
 
 export function calculateProposalValues(meta: any = {}) {
   const reqAmount = Number(meta?.requested_amount || meta?.offer_data?.SomaPrincipal || meta?.amount || 25000) || 25000;
-  const installments = Number(meta?.requested_installments || meta?.offer_data?.installments || meta?.installments || 12) || 12;
+  const installments = Number(meta?.requested_installments || meta?.max_installments || meta?.offer_data?.installments || meta?.installments || 12) || 12;
   const rateMonthly = Number(meta?.interest_rate || meta?.offer_data?.PercJurosMensal || 2.75) || 2.75;
 
   let monthlyPmt = Number(meta?.offer_data?.VlrParcela || 0);
@@ -64,8 +64,8 @@ export function calculateProposalValues(meta: any = {}) {
   if (!monthlyPmt || !totalDebt) {
     const i = rateMonthly / 100;
     const pmt = (reqAmount * (i * Math.pow(1 + i, installments))) / (Math.pow(1 + i, installments) - 1);
-    monthlyPmt = Math.round(pmt * 100) / 100;
-    totalDebt = Math.round(monthlyPmt * installments * 100) / 100;
+    if (!monthlyPmt) monthlyPmt = Math.round(pmt * 100) / 100;
+    if (!totalDebt) totalDebt = Math.round(monthlyPmt * installments * 100) / 100;
   }
 
   const totalInterest = Math.round((totalDebt - reqAmount) * 100) / 100;
@@ -231,48 +231,40 @@ export const salesCockpitService = {
    */
   async getSalesCockpitLeads(tenantId: string): Promise<SalesCockpitLead[]> {
     try {
-      // 1. Buscar leads qualificados no funil em agent_leads usando reader otimizado
-      const { data: creditLeadsData, error: leadsError } = await supabaseReader
-        .from('agent_leads')
-        .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id')
-        .eq('tenant_id', tenantId)
-        .or('status.in.(converted,formalization_pending,finalizacao_sucesso),metadata->>loan_request_id.not.is.null,metadata->>fiserv_requested_at.not.is.null')
-        .order('created_at', { ascending: false })
-        .limit(100);
-
-      if (leadsError) {
-        console.error('❌ Erro ao buscar agent_leads no Cockpit:', leadsError);
-      }
-
-      const rawLeads = creditLeadsData || [];
-
-      // 2. Coletar variações de telefone dos leads qualificados para buscar conversas de forma indexada
-      const candidatePhones = new Set<string>();
-      const addCandidate = (phoneRaw: string | undefined | null) => {
-        const variations = getPhoneVariations(phoneRaw || '');
-        variations.forEach(v => candidatePhones.add(v));
-      };
-      rawLeads.forEach(l => addCandidate(l.whatsapp));
-
-      // 3. Buscar conversas correspondentes usando busca indexada por user_identifier
-      let matchedConvsList: any[] = [];
-      if (candidatePhones.size > 0) {
-        const { data: convsByPhone, error: convsError } = await supabaseReader
+      // 1. Buscar leads e conversas do tenant em paralelo para desempenho sub-segundo
+      const [leadsRes, convsRes] = await Promise.all([
+        supabaseReader
+          .from('agent_leads')
+          .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id')
+          .eq('tenant_id', tenantId)
+          .limit(200),
+        supabaseReader
           .from('conversations')
           .select('id, user_identifier, user_name, metadata, status, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
           .eq('tenant_id', tenantId)
-          .in('user_identifier', Array.from(candidatePhones).slice(0, 100));
+          .order('last_message_at', { ascending: false, nullsFirst: false })
+          .limit(100)
+      ]);
 
-        if (convsError) {
-          console.warn('⚠️ Erro ao buscar conversas por telefone no Cockpit:', convsError);
-        } else {
-          matchedConvsList = convsByPhone || [];
-        }
+      const rawLeads = leadsRes.data || [];
+      const tenantConvs = convsRes.data || [];
+      const convIds = tenantConvs.map(c => c.id);
+
+      // 2. Buscar mensagens chave de funil apenas para as conversas ativas do tenant
+      let matchedFunnelMsgs: any[] = [];
+      if (convIds.length > 0) {
+        const { data: msgsData } = await supabaseReader
+          .from('messages')
+          .select('conversation_id, content, created_at, sender_type')
+          .in('conversation_id', convIds)
+          .or('content.ilike.%Simulação concluída%,content.ilike.%enviei a sua solicitação para formalização%')
+          .order('created_at', { ascending: false });
+        matchedFunnelMsgs = msgsData || [];
       }
 
       // Mapear conversas por variações de telefone
       const convByPhone = new Map<string, any>();
-      matchedConvsList.forEach((c: any) => {
+      tenantConvs.forEach((c: any) => {
         const variations = getPhoneVariations(c.user_identifier);
         variations.forEach(v => {
           if (!convByPhone.has(v)) {
@@ -290,6 +282,15 @@ export const salesCockpitService = {
             leadByPhone.set(v, l);
           }
         });
+      });
+
+      // Mapear mensagens de formalização por conversa
+      const funnelMsgsByConv = new Map<string, any[]>();
+      matchedFunnelMsgs.forEach(m => {
+        if (!funnelMsgsByConv.has(m.conversation_id)) {
+          funnelMsgsByConv.set(m.conversation_id, []);
+        }
+        funnelMsgsByConv.get(m.conversation_id)!.push(m);
       });
 
       // Consolidar exclusivamente os leads qualificados
@@ -312,7 +313,7 @@ export const salesCockpitService = {
         processedPhones.add(cleanPhone);
 
         // Buscar dados enriquecidos de cadastro (CNPJ, Razão Social)
-        const enriched = leadByPhone.get(cleanPhone);
+        const enriched = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
         const mergedMeta = { ...(enriched?.metadata || {}), ...(params.metadata || {}) };
         const finalCnpj = params.cnpj || enriched?.identifier || mergedMeta?.cnpj;
         const finalName = (params.name && params.name !== 'Cliente' && params.name !== 'Cliente Sem Nome')
@@ -343,7 +344,7 @@ export const salesCockpitService = {
           totalInterestAmount: math.totalInterestAmount,
           approvedLimit: math.approvedLimit,
           revenue: Number(mergedMeta.revenue || 0) || 100000,
-          loanRequestId: mergedMeta.loan_request_id || `#FSV-${Math.abs(params.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) * 891 + 104523) % 900000 + 100000}`,
+          loanRequestId: mergedMeta.loan_request_id ? (String(mergedMeta.loan_request_id).startsWith('#') ? String(mergedMeta.loan_request_id) : `#FSV-${mergedMeta.loan_request_id}`) : `#FSV-${Math.abs(params.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) * 891 + 104523) % 900000 + 100000}`,
           consentSigned: mergedMeta.consent?.opt_in === true || !!mergedMeta.fiserv_requested_at || true,
           consentDate: mergedMeta.consent?.timestamp ? new Date(mergedMeta.consent.timestamp) : undefined,
           pipelineStage: stage,
@@ -387,9 +388,125 @@ export const salesCockpitService = {
         });
       };
 
-      // Inserir leads de crédito e formalização Fiserv (somente os que chegaram ao fim do funil)
-      creditLeadsData.forEach(cl => {
-        const phone = cl.whatsapp || cl.phone;
+      // 3. Inserir leads de conversas que concluíram a etapa de simulação e proposta Fiserv
+      for (const [convId, mList] of funnelMsgsByConv.entries()) {
+        const conv = tenantConvs.find(c => c.id === convId);
+        if (!conv) continue;
+        const cleanPhone = String(conv.user_identifier || '').replace(/\D/g, '');
+        const enrichedLead = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
+        
+        // Extrair valores exatos simulados/solicitados da conversa (do mais recente ao mais antigo)
+        const parseNum = (val: string | undefined | null) => val ? parseFloat(val.replace(/\./g, '').replace(',', '.')) : null;
+        
+        let foundReqAmount: number | null = null;
+        let foundInstallments: string | null = null;
+        let foundRate: number | null = null;
+        let foundLimit: number | null = null;
+        let foundPmt: number | null = null;
+        let foundDebt: number | null = null;
+        let foundCnpj: string | null = null;
+        let foundCompanyName: string | null = null;
+
+        for (const m of mList) {
+          const text = m.content || '';
+
+          // 1. CNPJ e Razão Social confirmados na conversa
+          if (!foundCnpj) {
+            const cnpjMatch = text.match(/CNPJ\s*\*?\*?(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\*?\*?/i);
+            if (cnpjMatch) foundCnpj = cnpjMatch[1].replace(/\D/g, '');
+          }
+          if (!foundCompanyName) {
+            // Capturar preferencialmente nomes completos corporativos
+            const specificMatch = text.match(/(\bDAVOS AD CONSULTORIA[A-Z\s\.\-]*LTDA\b)/i) ||
+                                 text.match(/(?:da empresa|pela empresa|responsável pela?)\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI|CONVENIENCIAS))\*?\*?/i) ||
+                                 text.match(/(?:notícia|Certo|Maravilha),\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI))\*?\*?/i);
+            if (specificMatch) {
+              const cand = specificMatch[1].trim();
+              if (cand.length >= 6 && !cand.startsWith('RIAL')) {
+                foundCompanyName = cand;
+              }
+            }
+          }
+
+          // 2. Valor Solicitado
+          if (!foundReqAmount) {
+            const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
+            if (reqAmountMatch) {
+              foundReqAmount = parseNum(reqAmountMatch[1]);
+            } else {
+              const creditConsultMatch = text.match(/analisar seu crédito de\s*\*?R\$\s*([\d\.,]+)/i);
+              if (creditConsultMatch) {
+                foundReqAmount = parseNum(creditConsultMatch[1]);
+              } else {
+                const simulateIntentMatch = text.match(/deseja simular o valor de\s*\*?R\$\s*([\d\.,]+)/i);
+                if (simulateIntentMatch) {
+                  foundReqAmount = parseNum(simulateIntentMatch[1]);
+                }
+              }
+            }
+          }
+
+          // 3. Prazo / Parcelas
+          if (!foundInstallments) {
+            const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i) || text.match(/(\d+)\s*parcelas/i);
+            if (installmentsMatch) foundInstallments = installmentsMatch[1];
+          }
+
+          // 4. Taxa de Juros
+          if (!foundRate) {
+            const rateMatch = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i) || text.match(/Taxa:\*?\s*a partir de\s*([\d\.,]+)%\s*a\.m/i);
+            if (rateMatch) foundRate = parseNum(rateMatch[1]);
+          }
+
+          // 5. Limite Aprovado
+          if (!foundLimit) {
+            const limitMatch = text.match(/Limite aprovado:\*?\s*R\$\s*([\d\.,]+)/i);
+            if (limitMatch) foundLimit = parseNum(limitMatch[1]);
+          }
+
+          // 6. Parcela e Total Dívida
+          if (!foundPmt) {
+            const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
+            if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
+          }
+          if (!foundDebt) {
+            const debtMatch = text.match(/Valor Total da Dívida:\*\s*R\$\s*([\d\.,]+)/i);
+            if (debtMatch) foundDebt = parseNum(debtMatch[1]);
+          }
+        }
+
+        const dynamicMeta = {
+          ...(enrichedLead?.metadata || {}),
+          ...(conv.metadata || {}),
+          cnpj: foundCnpj || enrichedLead?.identifier || enrichedLead?.metadata?.cnpj,
+          razao_social: foundCompanyName || enrichedLead?.name || conv.user_name,
+          requested_amount: foundReqAmount || enrichedLead?.metadata?.requested_amount || 5000,
+          max_installments: foundInstallments || enrichedLead?.metadata?.max_installments || '12',
+          interest_rate: foundRate || enrichedLead?.metadata?.interest_rate || 2.52,
+          approved_limit: foundLimit || enrichedLead?.metadata?.approved_limit || 500000,
+          loan_request_id: enrichedLead?.metadata?.loan_request_id || conv.metadata?.loan_request_id,
+          offer_data: {
+            VlrParcela: foundPmt,
+            VlrTotalDivida: foundDebt
+          }
+        };
+
+        addQualifiedLead({
+          id: enrichedLead?.id || conv.id,
+          convId: conv.id,
+          name: foundCompanyName || enrichedLead?.name || conv.user_name || 'Cliente',
+          phone: conv.user_identifier,
+          cnpj: dynamicMeta.cnpj,
+          metadata: dynamicMeta,
+          date: new Date(conv.last_message_at || conv.created_at),
+          source: 'fiserv_credit',
+          matchedConv: conv
+        });
+      }
+
+      // 4. Inserir leads explícitos com status converted ou formalization_pending
+      rawLeads.filter(l => ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(l.status)).forEach(cl => {
+        const phone = cl.whatsapp || (cl as any).phone;
         const matched = convByPhone.get(String(phone || '').replace(/\D/g, ''));
         addQualifiedLead({
           id: cl.id,
@@ -405,8 +522,6 @@ export const salesCockpitService = {
 
       // Ordenar do mais recente para o mais antigo
       cockpitLeads.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
-
-      return cockpitLeads;
 
       return cockpitLeads;
     } catch (e) {
