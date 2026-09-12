@@ -16,12 +16,34 @@ function getUrlError(): { code?: string; message?: string } | null {
   return { code: errorCode, message: errorDescription?.replace(/\+/g, ' ') };
 }
 
+function translateAuthError(message: string): string {
+  if (!message) return 'Erro ao definir a senha. Tente novamente.';
+  const lower = message.toLowerCase();
+  if (lower.includes('weak') || lower.includes('easy to guess')) {
+    return 'A senha escolhida é muito fraca ou comum. Escolha uma senha mais forte combinando letras, números e caracteres especiais.';
+  }
+  if (lower.includes('least 8 characters') || lower.includes('should be at least')) {
+    return 'A senha deve ter no mínimo 8 caracteres.';
+  }
+  if (lower.includes('same as') || lower.includes('should be different')) {
+    return 'A nova senha não pode ser igual à anterior.';
+  }
+  if (lower.includes('expired') || lower.includes('invalid')) {
+    return 'O link de acesso expirou ou já foi utilizado. Solicite um novo convite ou recuperação.';
+  }
+  if (lower.includes('network') || lower.includes('fetch')) {
+    return 'Falha de conexão com o servidor. Verifique sua internet.';
+  }
+  return message;
+}
+
 export default function SetPassword() {
   const navigate = useNavigate();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -34,11 +56,6 @@ export default function SetPassword() {
   }, []);
 
   useEffect(() => {
-    if (!urlError) return;
-    toast.error(urlError.message || 'Link inválido ou expirado.');
-  }, [urlError]);
-
-  useEffect(() => {
     // Best-effort: if the invite/recovery link establishes a session, supabase will persist it.
     // If there is no session, user needs to request a new invite/reset.
     (async () => {
@@ -49,12 +66,14 @@ export default function SetPassword() {
 
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+
     if (password.length < 8) {
-      toast.error('A senha deve ter no mínimo 8 caracteres.');
+      setFormError('A senha deve ter no mínimo 8 caracteres.');
       return;
     }
     if (password !== confirmPassword) {
-      toast.error('As senhas não conferem.');
+      setFormError('As senhas digitadas não coincidem. Verifique e tente novamente.');
       return;
     }
 
@@ -62,15 +81,13 @@ export default function SetPassword() {
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) {
-        toast.error('Link inválido ou expirado. Solicite um novo convite.');
+        setFormError('Link inválido ou expirado. Por favor, solicite um novo convite.');
         return;
       }
 
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
 
-      toast.success('Senha definida com sucesso! Faça login com suas novas credenciais.');
-      
       // Clear any cached session and sign out from the temporary recovery session
       localStorage.removeItem('davos_session');
       localStorage.removeItem('davos_active_tenant_id');
@@ -79,7 +96,7 @@ export default function SetPassword() {
       navigate('/login', { replace: true });
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.message || 'Erro ao definir senha.');
+      setFormError(translateAuthError(err?.message || ''));
     } finally {
       setIsLoading(false);
     }
@@ -189,6 +206,16 @@ export default function SetPassword() {
                     Voltar para Login
                   </Button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {formError && (
+            <div className="mb-6 border border-red-500/30 bg-[#1A0B0B] p-4 rounded-[2px] flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <ShieldAlert className="h-5 w-5 text-[#FF4500] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-[13px] text-white">Não foi possível definir a senha</div>
+                <div className="text-xs text-neutral-300 mt-1 leading-relaxed">{formError}</div>
               </div>
             </div>
           )}
