@@ -204,7 +204,7 @@ export const AuthService = {
         const { data, error } = await supabase
             .from('users')
             .select('*')
-            .eq('status', 'pending')
+            .or('status.eq.pending,status.eq.invited')
             .order('created_at', { ascending: false });
 
         if (error) throw error;

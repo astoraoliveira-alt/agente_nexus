@@ -133,7 +133,7 @@ export default function SalesCockpit() {
         // Encontrar primeiro pendente ou o primeiro da lista
         const firstPending = data.find(l => l.pipelineStage === 'pending_contact') || data[0];
         setActiveLeadId(firstPending.id);
-        if (firstPending.conversation && firstPending.conversation.id !== firstPending.id) {
+        if (firstPending.conversation) {
           setSelectedConversation(firstPending.conversation);
         } else {
           api.getOrCreateConversationForLead(firstPending, currentTenant.id).then(conv => {
@@ -171,13 +171,13 @@ export default function SalesCockpit() {
     setActiveLeadId(lead.id);
 
     // 1. Se já possui conversa válida mapeada em memória
-    if (lead.conversation && lead.conversationId && lead.conversationId !== lead.id) {
+    if (lead.conversation) {
       setSelectedConversation(lead.conversation);
       return;
     }
 
     // 2. Se possui conversationId válido na lista geral de conversas
-    if (lead.conversationId && lead.conversationId !== lead.id) {
+    if (lead.conversationId) {
       const existingConv = conversations?.find(c => c.id === lead.conversationId);
       if (existingConv) {
         setSelectedConversation(existingConv);

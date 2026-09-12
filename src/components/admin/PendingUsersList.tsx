@@ -27,6 +27,19 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
+function getRoleDisplayName(role?: string): string {
+    switch (role) {
+        case 'tenant_admin':
+            return 'Admin da Empresa';
+        case 'operator':
+            return 'Operador';
+        case 'super_admin':
+            return 'Super Admin';
+        default:
+            return role || 'Operador';
+    }
+}
+
 export function PendingUsersList() {
     const [pendingUsers, setPendingUsers] = useState<User[]>([]);
     const [companies, setCompanies] = useState<Company[]>([]);
@@ -62,11 +75,25 @@ export function PendingUsersList() {
 
     const handleApproveClick = (user: User) => {
         setSelectedUser(user);
-        setSelectedRole('operator'); // Reset default
-        setSelectedTenant(''); // Reset
-        setAvailableProfiles([]);
-        setSelectedProfileId('');
+        setSelectedRole(user.role || 'operator');
+        setSelectedTenant(user.tenantId || '');
+        setSelectedProfileId(user.profileId || '');
         setIsDialogOpen(true);
+    };
+
+    const handleQuickApprove = async (user: User) => {
+        if (!user.tenantId) {
+            handleApproveClick(user);
+            return;
+        }
+        try {
+            await AuthService.approveUser(user.id, user.tenantId, user.role || 'operator', user.profileId || null);
+            toast.success(`Acesso liberado com sucesso para ${user.name || user.email}!`);
+            loadData();
+        } catch (error) {
+            console.error(error);
+            toast.error("Erro ao aprovar usuário.");
+        }
     };
 
     useEffect(() => {
@@ -80,10 +107,12 @@ export function PendingUsersList() {
             try {
                 const profiles = await api.getProfiles(selectedTenant);
                 setAvailableProfiles(profiles);
-                const defaultProfile = profiles.find((profile: ManagedProfile) => profile.systemKey === selectedRole)
-                    || profiles.find((profile: ManagedProfile) => profile.systemKey === 'operator')
-                    || profiles[0];
-                setSelectedProfileId(defaultProfile?.id || '');
+                if (!selectedProfileId) {
+                    const defaultProfile = profiles.find((profile: ManagedProfile) => profile.systemKey === selectedRole)
+                        || profiles.find((profile: ManagedProfile) => profile.systemKey === 'operator')
+                        || profiles[0];
+                    setSelectedProfileId(defaultProfile?.id || '');
+                }
             } catch (error) {
                 console.error('Error loading profiles for approval:', error);
                 setAvailableProfiles([]);
@@ -135,19 +164,19 @@ export function PendingUsersList() {
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                         <UserPlus className="h-5 w-5 text-amber-500" />
-                        Solicitações de Acesso
+                        Solicitações de Acesso ({pendingUsers.length})
                     </CardTitle>
                     <CardDescription>
-                        Usuários aguardando vinculação e liberação.
+                        Usuários aguardando liberação de acesso e vinculação.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Data</TableHead>
                                 <TableHead>Nome</TableHead>
                                 <TableHead>Email</TableHead>
+                                <TableHead>Empresa / Função</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead className="text-right">Ações</TableHead>
                             </TableRow>
@@ -155,15 +184,21 @@ export function PendingUsersList() {
                         <TableBody>
                             {pendingUsers.map((user) => (
                                 <TableRow key={user.id}>
-                                    <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                                        Hoje {/* TODO: Add created_at to User type if needed */}
-                                    </TableCell>
-                                    <TableCell className="font-medium">{user.name}</TableCell>
+                                    <TableCell className="font-medium">{user.name || 'Sem nome'}</TableCell>
                                     <TableCell>{user.email}</TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">
+                                        <span className="font-medium text-foreground">{companies.find(c => c.id === user.tenantId)?.name || 'Não vinculada'}</span> • {getRoleDisplayName(user.role)}
+                                    </TableCell>
                                     <TableCell>
-                                        <Badge variant="outline" className="bg-amber-50 text-amber-600 border-amber-200">
-                                            Pendente
-                                        </Badge>
+                                        {user.status === 'invited' ? (
+                                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                                Aguardando Acesso
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+                                                Pendente
+                                            </Badge>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-right space-x-2">
                                         <Button
@@ -171,15 +206,16 @@ export function PendingUsersList() {
                                             variant="ghost"
                                             className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
                                             onClick={() => handleReject(user.id)}
+                                            title="Rejeitar"
                                         >
                                             <X className="h-4 w-4" />
                                         </Button>
                                         <Button
                                             size="sm"
-                                            className="h-8 bg-green-600 hover:bg-green-700"
-                                            onClick={() => handleApproveClick(user)}
+                                            className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-colors"
+                                            onClick={() => user.tenantId ? handleQuickApprove(user) : handleApproveClick(user)}
                                         >
-                                            <Check className="h-4 w-4 mr-1" /> Aprovar
+                                            <Check className="h-4 w-4 mr-1 text-white" /> Liberar Acesso
                                         </Button>
                                     </TableCell>
                                 </TableRow>

@@ -47,23 +47,13 @@ const rawReader = supabaseUrlReader && supabaseAnonKeyReader
             persistSession: false,
             autoRefreshToken: false,
             detectSessionInUrl: false
+        },
+        accessToken: async () => {
+            const { data } = await rawPrimary.auth.getSession();
+            return data.session?.access_token || '';
         }
     })
     : rawPrimary;
-
-if (rawPrimary !== rawReader) {
-    // Sync the session from the primary client so that RLS works on the reader
-    rawPrimary.auth.onAuthStateChange((event, session) => {
-        if (session) {
-            rawReader.auth.setSession({
-                access_token: session.access_token,
-                refresh_token: session.refresh_token
-            });
-        } else {
-            rawReader.auth.signOut();
-        }
-    });
-}
 
 export const supabaseReader = withTracking(rawReader, supabaseUrlReader ? 'replica' : 'primary');
 

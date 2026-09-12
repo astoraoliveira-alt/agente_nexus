@@ -1,51 +1,40 @@
 import { createClient } from '@supabase/supabase-js';
-import { readFileSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const url = 'https://wyfmyipbvoggusclwdhj.supabase.co';
+const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNzcwNDksImV4cCI6MjA4Njk1MzA0OX0.4-3d-b4-YvX6XoJm53d9e83g6Z02e48yBqH50U6tK0E'; // anon key
+const serviceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU';
+const supabaseAdmin = createClient(url, serviceKey);
 
-function loadEnv(filePath) {
-    try {
-        const content = readFileSync(filePath, 'utf8');
-        content.split('\n').forEach(line => {
-            const parts = line.split('=');
-            if (parts.length >= 2) {
-                const key = parts[0].trim();
-                const value = parts.slice(1).join('=').trim();
-                process.env[key] = value;
-            }
-        });
-    } catch(e) {}
+async function checkTenants() {
+  const { data: tenants } = await supabaseAdmin.from('tenants').select('id, name');
+  console.log('Tenants:', tenants);
+  const edenred = tenants?.find(t => t.name.toLowerCase().includes('edenred'));
+  const tenantId = edenred?.id;
+  console.log('Edenred ID:', tenantId);
+
+  // Check how many rows in agent_leads
+  const { count: leadCount } = await supabaseAdmin.from('agent_leads').select('*', { count: 'exact', head: true });
+  console.log('Total rows in agent_leads:', leadCount);
+
+  // Check how many rows in conversations
+  const { count: convCount } = await supabaseAdmin.from('conversations').select('*', { count: 'exact', head: true });
+  console.log('Total rows in conversations:', convCount);
+
+  // Check how many rows in messages
+  const { count: msgCount } = await supabaseAdmin.from('messages').select('*', { count: 'exact', head: true });
+  console.log('Total rows in messages:', msgCount);
+
+  // Let's test the exact query with tenant_id
+  console.time('agent_leads_with_tenant');
+  const { data: leads } = await supabaseAdmin
+    .from('agent_leads')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .or('status.eq.converted,status.eq.formalization_pending,status.eq.finalizacao_sucesso,metadata->>pipeline_stage.not.is.null,metadata->>loan_request_id.not.is.null,metadata->>fiserv_requested_at.not.is.null')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  console.timeEnd('agent_leads_with_tenant');
+  console.log('Leads found:', leads?.map(l => ({ name: l.name, status: l.status, meta: l.metadata })));
 }
 
-loadEnv(path.join(__dirname, '../porteiro/.env'));
-
-const supabase = createClient(
-  process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
-
-async function run() {
-  const campaignId = '9278ec92-c36c-48b4-9c8e-0ca6f0e69e38';
-
-  const { data, error } = await supabase.from('outbound_queue')
-    .select('status, contact_phone, sent_at, last_attempt_at')
-    .eq('campaign_id', campaignId);
-
-  if (error) {
-    console.error("Error:", error);
-  } else {
-    const statuses = {};
-    for (const row of data) {
-      statuses[row.status] = (statuses[row.status] || 0) + 1;
-    }
-    console.log("Status distribution:", statuses);
-    console.log("Total leads:", data.length);
-  }
-  
-  process.exit(0);
-}
-
-run();
+checkTenants();

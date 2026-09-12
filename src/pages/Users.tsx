@@ -1,4 +1,4 @@
-import { Users as UsersIcon, Plus, Search, MoreVertical, Mail, Pencil, Trash2 } from 'lucide-react';
+import { Users as UsersIcon, Plus, Search, MoreVertical, Mail, Pencil, Trash2, Check, ShieldCheck } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { User } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,7 @@ import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
+import { AuthService } from '@/services/auth';
 import { PendingUsersList } from '@/components/admin/PendingUsersList';
 import { ManagedProfile } from '@/lib/profile-management';
 
@@ -146,6 +147,22 @@ export default function Users() {
         ? 'Este email já existe no Supabase Auth. Se o usuário não recebeu o convite inicial, revise as configurações de email do Supabase ou envie um reset de senha.'
         : errorMessage || 'Erro ao enviar convite por email';
       toast.error(message);
+    }
+  };
+
+  const handleApproveUser = async (user: User) => {
+    try {
+      await AuthService.approveUser(
+        user.id, 
+        user.tenantId || currentTenant?.id || '', 
+        user.role || 'operator', 
+        user.profileId || null
+      );
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: 'active', isActive: true } : u));
+      toast.success(`Acesso liberado com sucesso para ${user.name || user.email}!`);
+    } catch (error) {
+      console.error('Error approving user:', error);
+      toast.error('Erro ao liberar acesso do usuário.');
     }
   };
 
@@ -301,7 +318,20 @@ export default function Users() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        {getStatusBadge(user.status)}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {getStatusBadge(user.status)}
+                          {(user.status === 'invited' || user.status === 'pending') && (hasPermission('users.edit') || currentUser?.role === 'super_admin') && (
+                            <Button
+                              size="sm"
+                              className="h-6 text-[11px] px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm transition-colors border-0"
+                              onClick={() => handleApproveUser(user)}
+                              title="Liberar Acesso Imediato"
+                            >
+                              <Check className="h-3 w-3 mr-1 text-white" />
+                              Liberar Acesso
+                            </Button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-4 text-right">
                         <DropdownMenu>
@@ -311,6 +341,12 @@ export default function Users() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {(user.status === 'invited' || user.status === 'pending') && (hasPermission('users.edit') || currentUser?.role === 'super_admin') && (
+                              <DropdownMenuItem className="text-emerald-600 font-medium cursor-pointer" onClick={() => handleApproveUser(user)}>
+                                <Check className="h-4 w-4 mr-2 text-emerald-600" />
+                                Liberar Acesso
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleSendInvite(user)}>
                               <Mail className="h-4 w-4 mr-2" />
                               Enviar Email

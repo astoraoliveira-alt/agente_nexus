@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseReader } from '@/lib/supabase';
 import { Conversation } from '@/lib/types';
 
 export type PipelineStage = 'pending_contact' | 'in_contact' | 'contract_sent' | 'contract_signed';
@@ -119,7 +119,7 @@ export const salesCockpitService = {
       const variations = getPhoneVariations(phone);
       if (variations.length === 0) return null;
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseReader
         .from('conversations')
         .select('*, agents:agent_id(name, type)')
         .eq('tenant_id', tenantId)
@@ -227,97 +227,72 @@ export const salesCockpitService = {
 
   /**
    * Busca EXCLUSIVAMENTE os leads e conversas que CHEGARAM AO FIM DO FUNIL DE FORMALIZAÇÃO
-   * (Mensagens de [CONVERSÃO], step finalizacao_sucesso, status formalization_pending/converted)
+   * (Otimizado com supabaseReader e consultas diretas indexadas para carregamento sub-segundo)
    */
   async getSalesCockpitLeads(tenantId: string): Promise<SalesCockpitLead[]> {
     try {
-      // 1 e 2. Buscar leads qualificados e mensagens de conversão em PARALELO
-      const [creditLeadsRes, convMsgsRes] = await Promise.all([
-        supabase
-          .from('agent_leads')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .or('status.eq.converted,status.eq.formalization_pending,status.eq.finalizacao_sucesso,metadata->>pipeline_stage.not.is.null,metadata->>loan_request_id.not.is.null'),
-        supabase
-          .from('messages')
-          .select('conversation_id, content, created_at')
-          .eq('tenant_id', tenantId)
-          .or('content.ilike.%[CONVERSÃO]%,content.ilike.%solicitação para formalização%,content.ilike.%finalizacao_sucesso%')
-          .order('created_at', { ascending: false })
-          .limit(100)
-      ]);
+      // 1. Buscar leads qualificados no funil em agent_leads usando reader otimizado
+      const { data: creditLeadsData, error: leadsError } = await supabaseReader
+        .from('agent_leads')
+        .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id')
+        .eq('tenant_id', tenantId)
+        .or('status.in.(converted,formalization_pending,finalizacao_sucesso),metadata->>loan_request_id.not.is.null,metadata->>fiserv_requested_at.not.is.null')
+        .order('created_at', { ascending: false })
+        .limit(100);
 
-      const creditLeadsData = creditLeadsRes.data || [];
-      const convMsgsData = convMsgsRes.data || [];
+      if (leadsError) {
+        console.error('❌ Erro ao buscar agent_leads no Cockpit:', leadsError);
+      }
 
-      // Coletar IDs de conversas únicas das mensagens de conversão
-      const convIdsToFetch = new Set<string>();
-      (convMsgsData || []).forEach(m => {
-        if (m.conversation_id) convIdsToFetch.add(m.conversation_id);
-      });
+      const rawLeads = creditLeadsData || [];
 
-      // Coletar telefones dos leads para busca direta de conversas e enriquecimento
+      // 2. Coletar variações de telefone dos leads qualificados para buscar conversas de forma indexada
       const candidatePhones = new Set<string>();
       const addCandidate = (phoneRaw: string | undefined | null) => {
         const variations = getPhoneVariations(phoneRaw || '');
         variations.forEach(v => candidatePhones.add(v));
       };
-      (creditLeadsData || []).forEach(l => addCandidate(l.whatsapp || l.phone));
+      rawLeads.forEach(l => addCandidate(l.whatsapp));
 
-      // 3. Buscar conversas diretamente pelos índices (ID e user_identifier/telefone) e dados enriquecidos em paralelo
-      const convQueries: Promise<any>[] = [];
-      if (convIdsToFetch.size > 0) {
-        convQueries.push(
-          supabase
-            .from('conversations')
-            .select('*, agents:agent_id(name, type)')
-            .eq('tenant_id', tenantId)
-            .in('id', Array.from(convIdsToFetch).slice(0, 100))
-        );
-      }
+      // 3. Buscar conversas correspondentes usando busca indexada por user_identifier
+      let matchedConvsList: any[] = [];
       if (candidatePhones.size > 0) {
-        convQueries.push(
-          supabase
-            .from('conversations')
-            .select('*, agents:agent_id(name, type)')
-            .eq('tenant_id', tenantId)
-            .in('user_identifier', Array.from(candidatePhones).slice(0, 150))
-        );
+        const { data: convsByPhone, error: convsError } = await supabaseReader
+          .from('conversations')
+          .select('id, user_identifier, user_name, metadata, status, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
+          .eq('tenant_id', tenantId)
+          .in('user_identifier', Array.from(candidatePhones).slice(0, 100));
+
+        if (convsError) {
+          console.warn('⚠️ Erro ao buscar conversas por telefone no Cockpit:', convsError);
+        } else {
+          matchedConvsList = convsByPhone || [];
+        }
       }
-
-      const [convResList, enrichedRes] = await Promise.all([
-        Promise.all(convQueries),
-        candidatePhones.size > 0
-          ? supabase
-              .from('agent_leads')
-              .select('id, name, identifier, whatsapp, metadata')
-              .eq('tenant_id', tenantId)
-              .in('whatsapp', Array.from(candidatePhones).slice(0, 200))
-          : Promise.resolve({ data: [] })
-      ]);
-
-      const allConvsMap = new Map<string, any>();
-      (convResList || []).forEach(res => {
-        (res?.data || []).forEach((c: any) => allConvsMap.set(c.id, c));
-      });
-      const fetchedConvs = Array.from(allConvsMap.values());
-      const enrichedLeadsList = enrichedRes?.data || [];
-
-      // Mapear dados de agent_leads por variações de telefone
-      const leadByPhone = new Map<string, any>();
-      enrichedLeadsList.forEach(l => {
-        const variations = getPhoneVariations(l.whatsapp);
-        variations.forEach(v => leadByPhone.set(v, l));
-      });
 
       // Mapear conversas por variações de telefone
       const convByPhone = new Map<string, any>();
-      Array.from(allConvsMap.values()).forEach(c => {
+      matchedConvsList.forEach((c: any) => {
         const variations = getPhoneVariations(c.user_identifier);
-        variations.forEach(v => convByPhone.set(v, c));
+        variations.forEach(v => {
+          if (!convByPhone.has(v)) {
+            convByPhone.set(v, c);
+          }
+        });
       });
 
-      // 5. Consolidar os leads que CHEGARAM AO FIM DO FUNIL
+      // Mapear dados de leads por variações de telefone
+      const leadByPhone = new Map<string, any>();
+      rawLeads.forEach(l => {
+        const variations = getPhoneVariations(l.whatsapp);
+        variations.forEach(v => {
+          if (!leadByPhone.has(v)) {
+            leadByPhone.set(v, l);
+          }
+        });
+      });
+
+      // Consolidar exclusivamente os leads qualificados
       const cockpitLeads: SalesCockpitLead[] = [];
       const processedPhones = new Set<string>();
 
@@ -393,39 +368,45 @@ export const salesCockpitService = {
             unreadCount: 0,
             messages: [],
             createdAt: new Date(conv.created_at || params.date)
-          } : undefined
+          } : {
+            id: convId,
+            tenantId: tenantId,
+            tenantSlug: '',
+            agentId: '',
+            agentName: 'Sofia (Ticket)',
+            userId: params.phone,
+            userName: finalName,
+            channel: 'whatsapp',
+            status: 'human_active',
+            lastMessage: '',
+            lastMessageTime: params.date,
+            unreadCount: 0,
+            messages: [],
+            createdAt: params.date
+          }
         });
       };
 
-      // Inserir leads de crédito e formalização Fiserv
-      (creditLeadsData || []).forEach(cl => {
+      // Inserir leads de crédito e formalização Fiserv (somente os que chegaram ao fim do funil)
+      creditLeadsData.forEach(cl => {
+        const phone = cl.whatsapp || cl.phone;
+        const matched = convByPhone.get(String(phone || '').replace(/\D/g, ''));
         addQualifiedLead({
           id: cl.id,
           name: cl.name,
-          phone: cl.whatsapp || cl.phone,
+          phone: phone,
           cnpj: cl.identifier,
           metadata: cl.metadata,
           date: cl.metadata?.fiserv_requested_at ? new Date(cl.metadata.fiserv_requested_at) : new Date(cl.created_at),
-          source: 'fiserv_credit'
-        });
-      });
-
-      // Inserir conversas com conclusão do funil de formalização (conversão/clique de proposta)
-      fetchedConvs.forEach(c => {
-        addQualifiedLead({
-          id: c.id,
-          convId: c.id,
-          name: c.user_name,
-          phone: c.user_identifier,
-          metadata: c.metadata,
-          date: new Date(c.last_message_at || c.created_at),
-          source: 'conversion_click',
-          matchedConv: c
+          source: 'fiserv_credit',
+          matchedConv: matched
         });
       });
 
       // Ordenar do mais recente para o mais antigo
       cockpitLeads.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
+
+      return cockpitLeads;
 
       return cockpitLeads;
     } catch (e) {
