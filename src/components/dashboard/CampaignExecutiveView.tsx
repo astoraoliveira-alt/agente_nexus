@@ -124,6 +124,7 @@ export function CampaignExecutiveView() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('15days');
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(15);
   const [totalCampaignsCount, setTotalCampaignsCount] = useState(0);
@@ -144,7 +145,7 @@ export function CampaignExecutiveView() {
     setCampaigns([]);
     setAgents([]);
     setIsLoading(false);
-  }, [currentTenant, currentPage, timeFilter]);
+  }, [currentTenant, currentPage, timeFilter, selectedAgentId]);
 
   const loadInitialData = async () => {
     if (!currentTenant) return;
@@ -163,6 +164,7 @@ export function CampaignExecutiveView() {
       const [campaignsResult, agentsData, globalStatsRaw] = await Promise.all([
         api.getCampaignsPaginated(currentTenant.id, {
             startDate,
+            agentId: selectedAgentId,
             page: currentPage,
             pageSize: pageSize,
             useReplica: false

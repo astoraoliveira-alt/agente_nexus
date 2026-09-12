@@ -28,7 +28,7 @@ export const conversationsService = {
         // Reverse to maintain chronological order in UI (mais antigas primeiro / no topo)
         const chronData = [...data].reverse();
 
-        return chronData.map((m: any) => {
+        const rawList = chronData.map((m: any) => {
             let cleanContent = m.content;
             try {
                 if (m.content && m.content.trim().startsWith('{')) {
@@ -55,6 +55,25 @@ export const conversationsService = {
                 statusDescription: m.metadata?.status_description || m.metadata?.last_status_description || m.metadata?.prov_error
             };
         }) as import('@/lib/types').Message[];
+
+        // Deduplicação defensiva: remove mensagens repetidas de eco (ex: inserção frontend + webhook n8n/gateway)
+        const deduplicated: import('@/lib/types').Message[] = [];
+        for (let i = 0; i < rawList.length; i++) {
+            const current = rawList[i];
+            const prev = deduplicated[deduplicated.length - 1];
+            if (prev) {
+                const sameSender = prev.sender === current.sender;
+                const sameContent = (prev.content || '').trim() === (current.content || '').trim();
+                const timeDiffMs = Math.abs(current.timestamp.getTime() - prev.timestamp.getTime());
+                // Se for o mesmo remetente, mesmo conteúdo e intervalo de até 10 segundos, omite duplicata de eco
+                if (sameSender && sameContent && timeDiffMs < 10000) {
+                    continue;
+                }
+            }
+            deduplicated.push(current);
+        }
+
+        return deduplicated;
     },
     async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
         // DEBUG: Chamando sendMessage
@@ -80,9 +99,13 @@ export const conversationsService = {
         // 2. Fetch agent config separately to avoid join issues
         const { data: agentData } = await supabase
             .from('agents')
-            .select('type, integration_config')
+            .select('type, integration_config, zenvia_channel_id, evolution_instance, whatsapp_provider')
             .eq('id', conv.agent_id)
             .maybeSingle();
+
+        // Normalizar nome do operador sem sufixo duplicado
+        const cleanSenderName = (senderName || 'Carlos Silva').replace(/\s*\((operador|operator)\)/gi, '').trim();
+        const externalId = `MANUAL-${conversationId.substring(0, 8)}-${Date.now()}`;
 
         const { error } = await supabase
             .from('messages')
@@ -91,8 +114,9 @@ export const conversationsService = {
                 tenant_id: conv.tenant_id,
                 content,
                 sender_type: sender,
-                sender_name: senderName,
+                sender_name: cleanSenderName,
                 message_type: type,
+                external_id: externalId,
                 created_at: new Date().toISOString()
             });
 
@@ -106,47 +130,60 @@ export const conversationsService = {
 
         // 3. Trigger N8N (Unified Flow via Queue)
         if (sender === 'human' && agentData) {
-            if (agentData.type === 'whatsapp') {
-                const dynamicUrl = agentData.integration_config?.n8n_webhook_url;
-                const n8nUrl = dynamicUrl || import.meta.env.VITE_N8N_WEBHOOK_URL;
-                const traceId = `CHT-MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
+            const officialN8nUrl = 'https://n8n.davosconsulting.com.br/webhook/nexushub';
+            const dynamicUrl = agentData.integration_config?.n8n_webhook_url;
+            const n8nUrl = (dynamicUrl && !dynamicUrl.includes('api.davosconsulting.com.br'))
+                ? dynamicUrl
+                : (import.meta.env.VITE_N8N_INBOUND_WEBHOOK || officialN8nUrl);
+            const traceId = `CHT-MANUAL-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
-                if (n8nUrl) {
-                    try {
-                        console.log('📡 Enqueuing manual message and triggering N8N:', traceId);
-                        
-                        // 1. Enqueue in the unified queue
-                        const { error: queueError } = await supabase.rpc('fn_enqueue_inbound_message', {
-                            p_tenant_id: conv.tenant_id,
-                            p_agent_id: conv.agent_id,
-                            p_conversation_id: conversationId,
-                            p_external_id: `MANUAL-${Date.now()}`,
-                            p_payload: {
-                                content: content,
-                                phone: conv.user_identifier,
-                                name: senderName || 'Operador',
-                                sender: 'human'
-                            },
-                            p_trace_id: traceId,
-                            p_message_type: 'human_response' // Unified type for n8n routing
-                        });
+            try {
+                console.log('📡 Enqueuing manual message and triggering N8N:', traceId, 'to URL:', n8nUrl);
 
-                        if (queueError) throw queueError;
+                const payload = {
+                    content: content,
+                    phone: conv.user_identifier,
+                    name: cleanSenderName,
+                    sender: 'human',
+                    instance: agentData.zenvia_channel_id || agentData.evolution_instance || '551151183815',
+                    platform: agentData.whatsapp_provider || 'zenvia',
+                    remoteID: conv.user_identifier
+                };
 
-                        // 2. Trigger N8N (Same protocol as Porteiro)
-                        fetch(n8nUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                trace_id: traceId,
-                                conversation_id: conversationId,
-                                action: 'manual_message'
-                            })
-                        }).catch(err => console.error('❌ N8N Webhook Error:', err));
-                    } catch (e) {
-                        console.error('Failed to unify message flow:', e);
-                    }
+                // 1. Enqueue in the unified queue
+                const { error: queueError } = await supabase.rpc('fn_enqueue_inbound_message', {
+                    p_tenant_id: conv.tenant_id,
+                    p_agent_id: conv.agent_id,
+                    p_conversation_id: conversationId,
+                    p_external_id: externalId,
+                    p_payload: payload,
+                    p_trace_id: traceId,
+                    p_message_type: 'human_response' // Unified type for n8n routing
+                });
+
+                if (queueError) {
+                    console.error('❌ Error enqueuing message in fn_enqueue_inbound_message:', queueError);
                 }
+
+                // 2. Trigger N8N with tenant_id for RPC - Acesso Entrada
+                fetch(n8nUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tenant_id: conv.tenant_id,
+                        conversation_id: conversationId,
+                        trace_id: traceId,
+                        action: 'manual_message',
+                        phone: conv.user_identifier,
+                        content: content,
+                        sender_name: cleanSenderName,
+                        external_id: externalId
+                    })
+                }).then(res => {
+                    console.log('✅ N8N Webhook dispatched successfully, HTTP:', res.status);
+                }).catch(err => console.error('❌ N8N Webhook Error:', err));
+            } catch (e) {
+                console.error('Failed to unify message flow:', e);
             }
         }
     },

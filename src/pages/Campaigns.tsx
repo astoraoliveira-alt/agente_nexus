@@ -158,6 +158,8 @@ export default function Campaigns() {
     const [searchTerm, setSearchTerm] = useState("");
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
     const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('15days');
+    const [campaignSearch, setCampaignSearch] = useState("");
+    const [filterAgentId, setFilterAgentId] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>("all");
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize] = useState(15);
@@ -176,7 +178,7 @@ export default function Campaigns() {
         if (currentTenant) {
             loadData();
         }
-    }, [currentTenant, currentPage, timeFilter, statusFilter, debouncedSearchTerm]);
+    }, [currentTenant, currentPage, timeFilter, statusFilter, debouncedSearchTerm, filterAgentId]);
 
     // Debounce search term
     useEffect(() => {
@@ -304,8 +306,8 @@ export default function Campaigns() {
 
     useEffect(() => {
         // If there's only one agent available for this tenant, preselect it to reduce friction.
-        if (agents.length === 1 && !newCampaign.agentId) {
-            setNewCampaign((prev) => ({ ...prev, agentId: agents[0].id }));
+        if (agents.length > 0 && !newCampaign.agentId) {
+            setNewCampaign((prev) => ({ ...prev, agentId: agents.find(a => a.name.includes('Novo'))?.id || agents.find(a => a.status === 'active')?.id || agents[0].id }));
         }
     }, [agents, newCampaign.agentId]);
 
@@ -325,15 +327,17 @@ export default function Campaigns() {
 
             const [campaignsResult, agentsData, queueMetricsData, globalStatsRaw] = await Promise.all([
                 api.getCampaignsPaginated(currentTenant.id, {
-                    startDate,
-                    status: statusFilter,
-                    search: debouncedSearchTerm,
+                    startDate: startDate,
+                    status: 'all',
+                    search: campaignSearch,
+                    agentId: filterAgentId,
                     page: currentPage,
-                    pageSize: pageSize
+                    pageSize: 15,
+                    useReplica: false
                 }),
                 api.getAgents(currentTenant.id),
                 api.getOutboundQueueMetricsByCampaign(currentTenant.id),
-                api.getAllCampaignsStats(currentTenant.id, [], startDate)
+                api.getAllCampaignsStats(currentTenant.id, [], startDate, filterAgentId)
             ]);
 
             let globalTotals = {
@@ -495,7 +499,7 @@ export default function Campaigns() {
                 id: "",
                 name: "",
                 description: "",
-                agentId: agents.length === 1 ? agents[0].id : "",
+                agentId: agents.find(a => a.name.includes('Novo'))?.id || agents.find(a => a.status === 'active')?.id || (agents.length > 0 ? agents[0].id : ""),
                 dailyLimit: 5000,
                 startDate: format(new Date(), "yyyy-MM-dd"),
                 endDate: "",
@@ -975,7 +979,7 @@ export default function Campaigns() {
                 "% Lidas": readPct,
                 "Respondidas": responseMessages,
                 "% Respondidas": responsePct,
-                "Links Enviados": linksSent,
+                "Conversões": linksSent,
                 "% Links": linksPct,
                 "Data de Início": campaign.startDate ? format(new Date(campaign.startDate), "dd/MM/yyyy") : '',
                 "Horário": `${campaign.startTime || '09:00'} - ${campaign.endTime || '18:00'}`,
@@ -1791,7 +1795,7 @@ export default function Campaigns() {
                         <Card className="bg-emerald-500/5 border-emerald-500/20">
                             <CardContent className="pt-6">
                                 <div className="flex items-center justify-between mb-2">
-                                    <span className="text-sm font-medium text-muted-foreground">Links Enviados</span>
+                                    <span className="text-sm font-medium text-muted-foreground">Conversões</span>
                                     <TrendingUp className="h-4 w-4 text-emerald-500" />
                                 </div>
                                 <div className="flex items-end gap-2">
@@ -1895,7 +1899,7 @@ export default function Campaigns() {
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[8%] align-middle text-red-500")}>Inconsistentes</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[7%] align-middle")}>Válidos</TableHead>
                                             <TableHead colSpan={4} className={cn(headerCenterClass, "w-[32%]")}>Funil de Interação</TableHead>
-                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[6%] align-middle")}>Links Enviados</TableHead>
+                                            <TableHead rowSpan={2} className={cn(headerCenterClass, "w-[6%] align-middle")}>Conversões</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerLeftClass, "w-[7%] align-middle")}>Vigência</TableHead>
                                             <TableHead rowSpan={2} className={cn(headerRightClass, "w-[7%] align-middle rounded-tr-xl")}>Ações</TableHead>
                                         </TableRow>

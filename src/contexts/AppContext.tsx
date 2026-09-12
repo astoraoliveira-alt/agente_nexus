@@ -37,6 +37,7 @@ interface AppContextType {
   currentTenant: Tenant | null;
   userPermissions: string[];
   hasPermission: (permission: string) => boolean;
+  refreshPermissions: () => Promise<void>;
 
   // Privacy
   maskingEnabled: boolean;
@@ -63,6 +64,7 @@ interface AppContextType {
   closeConversation: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
   sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
+  fetchMessages: (convIdOverride?: string) => Promise<void>;
   // Handoff Requests (HITL)
   handoffRequests: any[];
   isLoading: boolean;
@@ -114,12 +116,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         console.log('🔄 Booting App Context...');
 
+        // 0. Check if this is a password recovery / invite link OR an auth error (e.g. otp_expired)
+        const hashParams = new URLSearchParams(window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '');
+        const searchParams = new URLSearchParams(window.location.search);
+        const authType = hashParams.get('type') || searchParams.get('type');
+        const hasAuthError = hashParams.get('error') || hashParams.get('error_code') || searchParams.get('error') || searchParams.get('error_code');
+        const isRecoveryOrInvite = authType === 'recovery' || authType === 'invite' || !!hasAuthError;
+
+        if (isRecoveryOrInvite && window.location.pathname !== '/set-password') {
+          console.log('🔑 Recovery/Invite/Auth Error detected in URL. Redirecting to /set-password...');
+          window.location.href = `/set-password${window.location.hash || window.location.search}`;
+          return;
+        }
+
         // 1. Check Supabase Session
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session?.user) {
           console.log('🔐 Supabase Session Found:', session.user.email);
           const { user: authUser } = session;
+
+          // If session was established from recovery and user is not on /set-password, redirect
+          if (isRecoveryOrInvite && window.location.pathname !== '/set-password') {
+            window.location.href = `/set-password${window.location.hash || window.location.search}`;
+            return;
+          }
 
           // 2. Fetch Business Profile via Service Layer
           let businessUser = await AuthService.getUserByProviderId(authUser.id);
@@ -215,6 +236,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // Listen for Auth Changes
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        console.log('🔑 PASSWORD_RECOVERY event received! Navigating to /set-password...');
+        if (window.location.pathname !== '/set-password') {
+          window.location.href = `/set-password${window.location.hash || window.location.search}`;
+        }
+        return;
+      }
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         // Trigger boot/reload if needed, or let the boot effect handle it on mount
         // For simplicity, we depend on component mount usually, but we can force reload logic here if needed.
@@ -239,26 +267,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Keep stable refs so Realtime closures never go stale and don't trigger re-subscriptions
   const fetchMessagesRef = useRef<(convIdOverride?: string) => Promise<void>>(async () => {});
   const loadConversationsListRef = useRef<() => Promise<void>>(async () => {});
+  const isFetchingMessagesRef = useRef(false);
+  const lastFetchTrackerRef = useRef<{ id: string; time: number }>({ id: '', time: 0 });
 
   const fetchMessages = useCallback(async (convIdOverride?: string) => {
     const activeId = convIdOverride || selectedConvIdRef.current;
     if (!activeId) return;
+
+    // Evita rajadas simultâneas de requests para a mesma conversa
+    const now = Date.now();
+    if (lastFetchTrackerRef.current.id === activeId && (now - lastFetchTrackerRef.current.time < 1200)) {
+      return;
+    }
+    if (isFetchingMessagesRef.current) return;
+    isFetchingMessagesRef.current = true;
+    lastFetchTrackerRef.current = { id: activeId, time: now };
     
     try {
       const messages = await api.getConversationMessages(activeId);
       
       setSelectedConversation(prev => {
         if (convIdOverride || (prev?.id === activeId)) {
-           return { ...(prev || { id: activeId } as any), messages };
+          // Só atualiza se o número de mensagens ou última mensagem for diferente
+          const prevCount = prev?.messages?.length || 0;
+          if (prevCount === messages.length) {
+            if (prevCount === 0) return prev; // Sem mensagens em ambos: preserva objeto para evitar re-render
+            const lastPrev = prev?.messages?.[prevCount - 1]?.id;
+            const lastNew = messages[messages.length - 1]?.id;
+            if (lastPrev === lastNew) return prev; // Sem alteração, poupa re-render
+          }
+          return { ...(prev || { id: activeId } as any), messages };
         }
         return prev;
       });
       
-      setConversations(prev =>
-        prev.map(c => c.id === activeId ? { ...c, messages: messages } : c)
-      );
+      setConversations(prev => {
+        const target = prev.find(c => c.id === activeId);
+        if (!target) return prev;
+        if (target.messages?.length === messages.length) return prev; // Sem alteração, poupa re-render da lista
+        return prev.map(c => c.id === activeId ? { ...c, messages: messages } : c);
+      });
     } catch (error) {
       console.error("Failed to fetch messages:", error);
+    } finally {
+      isFetchingMessagesRef.current = false;
     }
   }, []); // stable — reads from ref, not from state
 
@@ -506,6 +558,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [selectedConversation?.id, fetchMessages]);
 
   // Sincroniza a conversa selecionada sempre que a lista de conversas for atualizada (Realtime, etc.)
+  const lastSyncedConvRef = useRef<{ id: string; status: string; userStatus?: string } | null>(null);
+
   useEffect(() => {
     if (selectedConversation) {
       const current = conversations.find(c => c.id === selectedConversation.id);
@@ -517,16 +571,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
           current.complianceScore !== selectedConversation.complianceScore ||
           current.userStatus !== selectedConversation.userStatus;
 
-        if (hasMetadataChanged) {
+        const isAlreadySynced = 
+          lastSyncedConvRef.current?.id === current.id && 
+          lastSyncedConvRef.current?.status === current.status &&
+          lastSyncedConvRef.current?.userStatus === current.userStatus;
+
+        if (hasMetadataChanged && !isAlreadySynced) {
+          lastSyncedConvRef.current = { id: current.id, status: current.status, userStatus: current.userStatus };
           console.log(`🔄 Syncing selectedConversation metadata: ${selectedConversation.id} -> ${current.status}`);
-          setSelectedConversation(prev => prev ? {
+          setSelectedConversation(prev => prev && prev.id === current.id ? {
             ...prev,
             status: current.status,
             assignedOperator: current.assignedOperator,
             sentiment: current.sentiment,
             complianceScore: current.complianceScore,
             userStatus: current.userStatus
-          } : null);
+          } : prev);
         }
       }
     }
@@ -569,6 +629,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // Super admin always has all permissions
     if (currentUser?.role === 'super_admin') return true;
     return userPermissions.includes('all') || userPermissions.includes(permission);
+  };
+
+  const refreshPermissions = async () => {
+    if (!currentUser) return;
+    try {
+      const persistedPermissions = currentUser.profileId
+        ? await api.getProfilePermissions(currentUser.profileId)
+        : [];
+      setUserPermissions(
+        persistedPermissions.length > 0
+          ? persistedPermissions
+          : getDefaultPermissionsForRole(currentUser.role)
+      );
+    } catch (permissionError) {
+      console.error('⚠️ Failed to refresh permissions:', permissionError);
+    }
   };
 
   const switchTenant = async (tenantId: string) => {
@@ -812,6 +888,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         currentTenant,
         userPermissions,
         hasPermission,
+        refreshPermissions,
         conversations,
         selectedConversation,
         setSelectedConversation,
@@ -826,6 +903,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transferConversation,
         switchTenant,
         sendMessage,
+        fetchMessages,
         handoffRequests,
         maskingEnabled,
         toggleMasking,

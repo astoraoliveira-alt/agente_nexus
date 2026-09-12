@@ -70,10 +70,11 @@ export function AppSidebar() {
     { title: 'Dashboard', url: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
     { title: 'Consumo', url: '/consumption', icon: BarChart3, permission: 'consumption.view' },
     { title: 'Conversas', url: '/conversations', icon: MessageSquare, permission: 'conversations.view', badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
+    { title: 'Cockpit de Vendas', url: '/sales-cockpit', icon: Zap, permission: 'sales_cockpit.view', badge: 'Fiserv' },
     { title: 'Contatos', url: '/contacts', icon: Users, permission: 'contacts.view' },
     { title: 'Agentes', url: '/agents', icon: Bot, permission: 'agents.view' },
     { title: 'Campanhas', url: '/campaigns', icon: Megaphone, permission: 'campaigns.view' },
-    { title: 'Central de Reengajamento', url: '/campaign-recovery', icon: Megaphone, permission: 'campaigns.view', badge: 'Novo' },
+    { title: 'Central de Reengajamento', url: '/campaign-recovery', icon: Megaphone, permission: 'campaign_recovery.view', badge: 'Novo' },
     { title: 'Comunicados', url: '/incidents', icon: Bell, permission: 'incidents.view' },
     { 
       title: 'Fila de Atendimento', 

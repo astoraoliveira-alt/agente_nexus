@@ -54,6 +54,10 @@ const SECTION_LABELS: Record<string, { title: string; description: string }> = {
     title: 'Administração',
     description: 'Permissões administrativas do tenant.',
   },
+  admin_davos: {
+    title: 'Administração Davos',
+    description: 'Permissões internas exclusivas de plataforma e gestão de tenants.',
+  },
 };
 
 const buildSystemProfiles = (): ManagedProfile[] => [
@@ -105,7 +109,7 @@ const buildSystemProfiles = (): ManagedProfile[] => [
 ];
 
 export default function Profiles() {
-  const { currentTenant, currentUser, hasPermission } = useApp();
+  const { currentTenant, currentUser, hasPermission, refreshPermissions } = useApp();
   const [search, setSearch] = useState('');
   const [profiles, setProfiles] = useState<ManagedProfile[]>(buildSystemProfiles());
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -237,13 +241,14 @@ export default function Profiles() {
     }
 
     try {
+      let savedProfile: ManagedProfile | null = null;
       if (isPersistedProfilesEnabled) {
-        const savedProfile = await api.saveProfile(result.profile, currentUser?.id || null);
+        savedProfile = await api.saveProfile(result.profile, currentUser?.id || null);
         if (editingProfile) {
-          setProfiles((prev) => prev.map((profile) => (profile.id === savedProfile.id ? savedProfile : profile)));
+          setProfiles((prev) => prev.map((profile) => (profile.id === savedProfile!.id ? savedProfile! : profile)));
           toast.success('Perfil atualizado com sucesso.');
         } else {
-          setProfiles((prev) => [...prev, savedProfile]);
+          setProfiles((prev) => [...prev, savedProfile!]);
           toast.success('Perfil criado com sucesso.');
         }
       } else {
@@ -254,6 +259,10 @@ export default function Profiles() {
           setProfiles((prev) => [...prev, result.profile!]);
           toast.success('Perfil criado localmente. Aplique a migration para persistir no banco.');
         }
+      }
+
+      if (currentUser?.profileId === (savedProfile?.id || result.profile?.id) || result.profile?.isSystem) {
+        await refreshPermissions();
       }
 
       setConfirmSaveOpen(false);

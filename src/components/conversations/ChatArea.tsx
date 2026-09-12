@@ -32,6 +32,8 @@ import { normalizeMessagingText } from '@/lib/message-formatting';
 interface ChatAreaProps {
   conversation: Conversation | null;
   highlightTerm?: string;
+  alwaysAllowInput?: boolean;
+  hideAiControls?: boolean;
 }
 
 interface AudioMessageProps {
@@ -220,7 +222,7 @@ const parseMessageContent = (rawText: string): string => {
   return normalizeMessagingText(rawText);
 };
 
-export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
+export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAiControls }: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
@@ -258,7 +260,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
     if (prevConversationId.current !== currentId) {
       userScrolledUpRef.current = false;
       prevConversationId.current = currentId;
-      setTimeout(() => scrollToBottom("auto"), 50);
+      requestAnimationFrame(() => scrollToBottom("auto"));
     }
 
     const resizeObserver = new ResizeObserver(() => {
@@ -280,11 +282,11 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
   // Focus effect when conversation status is human_active
   useEffect(() => {
     if (conversation?.status === 'human_active' && inputRef.current) {
-      setTimeout(() => {
+      requestAnimationFrame(() => {
         inputRef.current?.focus();
-      }, 300);
+      });
     }
-  }, [conversation?.id, conversation?.status]);
+  }, [conversation?.id]);
 
   // Permissions & Restrictions
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
@@ -320,7 +322,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
 
   return (
     <div className={cn(
-      "flex-1 flex flex-col min-w-0 bg-background relative",
+      "flex-1 min-h-0 h-full flex flex-col min-w-0 bg-background relative overflow-hidden",
       conversation.evaluation && conversation.evaluation.score < 40 && "ring-2 ring-red-600 ring-inset z-50 shadow-[0_0_20px_rgba(220,38,38,0.2)]"
     )}>
       {/* Alert Banner for Low Score */}
@@ -349,31 +351,19 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
         </div>
       )}
 
-               {/* Chat Header - 3 Column Layout */}
+               {/* Chat Header - 3 Column Layout (Fundo uniforme e padronizado) */}
       <div className={cn(
-        "min-h-[72px] px-5 py-3 flex items-center justify-between gap-6 border-b transition-colors shrink-0",
-        conversation.evaluation && conversation.evaluation.score < 40
-          ? "bg-red-50 border-red-200"
-          : conversation.status !== 'closed'
-            ? "bg-emerald-500/5 border-emerald-500/20"
-            : "bg-card border-border"
+        "min-h-[72px] px-5 py-3 flex items-center justify-between gap-6 border-b transition-colors shrink-0 bg-card border-border",
+        conversation.evaluation && conversation.evaluation.score < 40 && "bg-red-50 border-red-200"
       )}>
         
         {/* Column 1: Identity */}
         <div className="flex items-center gap-3 min-w-[200px] max-w-[35%] shrink-0">
-          <div className={cn(
-            "w-11 h-11 flex items-center justify-center rounded-full border transition-colors shrink-0",
-            conversation.status !== 'closed'
-              ? "bg-emerald-100 border-emerald-200 text-emerald-700"
-              : "bg-muted border-border text-muted-foreground"
-          )}>
+          <div className="w-11 h-11 flex items-center justify-center rounded-full border transition-colors shrink-0 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
             <User className="h-5 w-5" />
           </div>
           <div className="flex flex-col min-w-0">
-            <h3 className={cn(
-              "font-semibold truncate text-[15px] leading-tight mb-0.5",
-              conversation.status !== 'closed' ? "text-emerald-950 dark:text-emerald-50" : "text-foreground"
-            )}>
+            <h3 className="font-semibold truncate text-[15px] leading-tight mb-0.5 text-foreground">
               {conversation.userName}
             </h3>
             <div className="flex items-center gap-1.5 text-slate-500">
@@ -451,18 +441,19 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
         {/* Column 3: Status & Controls */}
         <div className="flex items-center justify-end gap-3 shrink-0 border-l border-border/60 pl-5">
           <Badge variant="outline" className={cn(
-            "px-2 py-0.5 h-6 text-xs font-semibold rounded-md flex items-center gap-2 shadow-sm shrink-0",
-            conversation.status === 'ai_active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-            conversation.status === 'closed' ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+            "px-2.5 py-1 h-7 text-xs font-semibold rounded-md flex items-center gap-1.5 shadow-sm shrink-0",
+            conversation.status === 'ai_active' ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300' :
+            conversation.status === 'closed' ? 'bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-400' : 
+            'bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 font-bold'
           )}>
             <span className={cn(
               'w-2 h-2 rounded-full',
-              conversation.status === 'ai_active' ? 'bg-emerald-500 animate-pulse' :
+              conversation.status === 'ai_active' ? 'bg-emerald-500' :
               conversation.status === 'closed' ? 'bg-slate-400' : 'bg-blue-500'
             )} />
             {conversation.status === 'ai_active' ? 'IA Ativa' :
              conversation.status === 'closed' ? 'Fechada' :
-             (conversation.assignedOperator || 'Operador')}
+             `Atendente: ${(!conversation.assignedOperator || conversation.assignedOperator.toLowerCase().includes('operator') || conversation.assignedOperator.toLowerCase().includes('operador')) ? (currentUser?.name || 'Carlos Silva') : conversation.assignedOperator}`}
           </Badge>
 
           <div className="flex items-center gap-1.5">
@@ -471,7 +462,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                 onClick={() => setViewMode('default')}
                 className={cn(
                   "p-1 rounded-sm transition-all flex items-center justify-center",
-                  viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  viewMode === 'default' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-800"
                 )}
                 title="Visão Padrão (SaaS)"
               >
@@ -481,7 +472,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                 onClick={() => setViewMode('mobile')}
                 className={cn(
                   "p-1 rounded-sm transition-all flex items-center justify-center",
-                  viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                  viewMode === 'mobile' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-slate-200 dark:hover:bg-slate-800"
                 )}
                 title="Visão Mobile"
               >
@@ -493,46 +484,48 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
               variant="outline"
               size="sm"
               onClick={() => setArtifactsDrawerOpen(true)}
-              className="h-8 gap-1.5 text-slate-600 border-border/60 bg-muted/30 hover:bg-muted shrink-0"
+              className="h-8 gap-1.5 text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white shrink-0 font-medium transition-colors"
               title="Ver arquivos e gravações da conversa"
             >
-              <Paperclip className="h-3.5 w-3.5" />
+              <Paperclip className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
               <span className="hidden xl:inline-block">Arquivos</span>
             </Button>
             
             {/* Control Buttons */}
-            <div className="flex items-center shrink-0">
-              {isReadOnly ? (
-                <Badge
-                  variant="outline"
-                  className="gap-1 border-dashed text-slate-500 bg-slate-50 h-8 px-3 rounded-md font-medium"
-                >
-                  <Info className="h-3.5 w-3.5" />
-                  Somente Leitura
-                </Badge>
-              ) : isHumanActive ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => returnToAI(conversation.id)}
-                  className="h-8 gap-2 text-sky-700 border-sky-200 bg-sky-50 hover:bg-sky-100 hover:text-sky-800 shadow-sm"
-                >
-                  <Bot className="h-3.5 w-3.5" />
-                  IA Continua
-                </Button>
-              ) : (
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleTakeover}
-                  className="h-8 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
-                  disabled={conversation.status !== 'ai_active'}
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  Assumir
-                </Button>
-              )}
-            </div>
+            {!hideAiControls && (
+              <div className="flex items-center shrink-0">
+                {isReadOnly ? (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-dashed text-slate-500 bg-slate-50 h-8 px-3 rounded-md font-medium"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                    Somente Leitura
+                  </Badge>
+                ) : isHumanActive ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => returnToAI(conversation.id)}
+                    className="h-8 gap-2 text-sky-700 border-sky-200 bg-sky-50 hover:bg-sky-100 hover:text-sky-800 shadow-sm"
+                  >
+                    <Bot className="h-3.5 w-3.5" />
+                    IA Continua
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleTakeover}
+                    className="h-8 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium shadow-sm"
+                    disabled={conversation.status !== 'ai_active'}
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                    Assumir
+                  </Button>
+                )}
+              </div>
+            )}
 
             {/* More Options */}
             <DropdownMenu>
@@ -575,7 +568,7 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto p-4"
+            className="flex-1 min-h-0 overflow-y-auto p-4"
           >
             <div className="messages-wrapper space-y-4">
               {conversation.messages.map((message) => (
@@ -608,7 +601,9 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 px-1">
                         {message.sender === 'human' && message.senderName && (
-                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">{message.senderName} (Operador)</span>
+                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                            {message.senderName.replace(/\s*\((operador|operator)\)/gi, '').trim()} (Operador)
+                          </span>
                         )}
                         {message.sender === 'ai' && (
                           <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
@@ -700,17 +695,17 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
             </div>
           </div>
 
-          {/* Input Area */}
-          <div className="p-4 border-t border-border bg-card">
+          {/* Input Area (Fixado no rodapé com shrink-0) */}
+          <div className="p-3 sm:p-4 border-t border-border bg-card shrink-0 z-10 shadow-sm">
             {isReadOnly ? (
               <div className="flex items-center justify-center p-3 bg-muted/50 rounded-md border border-dashed border-border text-sm text-muted-foreground gap-2">
                 <ShieldCheck className="h-4 w-4" />
                 Esta conversa é somente leitura (Agente Incorporado).
               </div>
-            ) : conversation.status === 'ai_active' ? (
-              <div className="flex items-center justify-center p-2 bg-muted/30 rounded-md border border-dashed border-border text-sm text-muted-foreground">
-                <Bot className="h-4 w-4 mr-2" />
-                A IA está respondendo. Clique em "Assumir Conversa" para interagir.
+            ) : (!alwaysAllowInput && conversation.status === 'ai_active') ? (
+              <div className="flex items-center justify-center p-2.5 bg-muted/30 rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                <Bot className="h-4 w-4 mr-2 text-emerald-600" />
+                A Sofia (IA) está ativa nesta conversa. Assuma o atendimento para interagir.
               </div>
             ) : (
               <div className="flex items-center gap-2">
@@ -734,8 +729,8 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
                       setMessageInput('');
                     }
                   }}
-                  placeholder="Digite sua mensagem como operador..."
-                  className="flex-1 px-4 py-2 bg-muted/50 rounded-md border border-border focus:border-border/80 focus:outline-none focus:ring-1 focus:ring-border/40 transition-all"
+                  placeholder="Digite sua mensagem como operador via WhatsApp..."
+                  className="flex-1 px-4 py-2 bg-muted/50 rounded-md border border-border focus:border-border/80 focus:outline-none focus:ring-1 focus:ring-border/40 transition-all text-sm text-foreground placeholder:text-muted-foreground"
                   autoFocus
                 />
 
@@ -743,15 +738,16 @@ export function ChatArea({ conversation, highlightTerm }: ChatAreaProps) {
 
                 <Button
                   size="icon"
-                  className="bg-accent hover:bg-accent/90"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 shadow-sm transition-colors"
                   onClick={() => {
                     if (messageInput.trim()) {
                       sendMessage(conversation.id, messageInput);
                       setMessageInput('');
                     }
                   }}
+                  title="Enviar mensagem pelo WhatsApp"
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-4 w-4" />
                 </Button>
               </div>
             )}

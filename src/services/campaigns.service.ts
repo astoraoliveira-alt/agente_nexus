@@ -463,6 +463,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             endDate?: Date;
             status?: string;
             search?: string;
+            agentId?: string;
             page: number;
             pageSize: number;
             useReplica?: boolean;
@@ -478,6 +479,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
         if (options.endDate) query = query.lte('start_date', options.endDate.toISOString());
         if (options.status && options.status !== 'all') query = query.eq('status', options.status);
         if (options.search) query = query.ilike('name', `%${options.search}%`);
+        if (options.agentId && options.agentId !== 'all') query = query.eq('agent_id', options.agentId);
 
         const offset = (options.page - 1) * options.pageSize;
         query = query.range(offset, offset + options.pageSize - 1).order('created_at', { ascending: false });
@@ -723,7 +725,7 @@ async deleteCampaign(id: string): Promise<void> {
         }));
     },
 
-    async getCampaignStats(campaignId: string | null, tenantId: string, _useReplica: boolean = false): Promise<any> {
+    async getCampaignStats(campaignId: string | null, tenantId: string, _useReplica: boolean = false, agentId?: string): Promise<any> {
         // OTIMIZAÇÃO: Circuit Breaker
         // Se o banco de dados já deu timeout recentemente nas métricas, 
         // nós abortamos novas tentativas por 60 segundos para não enfileirar mais consultas pesadas
@@ -734,9 +736,10 @@ async deleteCampaign(id: string): Promise<void> {
 
         // FORCE PRIMARY: ignore replica for dashboard stats to avoid sync lag 404s
         const client = supabase;
-        const { data, error } = await client.rpc('get_campaign_metrics_v2', {
+        const { data, error } = await client.rpc('get_campaign_dashboard_stats', {
             p_campaign_id: campaignId === "" ? null : campaignId,
-            p_tenant_id: campaignId === "" ? tenantId : null
+            p_tenant_id: campaignId === "" ? tenantId : null,
+            p_agent_id: agentId || null
         });
 
         if (error) {
@@ -770,7 +773,7 @@ async deleteCampaign(id: string): Promise<void> {
         };
     },
 
-    async getAllCampaignsStats(tenantId: string, campaignIds?: string[], startDate?: Date): Promise<Record<string, any>> {
+    async getAllCampaignsStats(tenantId: string, campaignIds?: string[], startDate?: Date, agentId?: string): Promise<Record<string, any>> {
         if ((window as any)._isStatsCircuitBreakerOpen) {
             return {};
         }
@@ -781,6 +784,9 @@ async deleteCampaign(id: string): Promise<void> {
         }
         if (startDate) {
             rpcArgs.p_start_date = startDate.toISOString();
+        }
+        if (agentId && agentId !== 'all') {
+            rpcArgs.p_agent_id = agentId;
         }
 
         const { data, error } = await supabase.rpc('get_all_campaigns_metrics_v2', rpcArgs);

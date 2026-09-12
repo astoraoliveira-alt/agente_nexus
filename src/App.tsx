@@ -36,6 +36,7 @@ import ConversationObservatory from "./pages/ConversationObservatory";
 import HandoffHub from "./pages/HandoffHub";
 import IncidentManagement from "./pages/IncidentManagement";
 import SchemaExplorer from "./pages/SchemaExplorer";
+import SalesCockpit from "./pages/SalesCockpit";
 
 
 const queryClient = new QueryClient();
@@ -57,6 +58,7 @@ const App = () => (
 
             {/* Protected Routes */}
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/sales-cockpit" element={<ProtectedRoute><SalesCockpit /></ProtectedRoute>} />
             <Route path="/lead-crm" element={<ProtectedRoute><LeadCRM /></ProtectedRoute>} />
             <Route path="/conversations" element={<ProtectedRoute><Conversations /></ProtectedRoute>} />
             <Route path="/consumption" element={<ProtectedRoute><Consumption /></ProtectedRoute>} />

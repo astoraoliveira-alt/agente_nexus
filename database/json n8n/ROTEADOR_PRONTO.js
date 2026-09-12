@@ -135,33 +135,33 @@ try {
 
     let currentStep = semanticFunnelStep || 'start';
 
-    // 🔴 FORÇAR OVERRIDE: Ignora a alucinação do LLM baseando-se na última pergunta real do bot
-    if (lastSofiaMsg.includes("confirma que deseja prosseguir") || lastSofiaMsg.includes("formalização") || lastSofiaMsg.includes("formalizacao")) {
-        currentStep = 'confirmacao_cliente';
-    } else if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
-        currentStep = 'finalizacao_sucesso';
-    } else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito")) {
-        currentStep = 'recusa_analise';
-    } else if (lastSofiaMsg.includes("enviei suas informações para a fiserv") || lastSofiaMsg.includes("análise e geração das ofertas") || lastSofiaMsg.includes("aguarde que eu já te chamo") || lastSofiaMsg.includes("gostaria de iniciar a simulação") || lastSofiaMsg.includes("comitê fiserv") || lastSofiaMsg.includes("avaliando") || lastSofiaMsg.includes("chamarás com o resultado") || lastSofiaMsg.includes("te chamará aqui com o resultado") || lastSofiaMsg.includes("aguarde um momento")) {
-        currentStep = 'aguardando_fiserv';
-    } else if (lastSofiaMsg.includes("opções de crédito") || lastSofiaMsg.includes("quantidade de parcelas") || lastSofiaMsg.includes("quantas parcelas gostaria de simular") || lastSofiaMsg.includes("em quantas parcelas")) {
-        currentStep = 'apresenta_ofertas';
-    } else if (lastSofiaMsg.includes("faturamento médio mensal atual da sua empresa") || lastSofiaMsg.includes("faturamento médio mensal da sua empresa")) {
-        currentStep = 'coleta_faturamento';
-    } else if (lastSofiaMsg.includes("valor aproximado você gostaria de solicitar") || lastSofiaMsg.includes("valor aproximado voce gostaria de solicitar")) {
-        currentStep = 'coleta_valor';
-    } else if (lastSofiaMsg.includes("autorização à fiserv") || lastSofiaMsg.includes("responda *sim*") || lastSofiaMsg.includes("responda *aceito*") || lastSofiaMsg.includes("responda *autorizo*") || lastSofiaMsg.includes("para autorizar e seguir") || lastSofiaMsg.includes("termo completo") || lastSofiaMsg.includes("autoriza a fiserv a fazer as consultas")) {
-        currentStep = 'consentimento_optin';
-    } else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("empresa") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação"))) {
-        currentStep = 'verificacao_cnpj';
-    } else if (lastSofiaMsg.includes("cnpj correto") || lastSofiaMsg.includes("solicitar a inclusão")) {
-        currentStep = 'coleta_cnpj_correto';
-    } else if (lastSofiaMsg.includes("nome do estabelecimento")) {
-        currentStep = 'coleta_nome_estabelecimento';
-    } else if (lastSofiaMsg.includes("sou a sofia") || lastSofiaMsg.includes("especialista da ticket") || lastSofiaMsg.includes("reforço") || lastSofiaMsg.includes("reforco") || lastSofiaMsg.includes("caixa") || lastSofiaMsg.includes("enviar o link")) {
-        currentStep = 'explicacao_agente';
-    } else if (!semanticFunnelStep && assistantMessages.length > 0) {
-        currentStep = 'explicacao_agente';
+    // 🔴 OVERRIDE DEFENSIVO (Somente quando o LLM não forneceu passo ou para desvios específicos comprovados)
+    if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
+        if (lastSofiaMsg.includes("confirma que deseja prosseguir") || lastSofiaMsg.includes("formalização") || lastSofiaMsg.includes("formalizacao")) {
+            currentStep = 'confirmacao_cliente';
+        } else if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
+            currentStep = 'finalizacao_sucesso';
+        } else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito")) {
+            currentStep = 'recusa_analise';
+        } else if (lastSofiaMsg.includes("enviei suas informações para a fiserv") || lastSofiaMsg.includes("análise e geração das ofertas") || lastSofiaMsg.includes("aguarde que eu já te chamo") || lastSofiaMsg.includes("comitê fiserv") || lastSofiaMsg.includes("avaliando em ~1 minuto") || lastSofiaMsg.includes("te chamará aqui com o resultado") || lastSofiaMsg.includes("aguarde um momento")) {
+            currentStep = 'aguardando_fiserv';
+        } else if (lastSofiaMsg.includes("opções de crédito") || lastSofiaMsg.includes("quantidade de parcelas") || lastSofiaMsg.includes("quantas parcelas gostaria de simular") || lastSofiaMsg.includes("em quantas parcelas")) {
+            currentStep = 'apresenta_ofertas';
+        } else if (lastSofiaMsg.includes("faturamento médio mensal atual") || lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || lastSofiaMsg.includes("qual o faturamento")) {
+            currentStep = 'coleta_faturamento';
+        } else if (lastSofiaMsg.includes("valor aproximado você gostaria de solicitar") || lastSofiaMsg.includes("valor aproximado voce gostaria de solicitar") || lastSofiaMsg.includes("qual valor você tem em mente") || lastSofiaMsg.includes("qual valor voce tem em mente") || lastSofiaMsg.includes("valor você tem em mente") || lastSofiaMsg.includes("valor de empréstimo")) {
+            currentStep = 'coleta_valor';
+        } else if (lastSofiaMsg.includes("autorização à fiserv") || lastSofiaMsg.includes("termo de autorização") || lastSofiaMsg.includes("autoriza a realização das consultas") || lastSofiaMsg.includes("autoriza a fiserv a fazer as consultas")) {
+            currentStep = 'consentimento_optin';
+        } else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("empresa") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação"))) {
+            currentStep = 'verificacao_cnpj';
+        } else if (lastSofiaMsg.includes("cnpj correto") || lastSofiaMsg.includes("solicitar a inclusão")) {
+            currentStep = 'coleta_cnpj_correto';
+        } else if (lastSofiaMsg.includes("nome do estabelecimento")) {
+            currentStep = 'coleta_nome_estabelecimento';
+        } else if (!semanticFunnelStep && assistantMessages.length > 0) {
+            currentStep = 'explicacao_agente';
+        }
     }
 
     // A lógica de restore de estado (Backup de Segurança) foi movida para a transição de verificacao_cnpj
@@ -473,7 +473,7 @@ try {
     } else if (nextStep === 'explicacao_agente') {
         forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
     } else if (nextStep === 'coleta_faturamento') {
-        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Antes de solicitar a análise do seu crédito, preciso saber: qual o *faturamento médio mensal atual* da sua empresa?\n\nExemplo: *80 mil*`;
+        forcedText = `Certo, ${leadInfo.name || "parceiro"}! Qual o *faturamento médio mensal atual* da sua empresa?\n\nExemplo: *80 mil*`;
         mode = "parrot";
     } else if (nextStep === 'coleta_valor') {
         forcedText = `Obrigada! E qual *valor aproximado* você gostaria de solicitar nessa análise?\n\nExemplo: *10 mil*`;
@@ -762,11 +762,22 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 
 <regra_de_ouro>
 1. CONTEXTO É REI: Antes de responder usando o FAQ genérico (ex: "A análise leva 24h"), verifique o <CONTEXTO_ATUAL>. Se o Status do Comitê Fiserv indicar "Pré-aprovado", "Proposta", "Aprovado" ou similar, avise ao cliente com entusiasmo que a análise JÁ FOI CONCLUÍDA com sucesso e o convide para simular.
-2. NUNCA invente taxas ou condições. Para dúvidas de funcionamento técnico, use APENAS os textos do FAQ (aplicando a regra 1 caso haja conflito de status).
+2. CONFORMIDADE REGULATÓRIA E FINANCEIRA (PROIBIÇÃO DE ALUCINAÇÃO): É expressamente PROIBIDO inventar condições, taxas, regras de domicílio bancário, prazos ou travas. Toda e qualquer resposta sobre o produto DEVE ser rigorosamente baseada nos textos homologados de <BASE_DE_CONHECIMENTO_FAQ>.
+3. GANCHO DE RETORNO AO FUNIL (CONTINUIDADE): Sempre que responder a uma dúvida técnica ou do FAQ, responda com precisão e, na mesma mensagem, adicione o gancho convidando o cliente a continuar a etapa atual (${nextStep}):
+   - Se estiver em "verificacao_cnpj": convide a confirmar se é o titular do CNPJ.
+   - Se estiver em "coleta_faturamento": pergunte qual o faturamento médio mensal.
+   - Se estiver em "coleta_valor": pergunte qual valor aproximado ele gostaria de solicitar para simular.
+   - Se estiver em "consentimento_optin": pergunte se autoriza a consulta Fiserv para prosseguir.
+   - Se estiver em "apresenta_ofertas": pergunte em quantas parcelas (ou qual valor) ele gostaria de simular.
+   - Se estiver em "solicitar_simulacao" ou "confirmacao_cliente": pergunte se deseja formalizar a proposta ou simular outras condições.
 </regra_de_ouro>
 
 <CONTEXTO_ATUAL>
-- Passo: ${nextStep}
+- Passo Anterior: ${currentStep}
+- Passo Atual / Próximo: ${nextStep}
+- Faturamento Informado: ${revenue ? 'R$ ' + Number(revenue).toLocaleString('pt-BR') : 'Não informado'}
+- Valor Solicitado Informado: ${requested_amount ? 'R$ ' + Number(requested_amount).toLocaleString('pt-BR') : 'Não informado'}
+- Parcelas Solicitadas: ${requested_installments ? requested_installments + ' parcelas' : 'Não informadas'}
 - Status do Comitê Fiserv: ${leadInfo.fiserv_external_status || leadInfo.fiserv_status || "Não iniciado"}
 - Ofertas Disponíveis: ${ctx.simulation_offers || "Não geradas ainda"}
 - Link Enviado: ${linkAlreadySent}

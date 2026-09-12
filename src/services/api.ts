@@ -11,6 +11,7 @@ import { financialService } from './financial.service';
 import { campaignsService } from './campaigns.service';
 import { profilesService } from './profiles.service';
 import { objectionsService } from './objections.service';
+import { salesCockpitService } from './salesCockpit.service';
 
 export const api = {
 _capabilities: {
@@ -31,4 +32,5 @@ _capabilities: {
 ...campaignsService,
 ...profilesService,
 ...objectionsService,
+...salesCockpitService,
 };

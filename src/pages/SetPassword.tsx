@@ -69,9 +69,14 @@ export default function SetPassword() {
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
 
-      toast.success('Senha definida com sucesso. Você já pode acessar o sistema.');
+      toast.success('Senha definida com sucesso! Faça login com suas novas credenciais.');
+      
+      // Clear any cached session and sign out from the temporary recovery session
+      localStorage.removeItem('davos_session');
+      localStorage.removeItem('davos_active_tenant_id');
       await supabase.auth.signOut().catch(() => {});
-      navigate('/login');
+      
+      navigate('/login', { replace: true });
     } catch (err: any) {
       console.error(err);
       toast.error(err?.message || 'Erro ao definir senha.');

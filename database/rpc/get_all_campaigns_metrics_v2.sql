@@ -7,11 +7,13 @@
 DROP FUNCTION IF EXISTS get_all_campaigns_metrics_v2(UUID);
 DROP FUNCTION IF EXISTS get_all_campaigns_metrics_v2(UUID, UUID[]);
 DROP FUNCTION IF EXISTS get_all_campaigns_metrics_v2(UUID, UUID[], TIMESTAMP WITH TIME ZONE);
+DROP FUNCTION IF EXISTS get_all_campaigns_metrics_v2(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
 
 CREATE OR REPLACE FUNCTION get_all_campaigns_metrics_v2(
   p_tenant_id UUID, 
   p_campaign_ids UUID[] DEFAULT NULL,
-  p_start_date TIMESTAMP WITH TIME ZONE DEFAULT NULL
+  p_start_date TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+  p_agent_id UUID DEFAULT NULL
 )
  RETURNS TABLE (
     campaign_id uuid,
@@ -81,6 +83,7 @@ BEGIN
       WHERE c.tenant_id = p_tenant_id
         AND (p_campaign_ids IS NULL OR array_length(p_campaign_ids, 1) IS NULL OR c.id = ANY(p_campaign_ids))
         AND (p_start_date IS NULL OR c.created_at >= p_start_date)
+        AND (p_agent_id IS NULL OR c.agent_id = p_agent_id)
       GROUP BY c.id
   )
   SELECT

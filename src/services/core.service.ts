@@ -566,7 +566,7 @@ export const coreService = {
             userStatus: contactsMap.get(c.user_identifier) || 'active',
             channel: c.channel,
             status: c.status,
-            assignedOperator: c.assigned_operator_id ? 'Human Operator' : undefined,
+            assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
             lastMessage: '',
             lastMessageTime: new Date(c.last_message_at),
             unreadCount: 0,
@@ -806,13 +806,24 @@ export const coreService = {
             updates.assigned_operator_id = operatorId;
             updates.status = 'human_active';
             auditAction = 'conversation.takeover';
-            auditDetails = `Operador ${operatorName} assumiu a conversa`;
+            auditDetails = `Operador ${operatorName || 'Carlos Silva'} assumiu a conversa`;
+
+            const { data: convData } = await supabase.from('conversations').select('metadata').eq('id', conversationId).single();
+            updates.metadata = {
+                ...(convData?.metadata || {}),
+                operator_name: operatorName || 'Carlos Silva'
+            };
         } else {
             // RETURN TO AI
             updates.assigned_operator_id = null;
             updates.status = 'ai_active';
             auditAction = 'conversation.resume_ai';
             auditDetails = 'Conversa devolvida para a IA';
+
+            const { data: convData } = await supabase.from('conversations').select('metadata').eq('id', conversationId).single();
+            const cleanMeta = { ...(convData?.metadata || {}) };
+            delete cleanMeta.operator_name;
+            updates.metadata = cleanMeta;
         }
 
         const { error } = await supabase

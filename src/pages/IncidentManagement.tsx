@@ -292,7 +292,7 @@ export default function IncidentManagement() {
                 Gerencie alertas de sistema e orientações automáticas para seus clientes.
               </p>
             </div>
-            {hasPermission('incidents.view') && (
+            {hasPermission('incidents.create') && (
               <Button className="bg-accent hover:bg-accent/90 shadow-lg shadow-accent/20" onClick={() => handleOpenDialog()}>
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Comunicado
@@ -355,13 +355,15 @@ export default function IncidentManagement() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleOpenDialog(incident)}>Editar</DropdownMenuItem>
-                          {incident.status === 'active' && (
+                          {hasPermission('incidents.manage') && (
+                            <DropdownMenuItem onClick={() => handleOpenDialog(incident)}>Editar</DropdownMenuItem>
+                          )}
+                          {hasPermission('incidents.manage') && incident.status === 'active' && (
                             <DropdownMenuItem onClick={() => handleResolve(incident.id)} className="text-green-600 font-medium">
                               Marcar como Resolvido
                             </DropdownMenuItem>
                           )}
-                          {(incident.mode === 'active' || incident.mode === 'both') && incident.status === 'active' && (
+                          {hasPermission('incidents.manage') && (incident.mode === 'active' || incident.mode === 'both') && incident.status === 'active' && (
                             <DropdownMenuItem onClick={() => handlePrepareBroadcast(incident)} className="text-accent font-medium">
                               Re-disparar Alerta
                             </DropdownMenuItem>
@@ -370,10 +372,14 @@ export default function IncidentManagement() {
                             <BarChart3 className="w-4 h-4 mr-2" />
                             Ver Relatório
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleDelete(incident.id)} className="text-destructive">
-                            Excluir
-                          </DropdownMenuItem>
+                          {hasPermission('incidents.manage') && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => handleDelete(incident.id)} className="text-destructive">
+                                Excluir
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>

@@ -45,7 +45,7 @@ interface CampaignWithStats extends Campaign {
 }
 
 export default function CampaignRecovery() {
-  const { currentTenant } = useApp();
+  const { currentTenant, hasPermission } = useApp();
   const { toast } = useToast();
   const navigate = useNavigate();
   
@@ -124,6 +124,10 @@ export default function CampaignRecovery() {
 
   const startRecovery = async () => {
     if (!currentTenant) return;
+    if (!hasPermission('campaign_recovery.trigger')) {
+      toast({ title: 'Acesso Negado', description: 'Você não tem permissão para disparar recuperações de campanha.', variant: 'destructive' });
+      return;
+    }
     if (selectedCampaigns.length === 0) {
       toast({ title: 'Aviso', description: 'Selecione pelo menos uma campanha.', variant: 'destructive' });
       return;
@@ -372,7 +376,7 @@ export default function CampaignRecovery() {
                       <Button 
                         className="w-full mt-4 font-bold" 
                         size="lg"
-                        disabled={isRunning || selectedCampaigns.length === 0 || targets.length === 0}
+                        disabled={isRunning || selectedCampaigns.length === 0 || targets.length === 0 || !hasPermission('campaign_recovery.trigger')}
                         onClick={startRecovery}
                       >
                         {isRunning ? (
