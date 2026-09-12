@@ -1,17 +1,33 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Network, ShieldAlert, Loader2, ArrowRight } from 'lucide-react';
+import { Network, ShieldAlert, CheckCircle2, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { getSetPasswordUrl } from '@/lib/app-url';
+
+function translateForgotError(message: string): string {
+  if (!message) return 'Erro ao enviar as instruções. Verifique os dados informados.';
+  const lower = message.toLowerCase();
+  if (lower.includes('rate limit') || lower.includes('too many requests')) {
+    return 'Muitas tentativas em pouco tempo. Aguarde alguns minutos antes de solicitar novamente.';
+  }
+  if (lower.includes('invalid email') || lower.includes('valid email')) {
+    return 'Por favor, informe um endereço de e-mail corporativo válido.';
+  }
+  if (lower.includes('network') || lower.includes('fetch')) {
+    return 'Falha de conexão com o servidor. Verifique sua internet.';
+  }
+  return message;
+}
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [formSuccess, setFormSuccess] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -20,17 +36,20 @@ export default function ForgotPassword() {
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
+    setFormSuccess(null);
     setIsLoading(true);
+
     try {
       const redirectTo = getSetPasswordUrl();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo,
       });
       if (error) throw error;
-      toast.success('Link de redefinição enviado para o e-mail informado.');
+      setFormSuccess(`Instruções de recuperação enviadas para ${email}. Verifique sua caixa de entrada e siga as instruções.`);
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.message || 'Erro ao enviar link de redefinição.');
+      setFormError(translateForgotError(err?.message || ''));
     } finally {
       setIsLoading(false);
     }
@@ -123,6 +142,26 @@ export default function ForgotPassword() {
               Insira o e-mail associado à sua conta para receber as instruções de recuperação de senha.
             </p>
           </div>
+
+          {formError && (
+            <div className="mb-6 border border-red-500/30 bg-[#1A0B0B] p-4 rounded-[2px] flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <ShieldAlert className="h-5 w-5 text-[#FF4500] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-[13px] text-white">Falha ao solicitar recuperação</div>
+                <div className="text-xs text-neutral-300 mt-1 leading-relaxed">{formError}</div>
+              </div>
+            </div>
+          )}
+
+          {formSuccess && (
+            <div className="mb-6 border border-emerald-500/30 bg-[#0B1A12] p-4 rounded-[2px] flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-[13px] text-white">Instruções Enviadas!</div>
+                <div className="text-xs text-neutral-300 mt-1 leading-relaxed">{formSuccess}</div>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleReset} className="space-y-6">
 

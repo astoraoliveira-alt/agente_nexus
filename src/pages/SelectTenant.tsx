@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, LogOut, LayoutGrid, Building, ArrowRight, Network } from 'lucide-react';
+import { Search, LogOut, LayoutGrid, Building, ArrowRight, Network, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { Company } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
-import { toast } from 'sonner';
 
 export default function SelectTenant() {
   const navigate = useNavigate();
   const { switchTenant, currentUser } = useApp();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
 
@@ -30,7 +30,7 @@ export default function SelectTenant() {
         }
       } catch (error) {
         console.error('Failed to load companies:', error);
-        toast.error('Erro ao carregar lista de ambientes');
+        setErrorMsg('Não foi possível carregar a lista de ambientes corporativos. Tente novamente.');
       } finally {
         setIsLoading(false);
       }
@@ -39,12 +39,13 @@ export default function SelectTenant() {
   }, []);
 
   const handleSelect = async (tenantId: string, name: string) => {
+    setErrorMsg(null);
     try {
       await switchTenant(tenantId);
       navigate('/');
     } catch (error) {
       console.error('Error switching tenant:', error);
-      toast.error('Erro ao acessar o ambiente');
+      setErrorMsg('Não foi possível acessar o ambiente selecionado. Verifique suas permissões.');
     }
   };
 
@@ -164,6 +165,16 @@ export default function SelectTenant() {
               />
             </div>
           </div>
+
+          {errorMsg && (
+            <div className="mb-4 border border-red-500/30 bg-[#1A0B0B] p-4 rounded-[2px] flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200 shrink-0">
+              <ShieldAlert className="h-5 w-5 text-[#FF4500] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-[13px] text-white">Aviso</div>
+                <div className="text-xs text-neutral-300 mt-1 leading-relaxed">{errorMsg}</div>
+              </div>
+            </div>
+          )}
           
           {/* Scrollable List */}
           <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2 space-y-3">

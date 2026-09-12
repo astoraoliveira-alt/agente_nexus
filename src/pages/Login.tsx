@@ -1,13 +1,30 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Loader2, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, Loader2, ArrowRight, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { toast } from 'sonner';
 
 import { supabase } from '@/lib/supabase';
 import { AuthService } from '@/services/auth';
+
+function translateLoginError(message: string): string {
+  if (!message) return 'Falha ao processar as credenciais. Verifique seus dados.';
+  const lower = message.toLowerCase();
+  if (lower.includes('invalid login credentials') || lower.includes('invalid_credentials')) {
+    return 'E-mail ou senha incorretos. Verifique os dados digitados e tente novamente.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'E-mail ainda não confirmado. Verifique sua caixa de entrada para ativar a conta.';
+  }
+  if (lower.includes('too many requests') || lower.includes('rate limit')) {
+    return 'Muitas tentativas consecutivas. Aguarde alguns instantes antes de tentar novamente.';
+  }
+  if (lower.includes('network') || lower.includes('fetch')) {
+    return 'Falha de conexão com o servidor. Verifique sua internet.';
+  }
+  return message;
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,6 +32,7 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -24,6 +42,7 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     setIsLoading(true);
 
     try {
@@ -39,14 +58,11 @@ export default function Login() {
 
         if (!userProfile) {
           userProfile = await AuthService.linkProviderToUser(email, data.user.id);
-          if (userProfile) {
-            toast.success(`Bem-vindo de volta, ${userProfile.name}`);
-          }
         }
 
         if (userProfile) {
           if (userProfile.status === 'blocked') {
-            toast.error('Este acesso foi revogado. Entre em contato com o suporte.');
+            setFormError('Este acesso foi revogado. Entre em contato com o suporte.');
             await supabase.auth.signOut();
             return;
           }
@@ -56,7 +72,6 @@ export default function Login() {
           }
         }
 
-        toast.success('Login efetuado com sucesso.');
         localStorage.setItem('davos_session', JSON.stringify({
           user: { email: data.user.email },
           token: data.session.access_token
@@ -70,7 +85,7 @@ export default function Login() {
       }
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || 'Falha ao processar as credenciais. Verifique seus dados.');
+      setFormError(translateLoginError(err?.message || ''));
     } finally {
       setIsLoading(false);
     }
@@ -164,6 +179,16 @@ export default function Login() {
               Entre em sua conta para acessar o seu ambiente corporativo.
             </p>
           </div>
+
+          {formError && (
+            <div className="mb-6 border border-red-500/30 bg-[#1A0B0B] p-4 rounded-[2px] flex items-start gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+              <ShieldAlert className="h-5 w-5 text-[#FF4500] shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-[13px] text-white">Falha na autenticação</div>
+                <div className="text-xs text-neutral-300 mt-1 leading-relaxed">{formError}</div>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
 
