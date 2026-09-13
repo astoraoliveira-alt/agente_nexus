@@ -108,7 +108,7 @@ export default function IncidentManagement() {
   const handleFetchLogs = async (incident: SystemIncident) => {
     try {
       setIsLoadingLogs(true);
-      const logs = await api.getIncidentDeliveryLogs(incident.id, currentTenant.id);
+      const logs = await api.getIncidentDeliveryLogs(incident.id);
       setDeliveryLogs(prev => ({ ...prev, [incident.id]: logs }));
     } catch (error) {
       toast.error('Falha ao carregar logs');
@@ -343,7 +343,7 @@ export default function IncidentManagement() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex flex-col gap-1">
-                        <Badge variant={incident.status === 'active' ? "warning" : "success"} className="w-fit">
+                        <Badge variant={incident.status === 'active' ? "secondary" : "default"} className={cn("w-fit", incident.status === 'active' ? "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300 border-amber-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-300")}>
                           {incident.status === 'active' ? 'Ativo' : 'Resolvido'}
                         </Badge>
                         <CardTitle className="text-lg font-bold leading-tight mt-1">{incident.title}</CardTitle>
@@ -857,7 +857,7 @@ export default function IncidentManagement() {
                                   {isSelected ? (
                                     <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[9px] px-1.5 py-0">Selecionado</Badge>
                                   ) : (
-                                    <Badge variant="ghost" className="text-muted-foreground text-[9px] px-1.5 py-0">Ignorado</Badge>
+                                    <Badge variant="outline" className="text-muted-foreground text-[9px] px-1.5 py-0 border-dashed">Ignorado</Badge>
                                   )}
                                 </TableCell>
                               </TableRow>
