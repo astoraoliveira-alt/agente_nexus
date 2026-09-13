@@ -398,9 +398,9 @@ export const salesCockpitService = {
         const hasFormalizationOrSim = mList.some(m => 
           /Simulação concluída/i.test(m.content || '') || 
           /formalização/i.test(m.content || '') || 
-          /analisar seu crédito de/i.test(m.content || '')
+          /enviei a sua solicitação para formalização/i.test(m.content || '')
         );
-        if (!hasFormalizationOrSim && !enrichedLead) continue;
+        if (!hasFormalizationOrSim) continue;
 
         const parseNum = (val: string | undefined | null) => val ? parseFloat(val.replace(/\./g, '').replace(',', '.')) : null;
         const parseAnyAmount = (raw: string | null | undefined): number | null => {
