@@ -257,7 +257,7 @@ export const salesCockpitService = {
           .from('messages')
           .select('conversation_id, content, created_at, sender_type')
           .in('conversation_id', convIds)
-          .or('content.ilike.%Simulação concluída%,content.ilike.%enviei a sua solicitação para formalização%')
+          .or('content.ilike.%Simulação concluída%,content.ilike.%enviei a sua solicitação para formalização%,content.ilike.%faturamento médio mensal%,content.ilike.%analisar seu crédito de%')
           .order('created_at', { ascending: false });
         matchedFunnelMsgs = msgsData || [];
       }
@@ -343,7 +343,7 @@ export const salesCockpitService = {
           totalContractAmount: math.totalContractAmount,
           totalInterestAmount: math.totalInterestAmount,
           approvedLimit: math.approvedLimit,
-          revenue: Number(mergedMeta.revenue || 0) || 100000,
+          revenue: Number(mergedMeta.revenue || 0) || Number(enriched?.revenue || 0) || 0,
           loanRequestId: mergedMeta.loan_request_id ? (String(mergedMeta.loan_request_id).startsWith('#') ? String(mergedMeta.loan_request_id) : `#FSV-${mergedMeta.loan_request_id}`) : `#FSV-${Math.abs(params.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) * 891 + 104523) % 900000 + 100000}`,
           consentSigned: mergedMeta.consent?.opt_in === true || !!mergedMeta.fiserv_requested_at || true,
           consentDate: mergedMeta.consent?.timestamp ? new Date(mergedMeta.consent.timestamp) : undefined,
@@ -406,6 +406,7 @@ export const salesCockpitService = {
         let foundDebt: number | null = null;
         let foundCnpj: string | null = null;
         let foundCompanyName: string | null = null;
+        let foundRevenue: number | null = null;
 
         for (const m of mList) {
           const text = m.content || '';
@@ -415,6 +416,22 @@ export const salesCockpitService = {
             const cnpjMatch = text.match(/CNPJ\s*\*?\*?(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\*?\*?/i);
             if (cnpjMatch) foundCnpj = cnpjMatch[1].replace(/\D/g, '');
           }
+          // Extrair Faturamento (ex: 1 milhão, 80 mil, 100k, 50.000)
+          if (!foundRevenue) {
+            // Verificar se na conversa o cliente informou após pergunta de faturamento
+            const revMatch = text.match(/(?:faturamento|faturamento médio|fatura|receita).*?([d.,]+(?:s*(?:milhões|milhao|milhão|mil|k))?)/i);
+            if (revMatch) {
+              const rawRev = revMatch[1].toLowerCase().trim();
+              if (rawRev.includes('milhão') || rawRev.includes('milhao') || rawRev.includes('milhões')) {
+                foundRevenue = (parseNum(rawRev.replace(/[^0-9,.]/g, '')) || 1) * 1000000;
+              } else if (rawRev.includes('mil') || rawRev.includes('k')) {
+                foundRevenue = (parseNum(rawRev.replace(/[^0-9,.]/g, '')) || 1) * 1000;
+              } else {
+                foundRevenue = parseNum(rawRev);
+              }
+            }
+          }
+
           if (!foundCompanyName) {
             // Capturar preferencialmente nomes completos corporativos
             const specificMatch = text.match(/(\bDAVOS AD CONSULTORIA[A-Z\s\.\-]*LTDA\b)/i) ||
@@ -484,6 +501,7 @@ export const salesCockpitService = {
           max_installments: foundInstallments || enrichedLead?.metadata?.max_installments || '12',
           interest_rate: foundRate || enrichedLead?.metadata?.interest_rate || 2.52,
           approved_limit: foundLimit || enrichedLead?.metadata?.approved_limit || 500000,
+          revenue: foundRevenue || enrichedLead?.metadata?.revenue || conv.metadata?.revenue,
           loan_request_id: enrichedLead?.metadata?.loan_request_id || conv.metadata?.loan_request_id,
           offer_data: {
             VlrParcela: foundPmt,
