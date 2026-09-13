@@ -257,8 +257,7 @@ export const salesCockpitService = {
           .from('messages')
           .select('conversation_id, content, created_at, sender_type')
           .in('conversation_id', convIds)
-          .or('content.ilike.%Simulação concluída%,content.ilike.%enviei a sua solicitação para formalização%,content.ilike.%faturamento médio mensal%,content.ilike.%analisar seu crédito de%')
-          .order('created_at', { ascending: false });
+          .order('created_at', { ascending: true });
         matchedFunnelMsgs = msgsData || [];
       }
 
@@ -395,8 +394,28 @@ export const salesCockpitService = {
         const cleanPhone = String(conv.user_identifier || '').replace(/\D/g, '');
         const enrichedLead = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
         
-        // Extrair valores exatos simulados/solicitados da conversa (do mais recente ao mais antigo)
+        // Verificar se esta conversa atingiu a etapa de simulação ou formalização
+        const hasFormalizationOrSim = mList.some(m => 
+          /Simulação concluída/i.test(m.content || '') || 
+          /formalização/i.test(m.content || '') || 
+          /analisar seu crédito de/i.test(m.content || '')
+        );
+        if (!hasFormalizationOrSim && !enrichedLead) continue;
+
         const parseNum = (val: string | undefined | null) => val ? parseFloat(val.replace(/\./g, '').replace(',', '.')) : null;
+        const parseAnyAmount = (raw: string | null | undefined): number | null => {
+          if (!raw) return null;
+          const clean = String(raw).toLowerCase().trim();
+          if (clean.includes('milhão') || clean.includes('milhao') || clean.includes('milhões')) {
+            const n = parseNum(clean.replace(/[^0-9,.]/g, '')) || 1;
+            return n * 1000000;
+          }
+          if (clean.includes('mil') || clean.includes('k')) {
+            const n = parseNum(clean.replace(/[^0-9,.]/g, '')) || 1;
+            return n * 1000;
+          }
+          return parseNum(clean.replace(/[^0-9,.]/g, ''));
+        };
         
         let foundReqAmount: number | null = null;
         let foundInstallments: string | null = null;
@@ -408,32 +427,29 @@ export const salesCockpitService = {
         let foundCompanyName: string | null = null;
         let foundRevenue: number | null = null;
 
-        for (const m of mList) {
+        for (let i = 0; i < mList.length; i++) {
+          const m = mList[i];
           const text = m.content || '';
+          const sender = String(m.sender_type || '').toLowerCase();
+          const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(sender);
 
-          // 1. CNPJ e Razão Social confirmados na conversa
+          // 1. CNPJ confirmado na conversa
           if (!foundCnpj) {
             const cnpjMatch = text.match(/CNPJ\s*\*?\*?(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\*?\*?/i);
             if (cnpjMatch) foundCnpj = cnpjMatch[1].replace(/\D/g, '');
           }
-          // Extrair Faturamento (ex: 1 milhão, 80 mil, 100k, 50.000)
-          if (!foundRevenue) {
-            // Verificar se na conversa o cliente informou após pergunta de faturamento
-            const revMatch = text.match(/(?:faturamento|faturamento médio|fatura|receita).*?([d.,]+(?:s*(?:milhões|milhao|milhão|mil|k))?)/i);
-            if (revMatch) {
-              const rawRev = revMatch[1].toLowerCase().trim();
-              if (rawRev.includes('milhão') || rawRev.includes('milhao') || rawRev.includes('milhões')) {
-                foundRevenue = (parseNum(rawRev.replace(/[^0-9,.]/g, '')) || 1) * 1000000;
-              } else if (rawRev.includes('mil') || rawRev.includes('k')) {
-                foundRevenue = (parseNum(rawRev.replace(/[^0-9,.]/g, '')) || 1) * 1000;
-              } else {
-                foundRevenue = parseNum(rawRev);
-              }
+
+          // 2. Extrair Faturamento: resposta do cliente imediatamente após a pergunta de faturamento da Sofia
+          if (!foundRevenue && isBot && /faturamento médio mensal/i.test(text)) {
+            const nextClientMsg = mList.slice(i + 1).find(nm => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(nm.sender_type || '').toLowerCase()));
+            if (nextClientMsg) {
+              const val = parseAnyAmount(nextClientMsg.content);
+              if (val) foundRevenue = val;
             }
           }
 
+          // 3. Razão Social / Nome da Empresa
           if (!foundCompanyName) {
-            // Capturar preferencialmente nomes completos corporativos
             const specificMatch = text.match(/(\bDAVOS AD CONSULTORIA[A-Z\s\.\-]*LTDA\b)/i) ||
                                  text.match(/(?:da empresa|pela empresa|responsável pela?)\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI|CONVENIENCIAS))\*?\*?/i) ||
                                  text.match(/(?:notícia|Certo|Maravilha),\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI))\*?\*?/i);
@@ -445,7 +461,7 @@ export const salesCockpitService = {
             }
           }
 
-          // 2. Valor Solicitado
+          // 4. Valor Solicitado
           if (!foundReqAmount) {
             const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
             if (reqAmountMatch) {
@@ -463,25 +479,25 @@ export const salesCockpitService = {
             }
           }
 
-          // 3. Prazo / Parcelas
+          // 5. Prazo / Parcelas
           if (!foundInstallments) {
             const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i) || text.match(/(\d+)\s*parcelas/i);
             if (installmentsMatch) foundInstallments = installmentsMatch[1];
           }
 
-          // 4. Taxa de Juros
+          // 6. Taxa de Juros
           if (!foundRate) {
             const rateMatch = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i) || text.match(/Taxa:\*?\s*a partir de\s*([\d\.,]+)%\s*a\.m/i);
             if (rateMatch) foundRate = parseNum(rateMatch[1]);
           }
 
-          // 5. Limite Aprovado
+          // 7. Limite Aprovado
           if (!foundLimit) {
             const limitMatch = text.match(/Limite aprovado:\*?\s*R\$\s*([\d\.,]+)/i);
             if (limitMatch) foundLimit = parseNum(limitMatch[1]);
           }
 
-          // 6. Parcela e Total Dívida
+          // 8. Parcela e Total Dívida
           if (!foundPmt) {
             const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
             if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
