@@ -7,6 +7,8 @@ import { ChatArea } from '@/components/conversations/ChatArea';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { 
   Select, 
   SelectContent, 
@@ -16,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { 
   Search, 
+  ChevronDown,
   CheckCircle2, 
   Clock, 
   ShieldCheck, 
@@ -117,10 +120,16 @@ export default function SalesCockpit() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Por default selecionado: 'pending_contact' (solicitado pelo usuário)
-  const [selectedStage, setSelectedStage] = useState<string>('pending_contact');
+  // Filtro de status com múltipla escolha (inicia com 'pending_contact' selecionado)
+  const [selectedStages, setSelectedStages] = useState<PipelineStage[]>(['pending_contact']);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
+
+  const toggleStage = (stage: PipelineStage) => {
+    setSelectedStages(prev => 
+      prev.includes(stage) ? prev.filter(s => s !== stage) : [...prev, stage]
+    );
+  };
 
   // Carregar Leads do Cockpit
   const loadLeads = async () => {
@@ -165,7 +174,7 @@ export default function SalesCockpit() {
   // Reset pagination on filter or search change
   useEffect(() => {
     setVisibleCount(60);
-  }, [selectedStage, searchTerm]);
+  }, [selectedStages, searchTerm]);
 
   // Lead Ativo Atual
   const activeLead = useMemo(() => {
@@ -224,11 +233,11 @@ export default function SalesCockpit() {
         formattedPhone.includes(termClean) ||
         formattedCnpj.includes(termClean);
 
-      const matchesStage = selectedStage === 'all' || lead.pipelineStage === selectedStage;
+      const matchesStage = selectedStages.length === 0 || selectedStages.includes(lead.pipelineStage);
 
       return matchesSearch && matchesStage;
     });
-  }, [leads, searchTerm, selectedStage]);
+  }, [leads, searchTerm, selectedStages]);
 
   // Atualizar Etapa do Pipeline
   const handleUpdateStage = async (newStage: PipelineStage) => {
@@ -368,47 +377,88 @@ export default function SalesCockpit() {
                 />
               </div>
 
-              {/* Filtro Selecionável (Dropdown Select limpo e sem scroll horizontal) */}
+              {/* Filtro Selecionável com Múltipla Escolha */}
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
                   Filtrar por Status do Funil:
                 </label>
-                <Select value={selectedStage} onValueChange={(val) => setSelectedStage(val)}>
-                  <SelectTrigger className="h-9 text-xs bg-background border-slate-300 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100">
-                    <SelectValue placeholder="Selecione o status" />
-                  </SelectTrigger>
-                  <SelectContent className="text-xs">
-                    <SelectItem value="pending_contact" className="font-medium text-amber-800 dark:text-amber-300">
-                      🟡 Pendente de Contato ({pendingCount})
-                    </SelectItem>
-                    <SelectItem value="in_contact" className="font-medium text-blue-800 dark:text-blue-300">
-                      🔵 Em Contato ({inContactCount})
-                    </SelectItem>
-                    <SelectItem value="contract_sent" className="font-medium text-purple-800 dark:text-purple-300">
-                      🟣 Contrato Enviado ({sentCount})
-                    </SelectItem>
-                    <SelectItem value="contract_signed" className="font-medium text-emerald-800 dark:text-emerald-300">
-                      🟢 Contrato Assinado ({signedCount})
-                    </SelectItem>
-                    <SelectItem value="all" className="font-medium text-slate-700 dark:text-slate-300">
-                      ⚪ Todos os Leads ({leads.length})
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Legenda de SLA 48h */}
-              <div className="pt-1.5 flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800">
-                <span className="font-semibold">SLA Fiserv:</span>
-                <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-500"></span> &lt;12h</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500"></span> 12-36h</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-rose-500"></span> &gt;36h</span>
-                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full h-9 justify-between text-xs bg-background border-slate-300 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100 px-3 hover:bg-slate-50 dark:hover:bg-slate-850 hover:text-slate-900 dark:hover:text-slate-100 data-[state=open]:bg-slate-50 dark:data-[state=open]:bg-slate-800 data-[state=open]:text-slate-900 dark:data-[state=open]:text-slate-100"
+                    >
+                      <span className="truncate text-slate-900 dark:text-slate-100">
+                        {selectedStages.length === 0
+                          ? "Nenhum status selecionado"
+                          : selectedStages.length === Object.keys(STAGE_CONFIG).length
+                          ? `Todos os Status (${leads.length})`
+                          : selectedStages.length === 1
+                          ? `${STAGE_CONFIG[selectedStages[0]]?.label} (${leads.filter(l => l.pipelineStage === selectedStages[0]).length})`
+                          : `${selectedStages.length} status selecionados`}
+                      </span>
+                      <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-1 text-slate-700 dark:text-slate-300" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[306px] p-2 text-xs" align="start">
+                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">
+                        Selecionar Etapas
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStages(Object.keys(STAGE_CONFIG) as PipelineStage[])}
+                          className="text-[10px] text-primary hover:underline font-medium"
+                        >
+                          Marcar todos
+                        </button>
+                        <span className="text-slate-300 dark:text-slate-600">|</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStages([])}
+                          className="text-[10px] text-muted-foreground hover:underline"
+                        >
+                          Limpar
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {(Object.keys(STAGE_CONFIG) as PipelineStage[]).map((stageKey) => {
+                        const isChecked = selectedStages.includes(stageKey);
+                        const count = leads.filter(l => l.pipelineStage === stageKey).length;
+                        return (
+                          <div
+                            key={stageKey}
+                            onClick={() => toggleStage(stageKey)}
+                            className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={() => toggleStage(stageKey)}
+                                id={`stage-${stageKey}`}
+                              />
+                              <label
+                                htmlFor={`stage-${stageKey}`}
+                                className="text-xs font-medium cursor-pointer text-slate-800 dark:text-slate-200"
+                              >
+                                {STAGE_CONFIG[stageKey].label}
+                              </label>
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                              ({count})
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
 
-            {/* Listagem de Cards com Cores nas Bordas pelo SLA */}
+            {/* Listagem de Cards */}
             <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
               {isLoading ? (
                 <div className="p-8 text-center text-xs text-slate-500">
@@ -416,7 +466,7 @@ export default function SalesCockpit() {
                 </div>
               ) : filteredLeads.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-500 bg-card rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
-                  Nenhum lead com o status <strong>{STAGE_CONFIG[selectedStage as PipelineStage]?.label || 'selecionado'}</strong>.
+                  Nenhum lead com {selectedStages.length === 0 ? "status selecionado" : "os filtros aplicados"}.
                 </div>
               ) : (
                 <>
@@ -462,18 +512,8 @@ export default function SalesCockpit() {
                           </span>
                         </div>
 
-                        {/* Rodapé do Card: Tempo de Espera SLA / Status */}
-                        <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px]">
-                          {selectedStage === 'all' ? (
-                            <span className={cn("px-2 py-0.5 rounded-md font-semibold border", stageMeta.bgClass, stageMeta.textClass, stageMeta.borderClass)}>
-                              {stageMeta.label}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-500 font-medium">
-                              {lead.assignedOperator || ''}
-                            </span>
-                          )}
-                          
+                        {/* Rodapé do Card: Tempo de Espera SLA */}
+                        <div className="flex items-center justify-end pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px]">
                           <span className={cn("px-1.5 py-0.5 rounded flex items-center font-medium", slaAlert.badgeClass)} title={slaAlert.tooltip}>
                             {slaAlert.icon}
                             finalizou {formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })}

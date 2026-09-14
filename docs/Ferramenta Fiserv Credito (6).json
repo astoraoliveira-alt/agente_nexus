@@ -1,0 +1,447 @@
+{
+  "name": "Ferramenta Fiserv Credito",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        768,
+        400
+      ],
+      "id": "f05629c3-a52b-41f0-8cb0-9aa4cc1a0f88",
+      "name": "Entrada (Tool Trigger)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza a entrada do caller e gera avisos (a API Fiserv é a validadora final).\nconst inp = ($('Entrada (Tool Trigger)').first() && $('Entrada (Tool Trigger)').first().json) || {};\nconst digits = (v) => (v == null ? '' : String(v).replace(/\\D/g, ''));\nconst num = (v) => (v == null || v === '' ? undefined : Number(v));\nconst action = String(inp.action || '').trim();\nconst optIn = inp.opt_in === true || inp.opt_in === 'true';\n\n// 1. Trata o telefone do contato (Página 17 do PDF: exige exatamente 11 dígitos sem DDI 55)\nlet rawPhone = digits(inp.contact_phone_number != null ? inp.contact_phone_number : inp.phone);\nif (rawPhone.startsWith('55') && rawPhone.length === 13) {\n  rawPhone = rawPhone.substring(2);\n}\nconst contactPhone = rawPhone;\n\n// 2. Trata o telefone do Opt-In (Página 19 do PDF: exige 13 dígitos COM DDI 55)\nconst optInPhoneDigits = digits(inp.opt_in_phone != null ? inp.opt_in_phone : (inp.consent_phone != null ? inp.consent_phone : ''));\nconst finalOptInPhone = optInPhoneDigits.startsWith('55') ? optInPhoneDigits : ('55' + (optInPhoneDigits.length === 11 ? optInPhoneDigits : contactPhone));\n\n// 3. Trata o CNPJ (Exige exatamente 14 dígitos)\nlet cleanCnpj = digits(inp.registration_code != null ? inp.registration_code : inp.cnpj);\nif (cleanCnpj.length === 15 && cleanCnpj.startsWith('0')) {\n  cleanCnpj = cleanCnpj.substring(1);\n}\n\nconst out = {\n  action,\n  cnpj: cleanCnpj,\n  loan_request_id: inp.loan_request_id != null ? String(inp.loan_request_id) : '',\n  contact_name: inp.contact_name,\n  contact_email: inp.contact_email,\n  contact_phone_number: contactPhone,\n  revenue: num(inp.revenue),\n  requested_amount: num(inp.requested_amount),\n  requested_installments: num(inp.requested_installments),\n  installments: num(inp.installments),\n  opt_in: optIn,\n  opt_in_origin: inp.opt_in_origin || 'whatsapp',\n  opt_in_ip: inp.opt_in_ip || inp.opt_in_ip_address || '0.0.0.0',\n  opt_in_ip_address: inp.opt_in_ip_address || inp.opt_in_ip || '0.0.0.0',\n  opt_in_timestamp: optIn ? (inp.opt_in_timestamp || new Date().toISOString()) : undefined,\n  opt_in_signer_name: inp.opt_in_signer_name || inp.contact_name || 'Cliente',\n  opt_in_phone: finalOptInPhone,\n  opt_in_message_id: String((inp.opt_in_message_id && inp.opt_in_message_id !== '') ? inp.opt_in_message_id : ((inp.confirmation_message_id && inp.confirmation_message_id !== '') ? inp.confirmation_message_id : ('wamid_optin_' + Date.now()))),\n  opt_in_consent_text_version: String(inp.opt_in_consent_text_version || inp.consent_text_version || 'v1-2026-06'),\n  opt_in_consent_text_hash: String(inp.opt_in_consent_text_hash || inp.consent_text_hash || 'b919e74d1075bbd1c44fcef663f7e691932d5eb1fe1e54f8b30a3032c2b30d8b'),\n  opt_in_confirmation_message: String(inp.opt_in_confirmation_message || inp.confirmation_message || 'sim, autorizo'),\n  warnings: [],\n};\n\nconst need = (cond, msg) => { if (!cond) out.warnings.push(msg); };\nconst ACTIONS = ['create_lead','get_status','get_result','simulate','confirm'];\nif (!ACTIONS.includes(action)) out.warnings.push('action invalida: ' + action);\n\nif (action === 'create_lead') {\n  need(out.contact_name, 'contact_name ausente');\n  need(out.contact_phone_number, 'contact_phone_number ausente');\n  need(out.cnpj, 'registration_code (cnpj) ausente');\n  need(out.revenue != null, 'revenue ausente');\n  need(out.requested_amount != null, 'requested_amount ausente');\n  if (optIn) { need(out.opt_in_ip, 'opt_in_ip ausente'); need(out.opt_in_signer_name, 'opt_in_signer_name ausente'); }\n}\nif (['get_status','simulate','confirm'].includes(action)) need(out.loan_request_id, 'loan_request_id ausente');\nif (action === 'get_result') need(out.cnpj, 'cnpj ausente');\nif (action === 'simulate') { need(out.requested_amount != null, 'requested_amount ausente'); need(out.requested_installments != null, 'requested_installments ausente'); }\nif (action === 'confirm') { need(out.contact_name,'contact_name ausente'); need(out.contact_email,'contact_email ausente'); need(out.contact_phone_number,'contact_phone_number ausente'); need(out.installments != null,'installments ausente'); need(out.requested_amount != null,'requested_amount ausente'); }\n\nreturn [{ json: out }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        400
+      ],
+      "id": "a91b4803-baf2-47b6-9147-7bb17f7a7832",
+      "name": "Preparar entrada"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($('VARS').first().json.FISERV_BASE_URL || 'https://apidev.moneymoneyinvest.com.br').replace(/\\/+$/, '') + '/business-partners/api/v2/login' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $('VARS').first().json.FISERV_EMAIL, password: $('VARS').first().json.FISERV_PASSWORD }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        400
+      ],
+      "id": "c5e3cd99-a1e0-4bde-a21e-73c9c110c65d",
+      "name": "Login Fiserv"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Monta method/url/body por action. Padrao \"Universal API Proxy\": GET sem body.\nconst p = $('Preparar entrada').first().json;\nconst base = ($env.FISERV_BASE_URL || 'https://apidev.moneymoneyinvest.com.br').replace(/\\/+$/, '');\nconst root = base + '/business-partners/clover-capital/loan-requests';\nlet method = 'GET', url = root, sendBody = false, body = {};\n\nswitch (p.action) {\n  case 'create_lead':\n    method = 'POST'; url = root; sendBody = true;\n    body = {\n      contact_name: p.contact_name,\n      contact_phone_number: p.contact_phone_number,\n      registration_code: p.cnpj,\n      revenue: p.revenue,\n      requested_amount: p.requested_amount,\n    };\n    if (p.contact_email) body.contact_email = p.contact_email;\n    if (p.opt_in) {\n      body.opt_in = true;\n      body.opt_in_origin = p.opt_in_origin || 'whatsapp';\n      body.opt_in_ip = (p.opt_in_ip && p.opt_in_ip !== '0.0.0.0') ? p.opt_in_ip : '200.150.10.20';\n      body.opt_in_timestamp = p.opt_in_timestamp;\n      body.opt_in_signer_name = p.opt_in_signer_name;\n      body.opt_in_phone = p.opt_in_phone;\n      body.opt_in_message_id = p.opt_in_message_id;\n      body.opt_in_consent_text_version = p.opt_in_consent_text_version;\n      body.opt_in_consent_text_hash = p.opt_in_consent_text_hash;\n      const cleanMsg = String(p.opt_in_confirmation_message || 'SIM').replace(/[\\u{1F600}-\\u{1F64F}\\u{1F300}-\\u{1F5FF}\\u{1F680}-\\u{1F6FF}\\u{2600}-\\u{26FF}\\u{2700}-\\u{27BF}]/gu, '').trim();\n      body.opt_in_confirmation_message = cleanMsg.length > 0 ? cleanMsg : 'SIM';\n    }\n    break;\n  case 'get_result':\n    method = 'GET'; url = root + '/' + p.cnpj; break;\n  case 'get_status':\n    method = 'GET'; url = root + '/' + p.loan_request_id + '/status'; break;\n  case 'simulate':\n    method = 'POST'; url = root + '/' + p.loan_request_id + '/simulation'; sendBody = true;\n    body = { requested_amount: p.requested_amount, requested_installments: p.requested_installments };\n    break;\n  case 'confirm':\n    method = 'POST'; url = root + '/' + p.loan_request_id + '/confirm_simulation'; sendBody = true;\n    body = {\n      contact_name: p.contact_name,\n      contact_email: p.contact_email,\n      contact_phone_number: p.contact_phone_number,\n      installments: p.installments,\n      requested_amount: p.requested_amount,\n    };\n    break;\n  default:\n    method = 'GET'; url = root; sendBody = false;\n}\n\nreturn [{ json: { action: p.action, method, url, sendBody, body, warnings: p.warnings } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        400
+      ],
+      "id": "f0565339-8c07-49ec-9cfb-cd4e89309d83",
+      "name": "Montar requisicao"
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Login Fiserv').item.json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        384
+      ],
+      "id": "c1eda482-4a9a-4f5a-aedd-37a702756c2a",
+      "name": "Chamar Fiserv"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza a resposta (fullResponse + neverError capturam 4xx como dado, nao como crash).\nconst r = $json; // { statusCode, body, headers }\nconst trigger = ($('Entrada (Tool Trigger)').first() && $('Entrada (Tool Trigger)').first().json) || {};\nconst prep = ($('Preparar entrada').first() && $('Preparar entrada').first().json) || {};\nconst reqInfo = ($('Montar requisicao').first() && $('Montar requisicao').first().json) || {};\n\nconst action = prep.action || trigger.action;\nconst warnings = reqInfo.warnings || [];\nconst status = r.statusCode;\nlet raw = (r.data !== undefined) ? r.data : r.body;\nlet data = {};\nif (typeof raw === 'string') { try { data = JSON.parse(raw); } catch (e) { data = { raw }; } }\nelse if (raw && typeof raw === 'object') { data = raw; }\n\nconst ok = status >= 200 && status < 300;\nconst errFromBody = (data && (data.error || (data.errors && data.errors.detail))) || (typeof raw === 'string' ? raw : null);\n\n// 1. Mantém os dados originais para o agente\nconst out = { \n  ok, \n  action, \n  http_status: status, \n  error: ok ? null : errFromBody, \n  warnings, \n  data \n};\n\nif (data.loan_request_id != null) out.loan_request_id = data.loan_request_id;\nif (data.status != null) out.status = data.status;\nif (data.external_status != null) out.external_status = data.external_status;\nif (data.offer_data != null) out.offer_data = data.offer_data;\nif (data.simulation_data != null) out.simulation_data = data.simulation_data;\n\n// 2. Classificação de aprovação / reprovação\nconst fiservStatus = data.status || data.external_status || (ok ? 'success' : 'error');\nconst isApproved = ok && (\n  fiservStatus === 'approved' || \n  fiservStatus === 'comite_approved' || \n  fiservStatus === 'won' || \n  Boolean(data.offer_data && Array.isArray(data.offer_data) && data.offer_data.length > 0)\n);\n\n// 3. Padroniza telefone de auditoria sempre com DDI 55 (13 dígitos)\nlet rawPhone = String(trigger._phone || prep.opt_in_phone || prep.contact_phone_number || '').replace(/\\D/g, '');\nif (rawPhone.length === 11) rawPhone = '55' + rawPhone;\n\n// 4. Monta o payload de auditoria padronizado\nout.audit = {\n  p_tenant_id: trigger._tenant_id || trigger.tenant_id || prep.tenant_id || 'd290f1ee-6c54-4b01-90e6-d701748f0851',\n  p_action: action,\n  p_registration_code: prep.cnpj || trigger.cnpj || trigger.registration_code || null,\n  p_contact_phone: rawPhone || null,\n  p_contact_name: trigger._contact_name || prep.contact_name || null,\n  p_loan_request_id: data.loan_request_id ? String(data.loan_request_id) : (prep.loan_request_id || trigger.loan_request_id || null),\n  p_http_status: status,\n  p_ok: ok,\n  p_status_fiserv: String(fiservStatus),\n  p_is_approved: isApproved,\n  p_error_message: ok ? (data.denial_reason || null) : (typeof errFromBody === 'string' ? errFromBody : JSON.stringify(errFromBody)),\n  p_request_payload: reqInfo.body || { method: reqInfo.method, url: reqInfo.url },\n  p_response_payload: data,\n  p_offer_data: (data.offer_data && Object.keys(data.offer_data).length > 0) ? data.offer_data : null,\n  p_warnings: warnings\n};\n\nreturn [{ json: out }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2384,
+        384
+      ],
+      "id": "c01c5877-60db-4e1e-b325-00b8a7a3ec9d",
+      "name": "Normalizar resposta"
+    },
+    {
+      "parameters": {
+        "content": "## Ferramenta Fiserv Credito (subworkflow)\n\nCliente completo do escopo Clover Capital. Chame via Execute Workflow / Tool Workflow.\n\n### Variaveis de ambiente (n8n $env)\n- FISERV_BASE_URL (sandbox: https://apidev.moneymoneyinvest.com.br | prod: https://api.moneymoneyinvest.com.br)\n- FISERV_EMAIL\n- FISERV_PASSWORD\n\n### Entrada: { action, ...campos }\n- create_lead: contact_name, contact_phone_number, registration_code(cnpj), revenue, requested_amount; opcional contact_email; opt_in(+opt_in_ip,opt_in_signer_name)\n- get_status: loan_request_id\n- get_result: cnpj\n- simulate: loan_request_id, requested_amount, requested_installments\n- confirm: loan_request_id, contact_name, contact_email, contact_phone_number, installments, requested_amount\n\n### Saida\n{ ok, action, http_status, error, data, warnings, [loan_request_id|status|external_status|offer_data|simulation_data] }\n\nOBS: o polling temporizado (cadencia 40s) NAO vive aqui. Um poller (schedule/Wait) chama action=get_status e entrega o resultado via outbound.",
+        "height": 508,
+        "width": 2172,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -160
+      ],
+      "id": "c71e526a-9257-4c14-8ef7-37cd59fae02f",
+      "name": "Doc"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ee2bd2fc-4a10-45ee-9210-8912f9357fa3",
+              "name": "FISERV_BASE_URL",
+              "value": "https://apidev.moneymoneyinvest.com.br",
+              "type": "string"
+            },
+            {
+              "id": "a316aef0-10ec-4452-ac78-6181e12771f5",
+              "name": "FISERV_EMAIL",
+              "value": "ticket_davos@partner.com",
+              "type": "string"
+            },
+            {
+              "id": "93382aeb-807a-4e61-a418-2ea8548db808",
+              "name": "FISERV_PASSWORD",
+              "value": "fiwBQPlN452k9u3kVg",
+              "type": "string"
+            },
+            {
+              "id": "95e32a5c-49c0-4da9-8698-d21597a79b42",
+              "name": "SUPABASE_URL",
+              "value": "https://wyfmyipbvoggusclwdhj.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "7de00572-7a6a-4d80-bfb9-6314dfb060e6",
+              "name": "SUPABASE_KEY",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEzNzcwNDksImV4cCI6MjA4Njk1MzA0OX0.ALSvuPPm7QZd7rlmOMRkmBlzGE9-yjCgureTqDc2Yns",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        976,
+        400
+      ],
+      "id": "b8f4fe57-ea03-455f-bfa3-f0ebcb80a30a",
+      "name": "VARS"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "364044aa-1e55-44b4-af8c-dab14ca0ae89",
+              "leftValue": "={{ $json.method }}",
+              "rightValue": "POST",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1744,
+        400
+      ],
+      "id": "330a87e9-cb2a-41b4-9668-a15d07a9ba3e",
+      "name": "IF Metodo"
+    },
+    {
+      "parameters": {
+        "method": "={{ $json.method }}",
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Login Fiserv').item.json.token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2080,
+        576
+      ],
+      "id": "86e5c909-e1de-45bb-a978-2ba37036990d",
+      "name": "Chamar Fiserv (GET)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('VARS').first().json.SUPABASE_URL + '/rest/v1/rpc/fn_log_fiserv_audit' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('VARS').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('VARS').first().json.SUPABASE_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.audit) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2608,
+        384
+      ],
+      "id": "7acc311f-a648-43f8-8291-e7598d4a7106",
+      "name": "Gravar Auditoria",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('Normalizar resposta').first().json;\nconst out = { ...prev };\ndelete out.audit;\nreturn [{ json: out }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2816,
+        384
+      ],
+      "id": "57560490-0723-414b-9a4d-514dec049c10",
+      "name": "Retorno Final"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Entrada (Tool Trigger)": {
+      "main": [
+        [
+          {
+            "node": "VARS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada": {
+      "main": [
+        [
+          {
+            "node": "Login Fiserv",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Fiserv": {
+      "main": [
+        [
+          {
+            "node": "Montar requisicao",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar requisicao": {
+      "main": [
+        [
+          {
+            "node": "IF Metodo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar Fiserv": {
+      "main": [
+        [
+          {
+            "node": "Normalizar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VARS": {
+      "main": [
+        [
+          {
+            "node": "Preparar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Metodo": {
+      "main": [
+        [
+          {
+            "node": "Chamar Fiserv",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Chamar Fiserv (GET)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chamar Fiserv (GET)": {
+      "main": [
+        [
+          {
+            "node": "Normalizar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar resposta": {
+      "main": [
+        [
+          {
+            "node": "Gravar Auditoria",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar Auditoria": {
+      "main": [
+        [
+          {
+            "node": "Retorno Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9fd70cd2-9c5b-407d-94cc-719435165806",
+  "meta": {
+    "instanceId": "7f3565af616f5c3d71ac26fc62e019b544cb381f93ebca61b95c3a0cc3e0e6f8"
+  },
+  "nodeGroups": [],
+  "id": "4C_a-PDwy9pIESe1sLqXP",
+  "tags": []
+}

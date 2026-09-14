@@ -1,0 +1,630 @@
+{
+  "name": "Poller Fiserv Credito",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        2352,
+        1520
+      ],
+      "id": "32052aa9-1776-47b4-8ca2-1aecd3d4826c",
+      "name": "Ciclo (cron 1min)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    al.id,\n    al.tenant_id,\n    al.campaign_id,\n    COALESCE(\n        (SELECT a.id FROM agents a WHERE a.tenant_id = al.tenant_id AND a.status = 'active' LIMIT 1),\n        NULL\n    ) AS agent_id,\n    al.identifier AS cnpj,\n    al.whatsapp AS phone,\n    al.name,\n    (al.metadata->>'loan_request_id')       AS loan_request_id,\n    (al.metadata->>'requested_amount')      AS requested_amount,\n    (al.metadata->>'fiserv_status')         AS current_fiserv_status,\n    (al.metadata->>'fiserv_external_status') AS current_external_status\nFROM agent_leads al\nWHERE al.metadata->>'fiserv_status' IN (\n    'in_progress','fail_to_contact','contact_updated',\n    'comite','in_quoting','comite_approved','formalization'\n  )\n  AND al.metadata->>'loan_request_id' IS NOT NULL\n  AND (al.metadata->>'fiserv_offer_sent') IS DISTINCT FROM 'true'\n  AND (al.metadata->>'fiserv_requested_at')::timestamptz > now() - interval '7 days'\nLIMIT 100;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2592,
+        1520
+      ],
+      "id": "d02121d4-ea0f-43e5-9c8d-9c84ddfd8a57",
+      "name": "Ler leads pendentes",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "628cce8151134b0d",
+              "name": "action",
+              "value": "get_result",
+              "type": "string"
+            },
+            {
+              "id": "9035d63e6c5e4ba7",
+              "name": "cnpj",
+              "value": "={{ $json.cnpj }}",
+              "type": "string"
+            },
+            {
+              "id": "b69cf38ff5364ac1",
+              "name": "loan_request_id",
+              "value": "={{ $json.loan_request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "2eae977d290c41c1",
+              "name": "_row_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "c3a77b6e3107482b",
+              "name": "_tenant_id",
+              "value": "={{ $json.tenant_id }}",
+              "type": "string"
+            },
+            {
+              "id": "0fd8b860acc24352",
+              "name": "_phone",
+              "value": "={{ $json.phone }}",
+              "type": "string"
+            },
+            {
+              "id": "67b972d5-2154-4cb1-919f-da97b6e419ee",
+              "name": "_contact_name",
+              "value": "={{ $json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "35bf72a2-8df9-4523-ac2b-b38087197adb",
+              "name": "_campaign_id",
+              "value": "={{ $json.campaign_id }}",
+              "type": "string"
+            },
+            {
+              "id": "531c7260-42c1-4223-83ba-ce82178c9c70",
+              "name": "_current_status",
+              "value": "={{ $json.current_fiserv_status }}",
+              "type": "string"
+            },
+            {
+              "id": "e0bb07c7-8832-4f69-bd0d-cd128041f40f",
+              "name": "_current_external",
+              "value": "={{ $json.current_external_status }}",
+              "type": "string"
+            },
+            {
+              "id": "cb61526d-e517-45c6-83e8-83a5bcebd5ee",
+              "name": "_requested_amount",
+              "value": "={{ $json.requested_amount }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2832,
+        1520
+      ],
+      "id": "7716b030-d759-4b03-94b4-afe1e6e83e6d",
+      "name": "Montar consulta"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "4C_a-PDwy9pIESe1sLqXP",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/4C_a-PDwy9pIESe1sLqXP",
+          "cachedResultName": "Ferramenta Fiserv Credito"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3072,
+        1520
+      ],
+      "id": "ec41c44f-1871-4d8c-a1f3-3ec819d13da0",
+      "name": "Ferramenta Fiserv (get_result)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const r = $json;\nlet row = {};\ntry { row = $('Montar consulta').item.json; } catch (e) { row = {}; }\n\nconst status = (r.status != null ? r.status : (r.data && r.data.status)) || '';\nconst externalStatus = r.external_status || r.data?.external_status || '';\n\n// DEFINIÇÃO CORRETA DE STATUS FINAIS (Acionáveis)\nconst APPROVED_FINAL = ['approved'];\nconst DENIED_FINAL   = ['denied', 'fails_to_process', 'lost', 'cancelled'];\nconst FORMALIZATION  = ['formalization'];\nconst WON_FINAL      = ['won'];\nconst FAIL_CONTACT   = ['fail_to_contact'];\n\nlet outcome = 'pending';\n\n// Verifica se existe conteúdo real no offer_data\nconst offerData = r.offer_data || r.data?.offer_data || null;\nconst hasOfferData = offerData && Object.keys(offerData).length > 0;\n\n// Lógica de Classificação Baseada no Status (Não apenas no offer_data)\nif (APPROVED_FINAL.includes(status) && hasOfferData) {\n    outcome = 'offer';\n} else if (DENIED_FINAL.includes(status)) {\n    outcome = 'rejected';\n} else if (FORMALIZATION.includes(status)) {\n    outcome = 'formalization';\n} else if (FAIL_CONTACT.includes(status)) {\n    outcome = 'fail_to_contact';\n} else if (WON_FINAL.includes(status)) {\n    outcome = 'won';\n} else {\n    // Para 'comite_approved', 'comite', 'in_quoting', 'in_progress', etc.\n    // Permanece 'pending' para que o Poller continue monitorando a cada minuto\n    // até atingir um status acionável.\n    outcome = 'pending';\n}\n\nconst decided = outcome !== 'pending';\n\n// Detecta se algo mudou em relação ao que está no banco\nconst currentStatus   = row._current_status   || '';\nconst currentExternal = row._current_external || '';\nconst status_changed  = decided ||\n                        (status !== currentStatus) ||\n                        (externalStatus !== currentExternal);\n\nconst name = row._contact_name || 'Parceiro';\n\n// Monta mensagem apenas se DECIDIDO\nlet message = '';\n\nif (outcome === 'offer') {\n  const amount = offerData?.SomaPrincipal || r.data?.amount || '';\n  const term   = offerData?.installments  || r.data?.installments || '';\n  const tax    = offerData?.PercJurosMensal || '';\n  const amountFmt = amount ? Number(amount).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';\n  const reqAmount = parseFloat(row._requested_amount || 0);\n  const maxApproved = parseFloat(amount || 0);\n  const maxTerm = term || 24;\n\n  let ctaMessage = `👉 *Quer simular agora?* Me diga o valor que precisa e em quantas parcelas (de 6 a ${maxTerm} parcelas)!`;\n  if (reqAmount > 0) {\n    if (maxApproved > 0 && reqAmount > maxApproved) {\n      ctaMessage = `O valor de *R$ ${reqAmount.toLocaleString('pt-BR')}* que você solicitou excede o seu limite pré-aprovado de *R$ ${amountFmt}*.\\n\\n👉 *Por favor, informe qual valor deseja solicitar (até R$ ${amountFmt}) e em quantas parcelas (de 6 a ${maxTerm} parcelas)!*`;\n    } else {\n      ctaMessage = `Entendi que você deseja simular o valor de *R$ ${reqAmount.toLocaleString('pt-BR')}*.\\n\\n👉 *Em quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a ${maxTerm} parcelas).*`;\n    }\n  }\n\n  message = `🎉 *Boa notícia, ${name}!*\\n\\n` +\n    `A análise do seu CNPJ foi concluída e você tem crédito pré-aprovado!\\n\\n` +\n    (amountFmt ? `💰 *Limite aprovado:* R$ ${amountFmt}\\n` : '') +\n    (term  ? `📅 *Prazo:* até ${term} parcelas\\n` : '') +\n    (tax   ? `📉 *Taxa:* a partir de ${tax}% a.m.\\n\\n` : '') +\n    `✅ Pagamento via *Boleto Bancário* mensal\\n` +\n    `✅ Garantia via recebíveis Ticket\\n\\n` +\n    `Você pode simular diferentes valores e prazos (de 6 a ${maxTerm} meses) dentro do seu limite aprovado.\\n\\n` +\n    ctaMessage;\n\n} else if (outcome === 'rejected') {\n  const motivo = externalStatus || (status === 'cancelled' ? 'cancelamento da solicitação' :\n                                    status === 'lost'      ? 'encerramento da proposta' : \n                                    'políticas internas de crédito');\n\n  message = `Olá, *${name}*!\\n\\n` +\n    `*${motivo}*.\\n\\n` +\n    `Isso não é definitivo! Você pode tentar novamente em *30 dias*.\\n\\n` +\n    `Central de Atendimento: *4004-2233*\\n\\n` +\n    `Obrigado pela confiança na Ticket! 🙏`;\n\n} else if (outcome === 'fail_to_contact') {\n  message = `Olá, *${name}*!\\n\\n` +\n    `A nossa mesa de crédito tentou entrar em contato com você por telefone para prosseguir com a análise, mas infelizmente não conseguiu. 😕\\n\\n` +\n    `👉 *Qual é o melhor telefone e horário para nossa equipe te ligar?*`;\n\n} else if (outcome === 'formalization') {\n  message = `Olá, *${name}*! Excelente notícia!\\n\\n` +\n    `Sua proposta de crédito foi *100% aprovada* e está agora na fase final de Assinatura e Formalização! 🎉\\n\\n` +\n    `Fique de olho no seu e-mail e nos seus canais de contato para assinar o contrato digital. Qualquer dúvida, é só chamar!`;\n\n} else if (outcome === 'won') {\n  message = `Parabéns, *${name}*! 🚀\\n\\n` +\n    `Seu crédito foi liberado com sucesso e o dinheiro já deve estar disponível na sua conta!\\n\\n` +\n    `Agradecemos por escolher a Ticket e a Fiserv para turbinar o seu negócio. Caso precise de mais alguma coisa no futuro, é só me chamar aqui!`;\n}\n\nreturn {\n  _row_id:       row._row_id,\n  _tenant_id:    row._tenant_id,\n  _phone:        row._phone,\n  _campaign_id:  row._campaign_id,\n  _contact_name: name,\n  cnpj:          row.cnpj,\n  loan_request_id: (r.loan_request_id != null ? r.loan_request_id : row.loan_request_id),\n  fiserv_ok:     r.ok,\n  fiserv_http:   r.http_status,\n  status:        status,\n  external_status: externalStatus,\n  offer_data:    offerData,\n  outcome:       outcome,\n  decided:       decided,\n  status_changed: status_changed,\n  message_content: message\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3312,
+        1520
+      ],
+      "id": "9fe5b9bc-5556-4606-a4cd-25aebfae0670",
+      "name": "Classificar resultado"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE agent_leads\nSET metadata = metadata\n   || jsonb_build_object('fiserv_status', \n        CASE \n          WHEN '{{ $json.status }}' = 'approved' THEN 'comite_approved'\n          ELSE '{{ $json.status }}'\n        END\n      )\n   || jsonb_build_object('fiserv_external_status', '{{ ($json.external_status || \"\") }}'::text)\n   || (CASE \n         WHEN '{{ $json.decided }}' = 'true' \n         THEN jsonb_build_object(\n           'fiserv_offer_sent', 'true',\n           'fiserv_offer_data', '{{ JSON.stringify($json.offer_data || {}) }}'::jsonb,\n           'fiserv_amount_approved', '{{ $json.offer_data?.SomaPrincipal || $json.offer_data?.amount || \"\" }}',\n           'max_installments', '{{ $json.offer_data?.installments || \"\" }}'\n         )\n         ELSE '{}'::jsonb \n       END)\nWHERE metadata->>'loan_request_id' = '{{ $json.loan_request_id }}'\n  AND tenant_id = '{{ $json._tenant_id }}'::uuid;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        3968,
+        1312
+      ],
+      "id": "4da0d386-aa46-4ccc-979c-3c8beddcbade",
+      "name": "Atualizar status no DB",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8791715a6f244349",
+              "leftValue": "={{ $('Classificar resultado').item.json.decided }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3968,
+        1504
+      ],
+      "id": "c712e00b-9de7-4daf-840c-c5aca1984d01",
+      "name": "Decidido?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4352,
+        1792
+      ],
+      "id": "6d1bb957-a0b5-4a2e-b405-8b5991a4b03d",
+      "name": "Aguardar proximo ciclo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e7d2cffc-5c91-4f7f-86ce-41d5f05b960a",
+              "leftValue": "={{ $json.status_changed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3520,
+        1520
+      ],
+      "id": "b5581449-a322-4812-bee7-62e09427f137",
+      "name": "IF Status mudou?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    c.id                    AS conversation_id,\n    c.status                AS conversation_status,\n    a.id                    AS agent_id,\n    a.evolution_instance,\n    a.whatsapp_provider     AS provider,\n    a.meta_api_token,\n    a.meta_phone_number_id,\n    a.zenvia_api_token,\n    a.zenvia_channel_id\nFROM conversations c\nLEFT JOIN agents a \n    ON a.tenant_id = c.tenant_id \n   AND a.status = 'active'\nWHERE c.user_identifier = '{{ $('Montar consulta').item.json._phone }}'\n  AND c.tenant_id = '{{ $('Montar consulta').item.json._tenant_id }}'::uuid\nORDER BY c.updated_at DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4304,
+        1392
+      ],
+      "id": "c7957bb7-f811-4cfe-83d0-6a90b0aa4003",
+      "name": "Buscar Conversation",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations\nSET \n    status = 'ai_active',\n    updated_at = now()\nWHERE id = '{{ $('Buscar Conversation').item.json.conversation_id }}'\n  AND status IN ('closed');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4528,
+        1392
+      ],
+      "id": "29790282-5a4f-4576-9403-c01a23b441f4",
+      "name": "Reabrir Conversa",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Classificar resultado').item.json._phone }}",
+            "instance": "={{ $('Buscar Conversation').item.json.evolution_instance }}",
+            "provider": "={{ $('Buscar Conversation').item.json.provider }}",
+            "message": "={{ $('Classificar resultado').item.json.message_content }}",
+            "tenant_id": "={{ $('Classificar resultado').item.json._tenant_id }}",
+            "agent_id": "={{ $('Buscar Conversation').item.json.agent_id }}",
+            "zenvia_channel_id": "={{ $('Buscar Conversation').item.json.zenvia_channel_id }}",
+            "zenvia_api_token": "={{ $('Buscar Conversation').item.json.zenvia_api_token }}",
+            "meta_phone_number_id": "={{ $('Buscar Conversation').item.json.meta_phone_number_id }}",
+            "meta_api_token": "={{ $('Buscar Conversation').item.json.meta_api_token }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "meta_api_token",
+              "displayName": "meta_api_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "meta_phone_number_id",
+              "displayName": "meta_phone_number_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "zenvia_api_token",
+              "displayName": "zenvia_api_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "zenvia_channel_id",
+              "displayName": "zenvia_channel_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        4736,
+        1392
+      ],
+      "id": "177ffb33-50e8-4b2d-8717-bd9b9fd6e2c0",
+      "name": "Envia Msg"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT record_message(\n    p_conversation_id => '{{ $(\"Buscar Conversation\").item.json.conversation_id }}'::uuid,\n    p_tenant_id => '{{ $('Classificar resultado').item.json._tenant_id }}'::uuid,\n    p_content => '{{ $('Classificar resultado').item.json.message_content }}',\n    p_sender_type => 'ai',\n    p_sender_name => 'IA',\n    p_message_type => 'text',\n    p_direction => 'outbound'\n);",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        4944,
+        1392
+      ],
+      "id": "61137f30-8076-47de-8eae-955a66c91a02",
+      "name": "Salvar Msg",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Ciclo (cron 1min)": {
+      "main": [
+        [
+          {
+            "node": "Ler leads pendentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ler leads pendentes": {
+      "main": [
+        [
+          {
+            "node": "Montar consulta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar consulta": {
+      "main": [
+        [
+          {
+            "node": "Ferramenta Fiserv (get_result)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ferramenta Fiserv (get_result)": {
+      "main": [
+        [
+          {
+            "node": "Classificar resultado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar resultado": {
+      "main": [
+        [
+          {
+            "node": "IF Status mudou?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar status no DB": {
+      "main": [
+        []
+      ]
+    },
+    "Decidido?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aguardar proximo ciclo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Status mudou?": {
+      "main": [
+        [
+          {
+            "node": "Atualizar status no DB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Decidido?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Aguardar proximo ciclo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Conversation": {
+      "main": [
+        [
+          {
+            "node": "Reabrir Conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reabrir Conversa": {
+      "main": [
+        [
+          {
+            "node": "Envia Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia Msg": {
+      "main": [
+        [
+          {
+            "node": "Salvar Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Salvar Msg": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "8edb136a-a572-45f5-a7c0-a6ce37088fef",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "7f3565af616f5c3d71ac26fc62e019b544cb381f93ebca61b95c3a0cc3e0e6f8"
+  },
+  "nodeGroups": [],
+  "id": "zbdt4TDOBfvQrtk3bvWSV",
+  "tags": []
+}
