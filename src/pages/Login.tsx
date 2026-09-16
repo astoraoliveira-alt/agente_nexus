@@ -165,7 +165,7 @@ export default function Login() {
           {/* HEADER SECTION */}
           <div className="flex flex-col mb-10">
             <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 bg-[#FF4500] rounded-sm" />
+              <img src="/davos_nexus_appicon.svg" alt="Davos Nexus" className="w-6 h-6 rounded-md object-contain" />
               <span className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase">
                 Torre de Controle
               </span>

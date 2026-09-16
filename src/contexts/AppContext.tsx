@@ -63,7 +63,12 @@ interface AppContextType {
   returnToAI: (conversationId: string) => void;
   closeConversation: (conversationId: string) => void;
   transferConversation: (conversationId: string, operatorId: string) => void;
-  sendMessage: (conversationId: string, content: string, type?: 'text' | 'image' | 'audio') => Promise<void>;
+  sendMessage: (
+    conversationId: string, 
+    content: string, 
+    type?: 'text' | 'image' | 'audio' | 'document',
+    attachmentMeta?: { fileUrl?: string; fileName?: string; mimeType?: string }
+  ) => Promise<void>;
   fetchMessages: (convIdOverride?: string) => Promise<void>;
   // Handoff Requests (HITL)
   handoffRequests: any[];
@@ -830,7 +835,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const sendMessage = async (conversationId: string, content: string, type: 'text' | 'image' | 'audio' = 'text') => {
+  const sendMessage = async (
+    conversationId: string, 
+    content: string, 
+    type: 'text' | 'image' | 'audio' | 'document' = 'text',
+    attachmentMeta?: { fileUrl?: string; fileName?: string; mimeType?: string }
+  ) => {
     if (!currentUser || !currentTenant) return;
 
     // 1. Optimistic Update
@@ -842,6 +852,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       tenantSlug: currentTenant.slug,
       content,
       type,
+      fileUrl: attachmentMeta?.fileUrl,
+      fileName: attachmentMeta?.fileName,
+      imageUrl: type === 'image' ? attachmentMeta?.fileUrl : undefined,
       sender: 'human' as const, // Always human when sending from UI
       senderName: currentUser.name,
       timestamp: new Date()
@@ -852,7 +865,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         conv.id === conversationId
           ? {
             ...conv,
-            lastMessage: type === 'text' ? content : 'Anexo enviado',
+            lastMessage: type === 'text' ? content : (attachmentMeta?.fileName ? `📎 ${attachmentMeta.fileName}` : 'Anexo enviado'),
             lastMessageTime: new Date(),
             messages: [...conv.messages, newMessage]
           }
@@ -870,11 +883,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     // 2. API Call
     try {
-      await api.sendMessage(conversationId, content, 'human', currentUser.name, type);
+      await api.sendMessage(conversationId, content, 'human', currentUser.name, type, attachmentMeta);
     } catch (error) {
       console.error("Message send failed:", error);
-      // Revert optimistic update (simplified)
-      // logic to remove message would go here
     }
   };
 

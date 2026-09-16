@@ -43,13 +43,15 @@ export const conversationsService = {
                 tenantId: m.tenant_id,
                 tenantSlug: '', // Not needed for display
                 content: cleanContent,
-                type: (m.message_type || 'text') as 'text' | 'image' | 'audio',
+                type: (m.message_type || 'text') as 'text' | 'image' | 'audio' | 'document',
                 sender: (m.sender_type === 'user' ? 'user' :
                     m.sender_type === 'human' ? 'human' : 'ai') as 'user' | 'ai' | 'human',
                 senderName: m.sender_name,
                 timestamp: new Date(m.created_at),
                 audioUrl: m.audio_url,
-                imageUrl: m.image_url,
+                imageUrl: m.image_url || (m.message_type === 'image' ? m.metadata?.file_url : undefined),
+                fileUrl: m.metadata?.file_url || m.image_url,
+                fileName: m.metadata?.file_name || (m.metadata?.file_url ? m.metadata.file_url.split('/').pop() : undefined),
                 transcription: m.transcription,
                 status: m.status,
                 statusDescription: m.metadata?.status_description || m.metadata?.last_status_description || m.metadata?.prov_error
@@ -75,9 +77,16 @@ export const conversationsService = {
 
         return deduplicated;
     },
-    async sendMessage(conversationId: string, content: string, sender: 'user' | 'ai' | 'human', senderName?: string, type: 'text' | 'image' | 'audio' = 'text'): Promise<void> {
+    async sendMessage(
+        conversationId: string, 
+        content: string, 
+        sender: 'user' | 'ai' | 'human', 
+        senderName?: string, 
+        type: 'text' | 'image' | 'audio' | 'document' = 'text',
+        attachmentMeta?: { fileUrl?: string; fileName?: string; mimeType?: string }
+    ): Promise<void> {
         // DEBUG: Chamando sendMessage
-        console.log('🚀 Enviar mensagem para ID:', conversationId);
+        console.log('🚀 Enviar mensagem para ID:', conversationId, 'Tipo:', type, 'Anexo:', attachmentMeta?.fileName);
         
         // 1. Fetch conversation data first
         const { data: conv, error: fetchError } = await supabase
@@ -107,6 +116,13 @@ export const conversationsService = {
         const cleanSenderName = (senderName || 'Carlos Silva').replace(/\s*\((operador|operator)\)/gi, '').trim();
         const externalId = `MANUAL-${conversationId.substring(0, 8)}-${Date.now()}`;
 
+        const msgMetadata: any = {};
+        if (attachmentMeta?.fileUrl) {
+            msgMetadata.file_url = attachmentMeta.fileUrl;
+            msgMetadata.file_name = attachmentMeta.fileName;
+            msgMetadata.mime_type = attachmentMeta.mimeType;
+        }
+
         const { error } = await supabase
             .from('messages')
             .insert({
@@ -116,6 +132,8 @@ export const conversationsService = {
                 sender_type: sender,
                 sender_name: cleanSenderName,
                 message_type: type,
+                image_url: type === 'image' ? attachmentMeta?.fileUrl : null,
+                metadata: Object.keys(msgMetadata).length > 0 ? msgMetadata : null,
                 external_id: externalId,
                 created_at: new Date().toISOString()
             });
@@ -147,7 +165,10 @@ export const conversationsService = {
                     sender: 'human',
                     instance: agentData.zenvia_channel_id || agentData.evolution_instance || '551151183815',
                     platform: agentData.whatsapp_provider || 'zenvia',
-                    remoteID: conv.user_identifier
+                    remoteID: conv.user_identifier,
+                    media_url: attachmentMeta?.fileUrl || null,
+                    media_type: type,
+                    file_name: attachmentMeta?.fileName || null
                 };
 
                 // 1. Enqueue in the unified queue
@@ -158,7 +179,7 @@ export const conversationsService = {
                     p_external_id: externalId,
                     p_payload: payload,
                     p_trace_id: traceId,
-                    p_message_type: 'human_response' // Unified type for n8n routing
+                    p_message_type: type === 'text' ? 'human_response' : 'human_media_response' // Unified type for n8n routing
                 });
 
                 if (queueError) {

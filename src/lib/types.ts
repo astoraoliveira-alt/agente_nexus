@@ -696,12 +696,14 @@ export interface Message {
   tenantId: string;
   tenantSlug: string;
   content: string;
-  type: 'text' | 'audio' | 'image';
+  type: 'text' | 'audio' | 'image' | 'document';
   sender: 'user' | 'ai' | 'human';
   senderName?: string;
   timestamp: Date;
   audioUrl?: string; // Phase 3: Audio Player Support
   imageUrl?: string;
+  fileUrl?: string;
+  fileName?: string;
   transcription?: string;
   status?: 'pending' | 'processing' | 'sent' | 'delivered' | 'read' | 'failed' | 'rejected';
   statusDescription?: string;

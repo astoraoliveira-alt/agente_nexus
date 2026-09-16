@@ -313,11 +313,18 @@ export const salesCockpitService = {
 
         // Buscar dados enriquecidos de cadastro (CNPJ, Razão Social)
         const enriched = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
-        const mergedMeta = { ...(enriched?.metadata || {}), ...(params.metadata || {}) };
-        const finalCnpj = params.cnpj || enriched?.identifier || mergedMeta?.cnpj;
+        const mergedMeta = { 
+          ...(enriched?.metadata || {}), 
+          ...(params.metadata || {}),
+          offer_data: {
+            ...(enriched?.metadata?.offer_data || enriched?.metadata?.fiserv_offer_data || {}),
+            ...(params.metadata?.offer_data || {})
+          }
+        };
+        const finalCnpj = params.cnpj || mergedMeta?.cnpj || enriched?.identifier;
         const finalName = (params.name && params.name !== 'Cliente' && params.name !== 'Cliente Sem Nome')
           ? params.name
-          : (enriched?.name || mergedMeta?.razao_social || 'Cliente');
+          : (mergedMeta?.razao_social || enriched?.name || 'Cliente');
 
         const conv = params.matchedConv || convByPhone.get(cleanPhone);
         const convId = conv?.id || params.convId || params.id;
@@ -427,7 +434,9 @@ export const salesCockpitService = {
         let foundCompanyName: string | null = null;
         let foundRevenue: number | null = null;
 
-        for (let i = 0; i < mList.length; i++) {
+        // Fazer a varredura das mensagens de trás para frente (da mais recente para a mais antiga)
+        // para que a simulação ou negociação mais recente do cliente se sobreponha a testes anteriores
+        for (let i = mList.length - 1; i >= 0; i--) {
           const m = mList[i];
           const text = m.content || '';
           const sender = String(m.sender_type || '').toLowerCase();
@@ -461,7 +470,7 @@ export const salesCockpitService = {
             }
           }
 
-          // 4. Valor Solicitado
+          // 4. Valor Solicitado / Simulado
           if (!foundReqAmount) {
             const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
             if (reqAmountMatch) {
@@ -479,7 +488,7 @@ export const salesCockpitService = {
             }
           }
 
-          // 5. Prazo / Parcelas
+          // 5. Prazo / Parcelas Simuladas
           if (!foundInstallments) {
             const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i) || text.match(/(\d+)\s*parcelas/i);
             if (installmentsMatch) foundInstallments = installmentsMatch[1];
@@ -497,13 +506,13 @@ export const salesCockpitService = {
             if (limitMatch) foundLimit = parseNum(limitMatch[1]);
           }
 
-          // 8. Parcela e Total Dívida
+          // 8. Parcela e Total Dívida da Simulação
           if (!foundPmt) {
             const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
             if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
           }
           if (!foundDebt) {
-            const debtMatch = text.match(/Valor Total da Dívida:\*\s*R\$\s*([\d\.,]+)/i);
+            const debtMatch = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i);
             if (debtMatch) foundDebt = parseNum(debtMatch[1]);
           }
         }
@@ -514,14 +523,16 @@ export const salesCockpitService = {
           cnpj: foundCnpj || enrichedLead?.identifier || enrichedLead?.metadata?.cnpj,
           razao_social: foundCompanyName || enrichedLead?.name || conv.user_name,
           requested_amount: foundReqAmount || enrichedLead?.metadata?.requested_amount || 5000,
+          requested_installments: foundInstallments ? Number(foundInstallments) : undefined,
           max_installments: foundInstallments || enrichedLead?.metadata?.max_installments || '12',
           interest_rate: foundRate || enrichedLead?.metadata?.interest_rate || 2.52,
           approved_limit: foundLimit || enrichedLead?.metadata?.approved_limit || 500000,
           revenue: foundRevenue || enrichedLead?.metadata?.revenue || conv.metadata?.revenue,
           loan_request_id: enrichedLead?.metadata?.loan_request_id || conv.metadata?.loan_request_id,
           offer_data: {
-            VlrParcela: foundPmt,
-            VlrTotalDivida: foundDebt
+            ...(enrichedLead?.metadata?.offer_data || enrichedLead?.metadata?.fiserv_offer_data || {}),
+            ...(foundPmt ? { VlrParcela: foundPmt } : {}),
+            ...(foundDebt ? { VlrTotalDivida: foundDebt } : {})
           }
         };
 

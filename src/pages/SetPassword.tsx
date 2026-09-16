@@ -175,7 +175,7 @@ export default function SetPassword() {
           
           {/* HEADER SECTION */}
           <div className="flex items-center gap-2 mb-8 select-none">
-            <Network className="w-5 h-5 text-[#FF4500]" />
+            <img src="/davos_nexus_appicon.svg" alt="Davos Nexus" className="w-5 h-5 rounded-sm object-contain" />
             <span className="text-xs font-bold tracking-[0.2em] text-neutral-400 uppercase">
               Davos Nexus
             </span>

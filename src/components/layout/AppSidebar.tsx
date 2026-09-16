@@ -32,6 +32,8 @@ import { Badge } from '@/components/ui/badge';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { mockAlerts } from '@/lib/mock-data';
+import { useTenantPresence } from '@/hooks/useTenantPresence';
+import { TenantOnlineUsers } from '@/components/layout/TenantOnlineUsers';
 
 // Navigation items are now handled dynamically inside the component to support real-time badges
 
@@ -62,6 +64,7 @@ const platformNavItems = [
 export function AppSidebar() {
   const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations, handoffRequests } = useApp();
   const [collapsed, setCollapsed] = useState(false);
+  const { onlineUsers } = useTenantPresence(currentUser, currentTenant);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
 
   const activeConversationsCount = conversations.filter(c => c.status !== 'closed').length;
@@ -110,15 +113,17 @@ export function AppSidebar() {
     >
       {/* Header */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-sidebar-border">
-        {!collapsed && (
-          <div className="flex items-center gap-2 truncate">
+        {collapsed ? (
+          <div className="mx-auto flex items-center justify-center">
+            <img src="/davos_nexus_appicon.svg" alt="Davos Nexus" className="w-8 h-8 rounded-md object-contain shadow-sm" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 truncate">
             {currentTenant?.logo_url ? (
               <img src={currentTenant.logo_url} alt="Logo" className="h-8 max-w-[120px] object-contain" />
             ) : (
               <>
-                <div className="w-8 h-8 bg-black/20 flex items-center justify-center rounded-sm shrink-0">
-                  <span className="text-white font-bold text-sm">DN</span>
-                </div>
+                <img src="/davos_nexus_appicon.svg" alt="Davos Nexus" className="w-8 h-8 rounded-md object-contain shrink-0 shadow-sm" />
                 <div className="flex flex-col overflow-hidden">
                   <span className="font-semibold text-white truncate leading-tight">Davos Nexus</span>
                   <span className="text-[10px] text-white/50 font-medium tracking-wide">
@@ -168,6 +173,15 @@ export function AppSidebar() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Online Users Indicator (Tenant-scoped) */}
+      {currentTenant && (
+        <TenantOnlineUsers
+          users={onlineUsers}
+          currentUserId={currentUser?.id}
+          collapsed={collapsed}
+        />
       )}
 
       {/* Main Navigation */}

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown, Check, CheckCheck, AlertCircle, Megaphone, Flame, Activity, Hash, Clock } from 'lucide-react';
+import { Send, MoreVertical, Bot, User, Play, Pause, Info, UserPlus, ShieldCheck, Copy, MessageSquare, Smartphone, Monitor, Paperclip, AlertTriangle, ThumbsDown, Check, CheckCheck, AlertCircle, Megaphone, Flame, Activity, Hash, Clock, FileText, Download, Loader2, ExternalLink } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import { DeviceFrame } from '@/components/ui/DeviceFrame';
 import { WhatsAppView } from './WhatsAppView';
 import { Conversation, Message, mockUsers } from '@/lib/mock-data';
@@ -292,6 +293,64 @@ export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAi
   const operators = mockUsers.filter(u => u.role === 'operator' && u.id !== currentUser?.id);
   const isAgentActive = conversation?.status === 'ai_active';
   const isHumanActive = conversation?.status === 'human_active';
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Upload e envio de anexo (Contratos PDF, Imagens, Documentos)
+  const handleUploadAndSendAttachment = async (type: string, file?: File) => {
+    if (!file || !conversation) return;
+
+    setIsUploading(true);
+    const toastId = toast.loading(`Enviando ${file.name}...`);
+
+    try {
+      // 1. Sanitizar nome do arquivo e gerar caminho único
+      const fileExt = file.name.split('.').pop();
+      const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `contracts/${conversation.id}/${Date.now()}_${cleanFileName}`;
+
+      // 2. Upload para o bucket público do Supabase Storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('chat-attachments')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        throw new Error(uploadError.message || 'Erro no upload para o storage');
+      }
+
+      // 3. Obter URL pública
+      const { data: urlData } = supabase.storage
+        .from('chat-attachments')
+        .getPublicUrl(filePath);
+
+      const publicUrl = urlData.publicUrl;
+      const isDoc = fileExt?.toLowerCase() === 'pdf' || type === 'document' || file.type.includes('pdf') || file.type.includes('word') || file.type.includes('text');
+      const isImg = type === 'image' || file.type.startsWith('image/');
+      const msgType = isImg ? 'image' : (isDoc ? 'document' : 'text');
+
+      // 4. Enviar mensagem com o anexo para o WhatsApp (apenas legenda limpa, sem expor URL)
+      const caption = messageInput.trim() 
+        ? messageInput.trim() 
+        : (isDoc ? `📄 Segue o contrato para conferência: ${file.name}` : '');
+
+      await sendMessage(conversation.id, caption, msgType, {
+        fileUrl: publicUrl,
+        fileName: file.name,
+        mimeType: file.type
+      });
+
+      setMessageInput('');
+      toast.success(`Arquivo enviado com sucesso!`, { id: toastId });
+    } catch (err: any) {
+      console.error('Erro ao enviar anexo:', err);
+      toast.error(`Falha ao enviar arquivo: ${err.message || 'Tente novamente'}`, { id: toastId });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const isReadOnly = conversation?.agentType === 'embedded'; // Landing Page restriction
 
   const handleTakeover = () => {
@@ -647,7 +706,44 @@ export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAi
                             )}
                           </div>
                         ) : message.type === 'image' ? (
-                          <img src={message.imageUrl} alt="" className="max-w-full rounded-md" />
+                          <div className="space-y-1.5">
+                            <img src={message.imageUrl || message.fileUrl} alt="Anexo" className="max-w-full rounded-md max-h-72 object-cover" />
+                            {message.content && !message.content.startsWith('http') && (
+                              <p className="text-xs mt-1 custom-markdown leading-relaxed">
+                                <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
+                              </p>
+                            )}
+                          </div>
+                        ) : message.type === 'document' ? (
+                          <div className="p-2.5 rounded-lg bg-card/80 border border-border/80 space-y-2 max-w-sm">
+                            <div className="flex items-center gap-2.5">
+                              <div className="p-2 rounded-md bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40 shrink-0">
+                                <FileText className="h-5 w-5" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold text-foreground truncate" title={message.fileName || 'Contrato'}>
+                                  {message.fileName || 'Documento / Contrato'}
+                                </p>
+                                <span className="text-[10px] text-muted-foreground uppercase font-medium">Documento PDF</span>
+                              </div>
+                            </div>
+                            {message.content && !message.content.startsWith('http') && (
+                              <p className="text-xs text-foreground/90 custom-markdown leading-relaxed pt-1 border-t border-border/40">
+                                <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
+                              </p>
+                            )}
+                            {message.fileUrl && (
+                              <a
+                                href={message.fileUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                Baixar Contrato
+                              </a>
+                            )}
+                          </div>
                         ) : (
                           <p className="text-sm custom-markdown leading-relaxed">
                             <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
@@ -711,10 +807,7 @@ export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAi
               <div className="flex items-center gap-2">
                 <AttachmentPicker
                   onAttach={(type, file) => {
-                    if (file) {
-                      toast.success(`Anexo adicionado: ${file.name}`);
-                      // Implement media upload here if needed
-                    }
+                    handleUploadAndSendAttachment(type, file);
                   }}
                 />
 
