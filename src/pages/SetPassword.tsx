@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ShieldAlert, Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import type { EmailOtpType } from '@supabase/supabase-js';
-import { AuthService } from '@/services/authService';
+import { AuthService } from '@/services/auth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
