@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ShieldAlert, Network, Loader2, ArrowRight } from 'lucide-react';
+import { Eye, EyeOff, ShieldAlert, Loader2, ArrowRight } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import type { EmailOtpType } from '@supabase/supabase-js';
+import { AuthService } from '@/services/authService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,7 +30,7 @@ function translateAuthError(message: string): string {
   if (lower.includes('same as') || lower.includes('should be different')) {
     return 'A nova senha não pode ser igual à anterior.';
   }
-  if (lower.includes('expired') || lower.includes('invalid')) {
+  if (lower.includes('expired') || lower.includes('invalid') || lower.includes('otp')) {
     return 'O link de acesso expirou ou já foi utilizado. Solicite um novo convite ou recuperação.';
   }
   if (lower.includes('network') || lower.includes('fetch')) {
@@ -45,23 +47,39 @@ export default function SetPassword() {
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [tokenHash, setTokenHash] = useState<string | null>(null);
+  const [tokenType, setTokenType] = useState<EmailOtpType | null>(null);
+  const [isInvalidLink, setIsInvalidLink] = useState(false);
+  const [urlErrorMessage, setUrlErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
 
-  const urlError = useMemo(() => {
-    if (typeof window === 'undefined') return null;
-    return getUrlError();
-  }, []);
+    const rawHash = window.location.hash?.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const params = new URLSearchParams(window.location.search || rawHash);
 
-  useEffect(() => {
-    // Best-effort: if the invite/recovery link establishes a session, supabase will persist it.
-    // If there is no session, user needs to request a new invite/reset.
-    (async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) return;
-    })();
+    const hash = params.get('token_hash');
+    const type = params.get('type') as EmailOtpType | null;
+    const urlErr = getUrlError();
+
+    if (urlErr) {
+      setIsInvalidLink(true);
+      setUrlErrorMessage(urlErr.message || 'Link inválido ou expirado.');
+      return;
+    }
+
+    if (hash && type) {
+      setTokenHash(hash);
+      setTokenType(type);
+    } else {
+      // Se não vier token_hash na URL, verificar se já existe uma sessão ativa
+      supabase.auth.getSession().then(({ data }) => {
+        if (!data.session) {
+          setIsInvalidLink(true);
+          setUrlErrorMessage('Nenhum código de autenticação foi encontrado. Solicite um novo link.');
+        }
+      });
+    }
   }, []);
 
   const handleSetPassword = async (e: React.FormEvent) => {
@@ -79,21 +97,58 @@ export default function SetPassword() {
 
     setIsLoading(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
-        setFormError('Link inválido ou expirado. Por favor, solicite um novo convite.');
-        return;
+      let activeSession = null;
+
+      // Se possuir token_hash e type capturados da URL, verificar agora no submit
+      if (tokenHash && tokenType) {
+        const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: tokenType,
+        });
+
+        if (verifyError || !verifyData.session) {
+          console.error('verifyOtp error:', verifyError);
+          setIsInvalidLink(true);
+          setFormError('Link inválido ou expirado. Por favor, solicite um novo convite ou recuperação.');
+          return;
+        }
+        activeSession = verifyData.session;
+      } else {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          setIsInvalidLink(true);
+          setFormError('Link inválido ou expirado. Por favor, solicite um novo convite ou recuperação.');
+          return;
+        }
+        activeSession = sessionData.session;
       }
 
+      // Atualizar a senha do usuário autenticado
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
 
-      // Clear any cached session and sign out from the temporary recovery session
-      localStorage.removeItem('davos_session');
-      localStorage.removeItem('davos_active_tenant_id');
-      await supabase.auth.signOut().catch(() => {});
-      
-      navigate('/login', { replace: true });
+      toast.success('Senha definida com sucesso!');
+
+      // Salvar sessão e redirecionar para a aplicação
+      if (activeSession.user) {
+        let userProfile = await AuthService.getUserByProviderId(activeSession.user.id);
+        if (!userProfile && activeSession.user.email) {
+          userProfile = await AuthService.linkProviderToUser(activeSession.user.email, activeSession.user.id);
+        }
+
+        localStorage.setItem('davos_session', JSON.stringify({
+          user: { email: activeSession.user.email },
+          token: activeSession.access_token
+        }));
+
+        if (userProfile?.role === 'super_admin') {
+          window.location.href = '/select-tenant';
+        } else {
+          window.location.href = '/';
+        }
+      } else {
+        navigate('/login', { replace: true });
+      }
     } catch (err: any) {
       console.error(err);
       setFormError(translateAuthError(err?.message || ''));
@@ -190,12 +245,14 @@ export default function SetPassword() {
             </p>
           </div>
 
-          {urlError && (
+          {isInvalidLink && (
             <div className="mb-6 border border-red-500/20 bg-[#1A0B0B] p-4 rounded-[2px] flex items-start gap-3">
               <ShieldAlert className="h-5 w-5 text-[#FF4500] shrink-0 mt-0.5" />
               <div>
                 <div className="font-bold text-[13px] text-white">Link inválido ou expirado</div>
-                <div className="text-xs text-neutral-400 mt-1">{urlError.message}</div>
+                <div className="text-xs text-neutral-400 mt-1">
+                  {urlErrorMessage || 'Este link é inválido, expirou ou já foi utilizado. Solicite um novo acesso.'}
+                </div>
                 <div className="mt-4">
                   <Button 
                     type="button"
