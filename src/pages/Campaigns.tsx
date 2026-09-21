@@ -60,8 +60,13 @@ import {
     LayoutGrid,
     MessageSquareText,
     Smartphone,
-    Target
+    Target,
+    Sparkles,
+    CheckCircle2,
+    Loader2,
+    XCircle
 } from "lucide-react";
+import { porteiro } from "@/services/porteiro.service";
 import {
     Card,
     CardContent,
@@ -273,12 +278,11 @@ export default function Campaigns() {
     };
 
     const defaultInitialMessage =
-        "Já pensou em reforçar o caixa *sem burocracia*?\n\n" +
-        "Você pode ter *até R$500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é *rápida e sem compromisso*.\n\n" +
-        "✅Taxas a partir de *1,89% a.m*;\n" +
-        "✅Crédito disponível entre *10 mil a 500 mil reais*;\n" +
-        "✅Recebimento do dinheiro *em até 24h*;\n\n" +
-        "👉 Posso enviar o link para simular o valor disponível para o seu CNPJ ou ficou com alguma dúvida?";
+        "Você pode ter *Capital de Giro* usando seus recebíveis futuros como garantia.\n\n" +
+        "-Taxas competitivas;\n" +
+        "-Valores entre 20 e 500 mil reais;\n" +
+        "-Contratação em 24h.\n\n" +
+        "*Vamos fazer uma simulação sem compromisso?*";
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
@@ -292,7 +296,7 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
-        templateId: "5479328c-6828-4668-95f0-a84a3ca2f323",
+        templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
         zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
         zenviaCtaLink: "",
         successCriteria: ['LINK_SENT'] as string[],
@@ -303,6 +307,117 @@ export default function Campaigns() {
         reengagementMessage: "",
         reengagementTemplateId: ""
     });
+
+    // Estado da Validação do Template Zenvia/Meta
+    const [templateValidation, setTemplateValidation] = useState<{
+        isValidating: boolean;
+        isValid: boolean | null; // null = unvalidated, true = valid, false = invalid
+        status?: string;
+        message?: string;
+        details?: any;
+    }>({
+        isValidating: false,
+        isValid: true, // Default ID 7376be0b... starts valid
+        status: 'APPROVED',
+        details: {
+            name: "IA de Crédito - mensagem inicial v3",
+            category: "MARKETING",
+            buttons: [
+                { text: "Quero simular!" },
+                { text: "Falar com um agente!" }
+            ]
+        }
+    });
+
+    const checkTemplateValidity = async (templateIdToVerify: string) => {
+        const cleanId = (templateIdToVerify || "").trim();
+        if (!cleanId) {
+            setTemplateValidation({
+                isValidating: false,
+                isValid: null
+            });
+            return;
+        }
+
+        // Fast-path for the known default official template
+        if (cleanId === "7376be0b-88e1-482b-b017-234aa8992d03") {
+            setTemplateValidation({
+                isValidating: false,
+                isValid: true,
+                status: 'APPROVED',
+                message: 'Template homologado na Meta WhatsApp',
+                details: {
+                    name: "IA de Crédito - mensagem inicial v3",
+                    category: "MARKETING",
+                    buttons: [
+                        { text: "Quero simular!" },
+                        { text: "Falar com um agente!" }
+                    ]
+                }
+            });
+            return;
+        }
+
+        setTemplateValidation(prev => ({ ...prev, isValidating: true }));
+
+        try {
+            const res = await porteiro.checkZenviaTemplate(cleanId, currentTenant?.id);
+            if (res && res.valid && res.template) {
+                const t = res.template;
+                const bodyText = t.components?.body?.text || t.text || "";
+                const buttons = t.components?.buttons?.items || [];
+                
+                setTemplateValidation({
+                    isValidating: false,
+                    isValid: true,
+                    status: t.status || 'APPROVED',
+                    message: `Template "${t.name || cleanId}" encontrado e ${t.status || 'aprovado'}.`,
+                    details: {
+                        name: t.name,
+                        category: t.category,
+                        text: bodyText,
+                        buttons: buttons
+                    }
+                });
+
+                // Preenchimento inteligente: se o usuário não mudou a mensagem inicial, sugere o body do template
+                if (bodyText && !newCampaign.initialMessage) {
+                    setNewCampaign(prev => ({ ...prev, initialMessage: bodyText }));
+                }
+
+                toast({
+                    title: "Template Meta Validado",
+                    description: `Template "${t.name || cleanId}" está ${t.status || 'aprovado'} na Meta.`,
+                });
+            } else {
+                const errorMsg = res?.message || 'Template não encontrado na base Meta / Zenvia.';
+                setTemplateValidation({
+                    isValidating: false,
+                    isValid: false,
+                    status: res?.status || 'NOT_FOUND',
+                    message: errorMsg
+                });
+                toast({
+                    title: "Template não encontrado",
+                    description: errorMsg,
+                    variant: "destructive",
+                });
+            }
+        } catch (err: any) {
+            console.error('Erro ao validar template Zenvia:', err);
+            setTemplateValidation({
+                isValidating: false,
+                isValid: false,
+                status: 'ERROR',
+                message: err.message || 'Falha ao conectar com o serviço de validação.'
+            });
+            toast({
+                title: "Erro na validação",
+                description: "Não foi possível verificar o status do template.",
+                variant: "destructive",
+            });
+        }
+    };
 
     useEffect(() => {
         // If there's only one agent available for this tenant, preselect it to reduce friction.
@@ -506,7 +621,7 @@ export default function Campaigns() {
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
-                templateId: "5479328c-6828-4668-95f0-a84a3ca2f323",
+                templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
                 zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
                 zenviaCtaLink: "",
                 successCriteria: ['LINK_SENT'],
@@ -1546,11 +1661,23 @@ export default function Campaigns() {
                                                                         </div>
                                                                     </div>
 
-                                                                    {/* Botão Simulado */}
+                                                                    {/* Botão Link Simulado */}
                                                                     {newCampaign.zenviaCtaLink && (
                                                                         <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100 flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all max-w-[85%] animate-in fade-in zoom-in-95">
                                                                             <ExternalLink className="w-3 h-3 text-blue-500" />
                                                                             <span className="text-[9px] font-bold text-blue-600">ACESSAR PROPOSTA</span>
+                                                                        </div>
+                                                                    )}
+
+                                                                    {/* Botões Quick Reply do Template Oficial */}
+                                                                    {newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03" && (
+                                                                        <div className="flex flex-col gap-1 max-w-[85%] animate-in fade-in zoom-in-95">
+                                                                            <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-slate-50 transition-all text-center">
+                                                                                <span className="text-[9px] font-medium text-emerald-600">Quero simular!</span>
+                                                                            </div>
+                                                                            <div className="bg-white dark:bg-slate-800 p-2 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1.5 cursor-pointer hover:bg-slate-50 transition-all text-center">
+                                                                                <span className="text-[9px] font-medium text-emerald-600">Falar com um agente!</span>
+                                                                            </div>
                                                                         </div>
                                                                     )}
 
@@ -1598,43 +1725,207 @@ export default function Campaigns() {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                     <div className="space-y-4">
                                                         <div className="grid gap-2">
-                                                            <Label htmlFor="templateId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">ID do Template (Zenvia)</Label>
-                                                            <Input
-                                                                id="templateId"
-                                                                placeholder="f1af4efa-92b5-49cd-ba91-990d69989167"
-                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
-                                                                value={newCampaign.templateId}
-                                                                onChange={(e) => setNewCampaign({ ...newCampaign, templateId: e.target.value })}
-                                                            />
-                                                            <p className="text-[10px] text-slate-400">Obrigatório para campanhas de primeiro contato.</p>
+                                                            <div className="flex items-center justify-between">
+                                                                <Label htmlFor="templateId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">ID do Template (Zenvia)</Label>
+                                                                {templateValidation.isValidating ? (
+                                                                    <Badge variant="outline" className="text-[10px] font-medium flex items-center gap-1 py-0 px-2 h-5 text-slate-500 border-slate-300">
+                                                                        <Loader2 className="w-3 h-3 animate-spin text-accent" />
+                                                                        Validando na Meta...
+                                                                    </Badge>
+                                                                ) : templateValidation.isValid === true ? (
+                                                                    <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px] font-semibold flex items-center gap-1 py-0 px-2 h-5">
+                                                                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                                                        Meta WhatsApp Aprovado
+                                                                    </Badge>
+                                                                ) : templateValidation.isValid === false ? (
+                                                                    <Badge className="bg-red-500/10 text-red-600 border-red-500/20 text-[10px] font-semibold flex items-center gap-1 py-0 px-2 h-5">
+                                                                        <XCircle className="w-3 h-3 text-red-500" />
+                                                                        Template Inválido
+                                                                    </Badge>
+                                                                ) : null}
+                                                            </div>
+                                                            <div className="relative">
+                                                                <Input
+                                                                    id="templateId"
+                                                                    placeholder="7376be0b-88e1-482b-b017-234aa8992d03"
+                                                                    className={cn(
+                                                                        "h-10 border-slate-200 focus:ring-accent rounded-none font-mono text-xs pr-9",
+                                                                        templateValidation.isValid === false && "border-red-400 focus:ring-red-400 bg-red-50/20",
+                                                                        templateValidation.isValid === true && "border-emerald-300"
+                                                                    )}
+                                                                    value={newCampaign.templateId}
+                                                                    onChange={(e) => {
+                                                                        setNewCampaign({ ...newCampaign, templateId: e.target.value });
+                                                                        if (templateValidation.isValid !== null) {
+                                                                            setTemplateValidation(prev => ({ ...prev, isValid: null }));
+                                                                        }
+                                                                    }}
+                                                                    onBlur={(e) => checkTemplateValidity(e.target.value)}
+                                                                />
+                                                                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                                                                    {templateValidation.isValidating && (
+                                                                        <Loader2 className="w-4 h-4 text-accent animate-spin" />
+                                                                    )}
+                                                                    {!templateValidation.isValidating && templateValidation.isValid === true && (
+                                                                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                                                                    )}
+                                                                    {!templateValidation.isValidating && templateValidation.isValid === false && (
+                                                                        <XCircle className="w-4 h-4 text-red-500" />
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            {templateValidation.isValid === false ? (
+                                                                <p className="text-[10px] text-red-500 font-medium">
+                                                                    {templateValidation.message || "Template não localizado na Zenvia / Meta para este ID."}
+                                                                </p>
+                                                            ) : (
+                                                                <p className="text-[10px] text-slate-400">
+                                                                    Obrigatório para campanhas de primeiro contato. Pressione tab ou clique fora para validar.
+                                                                </p>
+                                                            )}
                                                         </div>
                                                         <div className="grid gap-2">
                                                             <Label htmlFor="zenviaImageUrl" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">URL da Imagem de Capa</Label>
                                                             <Input
                                                                 id="zenviaImageUrl"
                                                                 placeholder="https://images.zenvia.com/banner.png"
-                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
+                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none text-xs"
                                                                 value={newCampaign.zenviaImageUrl}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, zenviaImageUrl: e.target.value })}
                                                             />
                                                         </div>
-                                                    </div>
-                                                    <div className="space-y-4">
                                                         <div className="grid gap-2">
                                                             <Label htmlFor="zenviaCtaLink" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Link do Botão (VariavelLink)</Label>
                                                             <Input
                                                                 id="zenviaCtaLink"
                                                                 placeholder="https://seu-link.com/token"
-                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none"
+                                                                className="h-10 border-slate-200 focus:ring-accent rounded-none text-xs"
                                                                 value={newCampaign.zenviaCtaLink}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, zenviaCtaLink: e.target.value })}
                                                             />
-                                                            <div className="p-3 bg-amber-50 border border-amber-100 rounded-sm">
+                                                            <div className="p-2.5 bg-amber-50 border border-amber-100 rounded-sm">
                                                                 <p className="text-[10px] text-amber-700 leading-tight">
                                                                     <strong>Nota:</strong> O sistema extrairá automaticamente o token se houver um <code>?t=</code> no link.
                                                                 </p>
                                                             </div>
                                                         </div>
+                                                    </div>
+
+                                                    {/* Painel de Preview do Template da Meta */}
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label className="text-[11px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1.5">
+                                                                <Eye className="w-3.5 h-3.5 text-accent" />
+                                                                Preview do Template Oficial Meta
+                                                            </Label>
+                                                            {newCampaign.templateId.trim() && (
+                                                                <span className="text-[9px] font-mono text-slate-400">ID: {newCampaign.templateId.slice(0, 8)}...</span>
+                                                            )}
+                                                        </div>
+
+                                                        {templateValidation.isValidating ? (
+                                                            <div className="p-8 border border-slate-200 bg-slate-50/50 rounded-xl flex flex-col items-center justify-center text-center text-slate-500 space-y-2.5 h-[280px]">
+                                                                <Loader2 className="w-7 h-7 text-accent animate-spin" />
+                                                                <p className="text-xs font-semibold">Consultando API Meta / Zenvia...</p>
+                                                                <span className="text-[10px] text-slate-400">Verificando aprovação e formato do template</span>
+                                                            </div>
+                                                        ) : templateValidation.isValid === false ? (
+                                                            <div className="p-8 border-2 border-dashed border-red-200 bg-red-50/30 rounded-xl flex flex-col items-center justify-center text-center text-red-600 space-y-2 h-[280px]">
+                                                                <XCircle className="w-8 h-8 text-red-500" />
+                                                                <p className="text-xs font-bold">Template não encontrado na Meta</p>
+                                                                <p className="text-[10px] text-red-500/80 max-w-[240px]">
+                                                                    {templateValidation.message || "O ID informado não corresponde a nenhum template cadastrado ou aprovado no WhatsApp da Zenvia."}
+                                                                </p>
+                                                            </div>
+                                                        ) : newCampaign.templateId.trim() ? (
+                                                            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3 shadow-inner animate-in fade-in zoom-in-95">
+                                                                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                                        <span className="text-[11px] font-bold text-slate-800">
+                                                                            {templateValidation.details?.name || (newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03" 
+                                                                                ? "IA de Crédito - mensagem inicial v3" 
+                                                                                : "Template Vinculado")}
+                                                                        </span>
+                                                                    </div>
+                                                                    <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] px-1.5 py-0">
+                                                                        {templateValidation.status || 'APPROVED'}
+                                                                    </Badge>
+                                                                </div>
+
+                                                                {/* Mockup Balão WhatsApp */}
+                                                                <div className="bg-[#e5ddd5] dark:bg-slate-900 p-3 rounded-lg border border-slate-200">
+                                                                    <div className="bg-white dark:bg-slate-800 rounded-lg p-2.5 shadow-sm max-w-full space-y-2 border border-slate-100">
+                                                                        {newCampaign.zenviaImageUrl && (
+                                                                            <div className="relative overflow-hidden rounded border border-slate-100 bg-slate-100">
+                                                                                <img 
+                                                                                    src={newCampaign.zenviaImageUrl} 
+                                                                                    alt="Header" 
+                                                                                    className="w-full h-24 object-cover"
+                                                                                />
+                                                                                <div className="absolute top-1 right-1 bg-black/60 text-white text-[8px] px-1 rounded uppercase font-semibold">
+                                                                                    Header Mídia
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+
+                                                                        <p className="text-[11px] text-slate-800 dark:text-slate-200 whitespace-pre-line leading-relaxed">
+                                                                            {renderWhatsAppText(
+                                                                                templateValidation.details?.text ||
+                                                                                newCampaign.initialMessage ||
+                                                                                (newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03"
+                                                                                    ? "Você pode ter *Capital de Giro* usando seus recebíveis futuros como garantia.\n\n-Taxas competitivas;\n-Valores entre 20 e 500 mil reais;\n-Contratação em 24h.\n\n*Vamos fazer uma simulação sem compromisso?*"
+                                                                                    : "")
+                                                                            )}
+                                                                        </p>
+
+                                                                        <div className="flex justify-end items-center gap-1">
+                                                                            <span className="text-[8px] text-slate-400">12:00</span>
+                                                                            <CheckCheck className="w-2.5 h-2.5 text-blue-500" />
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Botões do Template */}
+                                                                    {templateValidation.details?.buttons && templateValidation.details.buttons.length > 0 ? (
+                                                                        <div className="mt-1.5 space-y-1">
+                                                                            {templateValidation.details.buttons.map((btn: any, idx: number) => (
+                                                                                <div key={idx} className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
+                                                                                    <Sparkles className="w-3 h-3 text-emerald-500" />
+                                                                                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">{btn.text || btn.payload}</span>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03" ? (
+                                                                        <div className="mt-1.5 space-y-1">
+                                                                            <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
+                                                                                <Sparkles className="w-3 h-3 text-emerald-500" />
+                                                                                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Quero simular!</span>
+                                                                            </div>
+                                                                            <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
+                                                                                <Sparkles className="w-3 h-3 text-emerald-500" />
+                                                                                <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Falar com um agente!</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : newCampaign.zenviaCtaLink ? (
+                                                                        <div className="mt-1.5 bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
+                                                                            <ExternalLink className="w-3 h-3 text-blue-500" />
+                                                                            <span className="text-[10px] font-semibold text-blue-600">ACESSAR PROPOSTA</span>
+                                                                        </div>
+                                                                    ) : null}
+                                                                </div>
+
+                                                                <div className="flex items-center gap-2 text-[10px] text-slate-500 bg-white dark:bg-slate-800 p-2 rounded border border-slate-100">
+                                                                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                                                    <span>Template homologado no WhatsApp Business da Meta via Zenvia Oficial.</span>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="p-8 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-center text-slate-400 space-y-2 h-[280px]">
+                                                                <Smartphone className="w-8 h-8 stroke-1 text-slate-300" />
+                                                                <p className="text-xs font-medium">Informe um ID de template para visualizar o preview</p>
+                                                                <span className="text-[10px] text-slate-400">O preview oficial da Meta será renderizado aqui automaticamente.</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </TabsContent>

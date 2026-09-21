@@ -1046,3 +1046,29 @@ export interface AgentLead {
   metadata?: Record<string, any>;
   createdAt?: Date;
 }
+
+export interface CreditCampaignFunnelStat {
+  campaignId: string;
+  campaignName: string;
+  startDate?: Date | null;
+  status: string;
+  // Bloco 1: Envio da Campanha
+  carregados: number;
+  enviados: number;
+  entregues: number;
+  lidas: number;
+  interagiram: number;
+  // Bloco 2: Funil de Venda
+  faturamento: number;
+  valorInicial: number;
+  optIn: number;
+  aprovados: number;
+  recusados: number;
+  simularam: number;
+  okAgente: number;
+  // Bloco 3: Funil de Formalização
+  aguarContato: number;
+  emAtendimento: number;
+  formalizado: number;
+}
+

@@ -1,4 +1,4 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target, Layers } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { EdenredConversionBanner } from '@/components/dashboard/EdenredConversionBanner';
@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ABPerformanceArena } from '@/components/dashboard/ABPerformanceArena';
 import { CampaignExecutiveView } from '@/components/dashboard/CampaignExecutiveView';
+import { CreditCampaignFunnelView } from '@/components/dashboard/CreditCampaignFunnelView';
 
 const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 
@@ -73,12 +74,37 @@ export default function Index() {
     <MainLayout>
       <div className="min-h-screen bg-[#F8FAFC] pb-20">
         <div className="p-4 lg:p-8 max-w-[1800px] mx-auto space-y-6">
-          
-          <div className="w-full space-y-6">
-            <CampaignExecutiveView />
-          </div>
+          <Tabs defaultValue="credit-funnel" className="w-full space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+              <TabsList className="bg-slate-200/70 p-1 rounded-xl">
+                <TabsTrigger 
+                  value="credit-funnel"
+                  className="gap-2 px-4 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm rounded-lg"
+                >
+                  <Target className="w-4 h-4 text-[#E5003A]" />
+                  Funil Executivo de Crédito (Novo Agente)
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="campaign-overview"
+                  className="gap-2 px-4 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm rounded-lg"
+                >
+                  <Layers className="w-4 h-4 text-slate-500" />
+                  Painel Geral de Disparos
+                </TabsTrigger>
+              </TabsList>
+            </div>
+
+            <TabsContent value="credit-funnel" className="mt-0 focus-visible:outline-none">
+              <CreditCampaignFunnelView />
+            </TabsContent>
+
+            <TabsContent value="campaign-overview" className="mt-0 focus-visible:outline-none">
+              <CampaignExecutiveView />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </MainLayout>
   );
 }
+

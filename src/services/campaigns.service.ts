@@ -880,5 +880,205 @@ async deleteCampaign(id: string): Promise<void> {
             return [];
         }
         return data;
+    },
+
+    async getCreditCampaignFunnelStats(
+        tenantId: string,
+        campaignIds?: string[],
+        startDate?: Date,
+        agentId?: string
+    ): Promise<import('@/lib/types').CreditCampaignFunnelStat[]> {
+        // 1. Tenta chamar a RPC get_credit_campaign_funnel_stats
+        try {
+            const rpcArgs: any = {
+                p_tenant_id: tenantId,
+                p_campaign_ids: campaignIds && campaignIds.length > 0 ? campaignIds : null,
+                p_start_date: startDate ? startDate.toISOString() : null,
+                p_agent_id: agentId && agentId !== 'all' ? agentId : null
+            };
+
+            const { data, error } = await supabase.rpc('get_credit_campaign_funnel_stats', rpcArgs);
+            if (!error && Array.isArray(data)) {
+                return data.map((row: any) => ({
+                    campaignId: row.campaign_id,
+                    campaignName: row.campaign_name || 'Campanha',
+                    startDate: row.start_date ? new Date(row.start_date) : null,
+                    status: row.status || 'active',
+                    carregados: Number(row.carregados || 0),
+                    enviados: Number(row.enviados || 0),
+                    entregues: Number(row.entregues || 0),
+                    lidas: Number(row.lidas || 0),
+                    interagiram: Number(row.interagiram || 0),
+                    faturamento: Number(row.faturamento || 0),
+                    valorInicial: Number(row.valor_inicial || 0),
+                    optIn: Number(row.opt_in || 0),
+                    aprovados: Number(row.aprovados || 0),
+                    recusados: Number(row.recusados || 0),
+                    simularam: Number(row.simularam || 0),
+                    okAgente: Number(row.ok_agente || 0),
+                    aguarContato: Number(row.aguar_contato || 0),
+                    emAtendimento: Number(row.em_atendimento || 0),
+                    formalizado: Number(row.formalizado || 0)
+                }));
+            }
+        } catch (rpcErr) {
+            console.warn('RPC get_credit_campaign_funnel_stats fallback:', rpcErr);
+        }
+
+        // 2. Fallback resiliente: agrega combinando campaigns, outbound_queue e agent_leads
+        try {
+            let campQuery = supabase
+                .from('campaigns')
+                .select('id, name, start_date, created_at, status, total_contacts, sent_count, delivered_count, read_count, response_count')
+                .eq('tenant_id', tenantId)
+                .order('created_at', { ascending: false });
+
+            if (campaignIds && campaignIds.length > 0) {
+                campQuery = campQuery.in('id', campaignIds);
+            }
+            if (startDate) {
+                campQuery = campQuery.gte('created_at', startDate.toISOString());
+            }
+            if (agentId && agentId !== 'all') {
+                campQuery = campQuery.eq('agent_id', agentId);
+            }
+
+            const { data: camps, error: campErr } = await campQuery;
+            if (campErr || !camps) return [];
+
+            const cIds = camps.map(c => c.id);
+            if (cIds.length === 0) return [];
+
+            // Buscar métricas da outbound_queue
+            const { data: oqRows } = await supabase
+                .from('outbound_queue')
+                .select('campaign_id, status, response_detected, sent_at')
+                .in('campaign_id', cIds);
+
+            // Buscar leads e metadados com chunking para não estourar o limite de 10.000 linhas da API
+            const leadRows: any[] = [];
+            const chunkSize = 5;
+            for (let i = 0; i < cIds.length; i += chunkSize) {
+                const chunk = cIds.slice(i, i + chunkSize);
+                const { data: chunkLeads } = await supabase
+                    .from('agent_leads')
+                    .select('campaign_id, status, metadata')
+                    .in('campaign_id', chunk);
+                if (chunkLeads && chunkLeads.length > 0) {
+                    leadRows.push(...chunkLeads);
+                }
+            }
+
+            const oqMap = new Map<string, { carregados: number; enviados: number; entregues: number; lidas: number; interagiram: number }>();
+            for (const r of (oqRows || [])) {
+                if (!r.campaign_id) continue;
+                if (!oqMap.has(r.campaign_id)) {
+                    oqMap.set(r.campaign_id, { carregados: 0, enviados: 0, entregues: 0, lidas: 0, interagiram: 0 });
+                }
+                const m = oqMap.get(r.campaign_id)!;
+                m.carregados++;
+                const st = (r.status || '').toLowerCase().trim();
+                const isSent = !['queued', 'pending', 'scheduled', 'draft'].includes(st) || !!r.sent_at || r.response_detected;
+                if (isSent) m.enviados++;
+                if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || r.response_detected) m.entregues++;
+                if (['read', 'respondida', 'interagiu'].includes(st)) m.lidas++;
+                if (r.response_detected || ['respondida', 'interagiu'].includes(st)) m.interagiram++;
+            }
+
+            const leadMap = new Map<string, {
+                faturamento: number;
+                valorInicial: number;
+                optIn: number;
+                aprovados: number;
+                recusados: number;
+                simularam: number;
+                okAgente: number;
+                aguarContato: number;
+                emAtendimento: number;
+                formalizado: number;
+            }>();
+
+            for (const l of (leadRows || [])) {
+                if (!l.campaign_id) continue;
+                if (!leadMap.has(l.campaign_id)) {
+                    leadMap.set(l.campaign_id, {
+                        faturamento: 0,
+                        valorInicial: 0,
+                        optIn: 0,
+                        aprovados: 0,
+                        recusados: 0,
+                        simularam: 0,
+                        okAgente: 0,
+                        aguarContato: 0,
+                        emAtendimento: 0,
+                        formalizado: 0
+                    });
+                }
+                const lm = leadMap.get(l.campaign_id)!;
+                const meta = l.metadata || {};
+                const fiservStatus = String(meta.fiserv_status || l.status || '').toLowerCase();
+                const formalStatus = String(meta.formalization_status || '').toLowerCase();
+
+                if (meta.revenue || meta.faturamento) lm.faturamento++;
+                if (meta.requested_amount || meta.valor_inicial) lm.valorInicial++;
+                if (meta.opt_in === true || meta.optin === true) lm.optIn++;
+                if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus)) lm.aprovados++;
+                if (['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado'].includes(fiservStatus)) lm.recusados++;
+                if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
+                if (meta.simulation_accepted || meta.ok_agente) lm.okAgente++;
+
+                if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalStatus)) lm.aguarContato++;
+                if (['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus)) lm.emAtendimento++;
+                if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) || fiservStatus === 'won' || meta.formalized_at) lm.formalizado++;
+            }
+
+            return camps.map(c => {
+                const oq = oqMap.get(c.id) || {
+                    carregados: c.total_contacts || 0,
+                    enviados: c.sent_count || 0,
+                    entregues: c.delivered_count || 0,
+                    lidas: c.read_count || 0,
+                    interagiram: c.response_count || 0
+                };
+                const lm = leadMap.get(c.id) || {
+                    faturamento: 0,
+                    valorInicial: 0,
+                    optIn: 0,
+                    aprovados: 0,
+                    recusados: 0,
+                    simularam: 0,
+                    okAgente: 0,
+                    aguarContato: 0,
+                    emAtendimento: 0,
+                    formalizado: 0
+                };
+
+                return {
+                    campaignId: c.id,
+                    campaignName: c.name || 'Campanha',
+                    startDate: c.start_date ? new Date(c.start_date) : (c.created_at ? new Date(c.created_at) : null),
+                    status: c.status || 'active',
+                    carregados: oq.carregados,
+                    enviados: oq.enviados,
+                    entregues: oq.entregues,
+                    lidas: oq.lidas,
+                    interagiram: oq.interagiram,
+                    faturamento: lm.faturamento,
+                    valorInicial: lm.valorInicial,
+                    optIn: lm.optIn,
+                    aprovados: lm.aprovados,
+                    recusados: lm.recusados,
+                    simularam: lm.simularam,
+                    okAgente: lm.okAgente,
+                    aguarContato: lm.aguarContato,
+                    emAtendimento: lm.emAtendimento,
+                    formalizado: lm.formalizado
+                };
+            });
+        } catch (err) {
+            console.error('Error fetching fallback credit funnel stats:', err);
+            return [];
+        }
     }
 };
+

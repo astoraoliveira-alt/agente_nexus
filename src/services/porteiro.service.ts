@@ -37,6 +37,41 @@ export const porteiro = {
     },
 
     /**
+     * Checks if a Zenvia / Meta template exists and is approved
+     */
+    async checkZenviaTemplate(templateId: string, tenantId?: string) {
+        // Try getting user session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
+        const response = await fetch(`${PORTEIRO_URL}/v1/zenvia/template-check`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                templateId,
+                tenantId
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            return {
+                valid: false,
+                status: 'ERROR',
+                message: errorData.error || `Erro HTTP ${response.status}`
+            };
+        }
+
+        return response.json();
+    },
+
+    /**
      * Basic health check for the gateway
      */
     async healthCheck() {

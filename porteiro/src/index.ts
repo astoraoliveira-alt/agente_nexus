@@ -342,6 +342,89 @@ app.post('/v1/evolution/proxy', async (c) => {
 });
 
 /**
+ * Zenvia Template Validation Endpoint
+ * Validates whether a template ID exists and is approved in Zenvia/Meta
+ */
+app.post('/v1/zenvia/template-check', async (c) => {
+    try {
+        const body = await c.req.json();
+        const { templateId, tenantId } = body;
+
+        if (!templateId || typeof templateId !== 'string') {
+            return c.json({ error: 'templateId is required' }, 400);
+        }
+
+        const cleanId = templateId.trim();
+
+        // 1. Fetch zenvia_api_token from agents table
+        let query = supabaseAdmin
+            .from('agents')
+            .select('zenvia_api_token')
+            .not('zenvia_api_token', 'is', null);
+
+        if (tenantId) {
+            query = query.eq('tenant_id', tenantId);
+        }
+
+        const { data: agentData, error: agentError } = await query.limit(1);
+
+        let zenviaToken = agentData?.[0]?.zenvia_api_token;
+
+        // Fallback to any active Zenvia agent token if tenant-specific not found
+        if (!zenviaToken) {
+            const { data: fallbackData } = await supabaseAdmin
+                .from('agents')
+                .select('zenvia_api_token')
+                .not('zenvia_api_token', 'is', null)
+                .limit(1);
+            zenviaToken = fallbackData?.[0]?.zenvia_api_token;
+        }
+
+        if (!zenviaToken) {
+            return c.json({ 
+                error: 'Nenhum token Zenvia configurado para realizar a validação',
+                valid: false 
+            }, 500);
+        }
+
+        // 2. Query Zenvia Templates API
+        const zenviaRes = await fetch(`https://api.zenvia.com/v2/templates/${cleanId}`, {
+            headers: {
+                'X-API-TOKEN': zenviaToken
+            }
+        });
+
+        if (zenviaRes.status === 404) {
+            return c.json({
+                valid: false,
+                status: 'NOT_FOUND',
+                message: 'Template não encontrado na Zenvia / Meta'
+            }, 200);
+        }
+
+        if (!zenviaRes.ok) {
+            const errData = await zenviaRes.json().catch(() => ({}));
+            return c.json({
+                valid: false,
+                status: 'ERROR',
+                message: errData.message || `Erro Zenvia HTTP ${zenviaRes.status}`,
+                details: errData
+            }, 200);
+        }
+
+        const templateData = await zenviaRes.json();
+        return c.json({
+            valid: true,
+            status: templateData.status || 'APPROVED',
+            template: templateData
+        }, 200);
+    } catch (err: any) {
+        console.error('[PORTEIRO] ❌ Template Check Failed:', err.message);
+        return c.json({ valid: false, error: err.message }, 500);
+    }
+});
+
+/**
  * Evolution Webhook Handler
  * Receives messages from Evolution and stores them in Supabase
  */
