@@ -82,7 +82,7 @@ export default function Index() {
                   className="gap-2 px-4 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm rounded-lg"
                 >
                   <Target className="w-4 h-4 text-[#E5003A]" />
-                  Funil Executivo de Crédito (Novo Agente)
+                  Funil Executivo de Crédito
                 </TabsTrigger>
                 <TabsTrigger 
                   value="campaign-overview"

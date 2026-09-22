@@ -177,7 +177,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               <span className="text-xs text-muted-foreground">• Jornada Nativa WhatsApp</span>
             </div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900 mt-1">
-              Funil Executivo de Crédito (Clover Capital)
+              Funil Executivo de Crédito
             </h1>
           </div>
         </div>
