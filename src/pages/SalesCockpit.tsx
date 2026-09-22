@@ -176,11 +176,61 @@ export default function SalesCockpit() {
     setVisibleCount(60);
   }, [selectedStages, searchTerm]);
 
-  // Lead Ativo Atual
+  // Regra de Permissão e Visibilidade:
+  // Administradores e Super Admins veem a lista completa.
+  // Operadores veem apenas leads pendentes de contato (sem operador atendendo) e os que ele próprio assumiu.
+  const canViewAllLeads = useMemo(() => {
+    const role = currentUser?.role?.toLowerCase() || '';
+    return role === 'super_admin' || role === 'tenant_admin' || role === 'admin';
+  }, [currentUser?.role]);
+
+  const visibleLeads = useMemo(() => {
+    if (canViewAllLeads) return leads;
+    
+    const myId = currentUser?.id;
+    const myName = currentUser?.name?.toLowerCase().trim();
+
+    return leads.filter(lead => {
+      // 1. Leads pendentes de contato (ninguém ainda está atendendo)
+      const isPendingUnassigned = lead.pipelineStage === 'pending_contact' && !lead.assignedOperatorId && !lead.assignedOperator;
+      
+      // 2. Leads que o operador assumiu para si mesmo
+      const isAssignedToMe = (myId && lead.assignedOperatorId === myId) || 
+                             (myName && lead.assignedOperator && lead.assignedOperator.toLowerCase().trim() === myName);
+
+      return isPendingUnassigned || isAssignedToMe;
+    });
+  }, [leads, canViewAllLeads, currentUser?.id, currentUser?.name]);
+
+  // Filtragem (Pesquisa + Etapas) aplicada sobre a visão permitida do usuário
+  const filteredLeads = useMemo(() => {
+    const termClean = searchTerm.trim().toLowerCase();
+    const termDigits = searchTerm.replace(/\D/g, '');
+
+    return visibleLeads.filter(lead => {
+      const phoneDigits = (lead.phone || '').replace(/\D/g, '');
+      const cnpjDigits = (lead.cnpj || '').replace(/\D/g, '');
+      const formattedPhone = formatPhoneBR(lead.phone).toLowerCase();
+      const formattedCnpj = formatCNPJ(lead.cnpj).toLowerCase();
+
+      const matchesSearch = !termClean ||
+        lead.name.toLowerCase().includes(termClean) ||
+        (termDigits.length > 0 && cnpjDigits.includes(termDigits)) ||
+        (termDigits.length > 0 && phoneDigits.includes(termDigits)) ||
+        formattedPhone.includes(termClean) ||
+        formattedCnpj.includes(termClean);
+
+      const matchesStage = selectedStages.length === 0 || selectedStages.includes(lead.pipelineStage);
+
+      return matchesSearch && matchesStage;
+    });
+  }, [visibleLeads, searchTerm, selectedStages]);
+
+  // Lead Ativo Atual baseado nos leads visíveis para o usuário
   const activeLead = useMemo(() => {
-    if (leads.length === 0) return null;
-    return leads.find(l => l.id === activeLeadId) || leads[0] || null;
-  }, [leads, activeLeadId]);
+    if (visibleLeads.length === 0) return null;
+    return visibleLeads.find(l => l.id === activeLeadId) || visibleLeads[0] || null;
+  }, [visibleLeads, activeLeadId]);
 
   // Ao selecionar um lead da lista
   const handleSelectLead = async (lead: SalesCockpitLead) => {
@@ -215,30 +265,6 @@ export default function SalesCockpit() {
     }
   };
 
-  // Filtragem
-  const filteredLeads = useMemo(() => {
-    const termClean = searchTerm.trim().toLowerCase();
-    const termDigits = searchTerm.replace(/\D/g, '');
-
-    return leads.filter(lead => {
-      const phoneDigits = (lead.phone || '').replace(/\D/g, '');
-      const cnpjDigits = (lead.cnpj || '').replace(/\D/g, '');
-      const formattedPhone = formatPhoneBR(lead.phone).toLowerCase();
-      const formattedCnpj = formatCNPJ(lead.cnpj).toLowerCase();
-
-      const matchesSearch = !termClean ||
-        lead.name.toLowerCase().includes(termClean) ||
-        (termDigits.length > 0 && cnpjDigits.includes(termDigits)) ||
-        (termDigits.length > 0 && phoneDigits.includes(termDigits)) ||
-        formattedPhone.includes(termClean) ||
-        formattedCnpj.includes(termClean);
-
-      const matchesStage = selectedStages.length === 0 || selectedStages.includes(lead.pipelineStage);
-
-      return matchesSearch && matchesStage;
-    });
-  }, [leads, searchTerm, selectedStages]);
-
   // Atualizar Etapa do Pipeline
   const handleUpdateStage = async (newStage: PipelineStage) => {
     if (!activeLead) return;
@@ -248,18 +274,21 @@ export default function SalesCockpit() {
     }
 
     const opName = currentUser?.name || 'Carlos Silva';
+    const opId = currentUser?.id;
     try {
       const success = await salesCockpitService.updatePipelineStage(
         activeLead.id, 
         newStage, 
         activeLead.conversationId, 
-        opName
+        opName,
+        opId
       );
       if (success) {
         setLeads(prev => prev.map(l => l.id === activeLead.id ? { 
           ...l, 
           pipelineStage: newStage,
-          assignedOperator: opName
+          assignedOperator: opName,
+          assignedOperatorId: opId
         } : l));
         toast.success(`Status atualizado para: ${STAGE_CONFIG[newStage].label}`);
       } else {
@@ -279,6 +308,16 @@ export default function SalesCockpit() {
     }
     try {
       await takeOverConversation(activeLead.conversationId);
+      // Atualizar localmente a atribuição imediata para o operador logado
+      const opName = currentUser?.name || 'Carlos Silva';
+      const opId = currentUser?.id;
+      setLeads(prev => prev.map(l => l.id === activeLead.id ? {
+        ...l,
+        assignedOperator: opName,
+        assignedOperatorId: opId,
+        pipelineStage: l.pipelineStage === 'pending_contact' ? 'in_contact' : l.pipelineStage
+      } : l));
+
       if (activeLead.pipelineStage === 'pending_contact') {
         handleUpdateStage('in_contact');
       }
@@ -310,10 +349,13 @@ export default function SalesCockpit() {
     }
   };
 
-  const pendingCount = leads.filter(l => l.pipelineStage === 'pending_contact').length;
-  const inContactCount = leads.filter(l => l.pipelineStage === 'in_contact').length;
-  const sentCount = leads.filter(l => l.pipelineStage === 'contract_sent').length;
-  const signedCount = leads.filter(l => l.pipelineStage === 'contract_signed').length;
+  // Métricas do Topo:
+  // Para operadores, reflete o que é permitido em sua visão (pendentes + o que ele atendeu/assinou).
+  // Para administradores, reflete os números globais.
+  const pendingCount = visibleLeads.filter(l => l.pipelineStage === 'pending_contact').length;
+  const inContactCount = visibleLeads.filter(l => l.pipelineStage === 'in_contact').length;
+  const sentCount = visibleLeads.filter(l => l.pipelineStage === 'contract_sent').length;
+  const signedCount = visibleLeads.filter(l => l.pipelineStage === 'contract_signed').length;
 
   return (
     <MainLayout>
@@ -330,6 +372,11 @@ export default function SalesCockpit() {
                 <Badge variant="outline" className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 border-emerald-300 text-xs font-semibold">
                   Funil Fiserv
                 </Badge>
+                {!canViewAllLeads && (
+                  <Badge variant="secondary" className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 font-medium">
+                    Meus Atendimentos & Fila
+                  </Badge>
+                )}
               </div>
               <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 font-normal">
                 Fechamento comercial humano para leads que completaram o funil de crédito
@@ -341,7 +388,7 @@ export default function SalesCockpit() {
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs">
               <span className="text-slate-700 dark:text-slate-300 font-medium">Fila Total:</span>
-              <span className="font-bold text-slate-950 dark:text-white">{leads.length}</span>
+              <span className="font-bold text-slate-950 dark:text-white">{visibleLeads.length}</span>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-100 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700 text-xs">
               <span className="text-amber-900 dark:text-amber-300 font-medium">Pendentes:</span>
@@ -373,49 +420,40 @@ export default function SalesCockpit() {
                   placeholder="Buscar empresa, CNPJ, telefone..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 h-9 text-xs bg-background border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100"
+                  className="pl-8 text-xs bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800"
                 />
               </div>
 
-              {/* Filtro Selecionável com Múltipla Escolha */}
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300 block">
-                  Filtrar por Status do Funil:
-                </label>
+              {/* Botão de Filtro de Etapas com Popover Multiselect */}
+              <div className="flex items-center gap-1.5">
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full h-9 justify-between text-xs bg-background border-slate-300 dark:border-slate-700 font-medium text-slate-900 dark:text-slate-100 px-3 hover:bg-slate-50 dark:hover:bg-slate-850 hover:text-slate-900 dark:hover:text-slate-100 data-[state=open]:bg-slate-50 dark:data-[state=open]:bg-slate-800 data-[state=open]:text-slate-900 dark:data-[state=open]:text-slate-100"
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full justify-between text-xs h-8 border-slate-300 dark:border-slate-700 bg-background text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white focus:text-slate-900 dark:focus:text-white data-[state=open]:bg-slate-100 dark:data-[state=open]:bg-slate-800 data-[state=open]:text-slate-950 dark:data-[state=open]:text-white font-medium shadow-none transition-colors"
                     >
-                      <span className="truncate text-slate-900 dark:text-slate-100">
-                        {selectedStages.length === 0
-                          ? "Nenhum status selecionado"
-                          : selectedStages.length === Object.keys(STAGE_CONFIG).length
-                          ? `Todos os Status (${leads.length})`
-                          : selectedStages.length === 1
-                          ? `${STAGE_CONFIG[selectedStages[0]]?.label} (${leads.filter(l => l.pipelineStage === selectedStages[0]).length})`
-                          : `${selectedStages.length} status selecionados`}
+                      <span className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                        {selectedStages.length === 0 
+                          ? "Todos os status" 
+                          : selectedStages.length === 1 
+                            ? STAGE_CONFIG[selectedStages[0]].label 
+                            : `${selectedStages.length} status selecionados`}
                       </span>
-                      <ChevronDown className="h-4 w-4 opacity-50 shrink-0 ml-1 text-slate-700 dark:text-slate-300" />
+                      <ChevronDown className="h-3.5 w-3.5 opacity-60 ml-1 shrink-0 text-slate-700 dark:text-slate-300" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[306px] p-2 text-xs" align="start">
-                    <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-[11px]">
-                        Selecionar Etapas
-                      </span>
-                      <div className="flex items-center gap-2">
+                  <PopoverContent className="w-56 p-2 bg-card border-border shadow-lg" align="start">
+                    <div className="pb-1.5 mb-1.5 border-b border-border flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">Filtrar por Status</span>
+                      <div className="flex gap-2">
                         <button
-                          type="button"
-                          onClick={() => setSelectedStages(Object.keys(STAGE_CONFIG) as PipelineStage[])}
-                          className="text-[10px] text-primary hover:underline font-medium"
+                          onClick={() => setSelectedStages(['pending_contact', 'in_contact', 'contract_sent', 'contract_signed'])}
+                          className="text-[10px] text-primary hover:underline"
                         >
-                          Marcar todos
+                          Todos
                         </button>
-                        <span className="text-slate-300 dark:text-slate-600">|</span>
                         <button
-                          type="button"
                           onClick={() => setSelectedStages([])}
                           className="text-[10px] text-muted-foreground hover:underline"
                         >
@@ -426,7 +464,7 @@ export default function SalesCockpit() {
                     <div className="space-y-1.5">
                       {(Object.keys(STAGE_CONFIG) as PipelineStage[]).map((stageKey) => {
                         const isChecked = selectedStages.includes(stageKey);
-                        const count = leads.filter(l => l.pipelineStage === stageKey).length;
+                        const count = visibleLeads.filter(l => l.pipelineStage === stageKey).length;
                         return (
                           <div
                             key={stageKey}
@@ -599,9 +637,6 @@ export default function SalesCockpit() {
                         <span className="flex h-2 w-2 rounded-full bg-blue-500" />
                         <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
                           Atendimento com Sofia (IA)
-                        </span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden md:inline">
-                          • Operador disponível: <strong className="text-slate-800 dark:text-slate-200 font-medium">{currentUser?.name || 'Carlos Silva'}</strong>
                         </span>
                       </div>
                       {hasPermission('sales_cockpit.takeover') && (

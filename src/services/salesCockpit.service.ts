@@ -26,6 +26,7 @@ export interface SalesCockpitLead {
   lastMessageTime: Date;
   source?: 'handoff' | 'fiserv_credit' | 'conversion_click';
   assignedOperator?: string;
+  assignedOperatorId?: string;
   conversation?: Conversation;
 }
 
@@ -240,7 +241,7 @@ export const salesCockpitService = {
           .limit(200),
         supabaseReader
           .from('conversations')
-          .select('id, user_identifier, user_name, metadata, status, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
+          .select('id, user_identifier, user_name, metadata, status, assigned_operator_id, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
           .eq('tenant_id', tenantId)
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(100)
@@ -358,6 +359,7 @@ export const salesCockpitService = {
           lastMessageTime: params.date,
           source: params.source,
           assignedOperator: mergedMeta.operator_name || (conv?.assigned_operator_id ? 'Operador Humano' : undefined),
+          assignedOperatorId: mergedMeta.operator_id || conv?.assigned_operator_id || undefined,
           conversation: conv ? {
             id: conv.id,
             tenantId: conv.tenant_id,
@@ -578,7 +580,7 @@ export const salesCockpitService = {
   /**
    * Atualiza a etapa do pipeline para o lead
    */
-  async updatePipelineStage(leadId: string, stage: PipelineStage, conversationId?: string, operatorName?: string): Promise<boolean> {
+  async updatePipelineStage(leadId: string, stage: PipelineStage, conversationId?: string, operatorName?: string, operatorId?: string): Promise<boolean> {
     try {
       const now = new Date().toISOString();
 
@@ -594,7 +596,8 @@ export const salesCockpitService = {
           ...(lead.metadata || {}),
           pipeline_stage: stage,
           pipeline_updated_at: now,
-          ...(operatorName ? { operator_name: operatorName } : {})
+          ...(operatorName ? { operator_name: operatorName } : {}),
+          ...(operatorId ? { operator_id: operatorId } : {})
         };
 
         await supabase
@@ -617,12 +620,18 @@ export const salesCockpitService = {
             ...(conv.metadata || {}),
             pipeline_stage: stage,
             pipeline_updated_at: now,
-            ...(operatorName ? { operator_name: operatorName } : {})
+            ...(operatorName ? { operator_name: operatorName } : {}),
+            ...(operatorId ? { operator_id: operatorId } : {})
           };
+
+          const convUpdatePayload: any = { metadata: updatedConvMeta };
+          if (operatorId) {
+            convUpdatePayload.assigned_operator_id = operatorId;
+          }
 
           await supabase
             .from('conversations')
-            .update({ metadata: updatedConvMeta })
+            .update(convUpdatePayload)
             .eq('id', conv.id);
         }
       }

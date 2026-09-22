@@ -265,41 +265,45 @@ export function ArtifactsDrawer({ conversationId, isOpen, onOpenChange }: Artifa
         try {
             setLoading(true);
 
-            // 1. Fetch artifacts from DB
-            const { data, error } = await supabase
+            // 1. Fetch artifacts from DB (conversation_artifacts)
+            const { data: dbArtifacts, error: dbError } = await supabase
                 .from('conversation_artifacts')
                 .select('*')
                 .eq('conversation_id', conversationId)
-                .not('storage_path', 'is', null) // Only get ones with actual storage paths
+                .not('storage_path', 'is', null)
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
-
-            if (!data || data.length === 0) {
-                setArtifacts([]);
-                return;
+            if (dbError) {
+                console.warn('Erro ao buscar conversation_artifacts:', dbError);
             }
 
-            // 2. Generate temporary signed URLs for each private file
-            const artifactsWithUrls = await Promise.all(
-                data.map(async (art) => {
+            // 2. Fetch attachments directly from messages table of this conversation
+            const { data: messageFiles, error: msgError } = await supabase
+                .from('messages')
+                .select('id, content, message_type, image_url, audio_url, metadata, created_at')
+                .eq('conversation_id', conversationId)
+                .or('message_type.eq.document,message_type.eq.image,message_type.eq.audio,image_url.not.is.null,audio_url.not.is.null')
+                .order('created_at', { ascending: false });
+
+            if (msgError) {
+                console.warn('Erro ao buscar anexos de mensagens:', msgError);
+            }
+
+            // 3. Process conversation_artifacts with signed URLs if needed
+            const processedDbArtifacts = await Promise.all(
+                (dbArtifacts || []).map(async (art) => {
                     let signedUrl = '';
                     if (art.storage_path) {
-                        // Remove 'artifacts/' prefix if it's accidentally included in the storage_path but the bucket is 'artifacts'
-                        // In Supabase, bucket name is separate from path. 
-                        // Our path logic is saving "artifacts/tenant_id/...". Let's clean it up for the API if needed.
                         let cleanPath = art.storage_path;
                         if (cleanPath.startsWith('artifacts/')) {
                             cleanPath = cleanPath.substring(10);
                         }
 
-                        const { data: urlData, error: urlError } = await supabase.storage
+                        const { data: urlData } = await supabase.storage
                             .from('artifacts')
-                            .createSignedUrl(cleanPath, 60 * 60); // 1 hour expiry
+                            .createSignedUrl(cleanPath, 60 * 60);
 
-                        if (urlError) {
-                            console.error("Error generating signed URL for", cleanPath, urlError);
-                        } else {
+                        if (urlData?.signedUrl) {
                             signedUrl = urlData.signedUrl;
                         }
                     }
@@ -307,7 +311,39 @@ export function ArtifactsDrawer({ conversationId, isOpen, onOpenChange }: Artifa
                 })
             );
 
-            setArtifacts(artifactsWithUrls);
+            // 4. Map message attachments to Artifact interface
+            const messageArtifacts: Artifact[] = (messageFiles || [])
+                .map((m: any) => {
+                    const rawUrl = m.metadata?.file_url || m.image_url || m.audio_url;
+                    if (!rawUrl) return null;
+
+                    const fileName = m.metadata?.file_name || rawUrl.split('/').pop() || (m.message_type === 'document' ? 'contrato.pdf' : 'arquivo');
+                    const fileType = m.metadata?.mime_type || (m.message_type === 'document' ? 'application/pdf' : m.message_type || 'file');
+
+                    return {
+                        id: `msg-${m.id}`,
+                        file_type: fileType,
+                        storage_path: fileName,
+                        created_at: m.created_at,
+                        signedUrl: rawUrl
+                    };
+                })
+                .filter((item): item is Artifact => item !== null);
+
+            // 5. Combine and remove duplicates by signedUrl/storage_path
+            const combined = [...processedDbArtifacts, ...messageArtifacts];
+            const seen = new Set<string>();
+            const uniqueArtifacts = combined.filter((art) => {
+                const key = art.signedUrl || art.storage_path;
+                if (!key || seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+
+            // Ordenar do mais recente para o mais antigo
+            uniqueArtifacts.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+            setArtifacts(uniqueArtifacts);
         } catch (error: any) {
             console.error("Error fetching artifacts:", error);
             toast.error("Falha ao carregar os arquivos da conversa.");
