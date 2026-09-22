@@ -26,6 +26,8 @@ import { CreditCampaignFunnelStat, Agent } from '@/lib/types';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
+import { CreditCampaignDetailView } from './CreditCampaignDetailView';
+
 interface CreditCampaignFunnelViewProps {
   onSelectCampaign?: (campaignId: string) => void;
 }
@@ -38,6 +40,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentTenant) {
@@ -161,17 +164,31 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
     XLSX.writeFile(wb, `funil_credito_executivo_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
   };
 
+  // Se uma campanha foi selecionada, exibe a visualização detalhada com consistência estrita
+  if (selectedCampaignId) {
+    const selectedStat = funnelData.find(d => d.campaignId === selectedCampaignId);
+    return (
+      <CreditCampaignDetailView
+        campaignId={selectedCampaignId}
+        campaignStat={selectedStat}
+        allCampaignStats={funnelData}
+        onSelectCampaign={(id) => setSelectedCampaignId(id)}
+        onBack={() => setSelectedCampaignId(null)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Top Banner & Title */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-border/50 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-100 flex items-center justify-center text-[#E5003A] shadow-inner">
-            <ShieldCheck className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-800 shadow-inner">
+            <ShieldCheck className="w-6 h-6 text-emerald-600" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black tracking-widest text-[#E5003A] uppercase bg-rose-50 px-2 py-0.5 rounded">
+              <span className="text-[10px] font-black tracking-widest text-emerald-700 uppercase bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
                 Auditoria & Faturamento
               </span>
               <span className="text-xs text-muted-foreground">• Jornada Nativa WhatsApp</span>
@@ -197,49 +214,54 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
       {/* KPI Cards — Macro Conversões */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {/* 1. Taxa de Entrega (Envio - Azul) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Taxa de Entrega</span>
           <div className="mt-2 flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-slate-800">{deliveryRate}%</span>
             <span className="text-[11px] text-slate-500 font-medium">{totals.entregues.toLocaleString('pt-BR')} entregues</span>
           </div>
-          <Progress value={Number(deliveryRate)} className="h-1.5 mt-3 bg-slate-100" />
+          <Progress value={Number(deliveryRate)} className="h-1.5 mt-3 bg-blue-50" indicatorClassName="bg-blue-600" />
         </div>
 
+        {/* 2. Engajamento (Envio - Índigo/Azul) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Engajamento (Respostas)</span>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-indigo-600">{responseRate}%</span>
+            <span className="text-2xl font-extrabold text-blue-700">{responseRate}%</span>
             <span className="text-[11px] text-slate-500 font-medium">{totals.interagiram.toLocaleString('pt-BR')} respostas</span>
           </div>
-          <Progress value={Number(responseRate)} className="h-1.5 mt-3 bg-indigo-50" />
+          <Progress value={Number(responseRate)} className="h-1.5 mt-3 bg-blue-50" indicatorClassName="bg-blue-700" />
         </div>
 
+        {/* 3. Conversão em Opt-in (Venda - Esmeralda/Verde) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conversão em Opt-in</span>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-blue-600">{optInRate}%</span>
+            <span className="text-2xl font-extrabold text-emerald-600">{optInRate}%</span>
             <span className="text-[11px] text-slate-500 font-medium">{totals.optIn.toLocaleString('pt-BR')} aceites</span>
           </div>
-          <Progress value={Number(optInRate)} className="h-1.5 mt-3 bg-blue-50" />
+          <Progress value={Number(optInRate)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
         </div>
 
+        {/* 4. Aprovação de Crédito (Venda - Verde Esmeralda) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Aprovação de Crédito</span>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-emerald-600">{approvalRate}%</span>
+            <span className="text-2xl font-extrabold text-emerald-700">{approvalRate}%</span>
             <span className="text-[11px] text-slate-500 font-medium">{totals.aprovados.toLocaleString('pt-BR')} aprovados</span>
           </div>
-          <Progress value={Number(approvalRate)} className="h-1.5 mt-3 bg-emerald-50" />
+          <Progress value={Number(approvalRate)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
         </div>
 
+        {/* 5. Formalizados (Funil de Formalização - Vinho/Dourado/Verde de Sucesso) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between col-span-2 sm:col-span-1">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Formalizados (Final)</span>
           <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-[#E5003A]">{totals.formalizado.toLocaleString('pt-BR')}</span>
-            <span className="text-[11px] text-rose-600 font-bold">{formalizationRate}% do total</span>
+            <span className="text-2xl font-extrabold text-emerald-700">{totals.formalizado.toLocaleString('pt-BR')}</span>
+            <span className="text-[11px] text-emerald-600 font-bold">{formalizationRate}% do total</span>
           </div>
-          <Progress value={Math.min(Number(formalizationRate) * 10, 100)} className="h-1.5 mt-3 bg-rose-50" />
+          <Progress value={Math.min(Number(formalizationRate) * 10, 100)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
         </div>
       </div>
 
@@ -360,7 +382,10 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   return (
                     <tr 
                       key={row.campaignId}
-                      onClick={() => onSelectCampaign?.(row.campaignId)}
+                      onClick={() => {
+                        setSelectedCampaignId(row.campaignId);
+                        onSelectCampaign?.(row.campaignId);
+                      }}
                       className="hover:bg-slate-50/90 transition-colors cursor-pointer"
                     >
                       {/* Identificação com Bolinha de Status antes do Nome */}
@@ -405,7 +430,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       {/* Formalização */}
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-purple-50/20">{row.aguarContato.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-indigo-700 bg-purple-50/30">{row.emAtendimento.toLocaleString('pt-BR')}</td>
-                      <td className="px-2.5 py-3 text-right font-mono font-black text-[#E5003A] bg-purple-50/40">
+                      <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-700 bg-purple-50/40">
                         {row.formalizado.toLocaleString('pt-BR')}
                       </td>
                     </tr>
@@ -446,7 +471,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   {/* Formalização */}
                   <td className="px-2.5 py-3 text-right font-mono bg-purple-100/40">{totals.aguarContato.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono text-indigo-900 bg-purple-100/60">{totals.emAtendimento.toLocaleString('pt-BR')}</td>
-                  <td className="px-2.5 py-3 text-right font-mono font-black text-[#E5003A] bg-purple-100/80">
+                  <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-700 bg-purple-100/80">
                     {totals.formalizado.toLocaleString('pt-BR')}
                   </td>
                 </tr>

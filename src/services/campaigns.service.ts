@@ -1020,8 +1020,19 @@ async deleteCampaign(id: string): Promise<void> {
                 const formalStatus = String(meta.formalization_status || '').toLowerCase();
 
                 if (meta.revenue || meta.faturamento) lm.faturamento++;
-                if (meta.requested_amount || meta.valor_inicial) lm.valorInicial++;
-                if (meta.opt_in === true || meta.optin === true) lm.optIn++;
+                if (
+                    meta.requested_amount || 
+                    meta.valor_inicial || 
+                    meta.simulation_data?.amount || 
+                    meta.fiserv_amount_approved
+                ) lm.valorInicial++;
+                if (
+                    meta.opt_in === true || 
+                    meta.optin === true || 
+                    meta.consent?.opt_in === true ||
+                    meta.fiserv_requested_at || 
+                    meta.loan_request_id
+                ) lm.optIn++;
                 if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus)) lm.aprovados++;
                 if (['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado'].includes(fiservStatus)) lm.recusados++;
                 if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
