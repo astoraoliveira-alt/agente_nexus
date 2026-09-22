@@ -598,68 +598,44 @@ export default function SalesCockpit() {
           <div className="flex-1 flex flex-col min-w-0 border-r border-border bg-background relative h-full overflow-hidden">
             {activeLead && selectedConversation ? (
               <>
-                {/* Barra de Ação HITL para o Operador Formalizar no WhatsApp */}
-                <div className="px-4 py-2 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2 flex-shrink-0">
-                  {selectedConversation?.status === 'human_active' ? (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-2 w-2 rounded-full bg-emerald-500" />
-                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                          <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
-                          Atendente: <strong className="text-emerald-700 dark:text-emerald-400 font-extrabold">{(!selectedConversation.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador')) ? (currentUser?.name || 'Carlos Silva') : selectedConversation.assignedOperator}</strong>
-                        </span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden lg:inline">
-                          • Sofia pausada • WhatsApp oficial ativo
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleReturnToAI}
-                          className="h-7 text-xs font-semibold border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
-                        >
-                          Devolver para IA
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleFinalizeFormalization}
-                          className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-                        >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Finalizar Formalização
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="flex h-2 w-2 rounded-full bg-blue-500" />
-                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                          Atendimento com Sofia (IA)
-                        </span>
-                      </div>
-                      {hasPermission('sales_cockpit.takeover') && (
-                        <Button
-                          size="sm"
-                          onClick={handleTakeover}
-                          className="h-7 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-                        >
-                          <User className="h-3.5 w-3.5" />
-                          Assumir Atendimento (Handoff HITL)
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-
-                {/* Componente Oficial de Chat - Input fixo e ativo sem IA */}
+                {/* Componente Oficial de Chat com Cabeçalho Unificado e Ações Integradas */}
                 <div className="flex-1 min-h-0 flex flex-col overflow-hidden relative w-full">
                   <ChatArea 
                     conversation={selectedConversation} 
                     highlightTerm={searchTerm}
                     alwaysAllowInput={true}
                     hideAiControls={true}
+                    customActions={
+                      selectedConversation?.status === 'human_active' ? (
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleReturnToAI}
+                            className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
+                          >
+                            Devolver para IA
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={handleFinalizeFormalization}
+                            className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Finalizar Formalização
+                          </Button>
+                        </div>
+                      ) : hasPermission('sales_cockpit.takeover') ? (
+                        <Button
+                          size="sm"
+                          onClick={handleTakeover}
+                          className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+                        >
+                          <User className="h-3.5 w-3.5" />
+                          Assumir Atendimento
+                        </Button>
+                      ) : null
+                    }
                   />
                 </div>
               </>
