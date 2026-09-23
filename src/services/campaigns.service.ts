@@ -445,7 +445,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             const { error } = await supabase
                 .from('agent_leads')
                 .upsert(chunk, {
-                    onConflict: 'tenant_id,identifier',
+                    onConflict: 'tenant_id,identifier,campaign_id',
                     ignoreDuplicates: false,
                 });
 
