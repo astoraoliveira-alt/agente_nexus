@@ -403,10 +403,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.log('🔍 [Handoff] Buscando pedidos (Fila + Hoje) para:', currentTenant.id);
       const { data, error } = await supabase
         .from('handoff_requests')
-        .select('*, conversations(user_name, user_identifier)')
+        .select('*, conversations(id, user_name, user_identifier, agent_id, agents:agents!conversations_agent_id_fkey(id, name)), agent_leads(id, identifier, name, whatsapp, metadata)')
         .eq('tenant_id', currentTenant.id)
+        .neq('status', 'ignored')
         .order('requested_at', { ascending: false })
-        .limit(50); // Pegamos os últimos 50 para o histórico
+        .limit(200);
         
       if (error) {
         console.error('❌ [Handoff] Erro na consulta:', error);
@@ -514,16 +515,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         async (payload: any) => {
           console.log('🔔 Handoff Signal:', payload.eventType);
           if (payload.eventType === 'INSERT') {
-            // Fetch conversation details to populate user_name and user_identifier
+            // Fetch conversation and lead details
             const { data: conv } = await supabase
               .from('conversations')
-              .select('user_name, user_identifier')
+              .select('id, user_name, user_identifier, agent_id, agents:agents!conversations_agent_id_fkey(id, name)')
               .eq('id', payload.new.conversation_id)
               .single();
             
+            let lead = null;
+            if (payload.new.lead_id) {
+              const { data: leadData } = await supabase
+                .from('agent_leads')
+                .select('id, identifier, name, whatsapp, metadata')
+                .eq('id', payload.new.lead_id)
+                .single();
+              lead = leadData;
+            }
+
             const enrichedNew = {
               ...payload.new,
-              conversations: conv || null
+              conversations: conv || null,
+              agent_leads: lead || null
             };
             
             setHandoffRequests(prev => [enrichedNew, ...prev]);
@@ -533,7 +545,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           } else if (payload.eventType === 'UPDATE') {
             setHandoffRequests(prev => prev.map(h => {
               if (h.id === payload.new.id) {
-                return { ...payload.new, conversations: h.conversations };
+                return { ...payload.new, conversations: h.conversations, agent_leads: h.agent_leads };
               }
               return h;
             }));

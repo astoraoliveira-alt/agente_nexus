@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { Contact } from '@/lib/types';
+import { useAgentFilter } from '@/hooks/useAgentFilter';
+import { AgentSelector } from '@/components/crm/AgentSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -78,6 +80,13 @@ const Contacts = () => {
     // Data State
     const [contacts, setContacts] = useState<Contact[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const {
+        agents,
+        selectedAgentId,
+        setSelectedAgentId,
+        filterContacts,
+        isLoadingFilter,
+    } = useAgentFilter(currentTenant?.id);
     const [searchTerm, setSearchTerm] = useState('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [contactToDelete, setContactToDelete] = useState<Contact | null>(null);
@@ -233,13 +242,16 @@ const Contacts = () => {
         }
     };
 
-    const filteredContacts = contacts.filter(c =>
+    const agentFilteredContacts = useMemo(() => filterContacts(contacts), [filterContacts, contacts]);
+    const agentFilteredObjections = useMemo(() => filterContacts(objectionContacts), [filterContacts, objectionContacts]);
+
+    const filteredContacts = agentFilteredContacts.filter(c =>
         (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.identifier || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.email || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const filteredObjections = objectionContacts.filter(c =>
+    const filteredObjections = agentFilteredObjections.filter(c =>
         (c.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.identifier || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.email || '').toLowerCase().includes(searchTerm.toLowerCase())
@@ -258,7 +270,7 @@ const Contacts = () => {
                     </Button>
                 </div>
 
-                <ContactStatsHeader contacts={contacts} />
+                <ContactStatsHeader contacts={agentFilteredContacts} />
 
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="grid w-full grid-cols-2 max-w-[400px] mb-4">
@@ -272,28 +284,36 @@ const Contacts = () => {
                     <TabsContent value="all" className="mt-0">
                         <Card>
                             <CardHeader>
-                                <div className="flex justify-between items-center">
-                            <div className="flex items-center gap-4">
-                                <CardTitle>Base de Contatos</CardTitle>
-                                <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
-                                    {searchTerm ? (
-                                        <>Filtrados: <span className="text-foreground font-bold">{filteredContacts.length}</span> / {contacts.length}</>
-                                    ) : (
-                                        <>Total: <span className="text-foreground font-bold">{contacts.length}</span></>
-                                    )}
-                                </span>
-                            </div>
-                            <div className="relative w-64">
-                                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Buscar por nome, telefone..."
-                                    className="pl-8"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                    </CardHeader>
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                    <div className="flex items-center gap-4">
+                                        <CardTitle>Base de Contatos</CardTitle>
+                                        <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
+                                            {searchTerm ? (
+                                                <>Filtrados: <span className="text-foreground font-bold">{filteredContacts.length}</span> / {agentFilteredContacts.length}</>
+                                            ) : (
+                                                <>Total: <span className="text-foreground font-bold">{agentFilteredContacts.length}</span></>
+                                            )}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                                        <AgentSelector
+                                            agents={agents}
+                                            selectedAgentId={selectedAgentId}
+                                            onSelectAgentId={setSelectedAgentId}
+                                            className="w-full sm:w-[250px]"
+                                        />
+                                        <div className="relative w-full sm:w-64">
+                                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                            <Input
+                                                placeholder="Buscar por nome, telefone..."
+                                                className="pl-8"
+                                                value={searchTerm}
+                                                onChange={(e) => setSearchTerm(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </CardHeader>
                     <CardContent>
                         <Table>
                             <TableHeader>
@@ -437,7 +457,7 @@ const Contacts = () => {
                 <TabsContent value="objections" className="mt-0">
                     <Card>
                         <CardHeader>
-                            <div className="flex justify-between items-center">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="flex items-center gap-4">
                                     <CardTitle className="text-red-600 flex items-center gap-2">
                                         <AlertTriangle className="h-5 w-5" />
@@ -445,20 +465,28 @@ const Contacts = () => {
                                     </CardTitle>
                                     <span className="text-[11px] font-mono text-muted-foreground bg-secondary/50 px-2 py-0.5 border border-border uppercase tracking-wider">
                                         {searchTerm ? (
-                                            <>Filtrados: <span className="text-foreground font-bold">{filteredObjections.length}</span> / {objectionContacts.length}</>
+                                            <>Filtrados: <span className="text-foreground font-bold">{filteredObjections.length}</span> / {agentFilteredObjections.length}</>
                                         ) : (
-                                            <>Total: <span className="text-foreground font-bold">{objectionContacts.length}</span></>
+                                            <>Total: <span className="text-foreground font-bold">{agentFilteredObjections.length}</span></>
                                         )}
                                     </span>
                                 </div>
-                                <div className="relative w-64">
-                                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Buscar objeções..."
-                                        className="pl-8"
-                                        value={searchTerm}
-                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                                    <AgentSelector
+                                        agents={agents}
+                                        selectedAgentId={selectedAgentId}
+                                        onSelectAgentId={setSelectedAgentId}
+                                        className="w-full sm:w-[250px]"
                                     />
+                                    <div className="relative w-full sm:w-64">
+                                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Buscar por nome, telefone..."
+                                            className="pl-8"
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
                             </div>
                             <CardDescription>

@@ -13,13 +13,21 @@ import {
   ShieldCheck,
   CreditCard,
   FileCheck,
-  AlertCircle
+  AlertCircle,
+  Bot
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { CreditCampaignFunnelStat, Agent } from '@/lib/types';
@@ -40,16 +48,63 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
+  const [isInitialized, setIsInitialized] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
+  // 1. Carrega os agentes e auto-seleciona o Agente Novo por padrão para blindar os big numbers
   useEffect(() => {
-    if (currentTenant) {
-      loadFunnelData();
-    } else {
+    if (!currentTenant) {
       setFunnelData([]);
+      setAgents([]);
       setIsLoading(false);
+      return;
     }
-  }, [currentTenant, timeFilter, selectedAgentId]);
+
+    let isMounted = true;
+    const initAgents = async () => {
+      try {
+        const agentsList = await api.getAgents(currentTenant.id);
+        if (!isMounted) return;
+        const list = agentsList || [];
+        setAgents(list);
+
+        // Auto-seleciona o agente novo comercial (ex: "Agente Comercial Fiserv (Novo)")
+        const newAgent = list.find(a => 
+          a.name.toLowerCase().includes('(novo)') || 
+          a.name.toLowerCase().includes('novo')
+        ) || list.find(a => 
+          a.name.toLowerCase().includes('fiserv') && a.name.toLowerCase().includes('comercial')
+        ) || list.find(a => 
+          a.name.toLowerCase().includes('fiserv')
+        );
+
+        if (newAgent) {
+          setSelectedAgentId(newAgent.id);
+        } else {
+          setSelectedAgentId('all');
+        }
+        setIsInitialized(true);
+      } catch (err) {
+        console.error('Error fetching agents for funnel filter:', err);
+        if (isMounted) {
+          setSelectedAgentId('all');
+          setIsInitialized(true);
+        }
+      }
+    };
+
+    initAgents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentTenant?.id]);
+
+  // 2. Carrega as estatísticas do funil após inicialização
+  useEffect(() => {
+    if (!currentTenant || !isInitialized) return;
+    loadFunnelData();
+  }, [currentTenant?.id, timeFilter, selectedAgentId, isInitialized]);
 
   const loadFunnelData = async () => {
     if (!currentTenant) return;
@@ -65,13 +120,16 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
       }
 
-      const [stats, agentsList] = await Promise.all([
-        api.getCreditCampaignFunnelStats(currentTenant.id, undefined, startDate, selectedAgentId),
-        api.getAgents(currentTenant.id)
-      ]);
+      const agentFilterParam = selectedAgentId && selectedAgentId !== 'all' ? selectedAgentId : undefined;
+
+      const stats = await api.getCreditCampaignFunnelStats(
+        currentTenant.id, 
+        undefined, 
+        startDate, 
+        agentFilterParam
+      );
 
       setFunnelData(stats || []);
-      setAgents(agentsList || []);
     } catch (err) {
       console.error('Error loading credit funnel data:', err);
       setFunnelData([]);
@@ -79,6 +137,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       setIsLoading(false);
     }
   };
+
+
 
   const filteredData = useMemo(() => {
     if (!searchTerm.trim()) return funnelData;
@@ -266,19 +326,45 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       </div>
 
       {/* Filtros e Busca */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 rounded-xl border border-border/40 shadow-sm">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Buscar por nome de campanha..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#E5003A]"
-          />
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-border/40 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-center gap-3 flex-1">
+          {/* Busca por nome */}
+          <div className="relative w-full sm:w-72">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nome de campanha..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#E5003A] text-slate-700 placeholder:text-slate-400"
+            />
+          </div>
+
+          {/* Filtro por Agente */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+              <SelectTrigger className="h-8 text-xs min-w-[200px] sm:w-[260px] bg-slate-50 border-slate-200 text-slate-700">
+                <div className="flex items-center gap-2 truncate">
+                  <Bot className="w-3.5 h-3.5 text-[#E5003A] shrink-0" />
+                  <SelectValue placeholder="Selecione o agente..." />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <span className="font-semibold text-slate-700">Todos os Agentes (Geral)</span>
+                </SelectItem>
+                {agents.map((ag) => (
+                  <SelectItem key={ag.id} value={ag.id}>
+                    <span className="truncate">{ag.name}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg self-end sm:self-auto">
+        {/* Filtro de Tempo */}
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg self-end lg:self-auto shrink-0">
           <Button
             variant={timeFilter === '15days' ? 'default' : 'ghost'}
             size="sm"

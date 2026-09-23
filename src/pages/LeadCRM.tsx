@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { Contact } from '@/lib/types';
+import { useAgentFilter } from '@/hooks/useAgentFilter';
+import { AgentSelector } from '@/components/crm/AgentSelector';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,6 +19,13 @@ const LeadCRM = () => {
     const { toast } = useToast();
     const [contacts, setContacts] = useState<Contact[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const {
+        agents,
+        selectedAgentId,
+        setSelectedAgentId,
+        filterContacts,
+        isLoadingFilter,
+    } = useAgentFilter(currentTenant?.id);
     const [searchTerm, setSearchTerm] = useState('');
     const [zoom, setZoom] = useState(1);
 
@@ -81,7 +90,9 @@ const LeadCRM = () => {
         return 'baixo'; // Default/Lead/Interesse Baixo
     };
 
-    const filteredContacts = contacts.filter(c =>
+    const agentFilteredContacts = useMemo(() => filterContacts(contacts), [filterContacts, contacts]);
+
+    const filteredContacts = agentFilteredContacts.filter(c =>
         c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         c.identifier.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -164,7 +175,15 @@ const LeadCRM = () => {
                             Acompanhe a jornada de cada lead desde o interesse inicial até a conversão.
                         </p>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                        {/* Seletor de Agente (Padrão: Agente Novo, com opção de todos ou outros) */}
+                        <AgentSelector
+                            agents={agents}
+                            selectedAgentId={selectedAgentId}
+                            onSelectAgentId={setSelectedAgentId}
+                            className="w-[240px]"
+                        />
+
                         {/* Zoom Controls */}
                         <div className="flex items-center bg-muted/50 rounded-lg p-1 border border-border/50">
                             <Button
@@ -203,9 +222,6 @@ const LeadCRM = () => {
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
                         </div>
-                        <Button variant="outline" size="sm" className="gap-2 h-9">
-                            <Filter className="h-4 w-4" /> Filtros
-                        </Button>
                     </div>
                 </div>
 

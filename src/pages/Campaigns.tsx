@@ -677,12 +677,11 @@ export default function Campaigns() {
     };
 
     const processImportData = (rows: any[][]) => {
-        if (!rows || rows.length === 0) return;
-
+        // Defaults para listas de 3 colunas padrão (CNPJ, Whatsapp, Razão Social)
         let identifierIdx = 0;
         let phoneIdx = 1;
         let nameIdx = 2;
-        let ctaLinkIdx = 3;
+        let ctaLinkIdx = -1; // Opcional
         let startRow = 0;
 
         const normalizeHeader = (value: any) =>
@@ -700,13 +699,21 @@ export default function Campaigns() {
             const row = Array.from(rows[i] || [], normalizeHeader);
             const matchesCount = row.filter(c =>
                 c.includes('cnpj') ||
+                c.includes('cpf') ||
+                c.includes('documento') ||
                 c.includes('whatsapp') ||
                 c.includes('telefone') ||
                 c.includes('phone') ||
+                c.includes('tel') ||
+                c.includes('cel') ||
                 c.includes('razao social') ||
+                c.includes('razao') ||
                 c.includes('nome') ||
+                c.includes('empresa') ||
+                c.includes('estabelecimento') ||
                 c === 'link' ||
-                c.includes('cta')
+                c.includes('cta') ||
+                c.includes('url')
             ).length;
 
             if (matchesCount > maxMatches) {
@@ -715,32 +722,32 @@ export default function Campaigns() {
             }
         }
 
-        // Só consideramos cabeçalho se houver pelo menos 2 colunas identificadas
+        // Se encontrou cabeçalho com pelo menos 2 colunas conhecidas
         if (bestHeaderRowIdx !== -1 && maxMatches >= 2) {
             const headerRow = Array.from(rows[bestHeaderRowIdx] || [], normalizeHeader);
-            identifierIdx = headerRow.findIndex(c => c.includes('cnpj') || c.includes('cpf') || c.includes('documento') || c.includes('identifier'));
-            phoneIdx = headerRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
-            nameIdx = headerRow.findIndex(c => c.includes('razao social') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
-            ctaLinkIdx = headerRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
-            startRow = bestHeaderRowIdx + 1;
+            const foundId = headerRow.findIndex(c => c.includes('cnpj') || c.includes('cpf') || c.includes('documento') || c.includes('identifier'));
+            const foundPhone = headerRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
+            const foundName = headerRow.findIndex(c => c.includes('razao social') || c.includes('razao') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
+            const foundCta = headerRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
 
-            if (identifierIdx === -1) identifierIdx = 0;
-            if (phoneIdx === -1) phoneIdx = 1;
-            if (nameIdx === -1) nameIdx = 2;
-            if (ctaLinkIdx === -1) ctaLinkIdx = 3;
+            if (foundId !== -1) identifierIdx = foundId;
+            if (foundPhone !== -1) phoneIdx = foundPhone;
+            if (foundName !== -1) nameIdx = foundName;
+            ctaLinkIdx = foundCta; // -1 se não existir coluna de link na planilha
+            startRow = bestHeaderRowIdx + 1;
         }
 
         const processed = rows.slice(startRow).map((row, idx) => {
-            let identifier = row[identifierIdx] ? String(row[identifierIdx]).trim() : "";
+            let identifier = row[identifierIdx] !== undefined ? String(row[identifierIdx]).trim() : "";
             
             // Auto-pad para a amostra também
             const cleanIdDigits = identifier.replace(/\D/g, '');
             if (cleanIdDigits && cleanIdDigits.length > 0 && cleanIdDigits.length < 14) {
                 identifier = cleanIdDigits.padStart(14, '0');
             }
-            const phone = row[phoneIdx] ? String(row[phoneIdx]).trim() : "";
-            const name = row[nameIdx] ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome";
-            const ctaLink = row[ctaLinkIdx] ? sanitizeUrlValue(row[ctaLinkIdx]) : "";
+            const phone = row[phoneIdx] !== undefined ? String(row[phoneIdx]).trim() : "";
+            const name = row[nameIdx] !== undefined ? String(row[nameIdx]).trim().substring(0, 100) : "Sem Nome";
+            const ctaLink = (ctaLinkIdx !== -1 && row[ctaLinkIdx] !== undefined) ? sanitizeUrlValue(row[ctaLinkIdx]) : "";
 
             return {
                 name,
@@ -755,12 +762,12 @@ export default function Campaigns() {
                     ctaLink,
                 }
             };
-        }).filter((row) => row.identifier || row.phone || row.name !== "Sem Nome" || row.ctaLink);
+        }).filter((row) => row.identifier || row.phone || row.name !== "Sem Nome");
 
         if (processed.length === 0) {
             toast({
                 title: "Nenhum dado válido",
-                description: "Certifique-se de que o arquivo segue a estrutura CNPJ, Whatsapp, Razão Social e LINK.",
+                description: "Certifique-se de que o arquivo contém as colunas CNPJ, Whatsapp e Razão Social preenchidas.",
                 variant: "destructive"
             });
             return;
@@ -2369,7 +2376,7 @@ export default function Campaigns() {
                     <DialogHeader className="p-6 pb-2">
                         <DialogTitle className="text-2xl font-bold text-accent">Importar Leads</DialogTitle>
                         <DialogDescription className="text-xs">
-                            Carregue arquivos .csv, .xls ou .xlsx com as informações dos seus contatos.
+                            Carregue arquivos .csv, .xls ou .xlsx com as colunas <strong>CNPJ</strong>, <strong>Whatsapp</strong> e <strong>Razão Social</strong>.
                         </DialogDescription>
                     </DialogHeader>
 

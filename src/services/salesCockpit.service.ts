@@ -111,6 +111,103 @@ export function getPhoneVariations(phoneRaw: string): string[] {
   return Array.from(set);
 }
 
+/**
+ * Verifica estritamente se o lead aceitou / deu OK na proposta enviada.
+ * Apenas conversas onde o cliente confirmou expressamente o aceite da proposta (ou a formalização foi confirmada pela IA)
+ * devem entrar na fila do Cockpit de Vendas.
+ */
+export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
+  // 1. Verificação formal no banco de dados (agent_leads)
+  if (
+    enrichedLead?.metadata?.simulation_accepted === true ||
+    enrichedLead?.metadata?.accepted_proposal != null ||
+    ['waiting_contact', 'in_service', 'formalized', 'contract_sent', 'contract_signed'].includes(enrichedLead?.metadata?.formalization_status) ||
+    ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(enrichedLead?.status)
+  ) {
+    return true;
+  }
+
+  if (!mList || mList.length === 0) return false;
+
+  // 2. Verificação de mensagem de confirmação de envio para formalização enviada pela IA
+  const hasFormalizationConfirmedByAi = mList.some(m => {
+    const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+    if (!isBot) return false;
+    const txt = String(m.content || '').toLowerCase();
+    return (
+      txt.includes('enviei a sua solicitação para formalização') ||
+      txt.includes('enviei a sua solicitacao para formalizacao') ||
+      txt.includes('registramos o seu interesse nessas condições') ||
+      txt.includes('registramos o seu interesse nessas condicoes') ||
+      txt.includes('especialistas entrará em contato com você') ||
+      txt.includes('especialistas entrara em contato com voce') ||
+      txt.includes('fase final de assinatura e formalização') ||
+      txt.includes('fase final de assinatura e formalizacao')
+    );
+  });
+
+  if (hasFormalizationConfirmedByAi) {
+    return true;
+  }
+
+  // 3. Localizar a última mensagem de proposta de simulação enviada pelo bot
+  let lastSimIdx = -1;
+  for (let i = 0; i < mList.length; i++) {
+    const m = mList[i];
+    const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+    if (isBot && (/Simulação concluída/i.test(m.content || '') || /Podemos seguir com a formalização/i.test(m.content || ''))) {
+      lastSimIdx = i;
+    }
+  }
+
+  // Se nenhuma proposta foi enviada, não há aceite de proposta
+  if (lastSimIdx === -1) {
+    return false;
+  }
+
+  // 4. Analisar as mensagens após a última proposta enviada
+  const msgsAfterSim = mList.slice(lastSimIdx + 1);
+  if (msgsAfterSim.length === 0) {
+    // Cliente ainda não respondeu à proposta
+    return false;
+  }
+
+  let userAccepted = false;
+  let userRestartedOrCancelled = false;
+
+  for (const m of msgsAfterSim) {
+    const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+    const text = String(m.content || '').toLowerCase().trim();
+
+    if (!isBot) {
+      if (/🔄\s*nova simulação|nova simula|outro valor|mudar valor|recalcular|não|nao\b/i.test(text)) {
+        userRestartedOrCancelled = true;
+        userAccepted = false;
+      } else if (
+        /^(✅\s*)?(sim|s|ok|pode ser|pode seguir|quero seguir|autorizo|confirmo|pode formalizar|vamos em frente|fechou|👍\s*ok,?\s*entendi!?)$/i.test(text) ||
+        /\b(pode formalizar|quero formalizar|pode seguir com a formalização|fechar nesse valor)\b/i.test(text)
+      ) {
+        userAccepted = true;
+        userRestartedOrCancelled = false;
+      }
+    } else {
+      // Se após a mensagem do cliente, a IA pediu novos valores/parcelas, o cliente pediu nova simulação
+      if (/deseja simular o valor|quantas parcelas gostaria de simular/i.test(text)) {
+        userAccepted = false;
+      }
+      if (
+        text.includes('enviei a sua solicitação para formalização') ||
+        text.includes('registramos o seu interesse nessas condições')
+      ) {
+        userAccepted = true;
+        userRestartedOrCancelled = false;
+      }
+    }
+  }
+
+  return userAccepted && !userRestartedOrCancelled;
+}
+
 export const salesCockpitService = {
   /**
    * Busca ou resolve a conversa vinculada a um lead pelo telefone
@@ -396,20 +493,15 @@ export const salesCockpitService = {
         });
       };
 
-      // 3. Inserir leads de conversas que concluíram a etapa de simulação e proposta Fiserv
+      // 3. Inserir leads de conversas que concluíram a etapa de simulação E DERAM OK NA PROPOSTA
       for (const [convId, mList] of funnelMsgsByConv.entries()) {
         const conv = tenantConvs.find(c => c.id === convId);
         if (!conv) continue;
         const cleanPhone = String(conv.user_identifier || '').replace(/\D/g, '');
         const enrichedLead = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
         
-        // Verificar se esta conversa atingiu a etapa de simulação ou formalização
-        const hasFormalizationOrSim = mList.some(m => 
-          /Simulação concluída/i.test(m.content || '') || 
-          /formalização/i.test(m.content || '') || 
-          /enviei a sua solicitação para formalização/i.test(m.content || '')
-        );
-        if (!hasFormalizationOrSim) continue;
+        // Verificar estritamente se o cliente deu OK na proposta enviada
+        if (!isProposalAccepted(mList, enrichedLead)) continue;
 
         const parseNum = (val: string | undefined | null) => val ? parseFloat(val.replace(/\./g, '').replace(',', '.')) : null;
         const parseAnyAmount = (raw: string | null | undefined): number | null => {
@@ -435,6 +527,44 @@ export const salesCockpitService = {
         let foundCnpj: string | null = null;
         let foundCompanyName: string | null = null;
         let foundRevenue: number | null = null;
+
+        // 1. Extrair os valores exatos da proposta simulada aceita pelo cliente
+        const simMessage = [...mList].reverse().find(m => {
+          const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+          return isBot && /Simulação concluída/i.test(m.content || '') && /Valor Solicitado:/i.test(m.content || '');
+        });
+
+        if (simMessage) {
+          const text = simMessage.content || '';
+          const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
+          if (reqAmountMatch) foundReqAmount = parseNum(reqAmountMatch[1]);
+          const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i);
+          if (installmentsMatch) foundInstallments = installmentsMatch[1];
+          const rateMatch = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i);
+          if (rateMatch) foundRate = parseNum(rateMatch[1]);
+          const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
+          if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
+          const debtMatch = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i);
+          if (debtMatch) foundDebt = parseNum(debtMatch[1]);
+        }
+
+        // Fallback para metadados salvos no lead
+        if (!foundReqAmount && enrichedLead?.metadata?.accepted_proposal?.amount) {
+          foundReqAmount = Number(enrichedLead.metadata.accepted_proposal.amount);
+        } else if (!foundReqAmount && enrichedLead?.metadata?.simulation_data?.amount) {
+          foundReqAmount = Number(enrichedLead.metadata.simulation_data.amount);
+        }
+        if (!foundInstallments && enrichedLead?.metadata?.accepted_proposal?.installments) {
+          foundInstallments = String(enrichedLead.metadata.accepted_proposal.installments);
+        } else if (!foundInstallments && enrichedLead?.metadata?.simulation_data?.installments) {
+          foundInstallments = String(enrichedLead.metadata.simulation_data.installments);
+        }
+        if (!foundPmt && enrichedLead?.metadata?.simulation_data?.installment_value) {
+          foundPmt = Number(enrichedLead.metadata.simulation_data.installment_value);
+        }
+        if (!foundDebt && enrichedLead?.metadata?.simulation_data?.total_debt) {
+          foundDebt = Number(enrichedLead.metadata.simulation_data.total_debt);
+        }
 
         // Fazer a varredura das mensagens de trás para frente (da mais recente para a mais antiga)
         // para que a simulação ou negociação mais recente do cliente se sobreponha a testes anteriores
@@ -472,7 +602,7 @@ export const salesCockpitService = {
             }
           }
 
-          // 4. Valor Solicitado / Simulado
+          // 4. Valor Solicitado / Simulado (se ainda não extraído da proposta)
           if (!foundReqAmount) {
             const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
             if (reqAmountMatch) {
@@ -481,11 +611,6 @@ export const salesCockpitService = {
               const creditConsultMatch = text.match(/analisar seu crédito de\s*\*?R\$\s*([\d\.,]+)/i);
               if (creditConsultMatch) {
                 foundReqAmount = parseNum(creditConsultMatch[1]);
-              } else {
-                const simulateIntentMatch = text.match(/deseja simular o valor de\s*\*?R\$\s*([\d\.,]+)/i);
-                if (simulateIntentMatch) {
-                  foundReqAmount = parseNum(simulateIntentMatch[1]);
-                }
               }
             }
           }

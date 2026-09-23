@@ -1,0 +1,539 @@
+{
+  "name": "Receptor Webhook Fiserv - STATUS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "edenred-status",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        288,
+        -9616
+      ],
+      "id": "d974ccb4-7706-4498-ba82-e5918e50d47a",
+      "name": "Webhook Fiserv",
+      "webhookId": "a87dc4a392d14666"
+    },
+    {
+      "parameters": {
+        "content": "## Receptor Webhook Fiserv (MINIMO)\n\nObjetivo AGORA: ativar este workflow e copiar a URL de PRODUCAO do no Webhook,\ne enviar essa URL para a Fiserv cadastrar no ambiente dev.\n\n### Como pegar a URL\n1. Ative o workflow (toggle 'Active' no topo).\n2. Abra o no 'Webhook Fiserv' -> aba 'Production URL' -> copie.\n   Formato: https://SEU-N8N/webhook/fiserv-status-c25bad21\n\n### Importante\n- O workflow precisa ficar ATIVO pra URL responder.\n- Responde 200 na hora (onReceived) pra nao disparar retry da Fiserv.\n- O path tem um token aleatorio (seguranca por obscuridade) ATE a doc definir a autenticacao real.\n\n### Amanha (quando chegar a doc)\nConstruir ATRAS deste trigger, sem mudar a URL:\nvalidar assinatura/token -> get_result de confirmacao -> carimbar lead -> outbound.",
+        "height": 388,
+        "width": 2496,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        240,
+        -10192
+      ],
+      "id": "db7c8339-1074-4170-a5bb-0672388e243b",
+      "name": "Doc"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    al.id,\n    al.tenant_id,\n    al.campaign_id,\n    COALESCE(\n        (SELECT a.id FROM agents a WHERE a.tenant_id = al.tenant_id AND a.status = 'active' LIMIT 1),\n        NULL\n    ) AS agent_id,\n    al.identifier AS cnpj,\n    al.whatsapp AS phone,\n    al.name,\n    al.metadata\nFROM public.agent_leads al\nWHERE (al.metadata->>'loan_request_id')::text = '{{ $json.body.id || $json.body.loan_request_id }}'::text\n   OR al.identifier = '{{ $json.body.registration_code || $json.body.cnpj }}'\nLIMIT 1;\n",
+        "options": {}
+      },
+      "name": "Buscar Lead no DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        528,
+        -9616
+      ],
+      "id": "5337113a-ee73-4a31-b51b-ad0000197733",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "4C_a-PDwy9pIESe1sLqXP",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/4C_a-PDwy9pIESe1sLqXP",
+          "cachedResultName": "Ferramenta Fiserv Credito"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        992,
+        -9616
+      ],
+      "id": "6897e2cd-2717-4b61-ade7-df1051455905",
+      "name": "Ferramenta Fiserv (get_result)"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "54bf0ffc-d05e-4eb4-910e-3c6b88b31e0f",
+              "name": "action",
+              "value": "get_result",
+              "type": "string"
+            },
+            {
+              "id": "80c01980-aaad-426a-83aa-5fe788db3c7e",
+              "name": "cnpj",
+              "value": "={{ $json.cnpj }}",
+              "type": "string"
+            },
+            {
+              "id": "d9c67e97-6ef0-408e-b713-5cb5802acfff",
+              "name": "loan_request_id",
+              "value": "={{ $json.metadata?.loan_request_id || $('Webhook Fiserv').first().json.body.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        768,
+        -9616
+      ],
+      "id": "b11bda3c-84e8-43d2-8b8b-087ee2a15ae9",
+      "name": "Set (Prepara Fiserv)"
+    },
+    {
+      "parameters": {
+        "jsCode": "/* 🧭 CLASSIFICAR RESULTADO & MONTAR MENSAGEM - RECEPTOR WEBHOOK (PADRÃO OFICIAL POLLER) */\nconst r = $json; // Saída do subworkflow Ferramenta Fiserv\nlet lead = {};\ntry {\n  lead = $('Buscar Lead no DB').first().json;\n} catch (e) {\n  lead = {};\n}\n\n// 1. Extração robusta de status\nconst status = String(r.status || (r.data && r.data.status) || '').toLowerCase();\nconst externalStatus = String(r.external_status || r.data?.external_status || '');\nconst extLower = externalStatus.toLowerCase();\n\n// DEFINIÇÃO CORRETA DE STATUS FINAIS (Idêntico ao Poller)\nconst APPROVED_FINAL = ['approved', 'pre_approved', 'comite_approved'];\nconst DENIED_FINAL   = ['denied', 'fails_to_process', 'lost', 'cancelled'];\nconst FORMALIZATION  = ['formalization'];\nconst WON_FINAL      = ['won'];\nconst FAIL_CONTACT   = ['fail_to_contact'];\n\nlet outcome = 'pending';\n\n// 2. Extração de ofertas\nconst offerData = r.offer_data || r.data?.offer_data || null;\n\n// Classificação: Se aprovado ou pré-aprovado pela Fiserv, é uma oferta!\nif (APPROVED_FINAL.includes(status) || extLower.includes('aprovado') || extLower.includes('proposta')) {\n    outcome = 'offer';\n} else if (DENIED_FINAL.includes(status) || extLower.includes('reprovad')) {\n    outcome = 'rejected';\n} else if (FORMALIZATION.includes(status) || extLower.includes('formaliz')) {\n    outcome = 'formalization';\n} else if (FAIL_CONTACT.includes(status)) {\n    outcome = 'fail_to_contact';\n} else if (WON_FINAL.includes(status)) {\n    outcome = 'won';\n} else {\n    outcome = 'pending';\n}\n\nconst currentMetadata = lead.metadata || {};\nconst alreadySent = currentMetadata.fiserv_offer_sent === true || currentMetadata.fiserv_offer_sent === 'true';\nconst name = lead.name || 'Parceiro';\nlet message = '';\n\n// 3. Montagem da Mensagem (Padronizada com o Poller)\nif (outcome === 'offer' && !alreadySent) {\n  const amount = offerData?.SomaPrincipal || r.data?.amount || r.amount || currentMetadata.requested_amount || '';\n  const term   = offerData?.installments  || r.data?.installments || '24';\n  const tax    = offerData?.PercJurosMensal || '';\n  const amountFmt = amount ? Number(amount).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '';\n  const reqAmount = parseFloat(currentMetadata.requested_amount || 0);\n  const maxApproved = parseFloat(amount || 0);\n  const maxTerm = term || 24;\n\n  let ctaMessage = `👉 *Quer simular agora?* Me diga o valor que precisa e em quantas parcelas (de 6 a ${maxTerm} parcelas)!`;\n  if (reqAmount > 0) {\n    if (maxApproved > 0 && reqAmount > maxApproved) {\n      ctaMessage = `O valor de *R$ ${reqAmount.toLocaleString('pt-BR')}* que você solicitou excede o seu limite pré-aprovado de *R$ ${amountFmt}*.\\n\\n👉 *Por favor, informe qual valor deseja solicitar (até R$ ${amountFmt}) e em quantas parcelas (de 6 a ${maxTerm} parcelas)!*`;\n    } else {\n      ctaMessage = `Entendi que você deseja simular o valor de *R$ ${reqAmount.toLocaleString('pt-BR')}*.\\n\\n👉 *Em quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a ${maxTerm} parcelas).*`;\n    }\n  }\n\n  message = `🎉 *Boa notícia, ${name}!*\\n\\n` +\n    `A análise do seu CNPJ foi concluída e você tem crédito pré-aprovado!\\n\\n` +\n    (amountFmt ? `💰 *Limite aprovado:* R$ ${amountFmt}\\n` : '') +\n    (term  ? `📅 *Prazo:* até ${term} parcelas\\n` : '') +\n    (tax   ? `📉 *Taxa:* ${tax}% a.m.\\n\\n` : '\\n') +\n    `Você pode simular diferentes valores e prazos (de 6 a ${maxTerm} meses) dentro do seu limite aprovado.\\n\\n` +\n    ctaMessage;\n\n} else if (outcome === 'rejected' && !alreadySent) {\n  message = `Olá, *${name}*!\\n\\n` +\n    `Após a avaliação do comitê Fiserv, infelizmente não conseguimos liberar uma oferta de crédito para o seu CNPJ neste momento.\\n\\n` +\n    `📋 *Motivo:* análise de crédito\\n\\n` +\n    `Isso não é definitivo! Você pode tentar novamente em *30 dias*.\\n\\n` +\n    `Central de Atendimento: *4004-2233*\\n\\n` +\n    `Obrigado pela confiança na Ticket! 🙏`;\n\n} else if (outcome === 'fail_to_contact' && !alreadySent) {\n  message = `Olá, *${name}*!\\n\\nA nossa mesa de crédito tentou entrar em contato com você por telefone para prosseguir com a análise, mas infelizmente não conseguiu. 😕\\n\\n👉 *Qual é o melhor telefone e horário para nossa equipe te ligar?*`;\n\n} else if (outcome === 'formalization' && !alreadySent) {\n  message = `Olá, *${name}*! Excelente notícia!\\n\\n` +\n    `Sua proposta de crédito foi *100% aprovada* e está agora na fase final de Assinatura e Formalização! 🎉\\n\\n` +\n    `Fique de olho no seu e-mail e nos seus canais de contato para assinar o contrato digital. Qualquer dúvida, é só chamar!`;\n\n} else if (outcome === 'won' && !alreadySent) {\n  message = `Parabéns, *${name}*! 🚀\\n\\n` +\n    `Seu crédito foi liberado com sucesso e o dinheiro já deve estar disponível na sua conta!\\n\\n` +\n    `Agradecemos por escolher a Ticket e a Fiserv para turbinar o seu negócio. Caso precise de mais alguma coisa no futuro, é só me chamar aqui!`;\n}\n\nconst decided = message !== '';\n\nreturn [{\n  json: {\n    lead_id: lead.id,\n    tenant_id: lead.tenant_id,\n    agent_id: lead.agent_id,\n    campaign_id: lead.campaign_id,\n    cnpj: lead.cnpj,\n    contact_name: name,\n    contact_phone: lead.phone,\n    loan_request_id: r.loan_request_id || lead.metadata?.loan_request_id,\n    status,\n    external_status: externalStatus,\n    offer_data: offerData,\n    outcome,\n    decided: decided,\n    message_content: message\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        -9616
+      ],
+      "id": "4ac577cd-5736-40c5-8b68-106950f09d9f",
+      "name": "Classificar e Montar Mensagem"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE agent_leads\nSET metadata = metadata\n   || jsonb_build_object('fiserv_status', \n        CASE \n          WHEN '{{ $json.status }}' = 'approved' THEN 'comite_approved'\n          ELSE '{{ $json.status }}'\n        END\n      )\n   || jsonb_build_object('fiserv_external_status', '{{ ($json.external_status || \"\") }}'::text)\n   || (CASE \n         WHEN '{{ $json.decided }}' = 'true' \n         THEN jsonb_build_object(\n           'fiserv_offer_sent', 'true',\n           'fiserv_offer_data', '{{ JSON.stringify($json.offer_data || {}) }}'::jsonb,\n           'fiserv_amount_approved', '{{ $json.offer_data?.SomaPrincipal || $json.offer_data?.amount || \"\" }}',\n           'max_installments', '{{ $json.offer_data?.installments || \"\" }}'\n         )\n         ELSE '{}'::jsonb\n       END)\n   || (CASE \n         -- PASSO 5: Quando o comitê formaliza / liquida o crédito (WON)\n         WHEN lower('{{ $json.status }}') IN ('won', 'formalized', 'contract_signed', 'disbursed')\n         THEN jsonb_build_object(\n           'formalization_status', 'formalized',\n           'formalized_at', now(),\n           'formalized_amount', COALESCE(\n             NULLIF('{{ $json.offer_data?.SomaPrincipal || $json.offer_data?.amount || \"\" }}', '')::numeric,\n             (metadata->'accepted_proposal'->>'amount')::numeric,\n             (metadata->'simulation_data'->>'amount')::numeric\n           ),\n           'formalized_installments', COALESCE(\n             NULLIF('{{ $json.offer_data?.installments || \"\" }}', '')::numeric,\n             (metadata->'accepted_proposal'->>'installments')::numeric,\n             (metadata->'simulation_data'->>'installments')::numeric\n           )\n         )\n         -- Quando a proposta é reprovada na mesa de formalização\n         WHEN lower('{{ $json.status }}') IN ('lost', 'denied', 'cancelled', 'fails_to_process')\n         THEN jsonb_build_object(\n           'formalization_status', 'lost',\n           'lost_at', now(),\n           'lost_reason', '{{ ($json.external_status || \"recusado_mesa_credito\") }}'\n         )\n         ELSE '{}'::jsonb \n       END)\nWHERE id = '{{ $json.lead_id }}'\n  AND tenant_id = '{{ $json.tenant_id }}'::uuid;",
+        "options": {}
+      },
+      "name": "Atualizar status no DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1504,
+        -9776
+      ],
+      "id": "a201887b-639e-4e4a-b30b-6effd5d4ec4c",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "cc8eb8cb-5b6f-4cc7-9261-070448a3ecf7",
+              "leftValue": "={{ $('Classificar e Montar Mensagem').first().json.decided }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1520,
+        -9616
+      ],
+      "id": "1cf6e7d5-2b8d-4ddc-9efc-f995cd057e28",
+      "name": "Decidido?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    c.id                    AS conversation_id,\n    c.status                AS conversation_status,\n    a.id                    AS agent_id,\n    a.evolution_instance,\n    a.whatsapp_provider     AS provider,\n    a.meta_api_token,\n    a.meta_phone_number_id,\n    a.zenvia_api_token,\n    a.zenvia_channel_id\nFROM conversations c\nLEFT JOIN agents a \n    ON a.tenant_id = c.tenant_id \n   AND a.status = 'active'\nWHERE c.user_identifier = '{{ $('Classificar e Montar Mensagem').first().json.contact_phone }}'\n  AND c.tenant_id = '{{ $('Classificar e Montar Mensagem').first().json.tenant_id }}'::uuid\nORDER BY c.updated_at DESC\nLIMIT 1;",
+        "options": {}
+      },
+      "name": "Buscar Conversation",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        -9680
+      ],
+      "id": "473b3dc7-6aab-4876-a05c-0286892a73dd",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE conversations\nSET \n    status = 'ai_active',\n    updated_at = now()\nWHERE id = '{{ $('Buscar Conversation').first().json.conversation_id }}'\n  AND status IN ('closed');",
+        "options": {}
+      },
+      "name": "Reabrir Conversa",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.3,
+      "position": [
+        2096,
+        -9680
+      ],
+      "id": "91140d6d-17a1-428f-8714-9624570d8d37",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "nmrMDXWms-EymqsEi8OB8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/nmrMDXWms-EymqsEi8OB8",
+          "cachedResultName": "UTIL - Send WhatsApp Message"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Classificar e Montar Mensagem').first().json.contact_phone }}",
+            "instance": "={{ $('Buscar Conversation').first().json.evolution_instance }}",
+            "provider": "={{ $('Buscar Conversation').first().json.provider }}",
+            "message": "={{ $('Classificar e Montar Mensagem').first().json.message_content }}",
+            "tenant_id": "={{ $('Classificar e Montar Mensagem').first().json.tenant_id }}",
+            "agent_id": "={{ $('Buscar Conversation').first().json.agent_id }}",
+            "zenvia_channel_id": "={{ $('Buscar Conversation').first().json.zenvia_channel_id }}",
+            "zenvia_api_token": "={{ $('Buscar Conversation').first().json.zenvia_api_token }}",
+            "meta_phone_number_id": "={{ $('Buscar Conversation').first().json.meta_phone_number_id }}",
+            "meta_api_token": "={{ $('Buscar Conversation').first().json.meta_api_token }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "provider",
+              "displayName": "provider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "instance",
+              "displayName": "instance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "agent_id",
+              "displayName": "agent_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "tenant_id",
+              "displayName": "tenant_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "meta_api_token",
+              "displayName": "meta_api_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "meta_phone_number_id",
+              "displayName": "meta_phone_number_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "zenvia_api_token",
+              "displayName": "zenvia_api_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "zenvia_channel_id",
+              "displayName": "zenvia_channel_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        2320,
+        -9680
+      ],
+      "id": "6e3b374c-f874-43c6-aceb-4d2c311b58d7",
+      "name": "Envia Msg"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        -9472
+      ],
+      "id": "817042b7-e69c-49eb-9457-01f3c97bfd96",
+      "name": "Fluxo Encerrado"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT record_message(\n    p_conversation_id => '{{ $(\"Buscar Conversation\").first().json.conversation_id }}'::uuid,\n    p_tenant_id => '{{ $('Classificar e Montar Mensagem').first().json.tenant_id }}'::uuid,\n    p_content => '{{ $(\"Classificar e Montar Mensagem\").first().json.message_content }}',\n    p_sender_type => 'ai',\n    p_sender_name => 'IA',\n    p_message_type => 'text',\n    p_direction => 'outbound',\n    p_remote_id => '{{ $(\"Envia Msg\").first().json.external_message_id }}'\n);\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2560,
+        -9680
+      ],
+      "id": "fe524b1d-20a1-4197-8875-3d8576667e7b",
+      "name": "Salvar Msg",
+      "credentials": {
+        "postgres": {
+          "id": "hEoMVTIOCtnU81ch",
+          "name": "Postgres account - Agentes IA supabase - west"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Fiserv": {
+      "main": [
+        [
+          {
+            "node": "Buscar Lead no DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Lead no DB": {
+      "main": [
+        [
+          {
+            "node": "Set (Prepara Fiserv)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set (Prepara Fiserv)": {
+      "main": [
+        [
+          {
+            "node": "Ferramenta Fiserv (get_result)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ferramenta Fiserv (get_result)": {
+      "main": [
+        [
+          {
+            "node": "Classificar e Montar Mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classificar e Montar Mensagem": {
+      "main": [
+        [
+          {
+            "node": "Atualizar status no DB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Decidido?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar status no DB": {
+      "main": [
+        []
+      ]
+    },
+    "Decidido?": {
+      "main": [
+        [
+          {
+            "node": "Buscar Conversation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fluxo Encerrado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Conversation": {
+      "main": [
+        [
+          {
+            "node": "Reabrir Conversa",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reabrir Conversa": {
+      "main": [
+        [
+          {
+            "node": "Envia Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia Msg": {
+      "main": [
+        [
+          {
+            "node": "Salvar Msg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "552c2ac7-6669-4a73-a1b0-81a73220fa04",
+  "meta": {
+    "instanceId": "7f3565af616f5c3d71ac26fc62e019b544cb381f93ebca61b95c3a0cc3e0e6f8"
+  },
+  "nodeGroups": [],
+  "id": "MXvwDGjHu53A1Q2oBNKMb",
+  "tags": []
+}
