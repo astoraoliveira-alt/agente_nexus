@@ -713,7 +713,6 @@ export default function SalesCockpit() {
                                     "h-5 w-5 rounded-md flex items-center justify-center border transition-all cursor-help shrink-0 shadow-2xs hover:scale-105", 
                                     slaAlert.badgeClass
                                   )}
-                                  title={`Finalizou ${formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })} • ${slaAlert.tooltip}`}
                                 >
                                   {slaAlert.icon}
                                 </div>
