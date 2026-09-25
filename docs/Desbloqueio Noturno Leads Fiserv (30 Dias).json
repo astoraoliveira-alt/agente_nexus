@@ -1,0 +1,257 @@
+{
+  "name": "Fiserv - Desbloqueio Noturno de Leads Negados (30 Dias)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "e1f10001-a1b2-4c3d-8e5f-000000000001",
+      "name": "Cron Diário (02:00 BRT)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "var_url",
+              "name": "URL",
+              "value": "https://wyfmyipbvoggusclwdhj.supabase.co",
+              "type": "string"
+            },
+            {
+              "id": "var_key",
+              "name": "service_role",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind5Zm15aXBidm9nZ3VzY2x3ZGhqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM3NzA0OSwiZXhwIjoyMDg2OTUzMDQ5fQ.Q6bb7A6ZqPyxf-rIjPRu5rJlfmOhmJyusnOtpjy9GMU",
+              "type": "string"
+            },
+            {
+              "id": "var_days",
+              "name": "days_threshold",
+              "value": 30,
+              "type": "number"
+            },
+            {
+              "id": "var_limit",
+              "name": "batch_limit",
+              "value": 500,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e1f10002-a1b2-4c3d-8e5f-000000000002",
+      "name": "Vars de Configuração",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -680,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Vars de Configuração').first().json.URL }}/rest/v1/rpc/fn_reset_expired_denied_leads",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $('Vars de Configuração').first().json.service_role }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Vars de Configuração').first().json.service_role }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"p_days_threshold\": {{ $('Vars de Configuração').first().json.days_threshold }},\n  \"p_limit\": {{ $('Vars de Configuração').first().json.batch_limit }}\n}",
+        "options": {}
+      },
+      "id": "e1f10003-a1b2-4c3d-8e5f-000000000003",
+      "name": "Executar RPC Desbloqueio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond_has_leads",
+              "leftValue": "={{ $json.unlocked_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e1f10004-a1b2-4c3d-8e5f-000000000004",
+      "name": "Houve Desbloqueios?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "leads",
+        "options": {}
+      },
+      "id": "e1f10005-a1b2-4c3d-8e5f-000000000005",
+      "name": "Listar Registros Atualizados",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        60,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Resumo e formatação para auditoria/relatório dos leads desbloqueados\nconst items = $input.all();\nconst list = items.map(item => item.json);\n\nreturn [{\n  json: {\n    executed_at: new Date().toISOString(),\n    total_unlocked: list.length,\n    leads_unlocked: list,\n    summary_log: `✅ Sucesso: ${list.length} leads desbloqueados após cumprirem a carência de 30 dias da Fiserv.`\n  }\n}];"
+      },
+      "id": "e1f10006-a1b2-4c3d-8e5f-000000000006",
+      "name": "Auditoria & Log de Sucesso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    executed_at: new Date().toISOString(),\n    unlocked_count: 0,\n    status: 'NO_LEADS_EXPIRED',\n    message: 'Nenhum lead com recusa > 30 dias precisou ser desbloqueado hoje.'\n  }\n}];"
+      },
+      "id": "e1f10007-a1b2-4c3d-8e5f-000000000007",
+      "name": "Log Sem Alterações",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Desbloqueio Noturno de Leads Negados (Regra dos 30 Dias)\n\n### Objetivo:\nExecuta diariamente às 02:00 BRT a RPC `fn_reset_expired_denied_leads` no Supabase.\n\n### O que acontece:\n1. Busca leads com status `denied` / `cancelled` cuja última recusa ocorreu há **>= 30 dias** (janela de expiração do cache da Fiserv).\n2. Limpa o `fiserv_status` e `denied_reason` do metadata de `agent_leads`.\n3. Preserva o histórico anterior em `fiserv_previous_denied_history`.\n4. Reseta conversas que ficaram travadas no passo `recusa_analise` para `start`.\n5. O nó **Listar Registros Atualizados** (`splitOut`) separa cada lead individualmente caso você queira disparar alertas, webhook de reengajamento ou adicionar na fila de outbound!",
+        "height": 420,
+        "width": 1460,
+        "color": 6
+      },
+      "id": "e1f10008-a1b2-4c3d-8e5f-000000000008",
+      "name": "Documentação do Workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -920,
+        -260
+      ]
+    }
+  ],
+  "connections": {
+    "Cron Diário (02:00 BRT)": {
+      "main": [
+        [
+          {
+            "node": "Vars de Configuração",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vars de Configuração": {
+      "main": [
+        [
+          {
+            "node": "Executar RPC Desbloqueio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Executar RPC Desbloqueio": {
+      "main": [
+        [
+          {
+            "node": "Houve Desbloqueios?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Houve Desbloqueios?": {
+      "main": [
+        [
+          {
+            "node": "Listar Registros Atualizados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Sem Alterações",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar Registros Atualizados": {
+      "main": [
+        [
+          {
+            "node": "Auditoria & Log de Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
