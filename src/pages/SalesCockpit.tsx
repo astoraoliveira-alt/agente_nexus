@@ -636,6 +636,7 @@ export default function SalesCockpit() {
                     const isSelected = lead.id === activeLeadId;
                     const stageMeta = STAGE_CONFIG[lead.pipelineStage];
                     const slaAlert = getSlaAlertInfo(lead.lastMessageTime, lead.pipelineStage);
+                    const shouldShowStageBadge = selectedStages.length !== 1;
 
                     return (
                       <div
@@ -674,9 +675,30 @@ export default function SalesCockpit() {
                           </span>
                         </div>
 
-                        {/* Rodapé do Card: Tempo de Espera SLA */}
-                        <div className="flex items-center justify-end pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px]">
-                          <span className={cn("px-1.5 py-0.5 rounded flex items-center font-medium", slaAlert.badgeClass)} title={slaAlert.tooltip}>
+                        {/* Rodapé do Card: Status Discreto (quando mais de 1 status ou todos) + Tempo de Espera SLA */}
+                        <div className={cn(
+                          "flex items-center pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px] gap-1.5",
+                          shouldShowStageBadge ? "justify-between" : "justify-end"
+                        )}>
+                          {shouldShowStageBadge && (
+                            <span className={cn(
+                              "px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 border shrink-0",
+                              stageMeta.bgClass,
+                              stageMeta.textClass,
+                              stageMeta.borderClass
+                            )} title={`Status: ${stageMeta.label}`}>
+                              <span className={cn(
+                                "h-1.5 w-1.5 rounded-full shrink-0",
+                                lead.pipelineStage === 'pending_contact' ? "bg-amber-600 dark:bg-amber-400" :
+                                lead.pipelineStage === 'in_contact' ? "bg-blue-600 dark:bg-blue-400" :
+                                lead.pipelineStage === 'contract_sent' ? "bg-purple-600 dark:bg-purple-400" :
+                                lead.pipelineStage === 'contract_signed' ? "bg-emerald-600 dark:bg-emerald-400" :
+                                "bg-rose-600 dark:bg-rose-400"
+                              )} />
+                              <span className="truncate max-w-[130px]">{stageMeta.label}</span>
+                            </span>
+                          )}
+                          <span className={cn("px-1.5 py-0.5 rounded flex items-center font-medium shrink-0", slaAlert.badgeClass)} title={slaAlert.tooltip}>
                             {slaAlert.icon}
                             finalizou {formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })}
                           </span>
