@@ -846,8 +846,11 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       : <ChevronDown className="w-3 h-3 text-slate-900 ml-1 inline" />;
   };
   const handleExportExcel = () => {
+    // Usar os leads ordenados/filtrados se houver filtro ativo, caso contrário todos os leads da campanha
+    const targetLeads = sortedLeads.length > 0 ? sortedLeads : leads;
+
     // Preparar os dados
-    const exportData = leads.map(lead => {
+    const exportData = targetLeads.map(lead => {
       // Regra de comportamento
       let comportamento = '';
       if (lead.isConverted) {
@@ -859,16 +862,24 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
       }
 
       // Formatar data
-      let dataDisparo = '';
+      let dataDisparo = '-';
       if (lead.sentAt) {
-        dataDisparo = new Date(lead.sentAt).toLocaleString('pt-BR');
+        try {
+          const d = new Date(lead.sentAt);
+          if (!isNaN(d.getTime())) {
+            dataDisparo = d.toLocaleString('pt-BR');
+          }
+        } catch {
+          dataDisparo = '-';
+        }
       }
 
       return {
         'CNPJ': lead.cnpj || '-',
-        'Telefone': lead.whatsapp || '-',
+        'WhatsApp': lead.whatsapp || '-',
+        'Razão Social': lead.name || lead.establishmentName || lead.contactName || '-',
+        'Status': lead.status || '-',
         'Data Disparo': dataDisparo,
-        'Último Status': lead.status || '-',
         'Comportamento': comportamento
       };
     });
@@ -881,9 +892,10 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     // Ajustar largura das colunas
     const wscols = [
       { wch: 20 }, // CNPJ
-      { wch: 15 }, // Telefone
+      { wch: 18 }, // WhatsApp
+      { wch: 35 }, // Razão Social
+      { wch: 18 }, // Status
       { wch: 20 }, // Data Disparo
-      { wch: 15 }, // Status
       { wch: 20 }, // Comportamento
     ];
     worksheet['!cols'] = wscols;

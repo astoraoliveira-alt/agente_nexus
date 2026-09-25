@@ -189,11 +189,14 @@ export function CreditCampaignDetailView({
           displayStatus = 'Não Entregue';
         }
 
+        const rawCnpj = q.cnpj || meta?.cnpj || meta?.identifier || matchedLead?.identifier || matchedLead?.metadata?.cnpj || '-';
+        const leadName = q.establishmentName || matchedLead?.name || meta?.razao_social || meta?.nomeLoja || q.contactName || 'Sem Nome';
+
         return {
           id: q.id,
-          cnpj: q.cnpj || matchedLead?.identifier || '-',
+          cnpj: rawCnpj,
           whatsapp: q.contactPhone,
-          name: q.establishmentName || matchedLead?.name || q.contactName || 'Sem Nome',
+          name: leadName,
           contactName: q.contactName || 'Sem Nome',
           establishmentName: q.establishmentName || matchedLead?.name || null,
           conversationId: q.conversationId || meta.conversation_id || null,
@@ -399,17 +402,34 @@ export function CreditCampaignDetailView({
   };
 
   const handleExportExcel = () => {
-    const exportData = leads.map(l => ({
-      CNPJ: l.cnpj,
-      WhatsApp: l.whatsapp,
-      Razao_Social: l.name,
-      Status: l.status,
-      Faturamento: l.revenue || '-',
-      Valor_Solicitado: l.requestedAmount || '-',
-      OptIn: l.optIn ? 'Sim' : 'Não',
-      Fiserv_Status: l.fiservStatus || '-',
-      Data_Envio: l.sentAt ? format(new Date(l.sentAt), 'dd/MM/yyyy HH:mm') : '-'
-    }));
+    // Exportar os dados filtrados/ordenados da tabela se houver filtro ativo, caso contrário todos os leads da campanha
+    const targetLeads = sortedLeads.length > 0 ? sortedLeads : leads;
+
+    const exportData = targetLeads.map(l => {
+      let dataEnvio = '-';
+      if (l.sentAt) {
+        try {
+          const d = new Date(l.sentAt);
+          if (!isNaN(d.getTime())) {
+            dataEnvio = format(d, 'dd/MM/yyyy HH:mm');
+          }
+        } catch {
+          dataEnvio = '-';
+        }
+      }
+
+      return {
+        'CNPJ': l.cnpj || '-',
+        'WhatsApp': l.whatsapp || '-',
+        'Razão Social': l.name || l.establishmentName || l.contactName || '-',
+        'Status': l.status || '-',
+        'Faturamento': l.revenue || '-',
+        'Valor Solicitado': l.requestedAmount || '-',
+        'Opt-In': l.optIn ? 'Sim' : 'Não',
+        'Status Fiserv': l.fiservStatus || '-',
+        'Data de Envio': dataEnvio
+      };
+    });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
