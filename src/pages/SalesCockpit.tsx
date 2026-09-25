@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { Textarea } from '@/components/ui/textarea';
 import { 
   Search, 
@@ -107,8 +113,8 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
   if (stage !== 'pending_contact') {
     return {
       borderClass: 'border-l-4 border-l-slate-300 dark:border-l-slate-700',
-      badgeClass: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800',
-      icon: null,
+      badgeClass: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700',
+      icon: <Clock className="h-3 w-3 text-slate-500" />,
       tooltip: 'Em andamento'
     };
   }
@@ -119,7 +125,7 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
     return {
       borderClass: 'border-l-4 border-l-emerald-500 shadow-sm',
       badgeClass: 'text-emerald-800 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/40 border-emerald-300',
-      icon: null,
+      icon: <Clock className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />,
       tooltip: 'Contato Recente (< 12h)'
     };
   }
@@ -128,7 +134,7 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
     return {
       borderClass: 'border-l-4 border-l-amber-500 shadow-sm',
       badgeClass: 'text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/40 border-amber-300',
-      icon: <Clock className="h-3 w-3 text-amber-600 inline mr-1" />,
+      icon: <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400" />,
       tooltip: 'Atenção: 12h a 36h sem contato'
     };
   }
@@ -136,8 +142,8 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
   return {
     borderClass: 'border-l-4 border-l-rose-500 shadow-sm',
     badgeClass: 'text-rose-800 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/50 border-rose-300 font-bold',
-    icon: <AlertTriangle className="h-3 w-3 text-rose-600 inline mr-1" />,
-    tooltip: 'Urgente: Acima de 36h (SLA 48h próximo)'
+    icon: <AlertTriangle className="h-3 w-3 text-rose-600 dark:text-rose-400" />,
+    tooltip: 'Urgente: Acima de 36h sem contato (SLA 48h)'
   };
 }
 
@@ -698,10 +704,26 @@ export default function SalesCockpit() {
                               <span className="truncate max-w-[130px]">{stageMeta.label}</span>
                             </span>
                           )}
-                          <span className={cn("px-1.5 py-0.5 rounded flex items-center font-medium shrink-0", slaAlert.badgeClass)} title={slaAlert.tooltip}>
-                            {slaAlert.icon}
-                            finalizou {formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })}
-                          </span>
+                          {/* Ícone discreto de SLA/Tempo com Tooltip ao passar o mouse */}
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div 
+                                  className={cn(
+                                    "h-5 w-5 rounded-md flex items-center justify-center border transition-all cursor-help shrink-0 shadow-2xs hover:scale-105", 
+                                    slaAlert.badgeClass
+                                  )}
+                                  title={`Finalizou ${formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })} • ${slaAlert.tooltip}`}
+                                >
+                                  {slaAlert.icon}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs p-2 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-md z-50">
+                                <p className="font-semibold">Finalizou {formatDistanceToNow(lead.lastMessageTime, { addSuffix: true, locale: ptBR })}</p>
+                                <p className="text-[11px] opacity-80 mt-0.5">{slaAlert.tooltip}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
 
                         {/* Identificação do Operador que está atendendo */}
