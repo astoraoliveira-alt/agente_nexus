@@ -335,7 +335,8 @@ export const salesCockpitService = {
           .from('agent_leads')
           .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id')
           .eq('tenant_id', tenantId)
-          .limit(200),
+          .order('created_at', { ascending: false })
+          .limit(1000),
         supabaseReader
           .from('conversations')
           .select('id, user_identifier, user_name, metadata, status, assigned_operator_id, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
@@ -705,7 +706,15 @@ export const salesCockpitService = {
   /**
    * Atualiza a etapa do pipeline para o lead
    */
-  async updatePipelineStage(leadId: string, stage: PipelineStage, conversationId?: string, operatorName?: string, operatorId?: string): Promise<boolean> {
+  async updatePipelineStage(
+    leadId: string, 
+    stage: PipelineStage, 
+    conversationId?: string, 
+    operatorName?: string, 
+    operatorId?: string,
+    phone?: string,
+    cnpj?: string
+  ): Promise<boolean> {
     try {
       const now = new Date().toISOString();
 
@@ -716,16 +725,64 @@ export const salesCockpitService = {
       else if (stage === 'in_contact') formalizationStatus = 'in_service';
       else if (stage === 'pending_contact') formalizationStatus = 'waiting_contact';
 
-      // 1. Persistir em agent_leads (se o leadId for de um agent_lead)
-      const { data: lead } = await supabase
+      // 1. Tentar encontrar o registro em agent_leads (por ID direto, telefone ou CNPJ)
+      let targetLead: { id: string; metadata: any } | null = null;
+      const { data: leadById } = await supabase
         .from('agent_leads')
         .select('id, metadata')
         .eq('id', leadId)
         .maybeSingle();
 
-      if (lead) {
+      if (leadById) {
+        targetLead = leadById;
+      } else {
+        // Se não achou por ID (ex: leadId era o conversationId), buscar por telefone
+        let phoneToSearch = phone;
+        if (!phoneToSearch && (conversationId || leadId)) {
+          const { data: conv } = await supabase
+            .from('conversations')
+            .select('user_identifier')
+            .eq('id', conversationId || leadId)
+            .maybeSingle();
+          if (conv?.user_identifier) {
+            phoneToSearch = conv.user_identifier;
+          }
+        }
+
+        if (phoneToSearch) {
+          const variations = getPhoneVariations(phoneToSearch);
+          const { data: leadByPhone } = await supabase
+            .from('agent_leads')
+            .select('id, metadata')
+            .in('whatsapp', variations)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (leadByPhone) {
+            targetLead = leadByPhone;
+          }
+        }
+
+        if (!targetLead && cnpj) {
+          const cleanCnpj = cnpj.replace(/\D/g, '');
+          const { data: leadByCnpj } = await supabase
+            .from('agent_leads')
+            .select('id, metadata')
+            .eq('identifier', cleanCnpj)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (leadByCnpj) {
+            targetLead = leadByCnpj;
+          }
+        }
+      }
+
+      if (targetLead) {
         const updatedMeta = {
-          ...(lead.metadata || {}),
+          ...(targetLead.metadata || {}),
           pipeline_stage: stage,
           pipeline_updated_at: now,
           ...(formalizationStatus ? { formalization_status: formalizationStatus } : {}),
@@ -743,7 +800,7 @@ export const salesCockpitService = {
         await supabase
           .from('agent_leads')
           .update(leadPayload)
-          .eq('id', lead.id);
+          .eq('id', targetLead.id);
       }
 
       // 2. Persistir em conversations (se houver conversationId ou se leadId for o id da conversa)

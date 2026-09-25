@@ -1248,11 +1248,39 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (contactError) console.error(`[ZENVIA] ❌ Erro no Upsert Contato:`, contactError);
 
                 console.log(`[ZENVIA] 🔍 [${traceId}] Buscando conversa (aberta ou fechada)...`);
+                const phoneVariations = (() => {
+                    const clean = String(phone || '').replace(/\D/g, '');
+                    if (!clean) return [phone];
+                    const set = new Set<string>();
+                    set.add(clean);
+                    if (clean.startsWith('55')) {
+                        const raw = clean.slice(2);
+                        set.add(raw);
+                        if (raw.length === 11) {
+                            set.add(raw.slice(0, 2) + raw.slice(3));
+                            set.add('55' + raw.slice(0, 2) + raw.slice(3));
+                        } else if (raw.length === 10) {
+                            set.add(raw.slice(0, 2) + '9' + raw.slice(2));
+                            set.add('55' + raw.slice(0, 2) + '9' + raw.slice(2));
+                        }
+                    } else {
+                        set.add('55' + clean);
+                        if (clean.length === 11) {
+                            set.add(clean.slice(0, 2) + clean.slice(3));
+                            set.add('55' + clean.slice(0, 2) + clean.slice(3));
+                        } else if (clean.length === 10) {
+                            set.add(clean.slice(0, 2) + '9' + clean.slice(2));
+                            set.add('55' + clean.slice(0, 2) + '9' + clean.slice(2));
+                        }
+                    }
+                    return Array.from(set);
+                })();
+
                 const { data: conv, error: convFetchError } = await supabaseAdmin
                     .from('conversations')
                     .select('id, status')
                     .eq('tenant_id', agent.tenant_id)
-                    .eq('user_identifier', phone)
+                    .in('user_identifier', phoneVariations)
                     .eq('agent_id', agent.id)
                     .order('last_message_at', { ascending: false })
                     .limit(1)

@@ -39,6 +39,7 @@ interface ChatAreaProps {
   hideMessageCount?: boolean;
   hideViewModeToggle?: boolean;
   compactAttachmentsButton?: boolean;
+  onMessageSent?: (content: string) => void;
 }
 
 interface AudioMessageProps {
@@ -235,7 +236,8 @@ export function ChatArea({
   customActions,
   hideMessageCount,
   hideViewModeToggle,
-  compactAttachmentsButton
+  compactAttachmentsButton,
+  onMessageSent
 }: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
 
@@ -359,6 +361,7 @@ export function ChatArea({
         mimeType: file.type
       });
 
+      onMessageSent?.(caption || file.name);
       setMessageInput('');
       toast.success(`Arquivo enviado com sucesso!`, { id: toastId });
     } catch (err: any) {
@@ -831,7 +834,9 @@ export function ChatArea({
                   onChange={(e) => setMessageInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && messageInput.trim()) {
-                      sendMessage(conversation.id, messageInput);
+                      const text = messageInput.trim();
+                      sendMessage(conversation.id, text);
+                      onMessageSent?.(text);
                       setMessageInput('');
                     }
                   }}
@@ -847,7 +852,9 @@ export function ChatArea({
                   className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 shadow-sm transition-colors"
                   onClick={() => {
                     if (messageInput.trim()) {
-                      sendMessage(conversation.id, messageInput);
+                      const text = messageInput.trim();
+                      sendMessage(conversation.id, text);
+                      onMessageSent?.(text);
                       setMessageInput('');
                     }
                   }}

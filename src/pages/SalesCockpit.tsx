@@ -180,25 +180,6 @@ export default function SalesCockpit() {
     try {
       const data = await api.getSalesCockpitLeads(currentTenant.id);
       setLeads(data);
-
-      if (data.length > 0) {
-        // Encontrar primeiro pendente ou o primeiro da lista
-        const firstLead = data.find(l => l.pipelineStage === 'pending_contact') || data[0];
-        setActiveLeadId(firstLead.id);
-        if (firstLead.conversation) {
-          setSelectedConversation(firstLead.conversation);
-        } else {
-          api.getOrCreateConversationForLead(firstLead, currentTenant.id).then(conv => {
-            if (conv) {
-              setLeads(prev => prev.map(l => l.id === firstLead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
-              setSelectedConversation(conv);
-            }
-          }).catch(console.error);
-        }
-      } else {
-        setActiveLeadId(null);
-        setSelectedConversation(null);
-      }
     } catch (error) {
       console.error('Erro ao carregar leads do Cockpit:', error);
       toast.error('Não foi possível carregar a fila do Cockpit.');
@@ -268,11 +249,62 @@ export default function SalesCockpit() {
     });
   }, [visibleLeads, searchTerm, selectedStages]);
 
-  // Lead Ativo Atual baseado nos leads visíveis para o usuário
+  // Lead Ativo Atual baseado estritamente nos leads filtrados exibidos para o usuário
   const activeLead = useMemo(() => {
-    if (visibleLeads.length === 0) return null;
-    return visibleLeads.find(l => l.id === activeLeadId) || visibleLeads[0] || null;
-  }, [visibleLeads, activeLeadId]);
+    if (filteredLeads.length === 0) return null;
+    return filteredLeads.find(l => l.id === activeLeadId) || filteredLeads[0] || null;
+  }, [filteredLeads, activeLeadId]);
+
+  // Sincronizar o activeLeadId quando a lista de leads filtrados mudar (busca ou filtros de etapa)
+  useEffect(() => {
+    if (filteredLeads.length === 0) {
+      if (activeLeadId !== null) {
+        setActiveLeadId(null);
+      }
+      return;
+    }
+
+    // Se o activeLeadId atual não estiver dentro do filtro ativo, seleciona o primeiro filtrado
+    const isCurrentActiveInFilter = filteredLeads.some(l => l.id === activeLeadId);
+    if (!isCurrentActiveInFilter) {
+      setActiveLeadId(filteredLeads[0].id);
+    }
+  }, [filteredLeads, activeLeadId]);
+
+  // Sincronizar conversa aberta com o activeLead atual
+  useEffect(() => {
+    if (!activeLead) {
+      if (selectedConversation) {
+        setSelectedConversation(null);
+      }
+      return;
+    }
+
+    // 1. Se o lead já possui o objeto de conversa em memória
+    if (activeLead.conversation) {
+      setSelectedConversation(activeLead.conversation);
+      return;
+    }
+
+    // 2. Se já existe na lista global de conversas
+    if (activeLead.conversationId) {
+      const existingConv = conversations?.find(c => c.id === activeLead.conversationId);
+      if (existingConv) {
+        setSelectedConversation(existingConv);
+        return;
+      }
+    }
+
+    // 3. Caso contrário, resolver via api
+    if (currentTenant) {
+      api.getOrCreateConversationForLead(activeLead, currentTenant.id).then(conv => {
+        if (conv && conv.id) {
+          setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
+          setSelectedConversation(conv);
+        }
+      }).catch(console.error);
+    }
+  }, [activeLead?.id, currentTenant?.id]);
 
   // Ao selecionar um lead da lista
   const handleSelectLead = async (lead: SalesCockpitLead) => {
@@ -323,7 +355,9 @@ export default function SalesCockpit() {
         newStage, 
         activeLead.conversationId, 
         opName,
-        opId
+        opId,
+        activeLead.phone,
+        activeLead.cnpj
       );
       if (success) {
         setLeads(prev => prev.map(l => l.id === activeLead.id ? { 
@@ -366,6 +400,35 @@ export default function SalesCockpit() {
       toast.success('Você assumiu o atendimento. A Sofia (IA) foi pausada.');
     } catch (e) {
       toast.error('Erro ao assumir atendimento.');
+    }
+  };
+
+  // Avanço automático de status quando o operador envia qualquer mensagem ou anexo
+  const handleOperatorMessageSent = async () => {
+    const opName = currentUser?.name || 'Carlos Silva';
+    const opId = currentUser?.id;
+
+    if (selectedConversation && selectedConversation.status !== 'human_active') {
+      setSelectedConversation(prev => prev ? {
+        ...prev,
+        status: 'human_active',
+        assignedOperator: opName,
+        assigned_operator_id: opId
+      } : null);
+    }
+
+    if (activeLead && activeLead.pipelineStage === 'pending_contact') {
+      setLeads(prev => prev.map(l => l.id === activeLead.id ? {
+        ...l,
+        assignedOperator: opName,
+        assignedOperatorId: opId,
+        pipelineStage: 'in_contact'
+      } : l));
+      try {
+        await handleUpdateStage('in_contact');
+      } catch (e) {
+        console.error('Erro ao atualizar etapa do pipeline após envio de mensagem:', e);
+      }
     }
   };
 
@@ -778,6 +841,7 @@ export default function SalesCockpit() {
                     hideMessageCount={true}
                     hideViewModeToggle={true}
                     compactAttachmentsButton={true}
+                    onMessageSent={handleOperatorMessageSent}
                     customActions={
                       activeLead.pipelineStage === 'contract_signed' ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -877,7 +941,9 @@ export default function SalesCockpit() {
                 <MessageSquare className="h-12 w-12 stroke-[1.5] mb-3 text-slate-300 dark:text-slate-700" />
                 <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Nenhum lead selecionado</p>
                 <p className="text-xs text-slate-400 mt-1 max-w-sm">
-                  Selecione um lead da fila à esquerda para visualizar a conversa e o raio-x da proposta de crédito.
+                  {filteredLeads.length === 0 
+                    ? "Não há nenhum lead correspondente aos filtros selecionados. Ajuste os filtros à esquerda para visualizar um atendimento."
+                    : "Selecione um lead da fila à esquerda para visualizar a conversa e o raio-x da proposta de crédito."}
                 </p>
               </div>
             )}
@@ -1036,8 +1102,12 @@ export default function SalesCockpit() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-4 text-center text-xs text-slate-500 border border-dashed rounded-xl bg-card">
-                    Selecione um lead para ver o raio-x.
+                  <div className="p-6 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-card flex flex-col items-center justify-center my-4">
+                    <ShieldCheck className="h-8 w-8 stroke-[1.5] mb-2 text-slate-300 dark:text-slate-700" />
+                    <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">Nenhuma proposta selecionada</p>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-[200px]">
+                      Selecione um lead na fila para ver os detalhes da proposta e o pipeline de formalização.
+                    </p>
                   </div>
                 )}
               </div>

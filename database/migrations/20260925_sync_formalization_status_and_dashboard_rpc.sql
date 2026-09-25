@@ -1,11 +1,37 @@
--- ============================================================
--- MIGRATION: 20260922_resilient_credit_funnel_stats.sql
--- Descrição: Ajusta a RPC get_credit_campaign_funnel_stats para
--- detectar faturamento, valor inicial e opt-in mesmo quando
--- estiverem em campos aninhados (ex: consent.opt_in, simulation_data.amount,
--- fiserv_amount_approved ou fiserv_requested_at).
--- ============================================================
+-- ==============================================================================
+-- MIGRATION: 20260925_sync_formalization_status_and_dashboard_rpc.sql
+-- Descrição:
+--   1. Sincroniza a RPC 'get_credit_campaign_funnel_stats' para reconhecer tanto
+--      formalization_status ('in_service', 'waiting_contact', 'formalized')
+--      quanto pipeline_stage ('in_contact', 'pending_contact', 'contract_signed').
+--   2. Executa backfill em 'agent_leads' sincronizando leads cujas conversas
+--      já foram assumidas por operadores ou movidas para 'in_contact'.
+-- ==============================================================================
 
+-- 1. Backfill de Sincronização em 'agent_leads' baseado nas conversas ativas
+UPDATE public.agent_leads al
+SET metadata = al.metadata || jsonb_build_object(
+    'formalization_status', 'in_service',
+    'pipeline_stage', 'in_contact',
+    'pipeline_updated_at', NOW()
+)
+FROM public.conversations c
+WHERE al.tenant_id = c.tenant_id
+  AND (
+    al.whatsapp = c.user_identifier
+    OR al.whatsapp = RIGHT(c.user_identifier, 11)
+    OR al.whatsapp = RIGHT(c.user_identifier, 10)
+    OR c.user_identifier = '55' || al.whatsapp
+    OR c.user_identifier = al.whatsapp
+  )
+  AND (
+    c.status = 'human_active' 
+    OR c.assigned_operator_id IS NOT NULL 
+    OR (c.metadata->>'pipeline_stage') IN ('in_contact', 'proposal_sent')
+  )
+  AND lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('waiting_contact', 'aguar_contato', '');
+
+-- 2. Atualizar a RPC com filtros de formalização completos
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
 
 CREATE OR REPLACE FUNCTION get_credit_campaign_funnel_stats(
@@ -60,20 +86,14 @@ BEGIN
            OR oq.sent_at IS NOT NULL
       ) AS m_enviados,
       COUNT(oq.id) FILTER (
-        WHERE trim(lower(oq.status)) IN ('sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu')
+        WHERE trim(lower(oq.status)) IN ('sent', 'delivered', 'read', 'respondida', 'interagiu')
            OR COALESCE(oq.response_detected, false) = true
-           OR trim(lower(oq.status)) = 'converted'
-           OR (oq.metadata->>'converted') = 'true'
       ) AS m_entregues,
       COUNT(oq.id) FILTER (
-        WHERE trim(lower(oq.status)) IN ('read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu')
-           OR COALESCE(oq.response_detected, false) = true
-           OR trim(lower(oq.status)) = 'converted'
-           OR (oq.metadata->>'converted') = 'true'
+        WHERE trim(lower(oq.status)) IN ('read', 'respondida', 'interagiu')
       ) AS m_lidas,
       COUNT(oq.id) FILTER (
         WHERE COALESCE(oq.response_detected, false) = true
-           OR (oq.metadata->>'responded') = 'true'
            OR trim(lower(oq.status)) IN ('respondida', 'interagiu')
       ) AS m_interagiram
     FROM campaigns c
@@ -175,3 +195,5 @@ BEGIN
   ORDER BY oq.cstart_date DESC;
 END;
 $$;
+
+NOTIFY pgrst, 'reload schema';

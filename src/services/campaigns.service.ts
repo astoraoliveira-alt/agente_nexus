@@ -1041,9 +1041,19 @@ async deleteCampaign(id: string): Promise<void> {
                 if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
                 if (meta.simulation_accepted || meta.ok_agente) lm.okAgente++;
 
-                if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalStatus)) lm.aguarContato++;
-                if (['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus)) lm.emAtendimento++;
-                if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) || fiservStatus === 'won' || meta.formalized_at) lm.formalizado++;
+                const pipeStage = String(meta.pipeline_stage || '').toLowerCase();
+                const isEmAtendimento = ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus) ||
+                    ['in_contact', 'proposal_sent'].includes(pipeStage);
+                const isFormalizado = ['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) ||
+                    pipeStage === 'contract_signed' || fiservStatus === 'won' || !!meta.formalized_at;
+                const isAguarContato = !isEmAtendimento && !isFormalizado && (
+                    ['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalStatus) ||
+                    pipeStage === 'pending_contact'
+                );
+
+                if (isAguarContato) lm.aguarContato++;
+                if (isEmAtendimento) lm.emAtendimento++;
+                if (isFormalizado) lm.formalizado++;
             }
 
             return camps.map(c => {

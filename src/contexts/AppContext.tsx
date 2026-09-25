@@ -375,14 +375,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     selectedConvIdRef.current = selectedConversation?.id || null;
   }, [selectedConversation?.id]);
 
-  // 🔄 Polling fallback: refresh messages every 5s when a chat is open
+  // 🔄 Polling fallback: refresh messages every 3s when a chat is open
   // Ensures new msgs appear even if Supabase Realtime WebSocket event is missed (RLS edge cases)
   useEffect(() => {
     if (!selectedConversation?.id) return;
     const convId = selectedConversation.id;
     const interval = setInterval(() => {
       fetchMessagesRef.current(convId);
-    }, 5000);
+    }, 3000);
     return () => clearInterval(interval);
   }, [selectedConversation?.id]);
 
@@ -891,6 +891,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ...prev,
         messages: [...prev.messages, newMessage]
       } : null);
+    }
+
+    // Auto-takeover: se a conversa ainda não estiver com status 'human_active',
+    // assume automaticamente o atendimento, pausa a Sofia (IA) e vincula o operador logado.
+    const currentConv = conversations.find(c => c.id === conversationId) || (selectedConversation?.id === conversationId ? selectedConversation : null);
+    const needsTakeover = currentConv && (currentConv.status !== 'human_active' || !currentConv.assignedOperator);
+
+    if (needsTakeover) {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id === conversationId
+            ? { ...c, status: 'human_active', assignedOperator: currentUser.name }
+            : c
+        )
+      );
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(prev => prev ? {
+          ...prev,
+          status: 'human_active',
+          assignedOperator: currentUser.name
+        } : null);
+      }
+      api.assignConversation(conversationId, currentUser.id, currentUser.name).catch(e => {
+        console.warn('Erro ao atualizar atribuição de operador ao enviar mensagem:', e);
+      });
     }
 
     // 2. API Call
