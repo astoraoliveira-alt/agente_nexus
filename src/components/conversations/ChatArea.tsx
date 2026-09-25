@@ -469,12 +469,23 @@ export function ChatArea({
           </div>
         </div>
 
-        {/* ZONA 2: Telemetria & Contexto Linear (Sem quebra de linha - nowrap) */}
-        <div className="flex items-center gap-2 flex-nowrap overflow-hidden">
+        {/* ZONA 2: Telemetria & Contexto Linear (Data no meio do chat sempre visível) */}
+        <div className="flex items-center gap-2 flex-nowrap">
+          {/* Horário de Início / Data da conversa no meio do chat */}
+          {conversation.createdAt && (
+            <div 
+              className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300 bg-slate-100/90 dark:bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-200/80 dark:border-slate-700/80 shrink-0 whitespace-nowrap shadow-2xs"
+              title={`Atendimento iniciado em ${format(new Date(conversation.createdAt), "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR })}`}
+            >
+              <Clock className="h-3 w-3 text-slate-500 dark:text-slate-400 shrink-0" />
+              <span className="font-medium">{format(new Date(conversation.createdAt), "dd/MM 'às' HH:mm", { locale: ptBR })}</span>
+            </div>
+          )}
+
           {/* Sentimento do Lead */}
           {conversation.sentiment && (
             <Badge variant="outline" className={cn(
-              "px-2.5 py-0.5 h-6 text-[11px] font-medium rounded-full flex items-center gap-1 shrink-0 border whitespace-nowrap",
+              "px-2.5 py-0.5 h-6 text-[11px] font-medium rounded-full hidden md:flex items-center gap-1 shrink-0 border whitespace-nowrap",
               conversation.sentiment === 'interessado' || conversation.sentiment === 'positivo'
                 ? "bg-amber-50/70 text-amber-700 border-amber-200/80 dark:bg-amber-950/30 dark:text-amber-300"
                 : "bg-slate-50 text-slate-600 border-slate-200/80 dark:bg-slate-800 dark:text-slate-300"
@@ -482,17 +493,6 @@ export function ChatArea({
               <Flame className={cn("h-3 w-3", conversation.sentiment === 'interessado' || conversation.sentiment === 'positivo' ? "text-amber-500" : "text-slate-400")} />
               <span className="capitalize">{conversation.sentiment}</span>
             </Badge>
-          )}
-
-          {/* Horário de Início */}
-          {conversation.createdAt && (
-            <div className={cn(
-              "items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 shrink-0 whitespace-nowrap",
-              customActions ? "hidden xl:flex" : "flex"
-            )}>
-              <Clock className="h-3 w-3 text-slate-400" />
-              <span>{format(new Date(conversation.createdAt), "dd/MM 'às' HH:mm", { locale: ptBR })}</span>
-            </div>
           )}
 
           {/* Total de Mensagens */}
@@ -582,24 +582,21 @@ export function ChatArea({
             </div>
           )}
 
-          {/* Botão de Arquivos */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setArtifactsDrawerOpen(true)}
-            className={cn(
-              "h-8 text-xs text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 bg-background hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shrink-0 font-medium transition-colors",
-              shouldCompactAttachments ? "w-8 p-0 flex items-center justify-center" : "gap-1.5 px-2.5"
-            )}
-            title="Ver arquivos e gravações da conversa"
-          >
-            <Paperclip className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-900 dark:text-slate-400" />
-            {!shouldCompactAttachments && (
+          {/* Botão de Arquivos fora dos ... apenas quando não compactado */}
+          {!shouldCompactAttachments && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setArtifactsDrawerOpen(true)}
+              className="h-8 text-xs text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 bg-background hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shrink-0 font-medium transition-colors gap-1.5 px-2.5"
+              title="Ver arquivos e gravações da conversa"
+            >
+              <Paperclip className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-900 dark:text-slate-400" />
               <span className="hidden sm:inline">Arquivos</span>
-            )}
-          </Button>
+            </Button>
+          )}
 
-          {/* Menu Dropdown de Mais Opções */}
+          {/* Menu Dropdown de Mais Opções (...) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-white">
@@ -607,6 +604,10 @@ export function ChatArea({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setArtifactsDrawerOpen(true)}>
+                <Paperclip className="h-4 w-4 mr-2" />
+                Arquivos e Documentos
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => openSlideOver('conversation-details', conversation)}>
                 <Info className="h-4 w-4 mr-2" />
                 Ver Detalhes

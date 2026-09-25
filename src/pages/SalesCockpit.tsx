@@ -539,18 +539,18 @@ export default function SalesCockpit() {
         <div className="flex-1 flex min-h-0 w-full overflow-hidden">
           
           {/* ============================================================ */}
-          {/* COLUNA 1: Lista de Leads do Funil (285px)                     */}
+          {/* COLUNA 1: Lista de Leads do Funil (240px)                     */}
           {/* ============================================================ */}
-          <div className="w-[285px] min-w-[285px] max-w-[285px] shrink-0 border-r border-border bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-hidden">
+          <div className="w-[240px] min-w-[240px] max-w-[240px] shrink-0 border-r border-border bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-hidden">
             {/* Filtros: Campo Select por padrão em 'Pendente de Contato' */}
-            <div className="p-2.5 border-b border-border space-y-2 bg-card">
+            <div className="p-2 border-b border-border space-y-1.5 bg-card">
               <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-400" />
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-500 dark:text-slate-400" />
                 <Input
-                  placeholder="Buscar empresa, CNPJ, telefone..."
+                  placeholder="Buscar empresa, CNPJ..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-8 text-xs bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800"
+                  className="pl-7 text-xs h-7 bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800"
                 />
               </div>
 
@@ -561,16 +561,16 @@ export default function SalesCockpit() {
                     <Button 
                       variant="outline" 
                       size="sm" 
-                      className="w-full justify-between text-xs h-8 border-slate-300 dark:border-slate-700 bg-background text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white focus:text-slate-900 dark:focus:text-white data-[state=open]:bg-slate-100 dark:data-[state=open]:bg-slate-800 data-[state=open]:text-slate-950 dark:data-[state=open]:text-white font-medium shadow-none transition-colors"
+                      className="w-full justify-between text-[11px] h-7 px-2 border-slate-300 dark:border-slate-700 bg-background text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-950 dark:hover:text-white focus:text-slate-900 dark:focus:text-white data-[state=open]:bg-slate-100 dark:data-[state=open]:bg-slate-800 data-[state=open]:text-slate-950 dark:data-[state=open]:text-white font-medium shadow-none transition-colors"
                     >
                       <span className="truncate font-semibold text-slate-900 dark:text-slate-100">
                         {selectedStages.length === 0 
                           ? "Todos os status" 
                           : selectedStages.length === 1 
                             ? STAGE_CONFIG[selectedStages[0]].label 
-                            : `${selectedStages.length} status selecionados`}
+                            : `${selectedStages.length} status`}
                       </span>
-                      <ChevronDown className="h-3.5 w-3.5 opacity-60 ml-1 shrink-0 text-slate-700 dark:text-slate-300" />
+                      <ChevronDown className="h-3 w-3 opacity-60 ml-1 shrink-0 text-slate-700 dark:text-slate-300" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-56 p-2 bg-card border-border shadow-lg" align="start">
@@ -627,13 +627,13 @@ export default function SalesCockpit() {
             </div>
 
             {/* Listagem de Cards */}
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
               {isLoading ? (
                 <div className="p-8 text-center text-xs text-slate-500">
                   Carregando fila de fechamento...
                 </div>
               ) : filteredLeads.length === 0 ? (
-                <div className="p-8 text-center text-xs text-slate-500 bg-card rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
+                <div className="p-6 text-center text-xs text-slate-500 bg-card rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
                   Nenhum lead com {selectedStages.length === 0 ? "status selecionado" : "os filtros aplicados"}.
                 </div>
               ) : (
@@ -649,46 +649,46 @@ export default function SalesCockpit() {
                         key={lead.id}
                         onClick={() => handleSelectLead(lead)}
                         className={cn(
-                          "p-3 rounded-xl border transition-all cursor-pointer text-left relative bg-card",
+                          "p-2 rounded-lg border transition-all cursor-pointer text-left relative bg-card shadow-2xs",
                           slaAlert.borderClass,
                           isSelected 
-                            ? "ring-2 ring-primary/40 border-primary shadow-sm bg-slate-50 dark:bg-card" 
+                            ? "ring-2 ring-primary/40 border-primary bg-slate-50 dark:bg-card" 
                             : "hover:bg-slate-50 dark:hover:bg-card/70 border-slate-200 dark:border-slate-800"
                         )}
                       >
                         {/* Topo do Card: Razão Social */}
-                        <div className="flex items-start justify-between gap-1.5 mb-1">
-                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate block w-full" title={lead.name}>
+                        <div className="flex items-start justify-between gap-1 mb-0.5">
+                          <span className="font-bold text-[11px] leading-tight text-slate-900 dark:text-slate-100 truncate block w-full" title={lead.name}>
                             {lead.name}
                           </span>
                         </div>
 
                         {/* Telefone sem 55 e com máscara + CNPJ formatado */}
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-700 dark:text-slate-300 font-medium mb-1.5 flex-wrap">
+                        <div className="flex items-center gap-1 text-[10px] text-slate-700 dark:text-slate-300 font-medium mb-1 truncate">
                           <span className="text-slate-900 dark:text-slate-100 font-semibold">{formatPhoneBR(lead.phone)}</span>
                           {lead.cnpj && (
-                            <span className="text-slate-500 dark:text-slate-400 font-normal">
+                            <span className="text-slate-500 dark:text-slate-400 font-normal truncate">
                               ({formatCNPJ(lead.cnpj)})
                             </span>
                           )}
                         </div>
 
                         {/* Valor e Parcelas Solicitados */}
-                        <div className="flex items-center justify-between text-[11px] mb-2 px-2 py-1 rounded-md bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
-                          <span className="text-slate-600 dark:text-slate-400 text-[10px]">Solicitado:</span>
-                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-xs">
-                            R$ {Number(lead.requestedAmount || 20000).toLocaleString('pt-BR')} <span className="font-normal text-[10px] text-slate-600 dark:text-slate-400">({lead.requestedInstallments || 12}x)</span>
+                        <div className="flex items-center justify-between text-[10px] mb-1.5 px-1.5 py-0.5 rounded bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
+                          <span className="text-slate-600 dark:text-slate-400 text-[9px]">Solicitado:</span>
+                          <span className="font-extrabold text-emerald-700 dark:text-emerald-400 text-[11px]">
+                            R$ {Number(lead.requestedAmount || 20000).toLocaleString('pt-BR')} <span className="font-normal text-[9px] text-slate-600 dark:text-slate-400">({lead.requestedInstallments || 12}x)</span>
                           </span>
                         </div>
 
                         {/* Rodapé do Card: Status Discreto (quando mais de 1 status ou todos) + Tempo de Espera SLA */}
                         <div className={cn(
-                          "flex items-center pt-1.5 border-t border-slate-200 dark:border-slate-800 text-[10px] gap-1.5",
+                          "flex items-center pt-1 border-t border-slate-200 dark:border-slate-800 text-[9px] gap-1",
                           shouldShowStageBadge ? "justify-between" : "justify-end"
                         )}>
                           {shouldShowStageBadge && (
                             <span className={cn(
-                              "px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 border shrink-0",
+                              "px-1 py-0.2 rounded text-[9px] font-semibold flex items-center gap-1 border shrink-0",
                               stageMeta.bgClass,
                               stageMeta.textClass,
                               stageMeta.borderClass
@@ -701,7 +701,7 @@ export default function SalesCockpit() {
                                 lead.pipelineStage === 'contract_signed' ? "bg-emerald-600 dark:bg-emerald-400" :
                                 "bg-rose-600 dark:bg-rose-400"
                               )} />
-                              <span className="truncate max-w-[130px]">{stageMeta.label}</span>
+                              <span className="truncate max-w-[100px]">{stageMeta.label}</span>
                             </span>
                           )}
                           {/* Ícone discreto de SLA/Tempo com Tooltip ao passar o mouse */}
@@ -710,7 +710,7 @@ export default function SalesCockpit() {
                               <TooltipTrigger asChild>
                                 <div 
                                   className={cn(
-                                    "h-5 w-5 rounded-md flex items-center justify-center border transition-all cursor-help shrink-0 shadow-2xs hover:scale-105", 
+                                    "h-4 w-4 rounded flex items-center justify-center border transition-all cursor-help shrink-0 shadow-2xs hover:scale-105", 
                                     slaAlert.badgeClass
                                   )}
                                 >
@@ -727,12 +727,12 @@ export default function SalesCockpit() {
 
                         {/* Identificação do Operador que está atendendo */}
                         {(lead.assignedOperator || lead.pipelineStage !== 'pending_contact') && (
-                          <div className="mt-1.5 pt-1 border-t border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+                          <div className="mt-1 pt-0.5 border-t border-dashed border-slate-200 dark:border-slate-800 flex items-center justify-between text-[9px] text-slate-500">
                             <span className="flex items-center gap-1">
-                              <UserCheck className="h-3 w-3 text-emerald-600" />
+                              <UserCheck className="h-2.5 w-2.5 text-emerald-600" />
                               Operador:
                             </span>
-                            <span className="font-semibold text-slate-800 dark:text-slate-200">
+                            <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[110px]">
                               {lead.assignedOperator || currentUser?.name || 'Carlos Silva'}
                             </span>
                           </div>
