@@ -486,7 +486,10 @@ export function ChatArea({
 
           {/* Horário de Início */}
           {conversation.createdAt && (
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 shrink-0 whitespace-nowrap">
+            <div className={cn(
+              "items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2.5 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700/60 shrink-0 whitespace-nowrap",
+              customActions ? "hidden xl:flex" : "flex"
+            )}>
               <Clock className="h-3 w-3 text-slate-400" />
               <span>{format(new Date(conversation.createdAt), "dd/MM 'às' HH:mm", { locale: ptBR })}</span>
             </div>

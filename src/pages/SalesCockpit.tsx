@@ -539,11 +539,11 @@ export default function SalesCockpit() {
         <div className="flex-1 flex min-h-0 w-full overflow-hidden">
           
           {/* ============================================================ */}
-          {/* COLUNA 1: Lista de Leads do Funil (330px)                     */}
+          {/* COLUNA 1: Lista de Leads do Funil (285px)                     */}
           {/* ============================================================ */}
-          <div className="w-[330px] min-w-[330px] max-w-[330px] shrink-0 border-r border-border bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-hidden">
+          <div className="w-[285px] min-w-[285px] max-w-[285px] shrink-0 border-r border-border bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-hidden">
             {/* Filtros: Campo Select por padrão em 'Pendente de Contato' */}
-            <div className="p-3 border-b border-border space-y-2 bg-card">
+            <div className="p-2.5 border-b border-border space-y-2 bg-card">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-400" />
                 <Input
@@ -881,39 +881,66 @@ export default function SalesCockpit() {
           </div>
 
           {/* ============================================================ */}
-          {/* COLUNA 3: Raio-X da Proposta Fiserv & Pipeline (420px)       */}
+          {/* COLUNA 3: Raio-X da Proposta Fiserv & Pipeline (300px)       */}
           {/* ============================================================ */}
-          <div className="w-[420px] min-w-[420px] max-w-[420px] shrink-0 bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-y-auto p-4 space-y-4">
+          <div className="w-[300px] min-w-[300px] max-w-[300px] shrink-0 bg-slate-50/50 dark:bg-card/20 flex flex-col h-full overflow-y-auto p-3 space-y-3">
             <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+              <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
                 Raio-X da Proposta Fiserv
               </h2>
 
               {activeLead ? (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {/* Dados Mastigados da Empresa */}
-                  <div className="p-3.5 rounded-xl bg-card border border-slate-200 dark:border-slate-800 space-y-2 text-xs shadow-sm">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 dark:border-slate-800">
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 uppercase font-bold flex items-center gap-1.5">
-                        <Building2 className="h-3.5 w-3.5 text-primary" />
+                  <div className="p-3 rounded-xl bg-card border border-slate-200 dark:border-slate-800 space-y-2 text-xs shadow-xs">
+                    <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-800">
+                      <span className="text-[10px] text-slate-600 dark:text-slate-400 uppercase font-bold flex items-center gap-1">
+                        <Building2 className="h-3 w-3 text-primary" />
                         CNPJ / Razão Social
                       </span>
-                      <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700" title="ID Requisição Fiserv">
+                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700" title="ID Requisição Fiserv">
                         {activeLead.loanRequestId || '#FSV-894102'}
                       </span>
                     </div>
 
-                    <p className="font-bold text-slate-950 dark:text-white text-sm leading-tight">{activeLead.name}</p>
+                    <p className="font-bold text-slate-950 dark:text-white text-xs leading-snug line-clamp-2" title={activeLead.name}>
+                      {activeLead.name}
+                    </p>
                     
-                    <div className="grid grid-cols-2 gap-2 pt-1 text-[11px]">
+                    <div className="grid grid-cols-2 gap-2 pt-0.5 text-[11px]">
                       <div>
-                        <span className="text-slate-500 dark:text-slate-400 block text-[10px]">CNPJ:</span>
-                        <strong className="text-slate-900 dark:text-slate-100">{formatCNPJ(activeLead.cnpj) || 'Não informado'}</strong>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 dark:text-slate-400 text-[10px]">CNPJ:</span>
+                          <TooltipProvider delayDuration={100}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-0.5 text-[9px] font-semibold text-emerald-700 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-300 underline underline-offset-2 decoration-emerald-500/60 cursor-help"
+                                >
+                                  <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                  LGPD
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="text-xs p-2.5 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-md z-50 max-w-[240px]">
+                                <p className="font-bold text-emerald-400 flex items-center gap-1">
+                                  Termo LGPD: Assinado digitalmente ✅
+                                </p>
+                                <p className="text-[11px] opacity-90 mt-1">Consentimento registrado no WhatsApp</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
+                        <strong className="text-slate-900 dark:text-slate-100 block text-[11px] truncate" title={formatCNPJ(activeLead.cnpj)}>
+                          {formatCNPJ(activeLead.cnpj) || 'Não informado'}
+                        </strong>
                       </div>
                       <div>
                         <span className="text-slate-500 dark:text-slate-400 block text-[10px]">Telefone:</span>
-                        <strong className="text-slate-900 dark:text-slate-100">{formatPhoneBR(activeLead.phone)}</strong>
+                        <strong className="text-slate-900 dark:text-slate-100 block text-[11px] truncate">
+                          {formatPhoneBR(activeLead.phone)}
+                        </strong>
                       </div>
                     </div>
 
@@ -926,10 +953,10 @@ export default function SalesCockpit() {
 
                     <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[11px]">
                       <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
-                        <UserCheck className="h-3.5 w-3.5 text-primary" />
-                        Operador Responsável:
+                        <UserCheck className="h-3 w-3 text-primary" />
+                        Operador:
                       </span>
-                      <strong className="text-slate-950 dark:text-white">
+                      <strong className="text-slate-950 dark:text-white truncate max-w-[130px]" title={(!selectedConversation?.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador')) ? (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador') : selectedConversation.assignedOperator}>
                         {(!selectedConversation?.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador'))
                           ? (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador')
                           : selectedConversation.assignedOperator}
@@ -939,56 +966,47 @@ export default function SalesCockpit() {
 
                   {/* Grid 2x2: Valores Simulados pelo Cliente */}
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="p-3 rounded-xl bg-card border border-slate-200 dark:border-slate-800 shadow-sm">
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 block uppercase font-bold">Valor Simulado</span>
-                      <span className="text-base font-extrabold text-slate-950 dark:text-white">
+                    <div className="p-2.5 rounded-xl bg-card border border-slate-200 dark:border-slate-800 shadow-xs">
+                      <span className="text-[9px] text-slate-500 dark:text-slate-400 block uppercase font-bold tracking-tight">Valor Simulado</span>
+                      <span className="text-sm font-extrabold text-slate-950 dark:text-white leading-tight">
                         R$ {Number(activeLead.requestedAmount || 20000).toLocaleString('pt-BR')}
                       </span>
                     </div>
-                    <div className="p-3 rounded-xl bg-card border border-slate-200 dark:border-slate-800 shadow-sm">
-                      <span className="text-[10px] text-slate-600 dark:text-slate-400 block uppercase font-bold">Parcelas</span>
-                      <span className="text-base font-extrabold text-emerald-700 dark:text-emerald-400">
-                        {activeLead.requestedInstallments || 12}x de R$ {Number(activeLead.monthlyPayment || 1045.82).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    <div className="p-2.5 rounded-xl bg-card border border-slate-200 dark:border-slate-800 shadow-xs">
+                      <span className="text-[9px] text-slate-500 dark:text-slate-400 block uppercase font-bold tracking-tight">Parcelas</span>
+                      <span className="text-sm font-extrabold text-emerald-700 dark:text-emerald-400 leading-tight">
+                        {activeLead.requestedInstallments || 12}x R$ {Number(activeLead.monthlyPayment || 1045.82).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
                   </div>
 
                   {/* Detalhes Financeiros, CET e Garantia */}
-                  <div className="p-3.5 rounded-xl bg-card border border-slate-200 dark:border-slate-800 space-y-2 text-xs shadow-sm">
-                    <div className="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-800">
-                      <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1.5">
-                        <Percent className="h-3.5 w-3.5 text-emerald-600" />
+                  <div className="p-2.5 rounded-xl bg-card border border-slate-200 dark:border-slate-800 space-y-1.5 text-[11px] shadow-xs">
+                    <div className="flex justify-between items-center py-0.5 border-b border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
+                        <Percent className="h-3 w-3 text-emerald-600" />
                         Taxa &amp; CET:
                       </span>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1">
                         <span className="font-bold text-slate-950 dark:text-white">{activeLead.interestRate || 2.75}% a.m.</span>
-                        <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300">
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300">
                           Aprovado Fiserv
                         </Badge>
                       </div>
                     </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-800">
-                      <span className="text-slate-600 dark:text-slate-400 font-medium">Total do Contrato:</span>
+                    <div className="flex justify-between items-center py-0.5 border-b border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-600 dark:text-slate-400 font-medium">Total Contrato:</span>
                       <span className="font-bold text-slate-900 dark:text-slate-100">
                         R$ {Number(activeLead.totalContractAmount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center py-1 border-b border-slate-200 dark:border-slate-800">
-                      <span className="text-slate-600 dark:text-slate-400 font-medium">Forma de Pagamento:</span>
+                    <div className="flex justify-between items-center py-0.5 border-b border-slate-200 dark:border-slate-800">
+                      <span className="text-slate-600 dark:text-slate-400 font-medium">Forma Pagto:</span>
                       <span className="font-bold text-slate-900 dark:text-slate-100">Boleto Bancário</span>
                     </div>
-                    <div className="flex justify-between items-center py-1">
+                    <div className="flex justify-between items-center py-0.5">
                       <span className="text-slate-600 dark:text-slate-400 font-medium">Garantia:</span>
                       <span className="font-bold text-slate-900 dark:text-slate-100">Recebíveis Ticket</span>
-                    </div>
-                  </div>
-
-                  {/* Termo LGPD Assinado Digitalmente */}
-                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 flex items-center gap-2.5">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-700 dark:text-emerald-400 flex-shrink-0" />
-                    <div>
-                      <span className="text-xs font-bold text-emerald-900 dark:text-emerald-200 block">Termo LGPD: Assinado digitalmente ✅</span>
-                      <span className="text-[10px] text-emerald-800 dark:text-emerald-400 font-medium">Consentimento registrado no WhatsApp</span>
                     </div>
                   </div>
                 </div>
@@ -1002,15 +1020,15 @@ export default function SalesCockpit() {
             {/* Pipeline de Status de Fechamento */}
             {activeLead && (
               <div className="pt-2 border-t border-border">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-primary" />
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Layers className="h-3.5 w-3.5 text-primary" />
                     Pipeline de Formalização
                   </h3>
                   {activeLead.pipelineStage !== 'declined' && activeLead.pipelineStage !== 'contract_signed' && (
                     <button
                       onClick={handleOpenDeclineModal}
-                      className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 transition-colors"
+                      className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 transition-colors"
                       title="Registrar recusa ou desistência do cliente"
                     >
                       <XCircle className="h-3 w-3" />
@@ -1019,7 +1037,7 @@ export default function SalesCockpit() {
                   )}
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {(['pending_contact', 'in_contact', 'contract_sent', 'contract_signed'] as PipelineStage[]).map((stageKey, idx) => {
                     const isCurrent = activeLead.pipelineStage === stageKey;
                     const stageMeta = STAGE_CONFIG[stageKey];
@@ -1030,35 +1048,35 @@ export default function SalesCockpit() {
                         disabled={!hasPermission('sales_cockpit.change_stage')}
                         onClick={() => handleUpdateStage(stageKey)}
                         className={cn(
-                          "w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between text-xs font-medium",
+                          "w-full p-2 rounded-xl border text-left transition-all flex items-center justify-between text-[11px] font-medium",
                           !hasPermission('sales_cockpit.change_stage') && "cursor-not-allowed opacity-75",
                           isCurrent 
-                            ? cn("font-bold shadow-sm border-l-4", stageMeta.bgClass, stageMeta.textClass, stageMeta.borderClass)
+                            ? cn("font-bold shadow-xs border-l-4", stageMeta.bgClass, stageMeta.textClass, stageMeta.borderClass)
                             : "bg-card hover:bg-slate-100 dark:hover:bg-card/80 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
                         )}
                       >
                         <div className="flex items-center gap-2">
                           <span className={cn(
-                            "h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold",
+                            "h-4 w-4 rounded-full flex items-center justify-center text-[9px] font-bold",
                             isCurrent ? "bg-white/80 dark:bg-black/40" : "bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                           )}>
                             {idx + 1}
                           </span>
                           <span>{stageMeta.label}</span>
                         </div>
-                        {isCurrent && <CheckCircle2 className="h-4 w-4" />}
+                        {isCurrent && <CheckCircle2 className="h-3.5 w-3.5" />}
                       </button>
                     );
                   })}
 
                   {/* Card exibido quando o cliente desiste */}
                   {activeLead.pipelineStage === 'declined' && (
-                    <div className="p-3 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 flex items-center justify-between text-xs font-bold shadow-sm">
-                      <div className="flex items-center gap-2">
-                        <XCircle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                    <div className="p-2.5 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 flex items-center justify-between text-[11px] font-bold shadow-xs">
+                      <div className="flex items-center gap-1.5">
+                        <XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                         <span>Cliente Desistiu (Recusa Registrada)</span>
                       </div>
-                      <Badge variant="outline" className="border-rose-300 text-rose-700 dark:text-rose-400 text-[10px] bg-rose-100 dark:bg-rose-900/50">
+                      <Badge variant="outline" className="border-rose-300 text-rose-700 dark:text-rose-400 text-[9px] bg-rose-100 dark:bg-rose-900/50">
                         Perdido
                       </Badge>
                     </div>
