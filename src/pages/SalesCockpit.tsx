@@ -776,7 +776,32 @@ export default function SalesCockpit() {
                     hideViewModeToggle={true}
                     compactAttachmentsButton={true}
                     customActions={
-                      selectedConversation?.status === 'human_active' ? (
+                      activeLead.pipelineStage === 'contract_signed' ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {selectedConversation?.status === 'human_active' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleReturnToAI}
+                              title="Retoma o atendimento automático pela Sofia"
+                              className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
+                            >
+                              Devolver para IA
+                            </Button>
+                          )}
+                          <Badge className="h-8 px-3 text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1.5 shadow-xs">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                            Contrato Assinado
+                          </Badge>
+                        </div>
+                      ) : activeLead.pipelineStage === 'declined' ? (
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <Badge className="h-8 px-3 text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 flex items-center gap-1.5 shadow-xs">
+                            <XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                            Cliente Desistiu
+                          </Badge>
+                        </div>
+                      ) : selectedConversation?.status === 'human_active' ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <Button
                             size="sm"
@@ -982,7 +1007,7 @@ export default function SalesCockpit() {
                     <Layers className="h-4 w-4 text-primary" />
                     Pipeline de Formalização
                   </h3>
-                  {activeLead.pipelineStage !== 'declined' && (
+                  {activeLead.pipelineStage !== 'declined' && activeLead.pipelineStage !== 'contract_signed' && (
                     <button
                       onClick={handleOpenDeclineModal}
                       className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 transition-colors"
