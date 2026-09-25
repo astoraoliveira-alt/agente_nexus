@@ -789,17 +789,17 @@ export default function SalesCockpit() {
                               Devolver para IA
                             </Button>
                           )}
-                          <Badge className="h-8 px-3 text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1.5 shadow-xs">
+                          <div className="h-8 px-3 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1.5 shadow-xs select-none pointer-events-none">
                             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                             Contrato Assinado
-                          </Badge>
+                          </div>
                         </div>
                       ) : activeLead.pipelineStage === 'declined' ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <Badge className="h-8 px-3 text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 flex items-center gap-1.5 shadow-xs">
+                          <div className="h-8 px-3 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 flex items-center gap-1.5 shadow-xs select-none pointer-events-none">
                             <XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                             Cliente Desistiu
-                          </Badge>
+                          </div>
                         </div>
                       ) : selectedConversation?.status === 'human_active' ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
