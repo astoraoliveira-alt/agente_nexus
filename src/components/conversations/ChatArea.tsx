@@ -36,6 +36,9 @@ interface ChatAreaProps {
   alwaysAllowInput?: boolean;
   hideAiControls?: boolean;
   customActions?: React.ReactNode;
+  hideMessageCount?: boolean;
+  hideViewModeToggle?: boolean;
+  compactAttachmentsButton?: boolean;
 }
 
 interface AudioMessageProps {
@@ -224,8 +227,22 @@ const parseMessageContent = (rawText: string): string => {
   return normalizeMessagingText(rawText);
 };
 
-export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAiControls, customActions }: ChatAreaProps) {
+export function ChatArea({ 
+  conversation, 
+  highlightTerm, 
+  alwaysAllowInput, 
+  hideAiControls, 
+  customActions,
+  hideMessageCount,
+  hideViewModeToggle,
+  compactAttachmentsButton
+}: ChatAreaProps) {
   const { openSlideOver, takeOverConversation, returnToAI, transferConversation, sendMessage, currentUser, closeConversation, maskingEnabled } = useApp();
+
+  const shouldHideMessageCount = hideMessageCount ?? !!customActions;
+  const shouldHideViewModeToggle = hideViewModeToggle ?? !!customActions;
+  const shouldCompactAttachments = compactAttachmentsButton ?? !!customActions;
+
   const [messageInput, setMessageInput] = useState('');
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
   const [artifactsDrawerOpen, setArtifactsDrawerOpen] = useState(false);
@@ -476,10 +493,12 @@ export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAi
           )}
 
           {/* Total de Mensagens */}
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-800 px-2.5 py-0.5 rounded-full shrink-0 whitespace-nowrap">
-            <MessageSquare className="h-3 w-3 text-slate-400" />
-            <span>{conversation.messages?.length || 0} msgs</span>
-          </div>
+          {!shouldHideMessageCount && (
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 dark:text-slate-300 bg-slate-100/80 dark:bg-slate-800 px-2.5 py-0.5 rounded-full shrink-0 whitespace-nowrap">
+              <MessageSquare className="h-3 w-3 text-slate-400" />
+              <span>{conversation.messages?.length || 0} msgs</span>
+            </div>
+          )}
 
           {/* Campanha (se houver e couber na tela) */}
           {conversation.campaignName && (
@@ -535,39 +554,46 @@ export function ChatArea({ conversation, highlightTerm, alwaysAllowInput, hideAi
           )}
 
           {/* Alternador Desktop / Mobile */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-md border border-slate-200 dark:border-slate-700">
-            <button
-              onClick={() => setViewMode('default')}
-              className={cn(
-                "p-1 rounded-sm transition-all flex items-center justify-center",
-                viewMode === 'default' ? "bg-white dark:bg-slate-900 shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              title="Visão Padrão (SaaS)"
-            >
-              <Monitor className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => setViewMode('mobile')}
-              className={cn(
-                "p-1 rounded-sm transition-all flex items-center justify-center",
-                viewMode === 'mobile' ? "bg-white dark:bg-slate-900 shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground"
-              )}
-              title="Visão Mobile (WhatsApp)"
-            >
-              <Smartphone className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          {!shouldHideViewModeToggle && (
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-md border border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => setViewMode('default')}
+                className={cn(
+                  "p-1 rounded-sm transition-all flex items-center justify-center",
+                  viewMode === 'default' ? "bg-white dark:bg-slate-900 shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Visão Padrão (SaaS)"
+              >
+                <Monitor className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('mobile')}
+                className={cn(
+                  "p-1 rounded-sm transition-all flex items-center justify-center",
+                  viewMode === 'mobile' ? "bg-white dark:bg-slate-900 shadow-xs text-foreground" : "text-muted-foreground hover:text-foreground"
+                )}
+                title="Visão Mobile (WhatsApp)"
+              >
+                <Smartphone className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* Botão de Arquivos */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => setArtifactsDrawerOpen(true)}
-            className="h-8 gap-1.5 text-xs text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 bg-background hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shrink-0 font-medium transition-colors"
+            className={cn(
+              "h-8 text-xs text-slate-700 dark:text-slate-200 border-slate-300 dark:border-slate-700 bg-background hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-white shrink-0 font-medium transition-colors",
+              shouldCompactAttachments ? "w-8 p-0 flex items-center justify-center" : "gap-1.5 px-2.5"
+            )}
             title="Ver arquivos e gravações da conversa"
           >
             <Paperclip className="h-3.5 w-3.5 text-slate-500 group-hover:text-slate-900 dark:text-slate-400" />
-            <span className="hidden sm:inline">Arquivos</span>
+            {!shouldCompactAttachments && (
+              <span className="hidden sm:inline">Arquivos</span>
+            )}
           </Button>
 
           {/* Menu Dropdown de Mais Opções */}

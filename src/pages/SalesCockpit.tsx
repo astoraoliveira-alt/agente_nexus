@@ -772,6 +772,9 @@ export default function SalesCockpit() {
                     highlightTerm={searchTerm}
                     alwaysAllowInput={true}
                     hideAiControls={true}
+                    hideMessageCount={true}
+                    hideViewModeToggle={true}
+                    compactAttachmentsButton={true}
                     customActions={
                       selectedConversation?.status === 'human_active' ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
