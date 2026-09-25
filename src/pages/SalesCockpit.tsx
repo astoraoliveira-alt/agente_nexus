@@ -1047,10 +1047,14 @@ export default function SalesCockpit() {
                           <UserCheck className="h-3 w-3 text-primary" />
                           Operador:
                         </span>
-                        <strong className="text-slate-950 dark:text-white truncate max-w-[130px]" title={(!selectedConversation?.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador')) ? (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador') : selectedConversation.assignedOperator}>
-                          {(!selectedConversation?.assignedOperator || selectedConversation.assignedOperator.toLowerCase().includes('operator') || selectedConversation.assignedOperator.toLowerCase().includes('operador'))
-                            ? (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador')
-                            : selectedConversation.assignedOperator}
+                        <strong 
+                          className="text-slate-950 dark:text-white truncate max-w-[130px]" 
+                          title={activeLead.assignedOperator || selectedConversation?.assignedOperator || (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador')}
+                        >
+                          {activeLead.assignedOperator || 
+                            ((selectedConversation?.assignedOperator && !selectedConversation.assignedOperator.toLowerCase().includes('operador') && !selectedConversation.assignedOperator.toLowerCase().includes('operator')) 
+                              ? selectedConversation.assignedOperator 
+                              : (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador'))}
                         </strong>
                       </div>
                     </div>
