@@ -16,6 +16,15 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { 
   Search, 
   ChevronDown,
@@ -34,6 +43,8 @@ import {
   Building2,
   Phone,
   UserCheck,
+  UserMinus,
+  XCircle,
   MessageSquare
 } from 'lucide-react';
 import { formatDistanceToNow, differenceInHours } from 'date-fns';
@@ -66,8 +77,24 @@ const STAGE_CONFIG: Record<PipelineStage, { label: string; textClass: string; bg
     textClass: 'text-emerald-800 dark:text-emerald-300 font-semibold',
     bgClass: 'bg-emerald-100 dark:bg-emerald-950/40',
     borderClass: 'border-emerald-300 dark:border-emerald-700/60'
+  },
+  declined: {
+    label: 'Cliente Desistiu',
+    textClass: 'text-rose-800 dark:text-rose-300 font-semibold',
+    bgClass: 'bg-rose-100 dark:bg-rose-950/40',
+    borderClass: 'border-rose-300 dark:border-rose-700/60'
   }
 };
+
+const DECLINE_REASONS = [
+  'Taxa de juros / CET considerada alta',
+  'Valor da parcela incompatível com o orçamento',
+  'Prazo de pagamento inadequado',
+  'Já contratou / fechou com outra instituição',
+  'Desistiu do investimento / não precisa mais do recurso',
+  'Divergência entre sócios / decisão interna',
+  'Outro motivo'
+];
 
 /**
  * SLA Fiserv 48h:
@@ -124,6 +151,12 @@ export default function SalesCockpit() {
   const [selectedStages, setSelectedStages] = useState<PipelineStage[]>(['pending_contact']);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(60);
+
+  // Estados do Modal de Desistência do Cliente
+  const [isDeclineModalOpen, setIsDeclineModalOpen] = useState(false);
+  const [declineReason, setDeclineReason] = useState<string>(DECLINE_REASONS[0]);
+  const [otherDeclineReason, setOtherDeclineReason] = useState('');
+  const [isSubmittingDecline, setIsSubmittingDecline] = useState(false);
 
   const toggleStage = (stage: PipelineStage) => {
     setSelectedStages(prev => 
@@ -349,6 +382,88 @@ export default function SalesCockpit() {
     }
   };
 
+  // Liberar Atendimento para a Fila Geral (Volta para Pendente de Contato, Sofia continua pausada)
+  const handleReleaseToQueue = async () => {
+    if (!activeLead) return;
+    try {
+      const success = await salesCockpitService.releaseLeadToQueue(
+        activeLead.id,
+        activeLead.conversationId
+      );
+      if (success) {
+        setLeads(prev => prev.map(l => l.id === activeLead.id ? {
+          ...l,
+          assignedOperator: undefined,
+          assignedOperatorId: undefined,
+          pipelineStage: 'pending_contact'
+        } : l));
+
+        if (selectedConversation) {
+          setSelectedConversation({
+            ...selectedConversation,
+            assigned_operator_id: null as any,
+            assignedOperator: undefined
+          });
+        }
+        toast.success('Atendimento liberado e retornado para a fila de Pendentes.');
+      } else {
+        toast.error('Erro ao liberar atendimento.');
+      }
+    } catch (e) {
+      console.error('Erro ao liberar atendimento:', e);
+      toast.error('Erro ao liberar atendimento.');
+    }
+  };
+
+  // Abrir Modal de Registro de Desistência do Cliente
+  const handleOpenDeclineModal = () => {
+    setDeclineReason(DECLINE_REASONS[0]);
+    setOtherDeclineReason('');
+    setIsDeclineModalOpen(true);
+  };
+
+  // Confirmar Desistência da Contratação pelo Cliente
+  const handleConfirmDecline = async () => {
+    if (!activeLead) return;
+    if (declineReason === 'Outro motivo' && !otherDeclineReason.trim()) {
+      toast.error('Por favor, digite o motivo da desistência.');
+      return;
+    }
+
+    const finalReason = declineReason === 'Outro motivo'
+      ? `Outro motivo: ${otherDeclineReason.trim()}`
+      : declineReason;
+
+    setIsSubmittingDecline(true);
+    try {
+      const opName = currentUser?.name || 'Operador Humano';
+      const opId = currentUser?.id;
+      const success = await salesCockpitService.declineLead(
+        activeLead.id,
+        activeLead.conversationId,
+        finalReason,
+        opName,
+        opId
+      );
+
+      if (success) {
+        setLeads(prev => prev.map(l => l.id === activeLead.id ? {
+          ...l,
+          pipelineStage: 'declined'
+        } : l));
+        setIsDeclineModalOpen(false);
+        toast.success('Desistência registrada com sucesso. Funil comercial atualizado.');
+      } else {
+        toast.error('Erro ao registrar desistência no banco.');
+      }
+    } catch (e) {
+      console.error('Erro ao registrar desistência:', e);
+      toast.error('Falha ao registrar desistência.');
+    } finally {
+      setIsSubmittingDecline(false);
+    }
+  };
+
   // Métricas do Topo:
   // Para operadores, reflete o que é permitido em sua visão (pendentes + o que ele atendeu/assinou).
   // Para administradores, reflete os números globais.
@@ -356,6 +471,7 @@ export default function SalesCockpit() {
   const inContactCount = visibleLeads.filter(l => l.pipelineStage === 'in_contact').length;
   const sentCount = visibleLeads.filter(l => l.pipelineStage === 'contract_sent').length;
   const signedCount = visibleLeads.filter(l => l.pipelineStage === 'contract_signed').length;
+  const declinedCount = visibleLeads.filter(l => l.pipelineStage === 'declined').length;
 
   return (
     <MainLayout>
@@ -402,6 +518,14 @@ export default function SalesCockpit() {
                 {signedCount}
               </span>
             </div>
+            {declinedCount > 0 && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-700 text-xs">
+                <span className="text-rose-900 dark:text-rose-300 font-medium">Desistências:</span>
+                <span className="font-bold text-rose-900 dark:text-rose-200">
+                  {declinedCount}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -448,7 +572,7 @@ export default function SalesCockpit() {
                       <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">Filtrar por Status</span>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setSelectedStages(['pending_contact', 'in_contact', 'contract_sent', 'contract_signed'])}
+                          onClick={() => setSelectedStages(['pending_contact', 'in_contact', 'contract_sent', 'contract_signed', 'declined'])}
                           className="text-[10px] text-primary hover:underline"
                         >
                           Todos
@@ -607,14 +731,35 @@ export default function SalesCockpit() {
                     hideAiControls={true}
                     customActions={
                       selectedConversation?.status === 'human_active' ? (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={handleReturnToAI}
+                            title="Retoma o atendimento automático pela Sofia"
                             className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white transition-colors"
                           >
                             Devolver para IA
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleReleaseToQueue}
+                            title="Desvincula seu usuário e devolve o lead para a fila de Pendentes sem reativar a IA"
+                            className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-background hover:bg-slate-100 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white flex items-center gap-1.5 transition-colors"
+                          >
+                            <UserMinus className="h-3.5 w-3.5 text-slate-500" />
+                            Liberar p/ Fila
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleOpenDeclineModal}
+                            title="Registra a desistência da contratação pelo cliente"
+                            className="h-8 text-xs font-semibold border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/50 hover:text-rose-900 transition-colors flex items-center gap-1.5"
+                          >
+                            <XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                            Cliente Desistiu
                           </Button>
                           <Button
                             size="sm"
@@ -625,16 +770,30 @@ export default function SalesCockpit() {
                             Finalizar Formalização
                           </Button>
                         </div>
-                      ) : hasPermission('sales_cockpit.takeover') ? (
-                        <Button
-                          size="sm"
-                          onClick={handleTakeover}
-                          className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
-                        >
-                          <User className="h-3.5 w-3.5" />
-                          Assumir Atendimento
-                        </Button>
-                      ) : null
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          {hasPermission('sales_cockpit.takeover') && (
+                            <Button
+                              size="sm"
+                              onClick={handleTakeover}
+                              className="h-8 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm transition-colors"
+                            >
+                              <User className="h-3.5 w-3.5" />
+                              Assumir Atendimento
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleOpenDeclineModal}
+                            title="Registra a desistência da contratação pelo cliente"
+                            className="h-8 text-xs font-semibold border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-400 bg-rose-50/50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/50 hover:text-rose-900 transition-colors flex items-center gap-1.5"
+                          >
+                            <XCircle className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                            Cliente Desistiu
+                          </Button>
+                        </div>
+                      )
                     }
                   />
                 </div>
@@ -772,10 +931,22 @@ export default function SalesCockpit() {
             {/* Pipeline de Status de Fechamento */}
             {activeLead && (
               <div className="pt-2 border-t border-border">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
-                  <Layers className="h-4 w-4 text-primary" />
-                  Pipeline de Formalização
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-2">
+                    <Layers className="h-4 w-4 text-primary" />
+                    Pipeline de Formalização
+                  </h3>
+                  {activeLead.pipelineStage !== 'declined' && (
+                    <button
+                      onClick={handleOpenDeclineModal}
+                      className="text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 transition-colors"
+                      title="Registrar recusa ou desistência do cliente"
+                    >
+                      <XCircle className="h-3 w-3" />
+                      Desistência
+                    </button>
+                  )}
+                </div>
 
                 <div className="space-y-2">
                   {(['pending_contact', 'in_contact', 'contract_sent', 'contract_signed'] as PipelineStage[]).map((stageKey, idx) => {
@@ -808,6 +979,19 @@ export default function SalesCockpit() {
                       </button>
                     );
                   })}
+
+                  {/* Card exibido quando o cliente desiste */}
+                  {activeLead.pipelineStage === 'declined' && (
+                    <div className="p-3 rounded-xl border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-300 flex items-center justify-between text-xs font-bold shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <XCircle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                        <span>Cliente Desistiu (Recusa Registrada)</span>
+                      </div>
+                      <Badge variant="outline" className="border-rose-300 text-rose-700 dark:text-rose-400 text-[10px] bg-rose-100 dark:bg-rose-900/50">
+                        Perdido
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -815,6 +999,87 @@ export default function SalesCockpit() {
 
         </div>
       </div>
+
+      {/* Modal de Registro de Desistência do Cliente */}
+      <Dialog open={isDeclineModalOpen} onOpenChange={setIsDeclineModalOpen}>
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-700 dark:text-rose-400 text-base">
+              <XCircle className="h-5 w-5" />
+              Registrar Desistência do Cliente
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-600 dark:text-slate-400">
+              Informe o motivo pelo qual o cliente não deseja seguir com a contratação de crédito. O lead será movido para o status de desistência e o funil comercial será atualizado.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs">
+              <span className="text-slate-500 block text-[10px] uppercase font-semibold">Empresa / Razão Social:</span>
+              <strong className="text-slate-900 dark:text-slate-100 font-bold block mt-0.5">{activeLead?.name}</strong>
+              {activeLead?.cnpj && (
+                <span className="text-slate-600 dark:text-slate-400 block text-[11px] mt-0.5">
+                  CNPJ: {formatCNPJ(activeLead.cnpj)}
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                Motivo da Desistência <span className="text-rose-500">*</span>
+              </label>
+              <Select value={declineReason} onValueChange={setDeclineReason}>
+                <SelectTrigger className="w-full text-xs">
+                  <SelectValue placeholder="Selecione um motivo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {DECLINE_REASONS.map(reason => (
+                    <SelectItem key={reason} value={reason} className="text-xs">
+                      {reason}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {declineReason === 'Outro motivo' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  Especifique a Justificativa <span className="text-rose-500">*</span>
+                </label>
+                <Textarea
+                  placeholder="Descreva o motivo informado pelo cliente..."
+                  value={otherDeclineReason}
+                  onChange={(e) => setOtherDeclineReason(e.target.value)}
+                  className="text-xs resize-none h-20"
+                />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeclineModalOpen(false)}
+              disabled={isSubmittingDecline}
+              className="text-xs"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmDecline}
+              disabled={isSubmittingDecline}
+              className="text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {isSubmittingDecline ? 'Salvando...' : 'Confirmar Desistência'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </MainLayout>
   );
 }

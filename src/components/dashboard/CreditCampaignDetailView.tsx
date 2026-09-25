@@ -177,7 +177,10 @@ export function CreditCampaignDetailView({
           displayStatus = 'Aguardando Contato';
         } else if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservSt)) {
           displayStatus = 'Aprovado';
-        } else if (['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado'].includes(fiservSt)) {
+        } else if (
+          ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
+          ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalSt)
+        ) {
           displayStatus = 'Recusado';
         } else if (meta.opt_in === true || meta.optin === true || meta.consent?.opt_in === true || meta.loan_request_id) {
           displayStatus = 'Opt-in';

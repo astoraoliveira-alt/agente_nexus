@@ -1034,7 +1034,10 @@ async deleteCampaign(id: string): Promise<void> {
                     meta.loan_request_id
                 ) lm.optIn++;
                 if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus)) lm.aprovados++;
-                if (['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado'].includes(fiservStatus)) lm.recusados++;
+                if (
+                    ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                    ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus)
+                ) lm.recusados++;
                 if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
                 if (meta.simulation_accepted || meta.ok_agente) lm.okAgente++;
 

@@ -1,7 +1,7 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
 import { Conversation } from '@/lib/types';
 
-export type PipelineStage = 'pending_contact' | 'in_contact' | 'contract_sent' | 'contract_signed';
+export type PipelineStage = 'pending_contact' | 'in_contact' | 'contract_sent' | 'contract_signed' | 'declined';
 
 export interface SalesCockpitLead {
   id: string; // lead id or conversation id
@@ -121,7 +121,7 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
   if (
     enrichedLead?.metadata?.simulation_accepted === true ||
     enrichedLead?.metadata?.accepted_proposal != null ||
-    ['waiting_contact', 'in_service', 'formalized', 'contract_sent', 'contract_signed'].includes(enrichedLead?.metadata?.formalization_status) ||
+    ['waiting_contact', 'in_service', 'formalized', 'contract_sent', 'contract_signed', 'lost', 'cancelled', 'declined'].includes(enrichedLead?.metadata?.formalization_status) ||
     ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(enrichedLead?.status)
   ) {
     return true;
@@ -431,7 +431,7 @@ export const salesCockpitService = {
 
         const stage: PipelineStage = 
           mergedMeta.pipeline_stage || 
-          (conv?.status === 'human_active' ? 'in_contact' : 'pending_contact');
+          (conv?.status === 'human_active' && conv?.assigned_operator_id ? 'in_contact' : 'pending_contact');
 
         cockpitLeads.push({
           id: params.id,
@@ -709,6 +709,13 @@ export const salesCockpitService = {
     try {
       const now = new Date().toISOString();
 
+      // Mapeamento automático de formalization_status alinhado aos dashboards e funil
+      let formalizationStatus: string | undefined;
+      if (stage === 'contract_signed') formalizationStatus = 'formalized';
+      else if (stage === 'declined') formalizationStatus = 'lost';
+      else if (stage === 'in_contact') formalizationStatus = 'in_service';
+      else if (stage === 'pending_contact') formalizationStatus = 'waiting_contact';
+
       // 1. Persistir em agent_leads (se o leadId for de um agent_lead)
       const { data: lead } = await supabase
         .from('agent_leads')
@@ -721,13 +728,21 @@ export const salesCockpitService = {
           ...(lead.metadata || {}),
           pipeline_stage: stage,
           pipeline_updated_at: now,
+          ...(formalizationStatus ? { formalization_status: formalizationStatus } : {}),
+          ...(stage === 'contract_signed' ? { formalized_at: now } : {}),
+          ...(stage === 'declined' ? { decline_at: now } : {}),
           ...(operatorName ? { operator_name: operatorName } : {}),
           ...(operatorId ? { operator_id: operatorId } : {})
         };
 
+        const leadPayload: any = { metadata: updatedMeta };
+        if (stage === 'declined') {
+          leadPayload.status = 'cancelled';
+        }
+
         await supabase
           .from('agent_leads')
-          .update({ metadata: updatedMeta })
+          .update(leadPayload)
           .eq('id', lead.id);
       }
 
@@ -745,6 +760,9 @@ export const salesCockpitService = {
             ...(conv.metadata || {}),
             pipeline_stage: stage,
             pipeline_updated_at: now,
+            ...(formalizationStatus ? { formalization_status: formalizationStatus } : {}),
+            ...(stage === 'contract_signed' ? { formalized_at: now } : {}),
+            ...(stage === 'declined' ? { decline_at: now } : {}),
             ...(operatorName ? { operator_name: operatorName } : {}),
             ...(operatorId ? { operator_id: operatorId } : {})
           };
@@ -764,6 +782,155 @@ export const salesCockpitService = {
       return true;
     } catch (e) {
       console.error('❌ Erro ao atualizar pipeline stage no banco:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Operador libera o atendimento: remove o vínculo do operador e retorna
+   * o lead para a fila de "Pendente de Contato".
+   * A Sofia (IA) CONTINUA PAUSADA (não altera o status para ai_active).
+   */
+  async releaseLeadToQueue(leadId: string, conversationId?: string): Promise<boolean> {
+    try {
+      const now = new Date().toISOString();
+
+      // 1. Atualizar agent_leads se existir
+      const { data: lead } = await supabase
+        .from('agent_leads')
+        .select('id, metadata')
+        .eq('id', leadId)
+        .maybeSingle();
+
+      if (lead) {
+        const updatedMeta = {
+          ...(lead.metadata || {}),
+          pipeline_stage: 'pending_contact',
+          formalization_status: 'waiting_contact',
+          operator_name: null,
+          operator_id: null,
+          released_to_queue_at: now,
+          pipeline_updated_at: now
+        };
+
+        await supabase
+          .from('agent_leads')
+          .update({ metadata: updatedMeta })
+          .eq('id', lead.id);
+      }
+
+      // 2. Atualizar conversations: desvincular assigned_operator_id e manter Sofia pausada
+      const targetConvId = conversationId || (leadId !== lead?.id ? leadId : null);
+      if (targetConvId) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id, metadata')
+          .eq('id', targetConvId)
+          .maybeSingle();
+
+        if (conv) {
+          const updatedConvMeta = {
+            ...(conv.metadata || {}),
+            pipeline_stage: 'pending_contact',
+            formalization_status: 'waiting_contact',
+            operator_name: null,
+            operator_id: null,
+            released_to_queue_at: now,
+            pipeline_updated_at: now
+          };
+
+          await supabase
+            .from('conversations')
+            .update({
+              assigned_operator_id: null,
+              metadata: updatedConvMeta
+            })
+            .eq('id', conv.id);
+        }
+      }
+
+      return true;
+    } catch (e) {
+      console.error('❌ Erro ao liberar lead para a fila:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Registra a desistência da contratação pelo cliente.
+   * Atualiza o status para 'declined', define motivo e atualiza formalization_status para 'lost'.
+   */
+  async declineLead(
+    leadId: string, 
+    conversationId?: string, 
+    reason?: string, 
+    operatorName?: string, 
+    operatorId?: string
+  ): Promise<boolean> {
+    try {
+      const now = new Date().toISOString();
+
+      // 1. Atualizar agent_leads se existir
+      const { data: lead } = await supabase
+        .from('agent_leads')
+        .select('id, metadata')
+        .eq('id', leadId)
+        .maybeSingle();
+
+      if (lead) {
+        const updatedMeta = {
+          ...(lead.metadata || {}),
+          pipeline_stage: 'declined',
+          formalization_status: 'lost',
+          decline_reason: reason || 'Não informado',
+          decline_at: now,
+          pipeline_updated_at: now,
+          ...(operatorName ? { decline_operator_name: operatorName } : {}),
+          ...(operatorId ? { decline_operator_id: operatorId } : {})
+        };
+
+        await supabase
+          .from('agent_leads')
+          .update({
+            status: 'cancelled',
+            metadata: updatedMeta
+          })
+          .eq('id', lead.id);
+      }
+
+      // 2. Atualizar conversations
+      const targetConvId = conversationId || (leadId !== lead?.id ? leadId : null);
+      if (targetConvId) {
+        const { data: conv } = await supabase
+          .from('conversations')
+          .select('id, metadata')
+          .eq('id', targetConvId)
+          .maybeSingle();
+
+        if (conv) {
+          const updatedConvMeta = {
+            ...(conv.metadata || {}),
+            pipeline_stage: 'declined',
+            formalization_status: 'lost',
+            decline_reason: reason || 'Não informado',
+            decline_at: now,
+            pipeline_updated_at: now,
+            ...(operatorName ? { decline_operator_name: operatorName } : {}),
+            ...(operatorId ? { decline_operator_id: operatorId } : {})
+          };
+
+          await supabase
+            .from('conversations')
+            .update({
+              metadata: updatedConvMeta
+            })
+            .eq('id', conv.id);
+        }
+      }
+
+      return true;
+    } catch (e) {
+      console.error('❌ Erro ao registrar desistência do lead:', e);
       return false;
     }
   }
