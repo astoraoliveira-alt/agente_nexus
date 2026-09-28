@@ -1,6 +1,7 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 import { getSetPasswordUrl } from '@/lib/app-url';
+import { sanitizeEmail } from '@/lib/utils';
 
 export const usersService = {
 async getFunctionAuthHeaders(): Promise<Record<string, string>> {
@@ -63,6 +64,10 @@ async invokeInviteUser(payload: Record<string, unknown>): Promise<any> {
               errorMessage = JSON.stringify(parsedBody.error);
             } else {
               errorMessage = `Edge Function invite-user retornou ${response.status}: ${responseText}`;
+            }
+
+            if (errorMessage.includes('Unable to validate email address: invalid format')) {
+              errorMessage = 'O formato do email corporativo é inválido ou contém caracteres invisíveis/especiais. Verifique o email digitado.';
             }
             
             const error = new Error(errorMessage) as Error & { status?: number; payload?: any };
@@ -127,9 +132,10 @@ async getUserByEmail(email: string): Promise<User | null> {
 
 async createUser(user: Partial<User>): Promise<User> {
         const redirectTo = getSetPasswordUrl();
+        const cleanEmail = sanitizeEmail(user.email);
         const data = await this.invokeInviteUser({
-            email: user.email,
-            fullName: user.name,
+            email: cleanEmail,
+            fullName: user.name?.trim(),
             tenantId: user.tenantId,
             role: user.role,
             profileId: user.profileId,
@@ -158,10 +164,11 @@ async createUser(user: Partial<User>): Promise<User> {
 
 async resendInvite(user: Partial<User>): Promise<User> {
         const redirectTo = getSetPasswordUrl();
+        const cleanEmail = sanitizeEmail(user.email);
         const data = await this.invokeInviteUser({
             userId: user.id,
-            email: user.email,
-            fullName: user.name,
+            email: cleanEmail,
+            fullName: user.name?.trim(),
             tenantId: user.tenantId,
             role: user.role,
             profileId: user.profileId,

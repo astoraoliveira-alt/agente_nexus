@@ -33,6 +33,7 @@ import { api } from '@/services/api';
 import { AuthService } from '@/services/auth';
 import { PendingUsersList } from '@/components/admin/PendingUsersList';
 import { ManagedProfile } from '@/lib/profile-management';
+import { sanitizeEmail, isValidEmail } from '@/lib/utils';
 
 export default function Users() {
   const { currentTenant, currentUser, hasPermission } = useApp();
@@ -93,19 +94,50 @@ export default function Users() {
     try {
       if (editingUser) {
         // Update
-        const updatedUser = await api.updateUser(editingUser.id, formData);
+        const cleanName = formData.name ? formData.name.trim() : formData.name;
+        const cleanEmail = formData.email ? sanitizeEmail(formData.email) : formData.email;
+        const updatedUser = await api.updateUser(editingUser.id, {
+          ...formData,
+          name: cleanName,
+          email: cleanEmail,
+        });
         setUsers(prev => prev.map(u => u.id === editingUser.id ? updatedUser : u));
-        toast.success(`Usuário ${formData.name} atualizado`);
+        toast.success(`Usuário ${updatedUser.name} atualizado`);
       } else {
         // Create
         if (!currentTenant?.id) {
           toast.error('Nenhuma empresa selecionada');
           return;
         }
+
+        const cleanName = (formData.name || '').trim();
+        const cleanEmail = sanitizeEmail(formData.email);
+
+        if (!cleanName) {
+          toast.error('Informe o nome completo do usuário');
+          return;
+        }
+
+        if (!cleanEmail) {
+          toast.error('Informe o email corporativo');
+          return;
+        }
+
+        if (!isValidEmail(cleanEmail)) {
+          toast.error('Formato de email inválido. Verifique o endereço digitado.');
+          return;
+        }
+
+        const selectedProfile = profiles.find((p) => p.id === formData.profileId);
+        const isAdm = selectedProfile?.name?.toLowerCase().includes('admin') || formData.profileId === 'd0362dee-a388-4228-b91f-7a807135f665';
+        const roleToAssign = isAdm ? 'tenant_admin' : (formData.role || 'operator');
+
         const newUserPayload = {
           ...formData,
+          name: cleanName,
+          email: cleanEmail,
           tenantId: currentTenant.id,
-          role: formData.role || 'operator'
+          role: roleToAssign
         };
         const createdUser = await api.createUser(newUserPayload);
         setUsers(prev => [...prev, createdUser]);
@@ -415,9 +447,18 @@ export default function Users() {
               <div className="space-y-2">
                 <Label>Email Corporativo</Label>
                 <Input
+                  type="email"
                   placeholder="joao@empresa.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  onBlur={() => setFormData(prev => ({ ...prev, email: sanitizeEmail(prev.email) }))}
+                  onPaste={(e) => {
+                    const pastedText = e.clipboardData.getData('text');
+                    if (pastedText) {
+                      e.preventDefault();
+                      setFormData(prev => ({ ...prev, email: sanitizeEmail(pastedText) }));
+                    }
+                  }}
                 />
               </div>
               <div className="space-y-2">
@@ -445,7 +486,15 @@ export default function Users() {
                 <Label>Perfil de Acesso</Label>
                 <Select
                   value={formData.profileId || undefined}
-                  onValueChange={(v: any) => setFormData({ ...formData, profileId: v })}
+                  onValueChange={(v: any) => {
+                    const selected = profiles.find((p) => p.id === v);
+                    const isAdm = selected?.name?.toLowerCase().includes('admin') || v === 'd0362dee-a388-4228-b91f-7a807135f665';
+                    setFormData(prev => ({
+                      ...prev,
+                      profileId: v,
+                      role: isAdm ? 'tenant_admin' : (prev.role === 'tenant_admin' ? 'operator' : prev.role)
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione um perfil salvo" />

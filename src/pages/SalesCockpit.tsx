@@ -200,12 +200,34 @@ export default function SalesCockpit() {
   }, [selectedStages, searchTerm]);
 
   // Regra de Permissão e Visibilidade:
-  // Administradores e Super Admins veem a lista completa.
+  // Administradores e Super Admins veem a lista completa de todos os operadores.
   // Operadores veem apenas leads pendentes de contato (sem operador atendendo) e os que ele próprio assumiu.
   const canViewAllLeads = useMemo(() => {
-    const role = currentUser?.role?.toLowerCase() || '';
-    return role === 'super_admin' || role === 'tenant_admin' || role === 'admin';
-  }, [currentUser?.role]);
+    const role = (currentUser?.role || '').toLowerCase().trim();
+    const profileName = (currentUser?.profileName || '').toLowerCase().trim();
+    const profileId = currentUser?.profileId || '';
+
+    // 1. Super Admin ou Admin por Role
+    const isAdminRole = role === 'super_admin' || 
+                        role === 'tenant_admin' || 
+                        role === 'admin' || 
+                        role === 'administrador';
+
+    // 2. Administrador ou Super Admin por Perfil de Acesso (Nome ou ID salvo)
+    const isAdminProfile = profileName === 'administrador' || 
+                           profileName === 'super admin' || 
+                           profileName.includes('admin') ||
+                           profileId === 'd0362dee-a388-4228-b91f-7a807135f665' || // ID do perfil Administrador
+                           profileId === '10b8fe94-f436-4034-a79d-fe06c00c70fb';   // ID do perfil Super Admin
+
+    // 3. Permissões de governança administrativa
+    const hasAdminPermissions = hasPermission('all') || 
+                                hasPermission('users.view') || 
+                                hasPermission('users.edit') || 
+                                hasPermission('companies.edit');
+
+    return isAdminRole || isAdminProfile || hasAdminPermissions;
+  }, [currentUser?.role, currentUser?.profileName, currentUser?.profileId, hasPermission]);
 
   const visibleLeads = useMemo(() => {
     if (canViewAllLeads) return leads;
@@ -217,9 +239,14 @@ export default function SalesCockpit() {
       // 1. Leads pendentes de contato (ninguém ainda está atendendo)
       const isPendingUnassigned = lead.pipelineStage === 'pending_contact' && !lead.assignedOperatorId && !lead.assignedOperator;
       
-      // 2. Leads que o operador assumiu para si mesmo
-      const isAssignedToMe = (myId && lead.assignedOperatorId === myId) || 
-                             (myName && lead.assignedOperator && lead.assignedOperator.toLowerCase().trim() === myName);
+      // 2. Leads que o operador assumiu para si mesmo (correspondência por ID ou nome)
+      const opNameClean = (lead.assignedOperator || '').toLowerCase().trim();
+      const isNameMatch = Boolean(myName && opNameClean && (
+        myName === opNameClean || 
+        myName.startsWith(opNameClean) || 
+        opNameClean.startsWith(myName)
+      ));
+      const isAssignedToMe = (myId && lead.assignedOperatorId === myId) || isNameMatch;
 
       return isPendingUnassigned || isAssignedToMe;
     });

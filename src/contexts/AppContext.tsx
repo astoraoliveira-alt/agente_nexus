@@ -172,8 +172,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
 
           if (businessUser) {
+            if (businessUser.profileId && !businessUser.profileName) {
+              try {
+                const { data: profData } = await supabase
+                  .from('profiles')
+                  .select('name')
+                  .eq('id', businessUser.profileId)
+                  .maybeSingle();
+                if (profData?.name) {
+                  businessUser.profileName = profData.name;
+                }
+              } catch (profErr) {
+                console.warn('⚠️ Could not load profile name:', profErr);
+              }
+            }
+
             console.log('👤 Business Profile Loaded:', businessUser);
-            setCurrentUser(businessUser);
+            setCurrentUser({ ...businessUser });
 
             // 4. Permission Logic
             try {

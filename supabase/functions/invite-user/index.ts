@@ -59,7 +59,27 @@ serve(async (req) => {
       throw new Error('Missing required fields: email, fullName, tenantId');
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
+function sanitizeEmail(email: unknown): string {
+  if (!email) return '';
+  return String(email)
+    .replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u2060\u00AD\u180E]/g, '')
+    .replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+/g, '')
+    .replace(/^[<"'\u201C\u201D\u2018\u2019]+|[>"'\u201C\u201D\u2018\u2019;]+$/g, '')
+    .toLowerCase();
+}
+
+    const normalizedEmail = sanitizeEmail(email);
+    const normalizedFullName = String(fullName).trim();
+
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      return new Response(JSON.stringify({
+        error: `Formato de email corporativo inválido: "${email}". Verifique se o endereço não contém caracteres invisíveis, espaços ou caracteres especiais.`,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
 
     const { data: requesterByProviderRows, error: requesterByProviderError } = await adminClient
       .from('users')
@@ -136,7 +156,7 @@ serve(async (req) => {
       data: {
         tenant_id: tenantId,
         role,
-        full_name: fullName,
+        full_name: normalizedFullName,
       },
     });
 
@@ -148,7 +168,7 @@ serve(async (req) => {
     const payload = {
       tenant_id: tenantId,
       email: normalizedEmail,
-      full_name: fullName,
+      full_name: normalizedFullName,
       role,
       profile_id: profileId ?? null,
       provider: 'supabase',

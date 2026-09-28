@@ -96,8 +96,17 @@ export function AppSidebar() {
     window.location.href = '/login';
   };
 
-  const isSuperAdmin = currentUser?.role === 'super_admin';
-  const isAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'tenant_admin';
+  const isSuperAdmin = currentUser?.role === 'super_admin' || 
+                       currentUser?.profileName === 'Super Admin' || 
+                       currentUser?.profileId === '10b8fe94-f436-4034-a79d-fe06c00c70fb';
+
+  const isAdmin = isSuperAdmin || 
+                  currentUser?.role === 'tenant_admin' || 
+                  currentUser?.role === 'admin' || 
+                  currentUser?.role === 'administrador' || 
+                  currentUser?.profileName === 'Administrador' ||
+                  currentUser?.profileName?.toLowerCase().includes('admin') ||
+                  currentUser?.profileId === 'd0362dee-a388-4228-b91f-7a807135f665';
   const filteredMainNavItems = dynamicMainNavItems.filter((item) => hasPermission(item.permission));
   const filteredGovernanceNavItems = governanceNavItems.filter((item) => hasPermission(item.permission));
   const filteredAdminNavItems = adminNavItems.filter((item) => hasPermission(item.permission));

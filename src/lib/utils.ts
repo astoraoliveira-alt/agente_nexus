@@ -75,3 +75,29 @@ export const isMetricBillable = (stage?: string) => {
   const s = stage.toLowerCase();
   return !['poc', 'sandbox', 'internal'].includes(s);
 };
+
+/**
+ * Sanitizes email addresses by removing:
+ * - Invisible unicode characters (zero-width spaces \u200B-\u200D, BOM \uFEFF, invisible directional marks, etc.)
+ * - All kinds of unicode whitespace (\s, non-breaking space \u00A0, em/en spaces, etc.)
+ * - Surrounding quotes or brackets (e.g., copied from email headers like <user@domain.com> or "user@domain.com")
+ * - Converts to lowercase
+ */
+export function sanitizeEmail(email: string | null | undefined): string {
+  if (!email) return '';
+  return String(email)
+    .replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u2060\u00AD\u180E]/g, '')
+    .replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]+/g, '')
+    .replace(/^[<"'\u201C\u201D\u2018\u2019]+|[>"'\u201C\u201D\u2018\u2019;]+$/g, '')
+    .toLowerCase();
+}
+
+/**
+ * Checks whether an email address is valid against standard email formatting.
+ */
+export function isValidEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const sanitized = sanitizeEmail(email);
+  return /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/.test(sanitized);
+}
+
