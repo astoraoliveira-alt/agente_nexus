@@ -1007,10 +1007,55 @@ export interface CampaignImportLog {
   rowNumber: number;
   contactName?: string;
   contactPhone?: string;
-  errorType: 'INVALID_PHONE' | 'DUPLICATE' | 'MISSING_NAME' | 'OTHER';
+  errorType: 'INVALID_PHONE' | 'DUPLICATE' | 'MISSING_NAME' | 'OTHER' | 'SKIPPED_BY_OPERATOR' | 'PREVIOUS_DELIVERY_FAILURE' | 'CREDIT_REFUSED_60D';
   errorMessage?: string;
   rawData?: Record<string, any>;
   createdAt: Date;
+}
+
+export type AuditedLeadCategory = 'valid' | 'undelivered' | 'refused_60d';
+
+export interface AuditedLeadItem {
+  id: string;
+  rowNumber: number;
+  name: string;
+  phone: string;
+  identifier: string;
+  ctaLink?: string;
+  category: AuditedLeadCategory;
+  selected: boolean;
+  reason: string;
+  refusalDaysAgo?: number | null;
+  rawData?: Record<string, any>;
+}
+
+export interface CampaignDispatchAudit {
+  id?: string;
+  tenantId: string;
+  campaignId: string;
+  importedBy?: string;
+  fileName?: string;
+  totalUploaded: number;
+  totalSent: number;
+  totalSkipped: number;
+  summary: {
+    validTotal: number;
+    undeliveredTotal: number;
+    refused60dTotal: number;
+    selectedValid: number;
+    selectedUndelivered: number;
+    selectedRefused: number;
+  };
+  records: Array<{
+    name: string;
+    phone: string;
+    identifier: string;
+    category: AuditedLeadCategory;
+    selected: boolean;
+    reason: string;
+    refusalDaysAgo?: number | null;
+  }>;
+  createdAt?: Date;
 }
 
 export interface OutboundContact {
@@ -1071,4 +1116,83 @@ export interface CreditCampaignFunnelStat {
   emAtendimento: number;
   formalizado: number;
 }
+
+// ============ Central de Reengajamento Types ============
+export interface ReengagementContact {
+  id: string; // ID original na outbound_queue
+  contact_name: string;
+  contact_phone: string;
+  clean_phone: string;
+  identifier?: string;
+  original_status: string; // 'delivered', 'read', 'sent', 'failed', 'pending', etc.
+  delivered: boolean;
+  read: boolean;
+  replied: boolean;
+  failed: boolean;
+  opt_in?: boolean;
+  credit_status: 'approved' | 'declined_60d' | 'in_analysis' | 'none';
+  credit_declined_reason?: string;
+  credit_declined_days_ago?: number;
+  credit_declined_60d?: boolean;
+  credit_approved: boolean;
+  is_busy: boolean; // se está pending/processing na outbound_queue
+  reengagement_count: number;
+  last_scheduled_at?: string;
+  metadata?: any;
+}
+
+export interface ReengagementFunnelSummary {
+  totalCarregados: number;
+  entregues: number;
+  lidos: number;
+  interagiram: number;
+  falhas: number;
+  optIn?: number;
+  recusadosCredito60d: number;
+  aprovadosCredito: number;
+  emAndamentoFila: number;
+}
+
+export interface ReengagementComparisonData {
+  campaignId: string;
+  campaignName: string;
+  original: {
+    totalSent: number;
+    delivered: number;
+    deliveredRate: number;
+    read: number;
+    readRate: number;
+    replied: number;
+    replyRate: number;
+    optIn?: number;
+    optInRate?: number;
+    failed: number;
+    failedRate: number;
+    conversions: number;
+    conversionRate: number;
+  };
+  reengagement: {
+    totalSent: number;
+    delivered: number;
+    deliveredRate: number;
+    read: number;
+    readRate: number;
+    replied: number;
+    replyRate: number;
+    optIn?: number;
+    optInRate?: number;
+    failed: number;
+    failedRate: number;
+    conversions: number;
+    conversionRate: number;
+  };
+  delta: {
+    extraReplies: number;
+    extraConversions: number;
+    replyGrowthPct: number;
+    conversionGrowthPct: number;
+  };
+  batches: any[];
+}
+
 

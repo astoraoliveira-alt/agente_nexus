@@ -34,6 +34,13 @@ export const campaignsService = {
             variants.add(`55${normalized}`);
         }
 
+        if (normalized.length >= 8) {
+            variants.add(normalized.slice(-8));
+        }
+        if (normalized.length >= 9) {
+            variants.add(normalized.slice(-9));
+        }
+
         return Array.from(variants);
     },
 
@@ -882,6 +889,555 @@ async deleteCampaign(id: string): Promise<void> {
         return data;
     },
 
+    async getCampaignContactsForReengagement(campaignId: string, tenantId: string): Promise<{
+        contacts: import('@/lib/types').ReengagementContact[];
+        summary: import('@/lib/types').ReengagementFunnelSummary;
+    }> {
+        try {
+            // 1. Obter métricas consolidadas oficiais do funil via getCreditCampaignFunnelStats
+            const getFunnel = (this?.getCreditCampaignFunnelStats ? this.getCreditCampaignFunnelStats.bind(this) : campaignsService.getCreditCampaignFunnelStats);
+            const funnelStats = await getFunnel(tenantId);
+            const targetCampId = String(campaignId || '').toLowerCase().trim();
+            const campStat = (funnelStats || []).find((s: any) => String(s.campaignId || '').toLowerCase().trim() === targetCampId) || null;
+
+            // 2. Buscar todos os registros da fila para esta campanha
+            const { data: queueRows, error: queueError } = await supabase
+                .from('outbound_queue')
+                .select('id, contact_name, contact_phone, status, error_message, response_detected, metadata, scheduled_at, sent_at, created_at')
+                .eq('campaign_id', campaignId)
+                .eq('tenant_id', tenantId)
+                .order('created_at', { ascending: false })
+                .limit(10000);
+
+            if (queueError || !queueRows) {
+                console.error('Erro ao buscar contatos da fila para reengajamento:', queueError);
+                return {
+                    contacts: [],
+                    summary: {
+                        totalCarregados: campStat ? Number(campStat.carregados) : 0,
+                        entregues: campStat ? Number(campStat.entregues) : 0,
+                        lidos: campStat ? Number(campStat.lidas) : 0,
+                        interagiram: campStat ? Number(campStat.interagiram) : 0,
+                        falhas: campStat ? Math.max(0, Number(campStat.carregados) - Number(campStat.entregues)) : 0,
+                        optIn: campStat ? Number(campStat.optIn || campStat.opt_in || 0) : 0,
+                        recusadosCredito60d: campStat ? Number(campStat.recusados) : 0,
+                        aprovadosCredito: campStat ? Number(campStat.aprovados) : 0,
+                        emAndamentoFila: 0
+                    }
+                };
+            }
+
+            // Agrupar por telefone limpo
+            const contactsMap = new Map<string, {
+                primaryRow: any;
+                allRows: any[];
+                isBusy: boolean;
+                reengagementCount: number;
+            }>();
+
+            queueRows.forEach(row => {
+                const cleanPhone = this.normalizePhone(row.contact_phone);
+                if (!cleanPhone) return;
+
+                const existing = contactsMap.get(cleanPhone);
+                const isPendingOrProcessing = ['pending', 'processing'].includes(String(row.status || '').toLowerCase().trim());
+                const isReengagement = !!(row.metadata?.is_reengagement);
+
+                if (!existing) {
+                    contactsMap.set(cleanPhone, {
+                        primaryRow: row,
+                        allRows: [row],
+                        isBusy: isPendingOrProcessing,
+                        reengagementCount: isReengagement ? 1 : 0
+                    });
+                } else {
+                    existing.allRows.push(row);
+                    if (isPendingOrProcessing) existing.isBusy = true;
+                    if (isReengagement) existing.reengagementCount += 1;
+                    if (!existing.primaryRow.sent_at && row.sent_at) {
+                        existing.primaryRow = row;
+                    }
+                }
+            });
+
+            // 3. Buscar leads da campanha em agent_leads para mapear status de crédito e opt-in
+            const creditApprovedSet = new Set<string>();
+            const creditDeclinedMap = new Map<string, { daysAgo: number; reason: string }>();
+            const optInSet = new Set<string>();
+
+            try {
+                const { data: campaignLeads, error: leadErr } = await supabase
+                    .from('agent_leads')
+                    .select('id, identifier, whatsapp, status, metadata, created_at')
+                    .eq('tenant_id', tenantId)
+                    .eq('campaign_id', campaignId);
+
+                if (!leadErr && campaignLeads) {
+                    campaignLeads.forEach((lead: any) => {
+                        const meta = lead.metadata || {};
+                        const fiservStatus = String(meta.fiserv_status || '').toLowerCase().trim();
+                        const statusStr = String(lead.status || '').toLowerCase().trim();
+
+                        const isOptIn =
+                            meta.opt_in === true ||
+                            meta.optin === true ||
+                            meta.consent?.opt_in === true ||
+                            meta.fiserv_requested_at != null ||
+                            meta.loan_request_id != null;
+
+                        const isApproved =
+                            ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
+                            ['approved', 'aprovado'].includes(statusStr);
+
+                        const isDeclined =
+                            ['denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservStatus) ||
+                            ['denied', 'recusado', 'reprovado'].includes(statusStr);
+
+                        const variants = this.getPhoneVariants(lead.whatsapp);
+                        const idf = lead.identifier ? String(lead.identifier).replace(/\D/g, '') : '';
+                        const metaCnpj = meta.cnpj ? String(meta.cnpj).replace(/\D/g, '') : '';
+
+                        if (isOptIn) {
+                            variants.forEach(v => optInSet.add(v));
+                            if (idf) optInSet.add(idf);
+                            if (metaCnpj) optInSet.add(metaCnpj);
+                        }
+
+                        if (isApproved) {
+                            variants.forEach(v => creditApprovedSet.add(v));
+                            if (idf) creditApprovedSet.add(idf);
+                            if (metaCnpj) creditApprovedSet.add(metaCnpj);
+                        } else if (isDeclined) {
+                            const deniedDateRaw =
+                                meta.fiserv_last_audit_at ||
+                                meta.lost_at ||
+                                meta.refusal_date ||
+                                meta.fiserv_requested_at ||
+                                lead.created_at;
+
+                            const deniedDate = new Date(deniedDateRaw);
+                            const daysAgo = !isNaN(deniedDate.getTime())
+                                ? Math.floor(Math.abs(Date.now() - deniedDate.getTime()) / (1000 * 60 * 60 * 24))
+                                : 0;
+
+                            const refInfo = {
+                                daysAgo,
+                                reason: meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason || 'Proposta recusada em análise de crédito'
+                            };
+
+                            variants.forEach(v => creditDeclinedMap.set(v, refInfo));
+                            if (idf) creditDeclinedMap.set(idf, refInfo);
+                            if (metaCnpj) creditDeclinedMap.set(metaCnpj, refInfo);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn('Erro ao consultar agent_leads para reengajamento:', err);
+            }
+
+            // 4. Montar lista de contatos enriquecidos
+            const contacts: import('@/lib/types').ReengagementContact[] = [];
+
+            let totalEntregues = 0;
+            let totalLidos = 0;
+            let totalInteragiram = 0;
+            let totalFalhas = 0;
+            let totalOptIn = 0;
+            let totalRecusados60d = 0;
+            let totalAprovados = 0;
+            let totalBusy = 0;
+
+            contactsMap.forEach((entry, cleanPhone) => {
+                const row = entry.primaryRow;
+                const meta = row.metadata || {};
+                const idf = meta.identifier || meta.cnpj || meta.cpf;
+                const cleanId = idf ? String(idf).replace(/\D/g, '') : '';
+
+                let delivered = false;
+                let read = false;
+                let replied = false;
+                let failed = false;
+
+                entry.allRows.forEach(r => {
+                    const st = String(r.status || '').toLowerCase().trim();
+                    // Alinhado 100% com a RPC get_credit_campaign_funnel_stats:
+                    // 'sent', 'delivered', 'read', 'respondida', 'interagiu' contam como entregues no celular
+                    if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || !!r.response_detected) {
+                        delivered = true;
+                    }
+                    if (['read', 'respondida', 'interagiu'].includes(st)) {
+                        delivered = true;
+                        read = true;
+                    }
+                    if (r.response_detected || ['respondida', 'interagiu'].includes(st)) {
+                        replied = true;
+                    }
+                    if (['failed', 'undelivered', 'error', 'not_delivered', 'rejected'].includes(st)) {
+                        failed = true;
+                    }
+                });
+
+                const variants = this.getPhoneVariants(row.contact_phone);
+                const isOptIn = variants.some(v => optInSet.has(v)) || (cleanId ? optInSet.has(cleanId) : false);
+                const isApproved = variants.some(v => creditApprovedSet.has(v)) || (cleanId ? creditApprovedSet.has(cleanId) : false);
+                const declinedInfo = variants.map(v => creditDeclinedMap.get(v)).find(Boolean) || (cleanId ? creditDeclinedMap.get(cleanId) : undefined);
+                const isDeclined60d = !!declinedInfo;
+
+                if (delivered) totalEntregues++;
+                if (read) totalLidos++;
+                if (replied) totalInteragiram++;
+                if (failed && !delivered) totalFalhas++;
+                if (isOptIn) totalOptIn++;
+                if (isDeclined60d) totalRecusados60d++;
+                if (isApproved) totalAprovados++;
+                if (entry.isBusy) totalBusy++;
+
+                contacts.push({
+                    id: row.id,
+                    contact_name: row.contact_name || 'Contato sem nome',
+                    contact_phone: row.contact_phone,
+                    clean_phone: cleanPhone,
+                    identifier: idf,
+                    original_status: row.status,
+                    delivered,
+                    read,
+                    replied,
+                    failed,
+                    opt_in: isOptIn,
+                    credit_status: isApproved ? 'approved' : isDeclined60d ? 'declined_60d' : 'none',
+                    credit_declined_reason: declinedInfo?.reason,
+                    credit_declined_days_ago: declinedInfo?.daysAgo,
+                    credit_declined_60d: isDeclined60d,
+                    credit_approved: isApproved,
+                    is_busy: entry.isBusy,
+                    reengagement_count: entry.reengagementCount,
+                    last_scheduled_at: row.scheduled_at,
+                    metadata: meta
+                });
+            });
+
+            return {
+                contacts,
+                summary: {
+                    totalCarregados: campStat ? Number(campStat.carregados) : contacts.length,
+                    entregues: campStat ? Number(campStat.entregues) : totalEntregues,
+                    lidos: campStat ? Number(campStat.lidas) : totalLidos,
+                    interagiram: campStat ? Number(campStat.interagiram) : totalInteragiram,
+                    falhas: campStat ? Math.max(0, Number(campStat.carregados) - Number(campStat.entregues)) : totalFalhas,
+                    optIn: campStat ? Number(campStat.optIn || campStat.opt_in || 0) : totalOptIn,
+                    recusadosCredito60d: campStat ? Number(campStat.recusados) : totalRecusados60d,
+                    aprovadosCredito: campStat ? Number(campStat.aprovados) : totalAprovados,
+                    emAndamentoFila: totalBusy
+                }
+            };
+        } catch (err) {
+            console.error('Erro geral em getCampaignContactsForReengagement:', err);
+            return {
+                contacts: [],
+                summary: {
+                    totalCarregados: 0,
+                    entregues: 0,
+                    lidos: 0,
+                    interagiram: 0,
+                    falhas: 0,
+                    recusadosCredito60d: 0,
+                    aprovadosCredito: 0,
+                    emAndamentoFila: 0
+                }
+            };
+        }
+    },
+
+    async scheduleCampaignReengagement(params: {
+        tenantId: string;
+        campaignId: string;
+        scheduledAt: Date;
+        selectedContacts: {
+            id: string;
+            contact_name: string;
+            contact_phone: string;
+            metadata?: any;
+        }[];
+        targetOptions?: string[];
+    }): Promise<{
+        success: boolean;
+        insertedCount: number;
+        skippedBusyCount: number;
+        batchId: string;
+        message?: string;
+    }> {
+        try {
+            if (!params.selectedContacts || params.selectedContacts.length === 0) {
+                return { success: false, insertedCount: 0, skippedBusyCount: 0, batchId: '', message: 'Nenhum contato selecionado.' };
+            }
+
+            // 1. Buscar a campanha para obter o agent_id
+            const { data: camp, error: campErr } = await supabase
+                .from('campaigns')
+                .select('id, name, agent_id')
+                .eq('id', params.campaignId)
+                .single();
+
+            if (campErr || !camp) {
+                return { success: false, insertedCount: 0, skippedBusyCount: 0, batchId: '', message: 'Campanha não encontrada.' };
+            }
+
+            // 2. Trava de segurança estrita: checar se algum contato já está pendente ou em processamento
+            const phoneList = params.selectedContacts.map(c => c.contact_phone);
+            const { data: busyRows } = await supabase
+                .from('outbound_queue')
+                .select('contact_phone')
+                .eq('tenant_id', params.tenantId)
+                .eq('campaign_id', params.campaignId)
+                .in('status', ['pending', 'processing'])
+                .in('contact_phone', phoneList);
+
+            const busyPhones = new Set((busyRows || []).map(r => this.normalizePhone(r.contact_phone)));
+
+            // Filtrar contatos aptos (não presos na outbound)
+            const eligible = params.selectedContacts.filter(c => !busyPhones.has(this.normalizePhone(c.contact_phone)));
+            const skippedBusyCount = params.selectedContacts.length - eligible.length;
+
+            if (eligible.length === 0) {
+                return {
+                    success: false,
+                    insertedCount: 0,
+                    skippedBusyCount,
+                    batchId: '',
+                    message: `Todos os ${params.selectedContacts.length} contatos selecionados já possuem envios pendentes ou em processamento na fila.`
+                };
+            }
+
+            const batchId = crypto.randomUUID();
+            const scheduledAtIso = params.scheduledAt.toISOString();
+
+            // 3. Montar linhas para inserção na outbound_queue mantendo o envio original
+            const rowsToInsert = eligible.map(c => ({
+                tenant_id: params.tenantId,
+                campaign_id: params.campaignId,
+                agent_id: camp.agent_id || null,
+                contact_name: c.contact_name,
+                contact_phone: c.contact_phone,
+                status: 'pending',
+                retry_count: 0,
+                response_detected: false,
+                scheduled_at: scheduledAtIso,
+                created_at: new Date().toISOString(),
+                metadata: {
+                    ...(c.metadata || {}),
+                    is_reengagement: true,
+                    reengagement_batch_id: batchId,
+                    reengagement_scheduled_at: scheduledAtIso,
+                    original_queue_id: c.id
+                }
+            }));
+
+            // Inserir em chunks de 100 registros
+            const chunkSize = 100;
+            let insertedTotal = 0;
+
+            for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
+                const chunk = rowsToInsert.slice(i, i + chunkSize);
+                const { error: insertErr } = await supabase
+                    .from('outbound_queue')
+                    .insert(chunk);
+
+                if (insertErr) {
+                    console.error('Erro ao inserir lote de reengajamento na outbound_queue:', insertErr);
+                    throw new Error(`Falha ao enfileirar contatos: ${insertErr.message}`);
+                }
+                insertedTotal += chunk.length;
+            }
+
+            // 4. Registrar o lote na campaign_recovery_logs
+            try {
+                await supabase.from('campaign_recovery_logs').insert({
+                    tenant_id: params.tenantId,
+                    campaign_id: params.campaignId,
+                    status: params.scheduledAt > new Date() ? 'running' : 'completed',
+                    target_options: params.targetOptions || ['custom_pool'],
+                    records_affected: insertedTotal,
+                    started_at: new Date().toISOString(),
+                    completed_at: params.scheduledAt > new Date() ? null : new Date().toISOString(),
+                    snapshot_before: {
+                        batch_id: batchId,
+                        scheduled_at: scheduledAtIso,
+                        total_selected: params.selectedContacts.length,
+                        enqueued: insertedTotal,
+                        skipped_busy: skippedBusyCount
+                    }
+                });
+            } catch (logErr) {
+                console.warn('Erro ao salvar log de reengajamento:', logErr);
+            }
+
+            return {
+                success: true,
+                insertedCount: insertedTotal,
+                skippedBusyCount,
+                batchId,
+                message: `${insertedTotal} contatos enfileirados com sucesso para reengajamento.${skippedBusyCount > 0 ? ` (${skippedBusyCount} contatos ignorados por estarem em processamento)` : ''}`
+            };
+        } catch (err: any) {
+            console.error('Erro em scheduleCampaignReengagement:', err);
+            return {
+                success: false,
+                insertedCount: 0,
+                skippedBusyCount: 0,
+                batchId: '',
+                message: err.message || 'Erro inesperado ao agendar reengajamento.'
+            };
+        }
+    },
+
+    async getReengagementComparisonMetrics(tenantId: string, campaignId: string): Promise<import('@/lib/types').ReengagementComparisonData | null> {
+        try {
+            // 1. Obter campanha
+            const { data: camp } = await supabaseReader
+                .from('campaigns')
+                .select('id, name')
+                .eq('id', campaignId)
+                .single();
+
+            const campaignName = camp?.name || 'Campanha';
+
+            // 2. Buscar todos os registros da outbound_queue desta campanha
+            const { data: rows, error } = await supabaseReader
+                .from('outbound_queue')
+                .select('id, contact_phone, status, response_detected, metadata, created_at, sent_at')
+                .eq('tenant_id', tenantId)
+                .eq('campaign_id', campaignId)
+                .limit(10000);
+
+            if (error || !rows) return null;
+
+            // Separar original vs reengajamento
+            const originalRows = rows.filter(r => !r.metadata?.is_reengagement);
+            const reengRows = rows.filter(r => !!r.metadata?.is_reengagement);
+
+            const calcMetrics = (list: typeof rows) => {
+                const totalSent = list.filter(r => ['sent', 'delivered', 'read'].includes(String(r.status || ''))).length;
+                const delivered = list.filter(r => ['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(String(r.status || '')) || r.response_detected).length;
+                const read = list.filter(r => ['read', 'respondida', 'interagiu'].includes(String(r.status || ''))).length;
+                const replied = list.filter(r => r.response_detected || ['respondida', 'interagiu'].includes(String(r.status || ''))).length;
+                const failed = list.filter(r => ['failed', 'undelivered', 'error', 'not_delivered', 'rejected'].includes(String(r.status || ''))).length;
+
+                return {
+                    totalSent,
+                    delivered,
+                    deliveredRate: totalSent > 0 ? Math.round((delivered / totalSent) * 100) : 0,
+                    read,
+                    readRate: delivered > 0 ? Math.round((read / delivered) * 100) : 0,
+                    replied,
+                    replyRate: delivered > 0 ? Math.round((replied / delivered) * 100) : 0,
+                    optIn: 0,
+                    optInRate: 0,
+                    failed,
+                    failedRate: list.length > 0 ? Math.round((failed / list.length) * 100) : 0,
+                    conversions: 0,
+                    conversionRate: 0
+                };
+            };
+
+            const origMetrics = calcMetrics(originalRows);
+            const reengMetrics = calcMetrics(reengRows);
+
+            // 3. Buscar métricas consolidadas oficiais do envio original via getCreditCampaignFunnelStats
+            try {
+                const getFunnel = (this?.getCreditCampaignFunnelStats ? this.getCreditCampaignFunnelStats.bind(this) : campaignsService.getCreditCampaignFunnelStats);
+                const funnelStats = await getFunnel(tenantId);
+                const targetCampId = String(campaignId || '').toLowerCase().trim();
+                const campStat = (funnelStats || []).find((s: any) => String(s.campaignId || '').toLowerCase().trim() === targetCampId) || null;
+
+                if (campStat) {
+                    origMetrics.totalSent = Number(campStat.enviados || 0);
+                    origMetrics.delivered = Number(campStat.entregues || 0);
+                    origMetrics.deliveredRate = origMetrics.totalSent > 0 ? Math.round((origMetrics.delivered / origMetrics.totalSent) * 100) : 0;
+                    origMetrics.read = Number(campStat.lidas || 0);
+                    origMetrics.readRate = origMetrics.delivered > 0 ? Math.round((origMetrics.read / origMetrics.delivered) * 100) : 0;
+                    origMetrics.replied = Number(campStat.interagiram || 0);
+                    origMetrics.replyRate = origMetrics.delivered > 0 ? Math.round((origMetrics.replied / origMetrics.delivered) * 100) : 0;
+                    origMetrics.optIn = Number(campStat.optIn || campStat.opt_in || 0);
+                    origMetrics.optInRate = origMetrics.delivered > 0 ? Math.round((origMetrics.optIn / origMetrics.delivered) * 100) : 0;
+                    origMetrics.conversions = Number(campStat.aprovados || 0);
+                    origMetrics.conversionRate = origMetrics.delivered > 0 ? Math.round((origMetrics.conversions / origMetrics.delivered) * 100) : 0;
+                    origMetrics.failed = Math.max(0, origMetrics.totalSent - origMetrics.delivered);
+                    origMetrics.failedRate = origMetrics.totalSent > 0 ? Math.round((origMetrics.failed / origMetrics.totalSent) * 100) : 0;
+                }
+            } catch (funnelErr) {
+                console.warn('Nota: usando fallback local para métricas originais:', funnelErr);
+            }
+
+            // 4. Buscar conversões em agent_leads cruzando com os telefones de reengajamento
+            const reengPhones = new Set(reengRows.map(r => this.normalizePhone(r.contact_phone)));
+            const origPhones = new Set(originalRows.map(r => this.normalizePhone(r.contact_phone)));
+
+            const allPhonesToQuery = Array.from(new Set([...Array.from(origPhones), ...Array.from(reengPhones)]));
+            if (allPhonesToQuery.length > 0) {
+                const { data: leads } = await supabaseReader
+                    .from('agent_leads')
+                    .select('whatsapp, status, metadata')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', allPhonesToQuery);
+
+                if (leads) {
+                    leads.forEach(l => {
+                        const ph = this.normalizePhone(l.whatsapp);
+                        const meta = l.metadata || {};
+                        const fiservStatus = String(meta.fiserv_status || '').toLowerCase().trim();
+                        const statusStr = String(l.status || '').toLowerCase().trim();
+
+                        const isConverted =
+                            ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
+                            ['approved', 'aprovado', 'formalized', 'pago'].includes(statusStr) ||
+                            ['approved', 'formalized', 'pago'].includes(String(meta.formalization_status || '').toLowerCase());
+
+                        if (isConverted) {
+                            if (reengPhones.has(ph)) {
+                                reengMetrics.conversions += 1;
+                            } else if (origPhones.has(ph) && origMetrics.conversions === 0) {
+                                origMetrics.conversions += 1;
+                            }
+                        }
+                    });
+                }
+            }
+
+            origMetrics.conversionRate = origMetrics.delivered > 0 ? Math.round((origMetrics.conversions / origMetrics.delivered) * 100) : 0;
+            reengMetrics.conversionRate = reengMetrics.delivered > 0 ? Math.round((reengMetrics.conversions / reengMetrics.delivered) * 100) : 0;
+
+            // 4. Buscar histórico de lotes da tabela campaign_recovery_logs
+            const { data: batches } = await supabaseReader
+                .from('campaign_recovery_logs')
+                .select('*')
+                .eq('tenant_id', tenantId)
+                .eq('campaign_id', campaignId)
+                .order('started_at', { ascending: false });
+
+            const extraReplies = reengMetrics.replied;
+            const extraConversions = reengMetrics.conversions;
+            const replyGrowthPct = origMetrics.replied > 0 ? Math.round((extraReplies / origMetrics.replied) * 100) : 0;
+            const conversionGrowthPct = origMetrics.conversions > 0 ? Math.round((extraConversions / origMetrics.conversions) * 100) : 0;
+
+            return {
+                campaignId,
+                campaignName,
+                original: origMetrics,
+                reengagement: reengMetrics,
+                delta: {
+                    extraReplies,
+                    extraConversions,
+                    replyGrowthPct,
+                    conversionGrowthPct
+                },
+                batches: batches || []
+            };
+        } catch (err) {
+            console.error('Erro em getReengagementComparisonMetrics:', err);
+            return null;
+        }
+    },
+
     async getCreditCampaignFunnelStats(
         tenantId: string,
         campaignIds?: string[],
@@ -1102,6 +1658,295 @@ async deleteCampaign(id: string): Promise<void> {
         } catch (err) {
             console.error('Error fetching fallback credit funnel stats:', err);
             return [];
+        }
+    },
+
+    /**
+     * Realiza auditoria prévia da lista de contatos carregados para uma campanha.
+     * Separa os registros em 3 categorias:
+     *  - valid: nunca tentados ou com mensagem entregue no celular, sem recusa recente (<60d). Marcado por padrão.
+     *  - undelivered: histórico de mensagem anterior que falhou / não chegou ao celular. Desmarcado por padrão.
+     *  - refused_60d: proposta recusada/negada nos últimos 60 dias. Desmarcado por padrão.
+     */
+    async auditCampaignLeads(
+        tenantId: string,
+        rawContacts: Array<{
+            name: string;
+            phone: string;
+            identifier: string;
+            ctaLink?: string;
+            rowNumber: number;
+            rawData?: any;
+        }>
+    ): Promise<import('@/lib/types').AuditedLeadItem[]> {
+        if (!tenantId || rawContacts.length === 0) return [];
+
+        const cleanIdentifiers: string[] = [];
+        const cleanPhonesSet = new Set<string>();
+
+        // Prepara coleções para busca em lote
+        rawContacts.forEach(c => {
+            const rawId = String(c.identifier || '').replace(/\D/g, '');
+            if (rawId) {
+                const idPad = rawId.length < 14 ? rawId.padStart(14, '0') : rawId;
+                cleanIdentifiers.push(idPad);
+            }
+
+            const rawPh = String(c.phone || '').replace(/\D/g, '');
+            if (rawPh) {
+                cleanPhonesSet.add(rawPh);
+                if (rawPh.startsWith('55') && rawPh.length > 11) {
+                    cleanPhonesSet.add(rawPh.slice(2));
+                } else if (!rawPh.startsWith('55')) {
+                    cleanPhonesSet.add(`55${rawPh}`);
+                }
+            }
+        });
+
+        const allPhones = Array.from(cleanPhonesSet);
+
+        // Mapas de inteligência
+        // 1. Mapa de Recusas Recentes (CNPJ ou Telefone -> { daysAgo, reason, status })
+        const refusalMap = new Map<string, { daysAgo: number; reason: string; status: string }>();
+
+        // 2. Mapa de Histórico de Entregas (Telefone -> { hasSuccess, lastFailureStatus, lastError })
+        const deliveryMap = new Map<string, { hasSuccess: boolean; hasFailure: boolean; lastError?: string }>();
+
+        // Busca em lotes de 300 para segurança de rede
+        const chunkSize = 300;
+
+        // A. Consultar agent_leads para verificar recusas de crédito nos últimos 60 dias
+        for (let i = 0; i < cleanIdentifiers.length; i += chunkSize) {
+            const idChunk = cleanIdentifiers.slice(i, i + chunkSize);
+            try {
+                const { data, error } = await supabaseReader
+                    .from('agent_leads')
+                    .select('identifier, whatsapp, status, metadata, pipeline_stage, created_at, updated_at')
+                    .eq('tenant_id', tenantId)
+                    .in('identifier', idChunk);
+
+                if (!error && data) {
+                    data.forEach((lead: any) => {
+                        const meta = lead.metadata || {};
+                        const fiservStatus = String(meta.fiserv_status || lead.status || '').toLowerCase().trim();
+                        const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
+                        const pipeStage = String(lead.pipeline_stage || '').toLowerCase().trim();
+                        const lostReason = String(meta.lost_reason || '').toLowerCase().trim();
+
+                        const isDeclined =
+                            pipeStage === 'declined' ||
+                            ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                            ['lost', 'denied', 'recusado', 'reprovado', 'declined'].includes(formalStatus) ||
+                            lostReason.includes('crédito') ||
+                            lostReason.includes('reprovad') ||
+                            lostReason.includes('politica');
+
+                        if (isDeclined) {
+                            const deniedDateRaw =
+                                meta.fiserv_last_audit_at ||
+                                meta.lost_at ||
+                                meta.refusal_date ||
+                                meta.fiserv_requested_at ||
+                                lead.updated_at ||
+                                lead.created_at;
+
+                            const deniedDate = new Date(deniedDateRaw);
+                            if (!isNaN(deniedDate.getTime())) {
+                                const diffTime = Math.abs(Date.now() - deniedDate.getTime());
+                                const daysAgo = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+                                if (daysAgo <= 60) {
+                                    const reason = meta.lost_reason || meta.refusal_reason || 'Proposta recusada em análise de crédito';
+                                    const refInfo = { daysAgo, reason, status: fiservStatus || formalStatus || 'declined' };
+
+                                    const cleanId = String(lead.identifier || '').replace(/\D/g, '').padStart(14, '0');
+                                    if (cleanId) refusalMap.set(cleanId, refInfo);
+
+                                    const cleanPh = String(lead.whatsapp || '').replace(/\D/g, '');
+                                    if (cleanPh) refusalMap.set(cleanPh, refInfo);
+                                }
+                            }
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn('Erro ao consultar agent_leads para auditoria prévia:', err);
+            }
+        }
+
+        // B. Consultar outbound_queue para verificar histórico de entrega de mensagens
+        for (let i = 0; i < allPhones.length; i += chunkSize) {
+            const phoneChunk = allPhones.slice(i, i + chunkSize);
+            try {
+                const { data, error } = await supabaseReader
+                    .from('outbound_queue')
+                    .select('contact_phone, status, error_message, created_at, updated_at')
+                    .eq('tenant_id', tenantId)
+                    .in('contact_phone', phoneChunk);
+
+                if (!error && data) {
+                    data.forEach((row: any) => {
+                        const rawPh = String(row.contact_phone || '').replace(/\D/g, '');
+                        if (!rawPh) return;
+
+                        const st = String(row.status || '').toLowerCase().trim();
+                        const isDelivered = st === 'delivered' || st === 'read' || st === 'sent_success';
+                        const isFailed = st === 'failed' || st === 'undelivered' || st === 'error';
+
+                        const prev = deliveryMap.get(rawPh) || { hasSuccess: false, hasFailure: false };
+                        if (isDelivered) prev.hasSuccess = true;
+                        if (isFailed) {
+                            prev.hasFailure = true;
+                            if (row.error_message) prev.lastError = row.error_message;
+                        }
+
+                        deliveryMap.set(rawPh, prev);
+
+                        // Mapear também a variante com/sem 55
+                        if (rawPh.startsWith('55') && rawPh.length > 11) {
+                            deliveryMap.set(rawPh.slice(2), prev);
+                        } else if (!rawPh.startsWith('55')) {
+                            deliveryMap.set(`55${rawPh}`, prev);
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn('Erro ao consultar outbound_queue para auditoria de entrega:', err);
+            }
+        }
+
+        // C. Classificação de cada contato da planilha
+        return rawContacts.map((contact, idx) => {
+            const rawId = String(contact.identifier || '').replace(/\D/g, '');
+            const cleanId = rawId.length > 0 && rawId.length < 14 ? rawId.padStart(14, '0') : rawId;
+            const rawPh = String(contact.phone || '').replace(/\D/g, '');
+
+            // 1. Checagem de Recusa nos últimos 60 dias (Prioridade Máxima)
+            const refusalByCnpj = cleanId ? refusalMap.get(cleanId) : undefined;
+            const refusalByPhone = rawPh ? refusalMap.get(rawPh) : undefined;
+            const refusal = refusalByCnpj || refusalByPhone;
+
+            if (refusal && refusal.daysAgo <= 60) {
+                return {
+                    id: `audit-${contact.rowNumber}-${idx}`,
+                    rowNumber: contact.rowNumber,
+                    name: contact.name,
+                    phone: contact.phone,
+                    identifier: cleanId,
+                    ctaLink: contact.ctaLink,
+                    category: 'refused_60d' as const,
+                    selected: false, // Desmarcado por padrão
+                    reason: `Recusado há ${refusal.daysAgo} dia(s) (${refusal.reason || 'Crédito negado'})`,
+                    refusalDaysAgo: refusal.daysAgo,
+                    rawData: contact.rawData
+                };
+            }
+
+            // 2. Checagem de Falha de Entrega Prévia
+            const deliveryInfo = rawPh ? deliveryMap.get(rawPh) : undefined;
+            // Se já tentamos antes, teve falha e NUNCA teve uma entrega confirmada posterior
+            if (deliveryInfo && deliveryInfo.hasFailure && !deliveryInfo.hasSuccess) {
+                return {
+                    id: `audit-${contact.rowNumber}-${idx}`,
+                    rowNumber: contact.rowNumber,
+                    name: contact.name,
+                    phone: contact.phone,
+                    identifier: cleanId,
+                    ctaLink: contact.ctaLink,
+                    category: 'undelivered' as const,
+                    selected: false, // Desmarcado por padrão
+                    reason: deliveryInfo.lastError 
+                        ? `Mensagem não chegou ao aparelho: ${deliveryInfo.lastError}` 
+                        : 'Tentativa anterior sem entrega no celular (Número com erro ou sem WhatsApp)',
+                    refusalDaysAgo: null,
+                    rawData: contact.rawData
+                };
+            }
+
+            // 3. Contato Válido / Pronto para Envio
+            // (Nunca tentado OU já tentado com entrega de mensagem confirmada, sem recusa recente)
+            return {
+                id: `audit-${contact.rowNumber}-${idx}`,
+                rowNumber: contact.rowNumber,
+                name: contact.name,
+                phone: contact.phone,
+                identifier: cleanId,
+                ctaLink: contact.ctaLink,
+                category: 'valid' as const,
+                selected: true, // Marcado por padrão
+                reason: deliveryInfo?.hasSuccess 
+                    ? 'Contato já validado anteriormente com entrega confirmada' 
+                    : 'Apto para envio',
+                refusalDaysAgo: null,
+                rawData: contact.rawData
+            };
+        });
+    },
+
+    /**
+     * Persiste o relatório de auditoria de despacho de campanha.
+     * Grava na tabela campaign_dispatch_audits e salva logs individuais
+     * de itens desmarcados em campaign_import_logs para auditoria completa.
+     */
+    async recordCampaignDispatchAudit(audit: import('@/lib/types').CampaignDispatchAudit): Promise<void> {
+        try {
+            // 1. Tentar salvar na tabela dedicada de auditoria de despacho
+            const { error } = await supabase.from('campaign_dispatch_audits').insert({
+                tenant_id: audit.tenantId,
+                campaign_id: audit.campaignId,
+                imported_by: audit.importedBy || null,
+                file_name: audit.fileName || 'importacao_campanha.csv',
+                total_uploaded: audit.totalUploaded,
+                total_sent: audit.totalSent,
+                total_skipped: audit.totalSkipped,
+                summary: audit.summary,
+                records: audit.records
+            });
+
+            if (error) {
+                console.warn('Nota: campaign_dispatch_audits não disponível diretamente ou pendente de migração remota:', error.message);
+            }
+        } catch (e) {
+            console.warn('Erro ao gravar campaign_dispatch_audits:', e);
+        }
+
+        // 2. Registrar no campaign_import_logs todos os registros desmarcados com os motivos correspondentes
+        try {
+            const skippedRecords = audit.records.filter(r => !r.selected);
+            if (skippedRecords.length > 0) {
+                const logsToInsert: Partial<import('@/lib/types').CampaignImportLog>[] = skippedRecords.map((r, i) => {
+                    let errorType: import('@/lib/types').CampaignImportLog['errorType'] = 'SKIPPED_BY_OPERATOR';
+                    if (r.category === 'refused_60d') {
+                        errorType = 'CREDIT_REFUSED_60D';
+                    } else if (r.category === 'undelivered') {
+                        errorType = 'PREVIOUS_DELIVERY_FAILURE';
+                    }
+
+                    return {
+                        campaignId: audit.campaignId,
+                        tenantId: audit.tenantId,
+                        rowNumber: i + 1,
+                        contactName: r.name,
+                        contactPhone: r.phone,
+                        errorType,
+                        errorMessage: `Desmarcado para envio: ${r.reason}`,
+                        rawData: {
+                            identifier: r.identifier,
+                            category: r.category,
+                            refusalDaysAgo: r.refusalDaysAgo,
+                            skippedAt: new Date().toISOString()
+                        }
+                    };
+                });
+
+                // Inserir em chunks de 500
+                const chunk = 500;
+                for (let i = 0; i < logsToInsert.length; i += chunk) {
+                    await this.logImportErrors(logsToInsert.slice(i, i + chunk));
+                }
+            }
+        } catch (err) {
+            console.warn('Erro ao registrar contatos desmarcados em campaign_import_logs:', err);
         }
     }
 };

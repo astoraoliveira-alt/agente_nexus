@@ -21,11 +21,12 @@ const renderWhatsAppText = (text: string) => {
 };
 import { useApp } from "@/contexts/AppContext";
 import { api } from "@/services/api";
-import { Campaign, CampaignStatus, Agent, CampaignImportLog } from "@/lib/types";
+import { Campaign, CampaignStatus, Agent, CampaignImportLog, AuditedLeadItem } from "@/lib/types";
 import { normalizeMessagingText } from "@/lib/message-formatting";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import Papa from "papaparse";
+import { CampaignLeadAuditDialog } from "@/components/campaigns/CampaignLeadAuditDialog";
 import {
     Megaphone,
     Plus,
@@ -151,7 +152,7 @@ type CampaignImportRow = {
 };
 
 export default function Campaigns() {
-    const { currentTenant, hasPermission } = useApp();
+    const { currentTenant, currentUser, hasPermission } = useApp();
     const { toast } = useToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
     const [agents, setAgents] = useState<Agent[]>([]);
@@ -772,8 +773,167 @@ export default function Campaigns() {
             });
             return;
         }
-        
+
         setImportData(processed);
+    };
+
+    const handleConfirmAuditedDispatch = async (
+        selectedLeads: AuditedLeadItem[],
+        allAuditedLeads: AuditedLeadItem[],
+        fileName: string,
+        targetCampaignId: string
+    ) => {
+        if (!currentTenant || !targetCampaignId || selectedLeads.length === 0) return;
+
+        setIsImporting(true);
+        const campaign = campaigns.find(c => c.id === targetCampaignId);
+        if (!campaign) {
+            setIsImporting(false);
+            return;
+        }
+
+        try {
+            const validContactsMap: Record<string, any> = {};
+            const validLeadsByIdentifier: Record<string, any> = {};
+
+            selectedLeads.forEach((item) => {
+                const rawPhone = item.phone;
+                const rawIdentifier = item.identifier;
+                const sanitizedLink = sanitizeUrlValue(item.ctaLink);
+                const cleanPhone = rawPhone.replace(/\D/g, '');
+                let cleanIdentifier = rawIdentifier.replace(/\D/g, '');
+
+                if (cleanIdentifier && cleanIdentifier.length > 0 && cleanIdentifier.length < 14) {
+                    cleanIdentifier = cleanIdentifier.padStart(14, '0');
+                }
+
+                let phone = cleanPhone;
+                if ((phone.length === 10 || phone.length === 11) && !phone.startsWith('55')) {
+                    phone = '55' + phone;
+                }
+
+                validContactsMap[phone] = {
+                    ...item,
+                    phone,
+                    identifier: cleanIdentifier,
+                    ctaLink: sanitizedLink
+                };
+
+                validLeadsByIdentifier[cleanIdentifier] = {
+                    tenantId: currentTenant.id,
+                    campaignId: campaign.id,
+                    identifier: cleanIdentifier,
+                    identifierType: 'cnpj',
+                    name: item.name,
+                    whatsapp: phone,
+                    ctaLink: sanitizedLink || null,
+                    status: 'pending',
+                    metadata: {
+                        source: 'campaign_import',
+                        campaign_id: campaign.id,
+                        cnpj: cleanIdentifier,
+                        razao_social: item.name,
+                        cta_link: sanitizedLink || null,
+                        audit_category: item.category,
+                        audit_reason: item.reason
+                    }
+                };
+            });
+
+            const finalContactsToInsert = Object.values(validContactsMap).map(item => {
+                const baseMessage = normalizeMessagingText(campaign.initialMessage || "");
+                const personalizedMessage = baseMessage.replace(/{{nome}}/gi, item.name || "Cliente");
+
+                return {
+                    tenantId: currentTenant.id,
+                    agentId: campaign.agentId,
+                    campaignId: campaign.id,
+                    contactName: item.name,
+                    contactPhone: item.phone,
+                    status: 'pending' as const,
+                    metadata: {
+                        content: personalizedMessage,
+                        cnpj: item.identifier,
+                        identifier: item.identifier,
+                        razao_social: item.name,
+                        cta_link: item.ctaLink || campaign.metadata?.zenvia_cta_link || null,
+                        template_id: campaign.metadata?.template_id || null,
+                        zenvia_image_url: campaign.metadata?.zenvia_image_url || null,
+                        audit_category: item.category,
+                        audit_reason: item.reason
+                    }
+                };
+            });
+
+            // 1. Batch upload na outbound_queue
+            const chunkSize = 500;
+            for (let i = 0; i < finalContactsToInsert.length; i += chunkSize) {
+                const chunk = finalContactsToInsert.slice(i, i + chunkSize);
+                await api.addToOutboundQueue(chunk);
+            }
+
+            // 2. Upsert em agent_leads
+            const leadsToUpsert = Object.values(validLeadsByIdentifier);
+            for (let i = 0; i < leadsToUpsert.length; i += chunkSize) {
+                const chunk = leadsToUpsert.slice(i, i + chunkSize);
+                await api.upsertAgentLeads(chunk);
+            }
+
+            // 3. Auditoria Persistente de Despacho (Salva registros marcados, desmarcados e motivos)
+            const summary = {
+                validTotal: allAuditedLeads.filter(l => l.category === 'valid').length,
+                undeliveredTotal: allAuditedLeads.filter(l => l.category === 'undelivered').length,
+                refused60dTotal: allAuditedLeads.filter(l => l.category === 'refused_60d').length,
+                selectedValid: selectedLeads.filter(l => l.category === 'valid').length,
+                selectedUndelivered: selectedLeads.filter(l => l.category === 'undelivered').length,
+                selectedRefused: selectedLeads.filter(l => l.category === 'refused_60d').length
+            };
+
+            await api.recordCampaignDispatchAudit({
+                tenantId: currentTenant.id,
+                campaignId: campaign.id,
+                importedBy: currentUser?.id,
+                fileName: fileName || 'importacao_campanha.csv',
+                totalUploaded: allAuditedLeads.length,
+                totalSent: selectedLeads.length,
+                totalSkipped: allAuditedLeads.length - selectedLeads.length,
+                summary,
+                records: allAuditedLeads.map(l => ({
+                    name: l.name,
+                    phone: l.phone,
+                    identifier: l.identifier,
+                    category: l.category,
+                    selected: l.selected,
+                    reason: l.reason,
+                    refusalDaysAgo: l.refusalDaysAgo || null
+                }))
+            });
+
+            // 4. Sincronização de Contador Real
+            const allContacts = await api.getOutboundQueue(currentTenant.id, undefined, campaign.id);
+            const realTotal = allContacts.length;
+
+            await api.updateCampaign(campaign.id, {
+                totalContacts: realTotal
+            });
+
+            toast({
+                title: "Importação e auditoria concluídas!",
+                description: `${selectedLeads.length} contatos enfileirados para disparo. Histórico de auditoria registrado.`,
+            });
+            setIsImportOpen(false);
+            await loadData();
+            await handleViewContacts(campaign.id);
+        } catch (error: any) {
+            console.error("Import error:", error);
+            toast({
+                title: "Erro na importação",
+                description: getImportErrorMessage(error),
+                variant: "destructive",
+            });
+        } finally {
+            setIsImporting(false);
+        }
     };
 
     const handleImportContacts = async () => {
@@ -2370,102 +2530,17 @@ export default function Campaigns() {
                 </div>
             </div>
 
-            {/* Import Modal */}
-            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
-                <DialogContent className="sm:max-w-[500px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
-                    <DialogHeader className="p-6 pb-2">
-                        <DialogTitle className="text-2xl font-bold text-accent">Importar Leads</DialogTitle>
-                        <DialogDescription className="text-xs">
-                            Carregue arquivos .csv, .xls ou .xlsx com as colunas <strong>CNPJ</strong>, <strong>Whatsapp</strong> e <strong>Razão Social</strong>.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <div className="flex-1 overflow-y-auto px-6 py-2 pb-6 space-y-6 custom-scrollbar">
-                        <div className="grid gap-2 text-sm">
-                            <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Campanha de Destino</Label>
-                            <Select onValueChange={setSelectedCampaignForImport} value={selectedCampaignForImport || ""}>
-                                <SelectTrigger className="bg-accent/5 h-10">
-                                    <SelectValue placeholder="Escolha a Campanha Ativa" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {campaigns.filter(c => c.status === 'active').map(c => (
-                                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="grid gap-4">
-                            <Label className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Arquivo de Contatos</Label>
-                            <div
-                                onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-accent/20 rounded-xl p-8 flex flex-col items-center justify-center gap-3 bg-accent/5 hover:bg-accent/10 cursor-pointer transition-colors"
-                            >
-                                <FileUp className="h-8 w-8 text-accent opacity-50" />
-                                <div className="text-center">
-                                    <p className="text-sm font-bold">Clique para selecionar</p>
-                                    <p className="text-xs text-muted-foreground mt-1">ou arraste o arquivo aqui</p>
-                                </div>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    className="hidden"
-                                    accept=".csv, .xlsx, .xls"
-                                    onChange={handleFileUpload}
-                                />
-                            </div>
-
-                            {importData.length > 0 && (
-                                <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2">
-                                    <div className="flex items-center justify-between p-3 bg-green-500/5 border border-green-500/15 rounded-xl text-[11px] text-green-600">
-                                        <span className="flex items-center gap-1.5 font-bold">
-                                            <ShieldCheck className="h-4 w-4" />
-                                            {importData.length} registros prontos
-                                        </span>
-                                        <Button variant="ghost" size="sm" className="h-7 text-[10px] hover:bg-red-50 hover:text-red-500 font-bold" onClick={() => setImportData([])}>
-                                            Limpar
-                                        </Button>
-                                    </div>
-                                    
-                                    <div className="p-4 bg-muted/30 border border-border/50 rounded-xl">
-                                        <p className="text-[10px] font-bold text-muted-foreground uppercase mb-3 tracking-wider flex items-center gap-2">
-                                            <Activity className="w-3 h-3" />
-                                            Amostra dos Dados
-                                        </p>
-                                        <div className="space-y-2">
-                                            {importData.slice(0, 3).map((item, i) => (
-                                                <div key={i} className="flex items-center justify-between text-[11px] bg-background/80 p-2 rounded border border-border/20 shadow-sm">
-                                                    <div className="min-w-0">
-                                                        <div className="font-medium truncate max-w-[180px]">{item.name}</div>
-                                                        <div className="text-[10px] text-muted-foreground truncate max-w-[180px]">{item.identifier}</div>
-                                                    </div>
-                                                    <span className="font-mono text-accent font-bold">{item.phone}</span>
-                                                </div>
-                                            ))}
-                                            {importData.length > 3 && (
-                                                <p className="text-[10px] text-center text-muted-foreground italic pt-2 border-t border-border/10">...e outros {importData.length - 3} contatos</p>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-
-                    </div>
-
-                    <DialogFooter className="p-6 bg-slate-50/50 border-t border-border/50 gap-3">
-                        <Button variant="ghost" onClick={() => setIsImportOpen(false)} className="text-slate-500">Cancelar</Button>
-                                                        <Button
-                            onClick={handleImportContacts}
-                            className="bg-accent hover:bg-accent/90 px-8 font-bold"
-                            disabled={importData.length === 0 || !selectedCampaignForImport || isImporting}
-                        >
-                            {isImporting ? "Processando..." : `Importar Carga`}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            {/* Modal de Importação com Auditoria Prévia em 3 Abas */}
+            <CampaignLeadAuditDialog
+                open={isImportOpen}
+                onOpenChange={setIsImportOpen}
+                campaigns={campaigns}
+                selectedCampaignId={selectedCampaignForImport}
+                onSelectCampaign={setSelectedCampaignForImport}
+                tenantId={currentTenant?.id || ''}
+                onConfirmDispatch={handleConfirmAuditedDispatch}
+                isImporting={isImporting}
+            />
 
 
             {/* View Contacts Modal */}

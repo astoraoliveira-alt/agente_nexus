@@ -1,4 +1,4 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target, Layers } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target, Layers, RotateCcw } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { EdenredConversionBanner } from '@/components/dashboard/EdenredConversionBanner';
@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ABPerformanceArena } from '@/components/dashboard/ABPerformanceArena';
 import { CampaignExecutiveView } from '@/components/dashboard/CampaignExecutiveView';
 import { CreditCampaignFunnelView } from '@/components/dashboard/CreditCampaignFunnelView';
+import { ReengagementComparisonView } from '@/components/dashboard/ReengagementComparisonView';
 
 const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 
@@ -91,6 +92,13 @@ export default function Index() {
                   <Layers className="w-4 h-4 text-slate-500" />
                   Painel Geral de Disparos
                 </TabsTrigger>
+                <TabsTrigger 
+                  value="reengagement-comparison"
+                  className="gap-2 px-4 py-2 text-xs font-bold data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm rounded-lg"
+                >
+                  <RotateCcw className="w-4 h-4 text-blue-600" />
+                  Comparativo de Reengajamento
+                </TabsTrigger>
               </TabsList>
             </div>
 
@@ -100,6 +108,10 @@ export default function Index() {
 
             <TabsContent value="campaign-overview" className="mt-0 focus-visible:outline-none">
               <CampaignExecutiveView />
+            </TabsContent>
+
+            <TabsContent value="reengagement-comparison" className="mt-0 focus-visible:outline-none">
+              <ReengagementComparisonView />
             </TabsContent>
           </Tabs>
         </div>
