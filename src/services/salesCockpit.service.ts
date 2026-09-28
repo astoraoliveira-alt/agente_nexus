@@ -112,24 +112,100 @@ export function getPhoneVariations(phoneRaw: string): string[] {
 }
 
 /**
- * Verifica estritamente se o lead aceitou / deu OK na proposta enviada.
- * Apenas conversas onde o cliente confirmou expressamente o aceite da proposta (ou a formalização foi confirmada pela IA)
- * devem entrar na fila do Cockpit de Vendas.
+ * Verifica estritamente se o lead completou com sucesso o funil de crédito e aceitou a proposta formal.
+ * 
+ * Regras mandatórias:
+ * 1. Leads recusados pela Fiserv / comitê de crédito NUNCA podem ser aceitos no Cockpit.
+ * 2. Mensagens de autorização de consulta LGPD ("SIM, AUTORIZO") NÃO são aceite de proposta de crédito.
+ * 3. O funil só é considerado completo se:
+ *    a) A IA Sofia confirmou formalmente o encaminhamento aos especialistas / formalização; OU
+ *    b) Houve uma mensagem real de proposta simulada ("Simulação concluída...", com parcelas/taxas) E o cliente confirmou o aceite expressamente após ela, sem cancelamento ou recusa posterior; OU
+ *    c) O lead possui marcação formal de aceite de simulação no banco (simulation_accepted = true) e NÃO foi recusado pela Fiserv.
  */
 export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
-  // 1. Verificação formal no banco de dados (agent_leads)
+  // 1. Verificação primária de RECUSA / NEGATIVA do comitê Fiserv nos metadados
+  const meta = enrichedLead?.metadata || {};
+  const fiservStatus = String(meta.fiserv_status || '').toLowerCase();
+  const outcome = String(meta.outcome || '').toLowerCase();
+  const formalStatus = String(meta.formalization_status || '').toLowerCase();
+  const leadStatus = String(enrichedLead?.status || '').toLowerCase();
+
+  // Se o lead foi reprovado/negado pelo comitê ou cancelado, DESCARTA IMEDIATAMENTE
   if (
-    enrichedLead?.metadata?.simulation_accepted === true ||
-    enrichedLead?.metadata?.accepted_proposal != null ||
-    ['waiting_contact', 'in_service', 'formalized', 'contract_sent', 'contract_signed', 'lost', 'cancelled', 'declined'].includes(enrichedLead?.metadata?.formalization_status) ||
-    ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(enrichedLead?.status)
+    ['denied', 'fails_to_process', 'lost', 'cancelled', 'rejected'].includes(fiservStatus) ||
+    outcome === 'rejected' ||
+    ['cancelled', 'rejected', 'denied'].includes(leadStatus) ||
+    (formalStatus === 'lost' && !meta.simulation_accepted)
+  ) {
+    return false;
+  }
+
+  // 2. Verificação de mensagem explícita de RECUSA do comitê de crédito no histórico de mensagens
+  if (mList && mList.length > 0) {
+    let lastRejectionIdx = -1;
+    let lastApprovalOrHandoffIdx = -1;
+
+    for (let i = 0; i < mList.length; i++) {
+      const m = mList[i];
+      const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+      if (!isBot) continue;
+
+      const txt = String(m.content || '').toLowerCase();
+
+      // Padrões inequívocos da mensagem de recusa do comitê Fiserv
+      const isRejection = (
+        txt.includes('infelizmente não conseguimos liberar uma oferta de crédito') ||
+        txt.includes('infelizmente nao conseguimos liberar uma oferta de credito') ||
+        (txt.includes('comitê fiserv') && txt.includes('infelizmente não conseguimos')) ||
+        (txt.includes('comite fiserv') && txt.includes('infelizmente nao conseguimos')) ||
+        (txt.includes('comitê fiserv') && txt.includes('não conseguimos')) ||
+        (txt.includes('comite fiserv') && txt.includes('nao conseguimos')) ||
+        txt.includes('motivo:* análise de crédito') ||
+        txt.includes('motivo:* analise de credito') ||
+        txt.includes('tentar novamente em *30 dias') ||
+        txt.includes('tentar novamente em ~30 dias')
+      );
+
+      if (isRejection) {
+        lastRejectionIdx = i;
+      }
+
+      // Mensagens que indicam aprovação posterior ou encaminhamento para especialistas
+      const isApprovalOrHandoff = (
+        txt.includes('especialistas entrará em contato com você') ||
+        txt.includes('especialistas entrara em contato com voce') ||
+        txt.includes('especialistas entrará em contato para pegar') ||
+        txt.includes('especialistas entrara em contato para pegar') ||
+        txt.includes('enviei a sua solicitação para formalização') ||
+        txt.includes('enviei a sua solicitacao para formalizacao') ||
+        txt.includes('fase final de assinatura e formalização') ||
+        txt.includes('fase final de assinatura e formalizacao')
+      );
+
+      if (isApprovalOrHandoff) {
+        lastApprovalOrHandoffIdx = i;
+      }
+    }
+
+    // Se houve recusa e ela foi posterior a qualquer aprovação (ou não houve aprovação), o lead está RECUSADO
+    if (lastRejectionIdx !== -1 && lastRejectionIdx > lastApprovalOrHandoffIdx) {
+      return false;
+    }
+  }
+
+  // 3. Verificação formal no banco de dados (apenas status positivos válidos de formalização)
+  if (
+    meta.simulation_accepted === true ||
+    meta.accepted_proposal != null ||
+    ['waiting_contact', 'in_service', 'formalized', 'contract_sent', 'contract_signed'].includes(formalStatus) ||
+    ['formalization_pending', 'finalizacao_sucesso'].includes(leadStatus)
   ) {
     return true;
   }
 
   if (!mList || mList.length === 0) return false;
 
-  // 2. Verificação de mensagem de confirmação de envio para formalização enviada pela IA
+  // 4. Verificação de mensagem de confirmação de envio para formalização enviada pela IA
   const hasFormalizationConfirmedByAi = mList.some(m => {
     const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
     if (!isBot) return false;
@@ -141,6 +217,8 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
       txt.includes('registramos o seu interesse nessas condicoes') ||
       txt.includes('especialistas entrará em contato com você') ||
       txt.includes('especialistas entrara em contato com voce') ||
+      txt.includes('especialistas entrará em contato para pegar') ||
+      txt.includes('especialistas entrara em contato para pegar') ||
       txt.includes('fase final de assinatura e formalização') ||
       txt.includes('fase final de assinatura e formalizacao')
     );
@@ -150,25 +228,35 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
     return true;
   }
 
-  // 3. Localizar a última mensagem de proposta de simulação enviada pelo bot
+  // 5. Localizar a última mensagem de proposta de simulação real enviada pelo bot
+  // ATENÇÃO: NÃO usar frases preliminares como "Podemos seguir com a formalização", pois mensagens iniciais de campanha
+  // usam essa frase antes mesmo da LGPD! A proposta real contém valores calculados ou termo de simulação concluída.
   let lastSimIdx = -1;
   for (let i = 0; i < mList.length; i++) {
     const m = mList[i];
     const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
-    if (isBot && (/Simulação concluída/i.test(m.content || '') || /Podemos seguir com a formalização/i.test(m.content || ''))) {
-      lastSimIdx = i;
+    if (isBot) {
+      const text = String(m.content || '');
+      const isRealSimulation = (
+        /Simulação concluída/i.test(text) ||
+        (/Valor Solicitado:/i.test(text) && /Valor da Parcela:/i.test(text)) ||
+        (/Prazo:\s*\d+\s*parcelas/i.test(text) && /Valor da Parcela/i.test(text))
+      );
+      if (isRealSimulation) {
+        lastSimIdx = i;
+      }
     }
   }
 
-  // Se nenhuma proposta foi enviada, não há aceite de proposta
+  // Se nenhuma proposta real de simulação foi enviada, o lead ainda não chegou ao fim do funil!
   if (lastSimIdx === -1) {
     return false;
   }
 
-  // 4. Analisar as mensagens após a última proposta enviada
+  // 6. Analisar as mensagens após a última proposta simulada enviada
   const msgsAfterSim = mList.slice(lastSimIdx + 1);
   if (msgsAfterSim.length === 0) {
-    // Cliente ainda não respondeu à proposta
+    // Cliente ainda não respondeu à simulação
     return false;
   }
 
@@ -184,8 +272,9 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
         userRestartedOrCancelled = true;
         userAccepted = false;
       } else if (
-        /^(✅\s*)?(sim|s|ok|pode ser|pode seguir|quero seguir|autorizo|confirmo|pode formalizar|vamos em frente|fechou|👍\s*ok,?\s*entendi!?)$/i.test(text) ||
-        /\b(pode formalizar|quero formalizar|pode seguir com a formalização|fechar nesse valor)\b/i.test(text)
+        // Aceite da proposta simulada (NÃO confundir com "SIM, AUTORIZO" da LGPD)
+        /^(✅\s*)?(sim|s|ok|pode ser|pode seguir|quero seguir|confirmo|pode formalizar|vamos em frente|fechou|👍\s*ok,?\s*entendi!?)$/i.test(text) ||
+        /\b(pode formalizar|quero formalizar|pode seguir com a formalização|fechar nesse valor|fechar essa proposta)\b/i.test(text)
       ) {
         userAccepted = true;
         userRestartedOrCancelled = false;
@@ -197,7 +286,9 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
       }
       if (
         text.includes('enviei a sua solicitação para formalização') ||
-        text.includes('registramos o seu interesse nessas condições')
+        text.includes('registramos o seu interesse nessas condições') ||
+        text.includes('especialistas entrará em contato') ||
+        text.includes('especialistas entrara em contato')
       ) {
         userAccepted = true;
         userRestartedOrCancelled = false;
@@ -408,7 +499,6 @@ export const salesCockpitService = {
       }) => {
         const cleanPhone = String(params.phone || '').replace(/\D/g, '');
         if (!cleanPhone || processedPhones.has(cleanPhone)) return;
-        processedPhones.add(cleanPhone);
 
         // Buscar dados enriquecidos de cadastro (CNPJ, Razão Social)
         const enriched = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
@@ -420,12 +510,64 @@ export const salesCockpitService = {
             ...(params.metadata?.offer_data || {})
           }
         };
+
+        // 🛑 TRAVA DE SEGURANÇA 1: Se o lead ou conversa tiver marcação de recusa ou cancelamento, descarta imediatamente
+        const isDeniedOrLost = 
+          ['denied', 'fails_to_process', 'lost', 'cancelled', 'rejected'].includes(String(mergedMeta?.fiserv_status || '').toLowerCase()) ||
+          mergedMeta?.outcome === 'rejected' ||
+          ['cancelled', 'rejected', 'denied'].includes(String(enriched?.status || '').toLowerCase()) ||
+          (mergedMeta?.formalization_status === 'lost' && !mergedMeta?.simulation_accepted);
+
+        if (isDeniedOrLost) return;
+
+        // 🛑 TRAVA DE SEGURANÇA 2: Se houver mensagens na conversa indicando recusa do comitê de crédito sem aprovação posterior, descarta imediatamente
+        const conv = params.matchedConv || convByPhone.get(cleanPhone);
+        if (conv?.id && funnelMsgsByConv.has(conv.id)) {
+          const cMsgs = funnelMsgsByConv.get(conv.id) || [];
+          let rejectedIdx = -1;
+          let approvedIdx = -1;
+
+          for (let i = 0; i < cMsgs.length; i++) {
+            const m = cMsgs[i];
+            const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+            if (!isBot) continue;
+            const txt = String(m.content || '').toLowerCase();
+
+            if (
+              txt.includes('infelizmente não conseguimos liberar uma oferta de crédito') ||
+              txt.includes('infelizmente nao conseguimos liberar uma oferta de credito') ||
+              (txt.includes('comitê fiserv') && txt.includes('infelizmente não conseguimos')) ||
+              (txt.includes('comite fiserv') && txt.includes('infelizmente nao conseguimos')) ||
+              (txt.includes('comitê fiserv') && txt.includes('não conseguimos')) ||
+              (txt.includes('comite fiserv') && txt.includes('nao conseguimos')) ||
+              txt.includes('motivo:* análise de crédito') ||
+              txt.includes('motivo:* analise de credito')
+            ) {
+              rejectedIdx = i;
+            }
+
+            if (
+              txt.includes('especialistas entrará em contato') ||
+              txt.includes('especialistas entrara em contato') ||
+              txt.includes('enviei a sua solicitação para formalização') ||
+              txt.includes('fase final de assinatura')
+            ) {
+              approvedIdx = i;
+            }
+          }
+
+          if (rejectedIdx !== -1 && rejectedIdx > approvedIdx) {
+            return;
+          }
+        }
+
+        processedPhones.add(cleanPhone);
+
         const finalCnpj = params.cnpj || mergedMeta?.cnpj || enriched?.identifier;
         const finalName = (params.name && params.name !== 'Cliente' && params.name !== 'Cliente Sem Nome')
           ? params.name
           : (mergedMeta?.razao_social || enriched?.name || 'Cliente');
 
-        const conv = params.matchedConv || convByPhone.get(cleanPhone);
         const convId = conv?.id || params.convId || params.id;
 
         const math = calculateProposalValues(mergedMeta);

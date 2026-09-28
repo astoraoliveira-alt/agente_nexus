@@ -21,21 +21,34 @@ function getUrlError(): { code?: string; message?: string } | null {
 function translateAuthError(message: string): string {
   if (!message) return 'Erro ao definir a senha. Tente novamente.';
   const lower = message.toLowerCase();
-  if (lower.includes('weak') || lower.includes('easy to guess')) {
-    return 'A senha escolhida é muito fraca ou comum. Escolha uma senha mais forte combinando letras, números e caracteres especiais.';
+
+  // 1. Erros específicos de complexidade e regras de senha (prioridade absoluta)
+  if (lower.includes('weak') || lower.includes('easy to guess') || lower.includes('pwned') || lower.includes('breach')) {
+    return 'A senha escolhida é muito fraca ou comum. Escolha uma senha mais forte combinando letras maiúsculas, minúsculas, números e símbolos.';
   }
-  if (lower.includes('least 8 characters') || lower.includes('should be at least')) {
+  if (lower.includes('least 8 characters') || lower.includes('should be at least') || lower.includes('length')) {
     return 'A senha deve ter no mínimo 8 caracteres.';
   }
   if (lower.includes('same as') || lower.includes('should be different')) {
     return 'A nova senha não pode ser igual à anterior.';
   }
-  if (lower.includes('expired') || lower.includes('invalid') || lower.includes('otp')) {
+  if (lower.includes('password') && (lower.includes('invalid') || lower.includes('format') || lower.includes('character'))) {
+    return 'A senha informada não atende aos requisitos de segurança. Escolha uma senha diferente.';
+  }
+
+  // 2. Erros específicos de token / sessão / OTP (somente se não for erro de senha)
+  if (
+    (lower.includes('otp') || lower.includes('token') || lower.includes('recovery') || lower.includes('link') || lower.includes('session')) &&
+    (lower.includes('expired') || lower.includes('invalid') || lower.includes('not found') || lower.includes('consumed'))
+  ) {
     return 'O link de acesso expirou ou já foi utilizado. Solicite um novo convite ou recuperação.';
   }
-  if (lower.includes('network') || lower.includes('fetch')) {
-    return 'Falha de conexão com o servidor. Verifique sua internet.';
+
+  // 3. Erros de rede
+  if (lower.includes('network') || lower.includes('fetch') || lower.includes('failed to fetch')) {
+    return 'Falha de conexão com o servidor. Verifique sua conexão com a internet.';
   }
+
   return message;
 }
 
@@ -86,6 +99,7 @@ export default function SetPassword() {
     e.preventDefault();
     setFormError(null);
 
+    // Validações básicas no cliente
     if (password.length < 8) {
       setFormError('A senha deve ter no mínimo 8 caracteres.');
       return;
@@ -99,8 +113,14 @@ export default function SetPassword() {
     try {
       let activeSession = null;
 
-      // Se possuir token_hash e type capturados da URL, verificar agora no submit
-      if (tokenHash && tokenType) {
+      // 1. Verificar se o cliente já possui uma sessão ativa no Supabase (seja de tentativa anterior ou de auto-login)
+      const { data: currentSessionData } = await supabase.auth.getSession();
+      if (currentSessionData?.session) {
+        activeSession = currentSessionData.session;
+      }
+
+      // 2. Se não possuir sessão ativa e possuir token_hash da URL, consumir o token OTP agora
+      if (!activeSession && tokenHash && tokenType) {
         const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
           type: tokenType,
@@ -112,24 +132,38 @@ export default function SetPassword() {
           setFormError('Link inválido ou expirado. Por favor, solicite um novo convite ou recuperação.');
           return;
         }
+
         activeSession = verifyData.session;
-      } else {
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData.session) {
-          setIsInvalidLink(true);
-          setFormError('Link inválido ou expirado. Por favor, solicite um novo convite ou recuperação.');
-          return;
-        }
-        activeSession = sessionData.session;
+
+        // IMPORTANTE: Uma vez consumido o token OTP com sucesso, limpa o token do estado e da URL.
+        // Se a senha falhar por qualquer inconsistência na etapa seguinte, o usuário continuará
+        // com a sessão ativa e poderá corrigir a senha sem tentar re-consumir o token já queimado!
+        setTokenHash(null);
+        setTokenType(null);
+        try {
+          window.history.replaceState({}, '', window.location.pathname);
+        } catch (_) {}
       }
 
-      // Atualizar a senha do usuário autenticado
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
+      // 3. Se após as etapas acima ainda não houver sessão ativa
+      if (!activeSession) {
+        setIsInvalidLink(true);
+        setFormError('Link inválido ou expirado. Por favor, solicite um novo convite ou recuperação.');
+        return;
+      }
+
+      // 4. Atualizar a senha do usuário já autenticado
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) {
+        // Erro no updateUser diz respeito ESTRITAMENTE à senha informada (complexidade, repetição, etc.)
+        // JAMAIS marcar isInvalidLink como true aqui, pois a sessão está perfeitamente válida!
+        setFormError(translateAuthError(updateError.message || ''));
+        return;
+      }
 
       toast.success('Senha definida com sucesso!');
 
-      // Salvar sessão e redirecionar para a aplicação
+      // 5. Salvar sessão local e redirecionar para a aplicação
       if (activeSession.user) {
         let userProfile = await AuthService.getUserByProviderId(activeSession.user.id);
         if (!userProfile && activeSession.user.email) {
@@ -150,7 +184,7 @@ export default function SetPassword() {
         navigate('/login', { replace: true });
       }
     } catch (err: any) {
-      console.error(err);
+      console.error('Erro ao definir senha:', err);
       setFormError(translateAuthError(err?.message || ''));
     } finally {
       setIsLoading(false);
