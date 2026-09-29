@@ -14,7 +14,9 @@ import {
   Bot,
   Phone,
   Building2,
-  X
+  X,
+  Loader2,
+  ShieldAlert
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +132,7 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
 const HandoffHub: React.FC = () => {
   const { 
     handoffRequests, 
+    refreshHandoffs,
     takeOverConversation, 
     conversations, 
     currentTenant, 
@@ -144,7 +147,27 @@ const HandoffHub: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [leadsMap, setLeadsMap] = useState<Record<string, { identifier: string; name: string }>>({});
+  const [isLoadingQueue, setIsLoadingQueue] = useState(false);
   const navigate = useNavigate();
+
+  // 0. Carregar a fila garantindo sincronização na montagem e mudança de tenant
+  useEffect(() => {
+    let isMounted = true;
+    const fetchQueue = async () => {
+      const tenantId = currentTenant?.id || currentUser?.tenantId;
+      if (!tenantId) return;
+      setIsLoadingQueue(true);
+      try {
+        await refreshHandoffs();
+      } catch (err) {
+        console.error('Erro ao carregar fila:', err);
+      } finally {
+        if (isMounted) setIsLoadingQueue(false);
+      }
+    };
+    fetchQueue();
+    return () => { isMounted = false; };
+  }, [currentTenant?.id, currentUser?.tenantId, refreshHandoffs]);
 
   // 1. Carregar lista de agentes e auto-selecionar o Agente Comercial Fiserv (Novo) por padrão
   useEffect(() => {
@@ -243,26 +266,32 @@ const HandoffHub: React.FC = () => {
 
   // Helper para extrair informações consistentes de Nome, Telefone, CNPJ e Agente
   const getRequestInfo = (request: any) => {
-    const phone = request.conversations?.user_identifier || request.agent_leads?.whatsapp || request.metadata?.phone || '';
+    const conv = Array.isArray(request.conversations) ? request.conversations[0] : request.conversations;
+    const lead = Array.isArray(request.agent_leads) ? request.agent_leads[0] : request.agent_leads;
+    const convFallback = conversations.find(c => c.id === request.conversation_id);
+
+    const phone = conv?.user_identifier || lead?.whatsapp || request.metadata?.phone || convFallback?.userId || '';
     const leadLookup = phone ? leadsMap[phone] : null;
     
-    const name = request.conversations?.user_name || 
-                 request.agent_leads?.name || 
+    const name = conv?.user_name || 
+                 lead?.name || 
                  leadLookup?.name || 
-                 conversations.find(c => c.id === request.conversation_id)?.userName || 
+                 convFallback?.userName || 
                  'Cliente Desconhecido';
 
-    const cnpj = request.agent_leads?.identifier || 
+    const cnpj = lead?.identifier || 
                  request.metadata?.cnpj || 
                  leadLookup?.identifier || 
-                 request.agent_leads?.metadata?.cnpj || 
+                 lead?.metadata?.cnpj || 
                  '';
 
-    const agentId = request.conversations?.agent_id || 
-                    conversations.find(c => c.id === request.conversation_id)?.agentId;
+    const agentId = conv?.agent_id || 
+                    conv?.agents?.id || 
+                    convFallback?.agentId;
 
-    const agentName = request.conversations?.agents?.name || 
+    const agentName = conv?.agents?.name || 
                       agents.find(a => a.id === agentId)?.name || 
+                      convFallback?.agentName || 
                       '';
 
     return { name, phone, cnpj, agentId, agentName };
@@ -276,7 +305,10 @@ const HandoffHub: React.FC = () => {
   const agentFilteredRequests = useMemo(() => {
     if (selectedAgentId === 'all') return validHumanRequests;
     return validHumanRequests.filter(r => {
-      const agentId = r.conversations?.agent_id || conversations.find(c => c.id === r.conversation_id)?.agentId;
+      const conv = Array.isArray(r.conversations) ? r.conversations[0] : r.conversations;
+      const agentId = conv?.agent_id || 
+                      conv?.agents?.id || 
+                      conversations.find(c => c.id === r.conversation_id)?.agentId;
       return agentId === selectedAgentId;
     });
   }, [validHumanRequests, selectedAgentId, conversations]);
@@ -359,6 +391,30 @@ const HandoffHub: React.FC = () => {
   };
 
   const currentDisplayList = filter === 'pending' ? pendingRequests : handledToday;
+
+  // Se o usuário não tiver permissão para ver a fila, exibe aviso amigável
+  if (!hasPermission('handoff.view')) {
+    return (
+      <MainLayout>
+        <div className="p-6 max-w-6xl mx-auto space-y-6">
+          <Card className="border-dashed border-slate-200 bg-slate-50/50">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center mb-3">
+                <ShieldAlert className="h-7 w-7 text-amber-600" />
+              </div>
+              <h3 className="text-base font-semibold text-slate-900">
+                Acesso Restrito à Fila de Atendimento
+              </h3>
+              <p className="text-muted-foreground text-xs max-w-sm mt-1">
+                Seu perfil atual não possui a permissão necessária ("Acesso à tela") para visualizar este módulo.
+                Solicite a um administrador a liberação do acesso correspondente.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -499,7 +555,19 @@ const HandoffHub: React.FC = () => {
         </div>
 
         {/* Requests List */}
-        {currentDisplayList.length === 0 ? (
+        {isLoadingQueue && handoffRequests.length === 0 ? (
+          <Card className="border-dashed border-slate-200 bg-slate-50/50">
+            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+              <Loader2 className="h-8 w-8 text-[#E5003A] animate-spin mb-3" />
+              <h3 className="text-sm font-semibold text-slate-900">
+                Carregando solicitações da fila...
+              </h3>
+              <p className="text-muted-foreground text-xs max-w-sm mt-1">
+                Sincronizando atendimentos humanos para o seu tenant.
+              </p>
+            </CardContent>
+          </Card>
+        ) : currentDisplayList.length === 0 ? (
           <Card className="border-dashed border-slate-200 bg-slate-50/50">
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
               <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mb-3">

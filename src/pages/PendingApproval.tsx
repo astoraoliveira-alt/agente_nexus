@@ -1,16 +1,56 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useApp } from "@/contexts/AppContext";
-import { CheckCircle2, Clock, LogOut } from "lucide-react";
+import { CheckCircle2, Clock, LogOut, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { useEffect, useState, useCallback } from "react";
+import { AuthService } from "@/services/auth";
+import { toast } from "sonner";
 
 export default function PendingApproval() {
     const { currentUser } = useApp();
     const navigate = useNavigate();
+    const [isChecking, setIsChecking] = useState(false);
+
+    const checkApprovalStatus = useCallback(async (isManual = false) => {
+        if (isManual) setIsChecking(true);
+        try {
+            const user = await AuthService.ensureBusinessUser();
+            if (user?.status === 'active') {
+                toast.success('Acesso liberado! Entrando na plataforma...');
+                window.location.href = '/';
+                return;
+            }
+            if (isManual) {
+                toast.info('Seu acesso ainda está aguardando liberação do administrador.');
+            }
+        } catch (err) {
+            console.error('Erro ao verificar status:', err);
+        } finally {
+            if (isManual) setIsChecking(false);
+        }
+    }, []);
+
+    // Se o contexto já tiver o usuário ativo, redireciona imediatamente
+    useEffect(() => {
+        if (currentUser?.status === 'active') {
+            window.location.href = '/';
+        }
+    }, [currentUser?.status]);
+
+    // Polling automático a cada 10 segundos para detectar liberação do admin
+    useEffect(() => {
+        const interval = setInterval(() => {
+            checkApprovalStatus(false);
+        }, 10000);
+
+        return () => clearInterval(interval);
+    }, [checkApprovalStatus]);
 
     const handleLogout = async () => {
         await supabase.auth.signOut();
+        localStorage.removeItem('davos_session');
         navigate("/login");
     };
 
@@ -47,16 +87,28 @@ export default function PendingApproval() {
                         </div>
                     </div>
 
-                    <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={handleLogout}
-                    >
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Sair e Tentar Novamente
-                    </Button>
+                    <div className="flex flex-col gap-2 pt-2">
+                        <Button
+                            className="w-full"
+                            onClick={() => checkApprovalStatus(true)}
+                            disabled={isChecking}
+                        >
+                            <RefreshCw className={`mr-2 h-4 w-4 ${isChecking ? 'animate-spin' : ''}`} />
+                            {isChecking ? 'Verificando Liberação...' : 'Verificar Liberação Agora'}
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={handleLogout}
+                        >
+                            <LogOut className="mr-2 h-4 w-4" />
+                            Sair e Tentar Novamente
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         </div>
     );
 }
+

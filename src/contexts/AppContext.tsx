@@ -72,6 +72,7 @@ interface AppContextType {
   fetchMessages: (convIdOverride?: string) => Promise<void>;
   // Handoff Requests (HITL)
   handoffRequests: any[];
+  refreshHandoffs: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -207,20 +208,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
             // 5. Tenant Logic
             const savedTenantId = localStorage.getItem('davos_active_tenant_id');
-            // Prefer saved tenant if valid. 
-            // For Super Admin, if NO saved tenant, we don't force a fallback yet, let them choose.
-            // For others, we fallback to their home tenantId.
-            const tenantIdToLoad = savedTenantId || (businessUser.role === 'super_admin' ? null : businessUser.tenantId);
+            // For non-super_admin users (operators, etc.), their assigned tenantId ALWAYS takes precedence
+            // to avoid loading an inaccessible tenant from stale localStorage
+            const tenantIdToLoad = businessUser.role === 'super_admin'
+              ? (savedTenantId || null)
+              : (businessUser.tenantId || savedTenantId);
 
             if (tenantIdToLoad) {
               const tenant = await api.getTenant(tenantIdToLoad);
               if (tenant) {
                 setCurrentTenant(tenant);
+                localStorage.setItem('davos_active_tenant_id', tenant.id);
                 console.log('🏢 Tenant loaded:', tenant.name);
               } else {
                 console.warn('⚠️ Tenant fetch failed via getTenant. Attempting fallback via getCompanies...');
                 const availableCompanies = await api.getCompanies();
                 const fallbackTenant = availableCompanies.find((company) => company.id === tenantIdToLoad)
+                  || (businessUser.tenantId ? availableCompanies.find((company) => company.id === businessUser.tenantId) : null)
                   || (availableCompanies.length === 1 ? availableCompanies[0] : null);
 
                 if (fallbackTenant) {
@@ -233,10 +237,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
               }
             } else if (businessUser.role !== 'super_admin') {
               const availableCompanies = await api.getCompanies();
-              if (availableCompanies.length === 1) {
-                setCurrentTenant(availableCompanies[0]);
-                localStorage.setItem('davos_active_tenant_id', availableCompanies[0].id);
-                console.log('🏢 Single tenant auto-selected:', availableCompanies[0].name);
+              const autoTenant = (businessUser.tenantId ? availableCompanies.find((company) => company.id === businessUser.tenantId) : null)
+                || (availableCompanies.length === 1 ? availableCompanies[0] : null);
+              if (autoTenant) {
+                setCurrentTenant(autoTenant);
+                localStorage.setItem('davos_active_tenant_id', autoTenant.id);
+                console.log('🏢 Tenant auto-selected:', autoTenant.name);
               }
             }
           }
@@ -402,35 +408,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [selectedConversation?.id]);
 
 
+  // Stable callback for loading handoff requests
+  const loadHandoffs = useCallback(async () => {
+    const tenantId = currentTenant?.id || currentUser?.tenantId;
+    if (!tenantId) {
+      console.warn('⚠️ [Handoff] Tentativa de carga sem Tenant ID');
+      return;
+    }
+    
+    console.log('🔍 [Handoff] Buscando pedidos (Fila + Hoje) para:', tenantId);
+    const { data, error } = await supabase
+      .from('handoff_requests')
+      .select('*, conversations(id, user_name, user_identifier, agent_id, agents:agents!conversations_agent_id_fkey(id, name)), agent_leads(id, identifier, name, whatsapp, metadata)')
+      .eq('tenant_id', tenantId)
+      .neq('status', 'ignored')
+      .order('requested_at', { ascending: false })
+      .limit(200);
+      
+    if (error) {
+      console.error('❌ [Handoff] Erro na consulta:', error);
+    } else {
+      console.log('✅ [Handoff] Pedidos encontrados:', data?.length || 0);
+      if (data) setHandoffRequests(data);
+    }
+  }, [currentTenant?.id, currentUser?.tenantId]);
+
   // Combined Realtime Subscription Effect
   useEffect(() => {
     if (!currentTenant?.id) return;
 
     console.log("🔥 [Phase 2] Subscribing to REALTIME changes for tenant:", currentTenant.id);
-
-    // Initial Handoff Load
-    const loadHandoffs = async () => {
-      if (!currentTenant?.id) {
-        console.warn('⚠️ [Handoff] Tentativa de carga sem Tenant ID');
-        return;
-      }
-      
-      console.log('🔍 [Handoff] Buscando pedidos (Fila + Hoje) para:', currentTenant.id);
-      const { data, error } = await supabase
-        .from('handoff_requests')
-        .select('*, conversations(id, user_name, user_identifier, agent_id, agents:agents!conversations_agent_id_fkey(id, name)), agent_leads(id, identifier, name, whatsapp, metadata)')
-        .eq('tenant_id', currentTenant.id)
-        .neq('status', 'ignored')
-        .order('requested_at', { ascending: false })
-        .limit(200);
-        
-      if (error) {
-        console.error('❌ [Handoff] Erro na consulta:', error);
-      } else {
-        console.log('✅ [Handoff] Pedidos encontrados:', data?.length || 0);
-        if (data) setHandoffRequests(data);
-      }
-    };
 
     loadHandoffs();
     loadConversationsListRef.current();
@@ -968,6 +975,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         sendMessage,
         fetchMessages,
         handoffRequests,
+        refreshHandoffs: loadHandoffs,
         maskingEnabled,
         toggleMasking,
       }}
