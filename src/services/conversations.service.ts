@@ -7,26 +7,25 @@ export const conversationsService = {
             .from('messages')
             .select('*')
             .eq('conversation_id', conversationId)
-            .order('created_at', { ascending: false }) // Last messages first for limit
-            .limit(50);
+            .order('created_at', { ascending: true })
+            .limit(2000);
 
         if (error) {
             console.error('Error fetching messages:', error);
             return [];
         }
 
-        // Se as mensagens vieram em bloco da VAPI, elas terão o mesmo created_at (transação do banco).
-        // Aqui, nós garantimos a ordem usando o external_order (que a VAPI envia) como critério de desempate
-        // para que quando dermos o `.reverse()`, a transcrição fique perfeita de cima para baixo.
+        // Se as mensagens vieram em bloco (mesmo created_at), desempatamos pelo external_order
+        // mantendo a ordem estritamente cronológica de cima para baixo (mais antigas no topo)
         data.sort((a, b) => {
             const timeA = new Date(a.created_at).getTime();
             const timeB = new Date(b.created_at).getTime();
-            if (timeB !== timeA) return timeB - timeA; // Descending by time
-            return (b.external_order || 0) - (a.external_order || 0); // Descending by order
+            if (timeA !== timeB) return timeA - timeB; // Ascending by time
+            return (a.external_order || 0) - (b.external_order || 0); // Ascending by order
         });
 
-        // Reverse to maintain chronological order in UI (mais antigas primeiro / no topo)
-        const chronData = [...data].reverse();
+        // Ordem cronológica mantida
+        const chronData = data;
 
         const rawList = chronData.map((m: any) => {
             let cleanContent = m.content;

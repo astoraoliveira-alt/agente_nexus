@@ -1,18 +1,9 @@
 -- ============================================================
--- RPC: get_credit_campaign_funnel_stats
--- Descrição:
--- Retorna as métricas consolidadas dos 3 blocos do funil de crédito:
---   Bloco 1: Envio da Campanha (outbound_queue)
---   Bloco 2: Funil de Venda (agent_leads - confirmaram, faturamento, valor inicial, opt-in, aprovados, recusados, simularam, ok_agente)
---   Bloco 3: Funil de Formalização (agent_leads - aguardando contato, em atendimento, formalizado, desistência)
---
--- Regras Fundamentais:
--- 1. Contabilização baseada estritamente nas etapas formais e metadados estruturados de auditoria do funil.
--- 2. Hierarquia estrita do Funil:
---    Confirmaram >= Faturamento >= Valor Inicial >= Opt-in >= (Aprovados + Recusados) >= Simularam >= Ok Agente
--- 3. 'valor_inicial' exige passagem por 'faturamento' e valor plausível de crédito (10k a 500k),
---    eliminando ruídos de menus/telefones de auto-resposta.
--- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
+-- MIGRATION: 20261001_add_desistencia_to_credit_funnel_stats.sql
+-- Descrição: 
+-- 1. Adiciona a coluna 'desistencia' ao final do Funil de Formalização (Bloco 3)
+-- 2. Restringe estritamente o Bloco 3 aos leads que deram OK na simulação (hasOkAgente)
+-- 3. Isola os leads desistentes/declinados na coluna 'desistencia' para não poluírem 'em_atendimento'
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
@@ -35,7 +26,6 @@ RETURNS TABLE (
   lidas BIGINT,
   interagiram BIGINT,
   -- Bloco 2: Funil de Venda
-  confirmaram BIGINT,
   faturamento BIGINT,
   valor_inicial BIGINT,
   opt_in BIGINT,
@@ -98,127 +88,41 @@ BEGIN
   lead_metrics AS (
     SELECT
       al.campaign_id AS l_cid,
-      -- Bloco 2: Funil de Venda (Princípio Estrito: cada etapa subsequente pressupõe as anteriores)
-      
-      -- 1. Confirmaram: Confirmou identidade OU avançou em qualquer etapa posterior
-      COUNT(al.id) FILTER (
-        WHERE (al.metadata->>'identity_confirmed') IN ('true', 't', '1')
-           OR (al.metadata->>'cnpj_confirmed') IN ('true', 't', '1')
-           OR (al.metadata->>'revenue') IS NOT NULL 
-           OR (al.metadata->>'faturamento') IS NOT NULL
-           OR (al.metadata->>'opt_in')::boolean = true
-           OR (al.metadata->>'optin')::boolean = true
-           OR (al.metadata->'consent'->>'opt_in')::boolean = true
-           OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-           OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
-      ) AS m_confirmaram,
-
-      -- 2. Faturamento: Informou faturamento OU avançou em qualquer etapa posterior
+      -- Bloco 2: Funil de Venda
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
-           OR (al.metadata->>'opt_in')::boolean = true
-           OR (al.metadata->>'optin')::boolean = true
-           OR (al.metadata->'consent'->>'opt_in')::boolean = true
-           OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-           OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_faturamento,
-
-      -- 3. Valor Inicial: Passou por faturamento E informou valor válido de empréstimo (10k a 500k) OU avançou para opt-in/crédito
       COUNT(al.id) FILTER (
-        WHERE (
-          -- Condição A: Passou por faturamento E informou valor válido (evita números de telefones/menus espúrios)
-          (
-            (al.metadata->>'revenue') IS NOT NULL 
-            OR (al.metadata->>'faturamento') IS NOT NULL
-          )
-          AND (
-            (
-              (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
-              AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (
-              (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
-              AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
-            OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
-          )
-        )
-        -- Condição B: Avançou para opt-in ou análise de crédito (pressupõe valor inicial definido)
-        OR (al.metadata->>'opt_in')::boolean = true
-        OR (al.metadata->>'optin')::boolean = true
-        OR (al.metadata->'consent'->>'opt_in')::boolean = true
-        OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-        OR (al.metadata->>'loan_request_id') IS NOT NULL
-        OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-        OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
+        WHERE (al.metadata->>'requested_amount') IS NOT NULL 
+           OR (al.metadata->>'valor_inicial') IS NOT NULL
+           OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
+           OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
       ) AS m_valor_inicial,
-
-      -- 4. Opt-in
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'opt_in')::boolean = true
            OR (al.metadata->>'optin')::boolean = true
            OR (al.metadata->'consent'->>'opt_in')::boolean = true
            OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
            OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_opt_in,
-
-      -- 5. Aprovados (Esteira Fiserv)
       COUNT(al.id) FILTER (
         WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved')
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado')
       ) AS m_aprovados,
-
-      -- 6. Recusados (Esteira Fiserv)
       COUNT(al.id) FILTER (
         WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
            OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
       ) AS m_recusados,
-
-      -- 7. Simularam (Exige lead NÃO recusado no crédito E com proposta efetivamente calculada com parcelas/juros)
       COUNT(al.id) FILTER (
-        WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
-          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
-        )
-        AND (
-          (al.metadata->'simulation_data'->>'installment_value') IS NOT NULL
-          OR (al.metadata->'simulation_data'->>'installments') IS NOT NULL
-          OR (al.metadata->'simulation_data'->>'monthly_interest') IS NOT NULL
-          OR (
-            (al.metadata->>'simularam')::boolean = true
-            AND lower(COALESCE(al.metadata->>'fiserv_last_status', '')) = 'success'
-          )
-          OR (al.metadata->>'simulation_accepted')::boolean = true
-          OR (al.metadata->>'ok_agente')::boolean = true
-          OR (al.metadata->'accepted_proposal') IS NOT NULL
-          OR (al.metadata->>'formalized_at') IS NOT NULL
-        )
+        WHERE (al.metadata->>'simulation_requested')::boolean = true
+           OR (al.metadata->>'simulation_data') IS NOT NULL
+           OR (al.metadata->>'simularam')::boolean = true
       ) AS m_simularam,
-
-      -- 8. Ok Agente (Aceite de Proposta Simulada)
       COUNT(al.id) FILTER (
-        WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
-          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
-        )
-        AND (
-          (al.metadata->>'simulation_accepted')::boolean = true
-          OR (al.metadata->>'ok_agente')::boolean = true
-          OR (al.metadata->'accepted_proposal') IS NOT NULL
-          OR (al.metadata->>'formalized_at') IS NOT NULL
-        )
+        WHERE (al.metadata->>'simulation_accepted')::boolean = true
+           OR (al.metadata->>'ok_agente')::boolean = true
       ) AS m_ok_agente,
-
       -- Bloco 3: Funil de Formalização (Rigorosamente condicionado a ter dado OK na simulação)
       COUNT(al.id) FILTER (
         WHERE (
@@ -328,7 +232,6 @@ BEGIN
     COALESCE(oq.m_lidas, 0) AS lidas,
     COALESCE(oq.m_interagiram, 0) AS interagiram,
     -- Bloco 2
-    COALESCE(lm.m_confirmaram, 0) AS confirmaram,
     COALESCE(lm.m_faturamento, 0) AS faturamento,
     COALESCE(lm.m_valor_inicial, 0) AS valor_inicial,
     COALESCE(lm.m_opt_in, 0) AS opt_in,

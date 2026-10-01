@@ -155,6 +155,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         entregues: acc.entregues + item.entregues,
         lidas: acc.lidas + item.lidas,
         interagiram: acc.interagiram + item.interagiram,
+        confirmaram: acc.confirmaram + (item.confirmaram || 0),
         faturamento: acc.faturamento + item.faturamento,
         valorInicial: acc.valorInicial + item.valorInicial,
         optIn: acc.optIn + item.optIn,
@@ -164,7 +165,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         okAgente: acc.okAgente + item.okAgente,
         aguarContato: acc.aguarContato + item.aguarContato,
         emAtendimento: acc.emAtendimento + item.emAtendimento,
-        formalizado: acc.formalizado + item.formalizado
+        formalizado: acc.formalizado + item.formalizado,
+        desistencia: acc.desistencia + (item.desistencia || 0)
       }),
       {
         carregados: 0,
@@ -172,6 +174,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         entregues: 0,
         lidas: 0,
         interagiram: 0,
+        confirmaram: 0,
         faturamento: 0,
         valorInicial: 0,
         optIn: 0,
@@ -181,7 +184,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         okAgente: 0,
         aguarContato: 0,
         emAtendimento: 0,
-        formalizado: 0
+        formalizado: 0,
+        desistencia: 0
       }
     );
   }, [filteredData]);
@@ -205,6 +209,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       'Envio - Lidas': d.lidas,
       'Envio - Interagiram': d.interagiram,
       // Venda
+      'Venda - Confirmaram': d.confirmaram || 0,
       'Venda - Faturamento': d.faturamento,
       'Venda - Valor Inicial': d.valorInicial,
       'Venda - Opt-in': d.optIn,
@@ -215,7 +220,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       // Formalização
       'Formalização - Aguar. Contato': d.aguarContato,
       'Formalização - Em Atendimento': d.emAtendimento,
-      'Formalização - Formalizado': d.formalizado
+      'Formalização - Formalizado': d.formalizado,
+      'Formalização - Desistência': d.desistencia || 0
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -413,10 +419,10 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 <th colSpan={5} className="px-4 py-3 bg-blue-50/80 text-blue-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-blue-100">
                   Envio da Campanha
                 </th>
-                <th colSpan={7} className="px-4 py-3 bg-emerald-50/80 text-emerald-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-emerald-100">
+                <th colSpan={8} className="px-4 py-3 bg-emerald-50/80 text-emerald-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-emerald-100">
                   Funil de Venda
                 </th>
-                <th colSpan={3} className="px-4 py-3 bg-purple-50/80 text-purple-900 font-bold uppercase tracking-wider text-[11px] text-center">
+                <th colSpan={4} className="px-4 py-3 bg-purple-50/80 text-purple-900 font-bold uppercase tracking-wider text-[11px] text-center">
                   Funil de Formalização
                 </th>
               </tr>
@@ -434,6 +440,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950 border-r border-blue-100">Interagiram</th>
 
                 {/* Venda */}
+                <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Confirmaram</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Faturamento</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Valor Inicial</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Opt-in</th>
@@ -446,19 +453,20 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Aguar. Contato</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Em Atendimento</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Formalizado</th>
+                <th className="px-2.5 py-2.5 text-right font-semibold text-rose-950">Desistência</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={17} className="px-6 py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={19} className="px-6 py-12 text-center text-slate-400 text-xs">
                     Carregando métricas consolidadas do funil...
                   </td>
                 </tr>
               ) : filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={17} className="px-6 py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={19} className="px-6 py-12 text-center text-slate-400 text-xs">
                     Nenhuma campanha encontrada para os filtros selecionados.
                   </td>
                 </tr>
@@ -503,6 +511,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       </td>
 
                       {/* Venda */}
+                      <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{(row.confirmaram || 0).toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.faturamento.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.valorInicial.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.optIn.toLocaleString('pt-BR')}</td>
@@ -518,6 +527,9 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       <td className="px-2.5 py-3 text-right font-mono text-indigo-700 bg-purple-50/30">{row.emAtendimento.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-700 bg-purple-50/40">
                         {row.formalizado.toLocaleString('pt-BR')}
+                      </td>
+                      <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-rose-50/30">
+                        {(row.desistencia || 0).toLocaleString('pt-BR')}
                       </td>
                     </tr>
                   );
@@ -544,6 +556,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   </td>
 
                   {/* Venda */}
+                  <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.confirmaram.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.faturamento.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.valorInicial.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.optIn.toLocaleString('pt-BR')}</td>
@@ -559,6 +572,9 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   <td className="px-2.5 py-3 text-right font-mono text-indigo-900 bg-purple-100/60">{totals.emAtendimento.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-700 bg-purple-100/80">
                     {totals.formalizado.toLocaleString('pt-BR')}
+                  </td>
+                  <td className="px-2.5 py-3 text-right font-mono text-rose-700 bg-rose-100/60">
+                    {totals.desistencia.toLocaleString('pt-BR')}
                   </td>
                 </tr>
               </tfoot>

@@ -1,18 +1,15 @@
 -- ============================================================
--- RPC: get_credit_campaign_funnel_stats
+-- MIGRATION: 20261001_fix_simulation_metrics_credit_funnel_stats.sql
 -- Descrição:
--- Retorna as métricas consolidadas dos 3 blocos do funil de crédito:
---   Bloco 1: Envio da Campanha (outbound_queue)
---   Bloco 2: Funil de Venda (agent_leads - confirmaram, faturamento, valor inicial, opt-in, aprovados, recusados, simularam, ok_agente)
---   Bloco 3: Funil de Formalização (agent_leads - aguardando contato, em atendimento, formalizado, desistência)
---
--- Regras Fundamentais:
--- 1. Contabilização baseada estritamente nas etapas formais e metadados estruturados de auditoria do funil.
--- 2. Hierarquia estrita do Funil:
+-- 1. Garante a hierarquia estrita do Funil de Vendas:
 --    Confirmaram >= Faturamento >= Valor Inicial >= Opt-in >= (Aprovados + Recusados) >= Simularam >= Ok Agente
--- 3. 'valor_inicial' exige passagem por 'faturamento' e valor plausível de crédito (10k a 500k),
---    eliminando ruídos de menus/telefones de auto-resposta.
--- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
+-- 2. Elimina a anomalia onde 'valor_inicial' aparecia maior que 'faturamento':
+--    - 'valor_inicial' agora exige que o lead tenha passado por 'faturamento' E informado um valor
+--      válido de crédito (R$ 10.000 a R$ 500.000), descartando respostas automáticas/menus de robô
+--      (telefones 0800, opções de menu, etc.) que haviam sido erroneamente gravados no lead.
+--    - Leads que avançaram para opt-in ou esteira são automaticamente reconhecidos nos passos anteriores.
+-- 3. Corrige 'simularam' e 'ok_agente':
+--    - Exige que o lead NÃO tenha sido recusado no risco da Fiserv e possua parcelas/juros calculados.
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);

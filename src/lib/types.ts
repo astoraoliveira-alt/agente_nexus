@@ -1105,6 +1105,7 @@ export interface CreditCampaignFunnelStat {
   lidas: number;
   interagiram: number;
   // Bloco 2: Funil de Venda
+  confirmaram: number;
   faturamento: number;
   valorInicial: number;
   optIn: number;
@@ -1116,6 +1117,7 @@ export interface CreditCampaignFunnelStat {
   aguarContato: number;
   emAtendimento: number;
   formalizado: number;
+  desistencia: number;
 }
 
 // ============ Central de Reengajamento Types ============

@@ -513,6 +513,7 @@ export function CreditCampaignDetailView({
     entregues: 0,
     lidas: 0,
     interagiram: 0,
+    confirmaram: 0,
     faturamento: 0,
     valorInicial: 0,
     optIn: 0,
@@ -522,7 +523,8 @@ export function CreditCampaignDetailView({
     okAgente: 0,
     aguarContato: 0,
     emAtendimento: 0,
-    formalizado: 0
+    formalizado: 0,
+    desistencia: 0
   };
 
   const deliveryRate = stat.enviados > 0 ? (stat.entregues / stat.enviados) * 100 : 0;

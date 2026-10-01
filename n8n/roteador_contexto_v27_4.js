@@ -1,4 +1,21 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.4 (OPT-IN SIMPLIFICADO: 1 MSG COM BOTÃO ÚNICO + PDF) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.6 (ANTI-REGRESSÃO: CONFIRMAÇÃO DE SIMULAÇÃO APÓS DÚVIDAS & BLINDAGEM DE IDENTIDADE) */
+/* MUDANÇAS V27.6:
+   1. Correção Crítica na Confirmação de Simulação após Dúvidas:
+      - Reconhecimento completo de confirmacao_cliente quando a Sofia pergunta "Podemos seguir nessas condições?" ou "Podemos seguir com a simulação nas condições informadas anteriormente?".
+      - Se o cliente tirar dúvidas durante a simulação (ex: "o que é bmp?") e depois clicar em "✅ Sim", avança diretamente para reforco_condicoes.
+   2. Blindagem Anti-Regressão de Identidade:
+      - Nunca regride para verificacao_cnpj a partir de explicacao_agente ou start se o cliente já confirmou identidade, já possui faturamento/opt-in ou já realizou simulação.
+      - Interceptador defensivo forçado que impede reinício de fluxo em qualquer cenário com histórico avançado.
+   3. Preservação de Valores Simulados: Recupera automaticamente valor e parcelas do histórico se não extraídos.
+   4. Preserva 100% das regras da V27.5 (Opt-in 30 dias, Parrot Mode, FAQs completos, Anti-Loop e parsing de parcelas). */
+/* MUDANÇAS V27.5:
+   1. Blindagem de Opt-in Prévio (Janela de 30 Dias):
+      - Verifica se o cliente já deu aceite nos últimos 30 dias (leadInfo.opt_in || leadInfo.consent?.opt_in).
+      - Se já possui opt-in válido, NUNCA mais envia o texto do termo, botão nem PDF de autorização.
+      - Ao concluir coleta_valor ou realizar novas simulações, pula direto para a análise/oferta sem repetição.
+      - Reutiliza os metadados de auditoria originais (timestamp, hash, signer_name, confirmation_message_id) para a Fiserv.
+      - Se o opt-in tiver mais de 30 dias, exige nova autorização em conformidade com a política da Fiserv.
+   2. Preserva 100% das regras da V27.4 (Parrot Mode, FAQs completos, Anti-Loop e parsing de parcelas). */
 /* MUDANÇAS V27.4:
    1. Opt-in Simplificado (2 mensagens no total):
       - Mensagem 1: Texto legal direto com botão único "✅ SIM, AUTORIZO":
@@ -53,6 +70,25 @@ try {
 
     const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
     const lastUserLower = currentMsg.toLowerCase();
+
+    // 🕒 REGRA DE AUDITORIA: VALIDAÇÃO DE OPT-IN PRÉVIO DENTRO DA JANELA DE 30 DIAS
+    const consentTimestamp = leadInfo.consent?.opt_in_timestamp || leadInfo.consent?.timestamp || leadInfo.fiserv_requested_at || leadInfo.opt_in_timestamp;
+    let isOptInWithin30Days = false;
+
+    if (leadInfo.opt_in === true || leadInfo.optin === true || leadInfo.consent?.opt_in === true || leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) {
+        if (consentTimestamp) {
+            const consentAgeMs = Date.now() - new Date(consentTimestamp).getTime();
+            const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+            isOptInWithin30Days = !isNaN(consentAgeMs) && consentAgeMs >= 0 && consentAgeMs <= thirtyDaysMs;
+        } else {
+            // Se possui opt-in ou ID registrado no banco mas o timestamp estava nulo, considera válido por segurança
+            isOptInWithin30Days = Boolean(leadInfo.opt_in || leadInfo.consent?.opt_in || leadInfo.loan_request_id);
+        }
+    }
+
+    const hasPriorOptIn = isOptInWithin30Days;
+    const hasActiveLoan = Boolean(leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id);
+    const isApprovedFiserv = Boolean(leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_external_status === 'Pré-aprovado');
 
     // --- 🛠️ FUNÇÕES AUXILIARES DE PARSING (V26 BLINDADA) ---
     function parseNumber(text) {
@@ -181,13 +217,63 @@ try {
 
     const linkAlreadySent = historyTexts.includes("clicar no link abaixo") || historyTexts.includes("fiservcapital.moneymoneyinvest");
 
+    // 🛡️ Detecção de simulação prévia e confirmação de identidade no histórico
+    const hasSimulatedInHistory = Boolean(
+        historyTexts.includes("simulação concluída") || 
+        historyTexts.includes("simulacao concluida") || 
+        historyTexts.includes("valor solicitado: r$") ||
+        historyTexts.includes("podemos seguir nessas condições") ||
+        historyTexts.includes("podemos seguir nessas condicoes") ||
+        leadInfo.simulation_data || 
+        (leadInfo.requested_amount && leadInfo.requested_installments)
+    );
+
+    const isIdentityConfirmedPrior = Boolean(
+        leadInfo.identity_confirmed ||
+        leadInfo.cnpj_confirmed ||
+        historyTexts.includes("responsável pelo cnpj") ||
+        historyTexts.includes("responsavel pelo cnpj") ||
+        historyTexts.includes("estou falando com o responsável") ||
+        historyTexts.includes("estou falando com o responsavel") ||
+        Boolean(leadInfo.revenue && leadInfo.revenue > 0) ||
+        Boolean(leadInfo.requested_amount && leadInfo.requested_amount > 0) ||
+        hasPriorOptIn ||
+        hasActiveLoan ||
+        hasSimulatedInHistory
+    );
+
     let currentStep = semanticFunnelStep || 'start';
 
     // 🔴 OVERRIDE DEFENSIVO
     if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
         if (lastSofiaMsg.includes("digite ok para continuar") || lastSofiaMsg.includes("ok, entendi") || lastSofiaMsg.includes("clique no botão abaixo para prosseguir") || lastSofiaMsg.includes("clique no botao abaixo para prosseguir")) {
             currentStep = 'reforco_condicoes';
-        } else if (lastSofiaMsg.includes("confirma que deseja prosseguir") || lastSofiaMsg.includes("formalização") || lastSofiaMsg.includes("formalizacao") || lastSofiaMsg.includes("podemos seguir com a formalização")) {
+        } else if (
+            lastSofiaMsg.includes("confirma que deseja prosseguir") || 
+            lastSofiaMsg.includes("formalização") || 
+            lastSofiaMsg.includes("formalizacao") || 
+            lastSofiaMsg.includes("podemos seguir com a formalização") ||
+            lastSofiaMsg.includes("podemos seguir com a formalizacao") ||
+            lastSofiaMsg.includes("podemos seguir nessas condições") ||
+            lastSofiaMsg.includes("podemos seguir nessas condicoes") ||
+            lastSofiaMsg.includes("podemos seguir com a simulação") ||
+            lastSofiaMsg.includes("podemos seguir com a simulacao") ||
+            lastSofiaMsg.includes("condições informadas anteriormente") ||
+            lastSofiaMsg.includes("condicoes informadas anteriormente") ||
+            lastSofiaMsg.includes("seguir com a contratação") ||
+            lastSofiaMsg.includes("seguir com a contratacao") ||
+            lastSofiaMsg.includes("simulação concluída") ||
+            lastSofiaMsg.includes("simulacao concluida") ||
+            (hasSimulatedInHistory && (
+                lastSofiaMsg.includes("podemos seguir") || 
+                lastSofiaMsg.includes("condições") || 
+                lastSofiaMsg.includes("condicoes") ||
+                lastSofiaMsg.includes("seguir com") ||
+                secondLastSofiaMsg.includes("simulação concluída") ||
+                secondLastSofiaMsg.includes("simulacao concluida") ||
+                secondLastSofiaMsg.includes("podemos seguir")
+            ))
+        ) {
             currentStep = 'confirmacao_cliente';
         } else if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
             currentStep = 'finalizacao_sucesso';
@@ -196,9 +282,9 @@ try {
         } else if (lastSofiaMsg.includes("enviei suas informações para a fiserv") || lastSofiaMsg.includes("análise e geração das ofertas") || lastSofiaMsg.includes("aguarde que eu já te chamo") || lastSofiaMsg.includes("comitê fiserv") || lastSofiaMsg.includes("avaliando em ~1 minuto") || lastSofiaMsg.includes("te chamará aqui com o resultado") || lastSofiaMsg.includes("aguarde um momento")) {
             currentStep = 'aguardando_fiserv';
         } else if (
-            lastSofiaMsg.includes("opções de crédito") || 
-            lastSofiaMsg.includes("quantidade de parcelas") || 
-            lastSofiaMsg.includes("quantas parcelas gostaria de simular") || 
+            lastSofiaMsg.includes("opções de crédito") ||
+            lastSofiaMsg.includes("quantidade de parcelas") ||
+            lastSofiaMsg.includes("quantas parcelas gostaria de simular") ||
             lastSofiaMsg.includes("em quantas parcelas") ||
             lastSofiaMsg.includes("quantas parcelas deseja pagar") ||
             lastSofiaMsg.includes("informe o valor que você gostaria de simular") ||
@@ -211,9 +297,9 @@ try {
         } else if (lastSofiaMsg.includes("valor aproximado você gostaria de solicitar") || lastSofiaMsg.includes("valor aproximado voce gostaria de solicitar") || lastSofiaMsg.includes("qual valor você tem em mente") || lastSofiaMsg.includes("qual valor voce tem em mente") || lastSofiaMsg.includes("valor você tem em mente") || lastSofiaMsg.includes("valor de empréstimo") || lastSofiaMsg.includes("valor mínimo para solicitação") || lastSofiaMsg.includes("valor máximo disponível")) {
             currentStep = 'coleta_valor';
         } else if (
-            lastSofiaMsg.includes("autorização à fiserv") || 
-            lastSofiaMsg.includes("termo de autorização") || 
-            lastSofiaMsg.includes("termos de autorização") || 
+            lastSofiaMsg.includes("autorização à fiserv") ||
+            lastSofiaMsg.includes("termo de autorização") ||
+            lastSofiaMsg.includes("termos de autorização") ||
             lastSofiaMsg.includes("li e entendi") ||
             lastSofiaMsg.includes("autorizo o tratamento de meus dados") ||
             lastSofiaMsg.includes("scr/bacen") ||
@@ -221,8 +307,8 @@ try {
             secondLastSofiaMsg.includes("li e entendi") ||
             secondLastSofiaMsg.includes("termos de autorização") ||
             secondLastSofiaMsg.includes("termo de autorização") ||
-            lastSofiaMsg.includes("autoriza a realização das consultas") || 
-            lastSofiaMsg.includes("autoriza a realização dessas consultas") || 
+            lastSofiaMsg.includes("autoriza a realização das consultas") ||
+            lastSofiaMsg.includes("autoriza a realização dessas consultas") ||
             lastSofiaMsg.includes("autoriza a realização") ||
             lastSofiaMsg.includes("conforme a lgpd") ||
             lastSofiaMsg.includes("consultar seus recebíveis e informações de crédito") ||
@@ -251,6 +337,18 @@ try {
 
     let extractedAmount = isRestartSimulation ? null : (semanticAmount || findValueForQuestion(history, ["valor de empréstimo", "valor de emprestimo", "deseja simular", "valor aproximado você gostaria de solicitar", "valor aproximado voce gostaria de solicitar", "valor que você gostaria de simular", "valor que voce gostaria de simular"]));
     let extractedInstallments = isRestartSimulation ? null : (semanticInstallments || findValueForQuestion(history, ["quantidade de parcelas", "em quantas parcelas", "prazo de pagamento", "quantas parcelas"]));
+
+    // 🛡️ Recuperação segura de simulações presentes no histórico
+    if (!isRestartSimulation) {
+        if (!extractedAmount) {
+            const mAmount = historyTexts.match(/valor solicitado:\s*r\$\s*([\d\.,]+)/i);
+            if (mAmount) extractedAmount = parseNumber(mAmount[1]);
+        }
+        if (!extractedInstallments) {
+            const mInst = historyTexts.match(/prazo:\s*(\d{1,2})\s*parcelas/i);
+            if (mInst) extractedInstallments = parseInt(mInst[1], 10);
+        }
+    }
 
     if (extractedInstallments > 48) {
         if (!extractedAmount) extractedAmount = extractedInstallments;
@@ -394,12 +492,36 @@ try {
         transitionApplied = true;
     } else if (currentStep === 'start') {
         if (!isNegative && !isDoubt) {
-            nextStep = 'verificacao_cnpj';
+            if (hasSimulatedInHistory) {
+                nextStep = 'reforco_condicoes';
+            } else if (hasActiveLoan || isApprovedFiserv) {
+                nextStep = 'apresenta_ofertas';
+            } else if (hasPriorOptIn) {
+                nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+            } else if (revenue && revenue > 0) {
+                nextStep = 'coleta_valor';
+            } else if (isIdentityConfirmedPrior) {
+                nextStep = 'coleta_faturamento';
+            } else {
+                nextStep = 'verificacao_cnpj';
+            }
             transitionApplied = true;
         }
     } else if (currentStep === 'explicacao_agente') {
         if (isAffirmative && !isDoubt) {
-            nextStep = 'verificacao_cnpj';
+            if (hasSimulatedInHistory) {
+                nextStep = 'reforco_condicoes';
+            } else if (hasActiveLoan || isApprovedFiserv) {
+                nextStep = 'apresenta_ofertas';
+            } else if (hasPriorOptIn) {
+                nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+            } else if (revenue && revenue > 0) {
+                nextStep = 'coleta_valor';
+            } else if (isIdentityConfirmedPrior) {
+                nextStep = 'coleta_faturamento';
+            } else {
+                nextStep = 'verificacao_cnpj';
+            }
             transitionApplied = true;
         }
     } else if (currentStep === 'verificacao_cnpj') {
@@ -439,7 +561,8 @@ try {
         }
     } else if (currentStep === 'coleta_valor') {
         if (requested_amount && requested_amount >= 10000 && requested_amount <= 500000 && !isDoubt) {
-            nextStep = 'consentimento_optin';
+            // 🛡️ SE JÁ POSSUI OPT-IN VÁLIDO DE ATÉ 30 DIAS, PULA DIRETO PARA CRIAÇÃO DO LEAD OU OFERTAS
+            nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
             nextStep = 'recusa_analise';
@@ -534,9 +657,29 @@ try {
         }
     }
 
+    // 🛡️ BLINDAGEM ZERO: NUNCA PEDIR OPT-IN SE O CLIENTE JÁ DEU O ACEITE NOS ÚLTIMOS 30 DIAS
+    if (nextStep === 'consentimento_optin' && hasPriorOptIn) {
+        nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+        transitionApplied = true;
+    }
+
+    // 🛡️ BLINDAGEM ZERO-B: NUNCA REGREDIR PARA VERIFICACAO_CNPJ SE A IDENTIDADE JÁ FOI CONFIRMADA
+    if (nextStep === 'verificacao_cnpj' && isIdentityConfirmedPrior) {
+        if (hasSimulatedInHistory) {
+            nextStep = 'reforco_condicoes';
+        } else if (hasActiveLoan || isApprovedFiserv) {
+            nextStep = 'apresenta_ofertas';
+        } else if (hasPriorOptIn) {
+            nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+        } else if (revenue && revenue > 0) {
+            nextStep = 'coleta_valor';
+        } else {
+            nextStep = 'coleta_faturamento';
+        }
+        transitionApplied = true;
+    }
+
     // 🛡️ BLINDAGEM 1: CONTRA CRIAR LEAD DUPLICADO SE JÁ TEM EMPRÉSTIMO ATIVO
-    const hasActiveLoan = Boolean(leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id);
-    const isApprovedFiserv = leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_external_status === 'Pré-aprovado';
     if (hasActiveLoan && isApprovedFiserv && !isRestartSimulation) {
         if (nextStep === 'criar_lead' || nextStep === 'consentimento_optin' || nextStep === 'coleta_valor' || nextStep === 'coleta_faturamento') {
             if (requested_amount && requested_installments) {
@@ -550,7 +693,7 @@ try {
 
     // 🛡️ BLINDAGEM 2: CONTRA SIMULAÇÃO SEM LEAD CRIADO (EVITA 404 NOT FOUND NA FISERV)
     if (nextStep === 'solicitar_simulacao' && !hasActiveLoan) {
-        if (isOptInAccepted || nextStep === 'criar_lead') {
+        if (isOptInAccepted || hasPriorOptIn || nextStep === 'criar_lead') {
             nextStep = 'criar_lead';
         } else if (requested_amount && requested_amount >= 10000) {
             nextStep = 'consentimento_optin';
@@ -561,7 +704,7 @@ try {
     }
 
     // 🛡️ BLINDAGEM 3: SE FOI DADO OPT-IN E NÃO TEM LEAD ATIVO, NUNCA PERMITIR APRESENTA_OFERTAS ANTES DE CRIAR LEAD
-    if (nextStep === 'apresenta_ofertas' && !hasActiveLoan && (isOptInAccepted || lastUserLower.includes("autorizo"))) {
+    if (nextStep === 'apresenta_ofertas' && !hasActiveLoan && (isOptInAccepted || hasPriorOptIn || lastUserLower.includes("autorizo"))) {
         nextStep = 'criar_lead';
         transitionApplied = true;
     }
@@ -625,7 +768,7 @@ try {
         }
         mode = "parrot";
     } else if (nextStep === 'consentimento_optin') {
-        forcedText = `Li e entendi o termos de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
+        forcedText = `Li e entendi o termo de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
         mode = "parrot";
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema, *${leadInfo.name || "parceiro"}*. Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
@@ -635,7 +778,7 @@ try {
     } else if (nextStep === 'recusa_analise') {
         const nomeCliente = leadInfo.name ? `Olá, *${leadInfo.name}*!` : 'Olá!';
         const motivoFiserv = leadInfo.fiserv_external_status || "Analisamos sua solicitação e desta vez não conseguimos aprová-la devido a políticas internas de crédito.";
-        
+
         forcedText = `${nomeCliente}\n\n${motivoFiserv}\n\nAs análises de crédito são dinâmicas e baseadas em critérios de mercado e volume de transações Ticket. Você poderá solicitar uma nova análise em *30 dias*!\n\nObrigado pela confiança na Ticket! 🙏`;
         mode = "parrot";
     } else if (nextStep === 'criar_lead') {
@@ -701,7 +844,7 @@ try {
         else if (pastMsg.includes("valor aproximado") || pastMsg.includes("solicitar nessa análise") || pastMsg.includes("valor mínimo para solicitação") || pastMsg.includes("valor máximo disponível") || pastMsg.includes("deseja solicitar")) pastStep = 'coleta_valor';
         else if (pastMsg.includes("autorização à fiserv") || pastMsg.includes("termo de autorização") || pastMsg.includes("termos de autorização") || pastMsg.includes("li e entendi") || pastMsg.includes("autoriza a realização")) pastStep = 'consentimento_optin';
         else if (pastMsg.includes("cnpj") && pastMsg.includes("responsável")) pastStep = 'verificacao_cnpj';
-        
+
         if (pastStep === nextStep) {
             stepRepetitionCount++;
         } else {
@@ -991,6 +1134,15 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 
     const isHandoff = (isHumanRequest || effectiveComplaint || loopDetectedHandoff) && !isAgentButtonClick;
 
+    const isIdentityConfirmed = Boolean(
+        (currentStep === 'verificacao_cnpj' && isAffirmative && !isDoubt) ||
+        isIdentityConfirmedPrior ||
+        leadInfo.identity_confirmed ||
+        leadInfo.cnpj_confirmed ||
+        ['coleta_faturamento', 'coleta_valor', 'consentimento_optin', 'criar_lead', 'apresenta_ofertas', 'solicitar_simulacao', 'confirmacao_cliente', 'reforco_condicoes', 'finalizacao_sucesso', 'simulacao'].includes(nextStep) ||
+        ['coleta_faturamento', 'coleta_valor', 'consentimento_optin', 'criar_lead', 'apresenta_ofertas', 'solicitar_simulacao', 'confirmacao_cliente', 'reforco_condicoes', 'finalizacao_sucesso', 'simulacao'].includes(currentStep)
+    );
+
     return {
         final_system_prompt: finalPrompt,
         p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
@@ -1006,32 +1158,36 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             tenant_id: ctx.tenant_id,
             priority: (effectiveComplaint || loopDetectedHandoff) ? 'high' : 'medium'
         },
+        identity_confirmed: isIdentityConfirmed,
+        cnpj_confirmed: isIdentityConfirmed,
         lead_info: {
             ...leadInfo,
             cnpj: leadInfo.cnpj,
             phone: rpcData.payload?.phone || leadInfo.phone || ctx.payload?.phone,
             name: leadInfo.name,
+            identity_confirmed: isIdentityConfirmed,
+            cnpj_confirmed: isIdentityConfirmed,
             revenue: revenue || leadInfo.revenue,
             requested_amount: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_amount || leadInfo.requested_amount),
             requested_installments: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_installments || leadInfo.requested_installments)
         },
         revenue: revenue,
         requested_amount: requested_amount,
-        debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount },
+        debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount, hasPriorOptIn, isOptInWithin30Days, isIdentityConfirmed },
         interactive_buttons: interactive_buttons,
         consent: (nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? {
             opt_in: true,
-            opt_in_timestamp: new Date().toISOString(),
-            opt_in_ip: rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
-            opt_in_ip_address: rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
-            opt_in_signer_name: leadInfo.name || "Cliente",
+            opt_in_timestamp: (hasPriorOptIn && (leadInfo.consent?.opt_in_timestamp || leadInfo.consent?.timestamp)) ? (leadInfo.consent.opt_in_timestamp || leadInfo.consent.timestamp) : new Date().toISOString(),
+            opt_in_ip: leadInfo.consent?.opt_in_ip || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
+            opt_in_ip_address: leadInfo.consent?.opt_in_ip_address || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
+            opt_in_signer_name: leadInfo.consent?.opt_in_signer_name || leadInfo.consent?.signer_name || leadInfo.name || "Cliente",
             consent_channel: "whatsapp",
-            consent_phone: leadInfo.phone || leadInfo.whatsapp || rpcData.phone || rpcData.user_identifier || "Não informado",
-            consent_text_version: FISERV_TERM_VERSION,
-            consent_text_hash: FISERV_TERM_HASH,
-            consent_document_url: FISERV_TERM_PDF_URL,
-            confirmation_message: lastUserLower,
-            confirmation_message_id: rpcData.message_id || rpcData.wamid || ""
+            consent_phone: leadInfo.consent?.consent_phone || leadInfo.consent?.phone || leadInfo.phone || leadInfo.whatsapp || rpcData.phone || rpcData.user_identifier || "Não informado",
+            consent_text_version: leadInfo.consent?.consent_text_version || leadInfo.consent?.text_version || FISERV_TERM_VERSION,
+            consent_text_hash: leadInfo.consent?.consent_text_hash || leadInfo.consent?.text_hash || FISERV_TERM_HASH,
+            consent_document_url: leadInfo.consent?.consent_document_url || FISERV_TERM_PDF_URL,
+            confirmation_message: (hasPriorOptIn && !isOptInAccepted && leadInfo.consent?.confirmation_message) ? leadInfo.consent.confirmation_message : lastUserLower,
+            confirmation_message_id: (hasPriorOptIn && !isOptInAccepted && (leadInfo.consent?.confirmation_message_id || leadInfo.consent?.opt_in_message_id)) ? (leadInfo.consent.confirmation_message_id || leadInfo.consent.opt_in_message_id) : (rpcData.message_id || rpcData.wamid || "")
         } : null,
         fiserv_funnel: {
             step1_optin: (nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? new Date().toISOString() : null,

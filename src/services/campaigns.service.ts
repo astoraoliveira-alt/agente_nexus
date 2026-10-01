@@ -1455,7 +1455,7 @@ async deleteCampaign(id: string): Promise<void> {
             };
 
             const { data, error } = await supabase.rpc('get_credit_campaign_funnel_stats', rpcArgs);
-            if (!error && Array.isArray(data)) {
+            if (!error && Array.isArray(data) && (data.length === 0 || ('desistencia' in data[0]))) {
                 return data.map((row: any) => ({
                     campaignId: row.campaign_id,
                     campaignName: row.campaign_name || 'Campanha',
@@ -1466,6 +1466,7 @@ async deleteCampaign(id: string): Promise<void> {
                     entregues: Number(row.entregues || 0),
                     lidas: Number(row.lidas || 0),
                     interagiram: Number(row.interagiram || 0),
+                    confirmaram: Number(row.confirmaram || 0),
                     faturamento: Number(row.faturamento || 0),
                     valorInicial: Number(row.valor_inicial || 0),
                     optIn: Number(row.opt_in || 0),
@@ -1475,7 +1476,8 @@ async deleteCampaign(id: string): Promise<void> {
                     okAgente: Number(row.ok_agente || 0),
                     aguarContato: Number(row.aguar_contato || 0),
                     emAtendimento: Number(row.em_atendimento || 0),
-                    formalizado: Number(row.formalizado || 0)
+                    formalizado: Number(row.formalizado || 0),
+                    desistencia: Number(row.desistencia || 0)
                 }));
             }
         } catch (rpcErr) {
@@ -1543,6 +1545,7 @@ async deleteCampaign(id: string): Promise<void> {
             }
 
             const leadMap = new Map<string, {
+                confirmaram: number;
                 faturamento: number;
                 valorInicial: number;
                 optIn: number;
@@ -1553,12 +1556,14 @@ async deleteCampaign(id: string): Promise<void> {
                 aguarContato: number;
                 emAtendimento: number;
                 formalizado: number;
+                desistencia: number;
             }>();
 
             for (const l of (leadRows || [])) {
                 if (!l.campaign_id) continue;
                 if (!leadMap.has(l.campaign_id)) {
                     leadMap.set(l.campaign_id, {
+                        confirmaram: 0,
                         faturamento: 0,
                         valorInicial: 0,
                         optIn: 0,
@@ -1568,13 +1573,42 @@ async deleteCampaign(id: string): Promise<void> {
                         okAgente: 0,
                         aguarContato: 0,
                         emAtendimento: 0,
-                        formalizado: 0
+                        formalizado: 0,
+                        desistencia: 0
                     });
                 }
                 const lm = leadMap.get(l.campaign_id)!;
                 const meta = l.metadata || {};
-                const fiservStatus = String(meta.fiserv_status || l.status || '').toLowerCase();
-                const formalStatus = String(meta.formalization_status || '').toLowerCase();
+                const fiservStatus = String(meta.fiserv_status || l.status || '').toLowerCase().trim();
+                const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
+                const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
+                const extStatus = String(meta.fiserv_external_status || '').toLowerCase().trim();
+                const leadStatus = String(l.status || '').toLowerCase().trim();
+
+                // Identidade Confirmada (explícita ou implícita por avançar de fase)
+                const isConfirmed = Boolean(
+                    meta.identity_confirmed === true ||
+                    meta.identity_confirmed === 'true' ||
+                    meta.cnpj_confirmed === true ||
+                    meta.cnpj_confirmed === 'true' ||
+                    meta.revenue ||
+                    meta.faturamento ||
+                    meta.requested_amount ||
+                    meta.valor_inicial ||
+                    meta.simulation_data?.amount ||
+                    meta.fiserv_amount_approved ||
+                    meta.opt_in === true ||
+                    meta.optin === true ||
+                    meta.consent?.opt_in === true ||
+                    meta.loan_request_id ||
+                    meta.simulation_requested ||
+                    meta.simularam ||
+                    meta.simulation_accepted === true ||
+                    meta.simulation_accepted === 'true' ||
+                    meta.ok_agente === true ||
+                    meta.ok_agente === 'true'
+                );
+                if (isConfirmed) lm.confirmaram++;
 
                 if (meta.revenue || meta.faturamento) lm.faturamento++;
                 if (
@@ -1593,24 +1627,52 @@ async deleteCampaign(id: string): Promise<void> {
                 if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus)) lm.aprovados++;
                 if (
                     ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
-                    ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus)
+                    ['denied', 'recusado', 'reprovado'].includes(leadStatus)
                 ) lm.recusados++;
                 if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
-                if (meta.simulation_accepted || meta.ok_agente) lm.okAgente++;
+                if (meta.simulation_accepted === true || meta.simulation_accepted === 'true' || meta.ok_agente === true || meta.ok_agente === 'true') {
+                    lm.okAgente++;
+                }
 
-                const pipeStage = String(meta.pipeline_stage || '').toLowerCase();
-                const isEmAtendimento = ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus) ||
-                    ['in_contact', 'proposal_sent'].includes(pipeStage);
-                const isFormalizado = ['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) ||
-                    pipeStage === 'contract_signed' || fiservStatus === 'won' || !!meta.formalized_at;
-                const isAguarContato = !isEmAtendimento && !isFormalizado && (
-                    ['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalStatus) ||
-                    pipeStage === 'pending_contact'
+                // Bloco 3: Funil de Formalização - Exige rigorosamente aceite na simulação (hasOkAgente)
+                const hasOkAgente = Boolean(
+                    meta.simulation_accepted === true ||
+                    meta.simulation_accepted === 'true' ||
+                    meta.ok_agente === true ||
+                    meta.ok_agente === 'true' ||
+                    meta.accepted_proposal != null ||
+                    meta.formalized_at != null
                 );
 
-                if (isAguarContato) lm.aguarContato++;
-                if (isEmAtendimento) lm.emAtendimento++;
-                if (isFormalizado) lm.formalizado++;
+                if (hasOkAgente) {
+                    const isDesistencia = (
+                        ['lost', 'cancelled', 'declined', 'desistente', 'recusado'].includes(formalStatus) ||
+                        ['declined', 'lost'].includes(pipeStage) ||
+                        ['lost', 'cancelled', 'declined'].includes(leadStatus) ||
+                        extStatus.includes('desistiu') ||
+                        meta.decline_at != null ||
+                        meta.decline_reason != null
+                    );
+
+                    const isFormalizado = !isDesistencia && (
+                        ['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) ||
+                        pipeStage === 'contract_signed' ||
+                        fiservStatus === 'won' ||
+                        Boolean(meta.formalized_at)
+                    );
+
+                    const isEmAtendimento = !isDesistencia && !isFormalizado && (
+                        ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus) ||
+                        ['in_contact', 'proposal_sent'].includes(pipeStage)
+                    );
+
+                    const isAguarContato = !isDesistencia && !isFormalizado && !isEmAtendimento;
+
+                    if (isDesistencia) lm.desistencia++;
+                    else if (isFormalizado) lm.formalizado++;
+                    else if (isEmAtendimento) lm.emAtendimento++;
+                    else if (isAguarContato) lm.aguarContato++;
+                }
             }
 
             return camps.map(c => {
@@ -1622,6 +1684,7 @@ async deleteCampaign(id: string): Promise<void> {
                     interagiram: c.response_count || 0
                 };
                 const lm = leadMap.get(c.id) || {
+                    confirmaram: 0,
                     faturamento: 0,
                     valorInicial: 0,
                     optIn: 0,
@@ -1631,7 +1694,8 @@ async deleteCampaign(id: string): Promise<void> {
                     okAgente: 0,
                     aguarContato: 0,
                     emAtendimento: 0,
-                    formalizado: 0
+                    formalizado: 0,
+                    desistencia: 0
                 };
 
                 return {
@@ -1644,6 +1708,7 @@ async deleteCampaign(id: string): Promise<void> {
                     entregues: oq.entregues,
                     lidas: oq.lidas,
                     interagiram: oq.interagiram,
+                    confirmaram: lm.confirmaram,
                     faturamento: lm.faturamento,
                     valorInicial: lm.valorInicial,
                     optIn: lm.optIn,
@@ -1653,7 +1718,8 @@ async deleteCampaign(id: string): Promise<void> {
                     okAgente: lm.okAgente,
                     aguarContato: lm.aguarContato,
                     emAtendimento: lm.emAtendimento,
-                    formalizado: lm.formalizado
+                    formalizado: lm.formalizado,
+                    desistencia: lm.desistencia
                 };
             });
         } catch (err) {

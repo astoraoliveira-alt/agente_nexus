@@ -1,20 +1,147 @@
 -- ============================================================
--- RPC: get_credit_campaign_funnel_stats
--- Descrição:
--- Retorna as métricas consolidadas dos 3 blocos do funil de crédito:
---   Bloco 1: Envio da Campanha (outbound_queue)
---   Bloco 2: Funil de Venda (agent_leads - confirmaram, faturamento, valor inicial, opt-in, aprovados, recusados, simularam, ok_agente)
---   Bloco 3: Funil de Formalização (agent_leads - aguardando contato, em atendimento, formalizado, desistência)
---
--- Regras Fundamentais:
--- 1. Contabilização baseada estritamente nas etapas formais e metadados estruturados de auditoria do funil.
--- 2. Hierarquia estrita do Funil:
---    Confirmaram >= Faturamento >= Valor Inicial >= Opt-in >= (Aprovados + Recusados) >= Simularam >= Ok Agente
--- 3. 'valor_inicial' exige passagem por 'faturamento' e valor plausível de crédito (10k a 500k),
---    eliminando ruídos de menus/telefones de auto-resposta.
--- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
+-- MIGRATION: 20261001_add_identity_confirmed_to_credit_funnel_stats.sql
+-- Descrição: 
+-- 1. Adiciona a coluna 'confirmaram' ao Funil de Venda (Bloco 2) antes de 'faturamento'
+-- 2. Atualiza a RPC 'get_credit_campaign_funnel_stats' para contabilizar:
+--    - Quem possui flag explícita de identidade/cnpj confirmado (identity_confirmed ou cnpj_confirmed)
+--    - E retroativamente quem avançou pelos passos seguintes (faturamento, valor inicial, opt-in, simulação, etc)
+-- 3. Atualiza 'fn_update_context_state' para persistir 'identity_confirmed = true' no 'agent_leads.metadata'
 -- ============================================================
 
+-- 1. Atualização da procedure fn_update_context_state
+CREATE OR REPLACE FUNCTION public.fn_update_context_state(
+    p_conversation_id UUID, 
+    p_current_step TEXT, 
+    p_metadata JSONB DEFAULT '{}'::jsonb
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_tenant_id UUID;
+    v_user_phone TEXT;
+    v_clean_phone TEXT;
+    v_lead_id UUID;
+    v_revenue NUMERIC;
+    v_requested_amount NUMERIC;
+    v_identity_confirmed BOOLEAN;
+    v_new_lead_metadata JSONB;
+BEGIN
+    -- 1. Atualiza sempre a conversa (núcleo da função original)
+    UPDATE public.conversations 
+    SET context_state = jsonb_build_object(
+        'current_step', p_current_step,
+        'updated_at', NOW(),
+        'metadata', COALESCE(p_metadata, '{}'::jsonb)
+    )
+    WHERE id = p_conversation_id
+    RETURNING tenant_id, user_identifier INTO v_tenant_id, v_user_phone;
+
+    -- Se a conversa não existir ou não tiver tenant, retorna com sucesso sem erro
+    IF v_tenant_id IS NULL THEN
+        RETURN jsonb_build_object('status', 'success', 'current_step', p_current_step, 'lead_updated', false);
+    END IF;
+
+    -- 2. Extrai com segurança revenue e requested_amount se existirem no payload
+    BEGIN
+        IF p_metadata ? 'revenue' AND NULLIF(p_metadata->>'revenue', '') IS NOT NULL THEN
+            v_revenue := (p_metadata->>'revenue')::numeric;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        v_revenue := NULL;
+    END;
+
+    BEGIN
+        IF p_metadata ? 'requested_amount' AND NULLIF(p_metadata->>'requested_amount', '') IS NOT NULL THEN
+            v_requested_amount := (p_metadata->>'requested_amount')::numeric;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        v_requested_amount := NULL;
+    END;
+
+    -- Extrai confirmação de identidade (explícita via payload ou inferida pelos passos seguintes)
+    IF (p_metadata->>'identity_confirmed') IN ('true', 't', '1') 
+       OR (p_metadata->>'cnpj_confirmed') IN ('true', 't', '1')
+       OR p_current_step IN ('coleta_faturamento', 'coleta_valor', 'consentimento_optin', 'criar_lead', 'apresenta_ofertas') THEN
+        v_identity_confirmed := true;
+    END IF;
+
+    -- Se não há dados de faturamento, valor nem confirmação de identidade a sincronizar, encerra sem tocar em agent_leads
+    IF v_revenue IS NULL AND v_requested_amount IS NULL AND v_identity_confirmed IS NULL THEN
+        RETURN jsonb_build_object('status', 'success', 'current_step', p_current_step, 'lead_updated', false);
+    END IF;
+
+    -- 3. Localização defensiva do lead em agent_leads
+    v_clean_phone := regexp_replace(COALESCE(v_user_phone, ''), '\D', '', 'g');
+
+    BEGIN
+        -- Tenta localizar o lead prioritariamente por CNPJ (se informado no metadata) ou pelo telefone
+        IF p_metadata ? 'cnpj' AND NULLIF(p_metadata->>'cnpj', '') IS NOT NULL THEN
+            SELECT id INTO v_lead_id
+            FROM public.agent_leads
+            WHERE tenant_id = v_tenant_id
+              AND regexp_replace(identifier, '\D', '', 'g') = regexp_replace(p_metadata->>'cnpj', '\D', '', 'g')
+            ORDER BY created_at DESC
+            LIMIT 1;
+        END IF;
+
+        IF v_lead_id IS NULL AND v_clean_phone <> '' THEN
+            SELECT id INTO v_lead_id
+            FROM public.agent_leads
+            WHERE tenant_id = v_tenant_id
+              AND (
+                whatsapp = v_clean_phone
+                OR whatsapp = RIGHT(v_clean_phone, 11)
+                OR whatsapp = RIGHT(v_clean_phone, 10)
+                OR regexp_replace(whatsapp, '^55', '') = regexp_replace(v_clean_phone, '^55', '')
+              )
+            ORDER BY created_at DESC
+            LIMIT 1;
+        END IF;
+
+        -- 4. Se o lead foi encontrado, realiza o merge defensivo preservando simulações/formalizações
+        IF v_lead_id IS NOT NULL THEN
+            -- Monta apenas as chaves fornecidas
+            v_new_lead_metadata := '{}'::jsonb;
+
+            IF v_identity_confirmed = true THEN
+                v_new_lead_metadata := v_new_lead_metadata || jsonb_build_object(
+                    'identity_confirmed', true,
+                    'cnpj_confirmed', true,
+                    'identity_confirmed_at', COALESCE((SELECT metadata->>'identity_confirmed_at' FROM public.agent_leads WHERE id = v_lead_id), NOW()::text)
+                );
+            END IF;
+            
+            IF v_revenue IS NOT NULL THEN
+                v_new_lead_metadata := v_new_lead_metadata || jsonb_build_object('revenue', v_revenue);
+            END IF;
+
+            IF v_requested_amount IS NOT NULL THEN
+                -- NOTA: Atualiza apenas o requested_amount (intenção inicial).
+                -- NÃO toca em simulation_data, nem em formalization_status ou fiserv_status.
+                v_new_lead_metadata := v_new_lead_metadata || jsonb_build_object('requested_amount', v_requested_amount);
+            END IF;
+
+            UPDATE public.agent_leads
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || v_new_lead_metadata
+            WHERE id = v_lead_id;
+
+            RETURN jsonb_build_object('status', 'success', 'current_step', p_current_step, 'lead_updated', true);
+        END IF;
+
+    EXCEPTION WHEN OTHERS THEN
+        -- Proteção absoluta: qualquer falha em lidar com agent_leads é silenciada
+        -- garantindo que o fluxo conversacional do agente nunca seja interrompido
+        RETURN jsonb_build_object('status', 'success', 'current_step', p_current_step, 'lead_updated', false, 'warning', SQLERRM);
+    END;
+
+    RETURN jsonb_build_object('status', 'success', 'current_step', p_current_step, 'lead_updated', false);
+END;
+$function$;
+
+-- 2. Atualização da RPC get_credit_campaign_funnel_stats
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
 
 CREATE OR REPLACE FUNCTION get_credit_campaign_funnel_stats(
@@ -98,127 +225,56 @@ BEGIN
   lead_metrics AS (
     SELECT
       al.campaign_id AS l_cid,
-      -- Bloco 2: Funil de Venda (Princípio Estrito: cada etapa subsequente pressupõe as anteriores)
-      
-      -- 1. Confirmaram: Confirmou identidade OU avançou em qualquer etapa posterior
+      -- Bloco 2: Funil de Venda
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'identity_confirmed') IN ('true', 't', '1')
            OR (al.metadata->>'cnpj_confirmed') IN ('true', 't', '1')
            OR (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
+           OR (al.metadata->>'requested_amount') IS NOT NULL 
+           OR (al.metadata->>'valor_inicial') IS NOT NULL
+           OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
+           OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
            OR (al.metadata->>'opt_in')::boolean = true
            OR (al.metadata->>'optin')::boolean = true
            OR (al.metadata->'consent'->>'opt_in')::boolean = true
            OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
            OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_confirmaram,
-
-      -- 2. Faturamento: Informou faturamento OU avançou em qualquer etapa posterior
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
-           OR (al.metadata->>'opt_in')::boolean = true
-           OR (al.metadata->>'optin')::boolean = true
-           OR (al.metadata->'consent'->>'opt_in')::boolean = true
-           OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-           OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_faturamento,
-
-      -- 3. Valor Inicial: Passou por faturamento E informou valor válido de empréstimo (10k a 500k) OU avançou para opt-in/crédito
       COUNT(al.id) FILTER (
-        WHERE (
-          -- Condição A: Passou por faturamento E informou valor válido (evita números de telefones/menus espúrios)
-          (
-            (al.metadata->>'revenue') IS NOT NULL 
-            OR (al.metadata->>'faturamento') IS NOT NULL
-          )
-          AND (
-            (
-              (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
-              AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (
-              (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
-              AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
-            OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
-          )
-        )
-        -- Condição B: Avançou para opt-in ou análise de crédito (pressupõe valor inicial definido)
-        OR (al.metadata->>'opt_in')::boolean = true
-        OR (al.metadata->>'optin')::boolean = true
-        OR (al.metadata->'consent'->>'opt_in')::boolean = true
-        OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-        OR (al.metadata->>'loan_request_id') IS NOT NULL
-        OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-        OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
+        WHERE (al.metadata->>'requested_amount') IS NOT NULL 
+           OR (al.metadata->>'valor_inicial') IS NOT NULL
+           OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
+           OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
       ) AS m_valor_inicial,
-
-      -- 4. Opt-in
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'opt_in')::boolean = true
            OR (al.metadata->>'optin')::boolean = true
            OR (al.metadata->'consent'->>'opt_in')::boolean = true
            OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
            OR (al.metadata->>'loan_request_id') IS NOT NULL
-           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_opt_in,
-
-      -- 5. Aprovados (Esteira Fiserv)
       COUNT(al.id) FILTER (
         WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved')
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado')
       ) AS m_aprovados,
-
-      -- 6. Recusados (Esteira Fiserv)
       COUNT(al.id) FILTER (
         WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
            OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
       ) AS m_recusados,
-
-      -- 7. Simularam (Exige lead NÃO recusado no crédito E com proposta efetivamente calculada com parcelas/juros)
       COUNT(al.id) FILTER (
-        WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
-          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
-        )
-        AND (
-          (al.metadata->'simulation_data'->>'installment_value') IS NOT NULL
-          OR (al.metadata->'simulation_data'->>'installments') IS NOT NULL
-          OR (al.metadata->'simulation_data'->>'monthly_interest') IS NOT NULL
-          OR (
-            (al.metadata->>'simularam')::boolean = true
-            AND lower(COALESCE(al.metadata->>'fiserv_last_status', '')) = 'success'
-          )
-          OR (al.metadata->>'simulation_accepted')::boolean = true
-          OR (al.metadata->>'ok_agente')::boolean = true
-          OR (al.metadata->'accepted_proposal') IS NOT NULL
-          OR (al.metadata->>'formalized_at') IS NOT NULL
-        )
+        WHERE (al.metadata->>'simulation_requested')::boolean = true
+           OR (al.metadata->>'simulation_data') IS NOT NULL
+           OR (al.metadata->>'simularam')::boolean = true
       ) AS m_simularam,
-
-      -- 8. Ok Agente (Aceite de Proposta Simulada)
       COUNT(al.id) FILTER (
-        WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
-          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
-        )
-        AND (
-          (al.metadata->>'simulation_accepted')::boolean = true
-          OR (al.metadata->>'ok_agente')::boolean = true
-          OR (al.metadata->'accepted_proposal') IS NOT NULL
-          OR (al.metadata->>'formalized_at') IS NOT NULL
-        )
+        WHERE (al.metadata->>'simulation_accepted')::boolean = true
+           OR (al.metadata->>'ok_agente')::boolean = true
       ) AS m_ok_agente,
-
       -- Bloco 3: Funil de Formalização (Rigorosamente condicionado a ter dado OK na simulação)
       COUNT(al.id) FILTER (
         WHERE (
