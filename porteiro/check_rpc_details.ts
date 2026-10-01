@@ -15,10 +15,17 @@ async function checkRpcDefinition() {
         .limit(1); // Not direct SQL.
 
     // Let's run a query to get function definition using a custom RPC or system query if possible.
-    // Wait, let's write a function to query pg_proc.
-    const { data: rpcDetails, error: rpcError } = await supabase.rpc('evaluate_conversation_security', {
-        p_conversation_id: '00000000-0000-0000-0000-000000000000' // dummy
-    }).catch(e => ({ error: e }));
+    let rpcDetails: any = null;
+    let rpcError: any = null;
+    try {
+        const res = await supabase.rpc('evaluate_conversation_security', {
+            p_conversation_id: '00000000-0000-0000-0000-000000000000' // dummy
+        });
+        rpcDetails = res.data;
+        rpcError = res.error;
+    } catch (e: any) {
+        rpcError = e;
+    }
 
     // Wait, let's query postgres via a simple sql query. How?
     // Since we don't have a direct sql query tool, we can write a test script that queries pg_proc using postgres client (pg) if installed,

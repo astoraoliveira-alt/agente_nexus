@@ -726,6 +726,7 @@ export interface Conversation {
   channel: 'text' | 'voice' | 'whatsapp';
   status: 'ai_active' | 'human_active' | 'closed';
   assignedOperator?: string;
+  assigned_operator_id?: string | null;
   lastMessage: string;
   lastMessageTime: Date;
   unreadCount: number;

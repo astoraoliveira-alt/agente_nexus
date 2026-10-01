@@ -1049,7 +1049,7 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         agent_id: agent.id,
                         phone_number: phone,
                         path: '/v1/zenvia/webhook',
-                        latency_ms: Date.now() - startTime,
+                        latency_ms: Date.now() - startTime_znv,
                         validation_results: { 
                             reason: 'agent_provider_not_zenvia', 
                             active_provider: activeProvider 

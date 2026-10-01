@@ -45,7 +45,7 @@ export const conversationsService = {
                 content: cleanContent,
                 type: (m.message_type || 'text') as 'text' | 'image' | 'audio' | 'document',
                 sender: (m.sender_type === 'user' ? 'user' :
-                    m.sender_type === 'human' ? 'human' : 'ai') as 'user' | 'ai' | 'human',
+                    (m.sender_type === 'human' || m.sender_type === 'operator') ? 'human' : 'ai') as 'user' | 'ai' | 'human',
                 senderName: m.sender_name,
                 timestamp: new Date(m.created_at),
                 audioUrl: m.audio_url,
@@ -64,12 +64,25 @@ export const conversationsService = {
             const current = rawList[i];
             const prev = deduplicated[deduplicated.length - 1];
             if (prev) {
-                const sameSender = prev.sender === current.sender;
                 const sameContent = (prev.content || '').trim() === (current.content || '').trim();
                 const timeDiffMs = Math.abs(current.timestamp.getTime() - prev.timestamp.getTime());
-                // Se for o mesmo remetente, mesmo conteúdo e intervalo de até 10 segundos, omite duplicata de eco
-                if (sameSender && sameContent && timeDiffMs < 10000) {
+
+                // Caso 1: Mesmo remetente, mesmo conteúdo, ≤ 10s → duplicata direta
+                if (prev.sender === current.sender && sameContent && timeDiffMs < 10000) {
                     continue;
+                }
+
+                // Caso 2: ECO cross-sender do WhatsApp
+                // Operador (human) envia → webhook salva cópia como 'user' ≤ 30s depois
+                // Ou IA (ai) envia → webhook salva como 'user' ≤ 30s depois
+                const isWhatsAppEcho = (
+                    sameContent &&
+                    timeDiffMs < 30000 &&
+                    current.sender === 'user' &&
+                    (prev.sender === 'human' || prev.sender === 'ai')
+                );
+                if (isWhatsAppEcho) {
+                    continue; // descarta o eco falso
                 }
             }
             deduplicated.push(current);

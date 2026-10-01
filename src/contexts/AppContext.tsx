@@ -46,7 +46,7 @@ interface AppContextType {
   // Conversations
   conversations: Conversation[];
   selectedConversation: Conversation | null;
-  setSelectedConversation: (conv: Conversation | null) => void;
+  setSelectedConversation: React.Dispatch<React.SetStateAction<Conversation | null>>;
 
   // Slide over panel
   slideOverOpen: boolean;
@@ -395,18 +395,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     selectedConvIdRef.current = selectedConversation?.id || null;
   }, [selectedConversation?.id]);
-
-  // 🔄 Polling fallback: refresh messages every 3s when a chat is open
-  // Ensures new msgs appear even if Supabase Realtime WebSocket event is missed (RLS edge cases)
-  useEffect(() => {
-    if (!selectedConversation?.id) return;
-    const convId = selectedConversation.id;
-    const interval = setInterval(() => {
-      fetchMessagesRef.current(convId);
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [selectedConversation?.id]);
-
 
   // Stable callback for loading handoff requests
   const loadHandoffs = useCallback(async () => {

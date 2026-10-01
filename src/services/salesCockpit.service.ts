@@ -1,5 +1,6 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
-import { Conversation } from '@/lib/types';
+import { Conversation, Message } from '@/lib/types';
+import { conversationsService } from '@/services/conversations.service';
 
 export type PipelineStage = 'pending_contact' | 'in_contact' | 'contract_sent' | 'contract_signed' | 'declined';
 
@@ -25,6 +26,8 @@ export interface SalesCockpitLead {
   pipelineUpdatedAt?: Date;
   lastMessageTime: Date;
   source?: 'handoff' | 'fiserv_credit' | 'conversion_click';
+  campaignId?: string;
+  campaignName?: string;
   assignedOperator?: string;
   assignedOperatorId?: string;
   conversation?: Conversation;
@@ -86,6 +89,9 @@ export function calculateProposalValues(meta: any = {}) {
 export function getPhoneVariations(phoneRaw: string): string[] {
   const clean = String(phoneRaw || '').replace(/\D/g, '');
   if (!clean) return [];
+  const digitsOnly = clean.startsWith('55') ? clean.slice(2) : clean;
+  if (digitsOnly.length < 8) return [];
+
   const set = new Set<string>();
   set.add(clean);
   if (clean.startsWith('55')) {
@@ -303,7 +309,7 @@ export const salesCockpitService = {
   /**
    * Busca ou resolve a conversa vinculada a um lead pelo telefone
    */
-  async getConversationForLead(phone: string, tenantId: string, fallbackName?: string): Promise<Conversation | null> {
+  async getConversationForLead(phone: string, tenantId: string, fallbackName?: string, campaignId?: string): Promise<Conversation | null> {
     try {
       const variations = getPhoneVariations(phone);
       if (variations.length === 0) return null;
@@ -313,12 +319,34 @@ export const salesCockpitService = {
         .select('*, agents:agent_id(name, type)')
         .eq('tenant_id', tenantId)
         .in('user_identifier', variations)
-        .order('last_message_at', { ascending: false, nullsFirst: false })
-        .limit(1);
+        .order('created_at', { ascending: false })
+        .limit(10);
 
       if (error || !data || data.length === 0) return null;
 
-      const c = data[0];
+      // Classificar e selecionar a melhor conversa
+      const sorted = [...data].sort((a, b) => {
+        if (campaignId) {
+          const aCamp = a.campaign_id || a.metadata?.campaign_id || a.metadata?.campaignId;
+          const bCamp = b.campaign_id || b.metadata?.campaign_id || b.metadata?.campaignId;
+          const aMatches = aCamp === campaignId ? 1 : 0;
+          const bMatches = bCamp === campaignId ? 1 : 0;
+          if (bMatches !== aMatches) return bMatches - aMatches;
+        }
+
+        const statusScore = (s: string) => s === 'human_active' ? 3 : s === 'ai_active' ? 2 : s === 'closed' ? 0 : 1;
+        const scoreA = statusScore(a.status);
+        const scoreB = statusScore(b.status);
+        if (scoreB !== scoreA) return scoreB - scoreA;
+
+        const timeA = new Date(a.last_message_at || a.created_at).getTime();
+        const timeB = new Date(b.last_message_at || b.created_at).getTime();
+        return timeB - timeA;
+      });
+
+      const c = sorted[0];
+      const messages = await conversationsService.getConversationMessages(c.id);
+
       return {
         id: c.id,
         tenantId: c.tenant_id,
@@ -330,11 +358,11 @@ export const salesCockpitService = {
         userName: c.user_name || fallbackName || 'Cliente',
         channel: c.channel || 'whatsapp',
         status: c.status,
-        assignedOperator: c.assigned_operator_id ? 'Operador Humano' : undefined,
-        lastMessage: '',
+        assignedOperator: c.assigned_operator_id ? 'Operador Humano' : (c.metadata?.operator_name || undefined),
+        lastMessage: messages.length > 0 ? messages[messages.length - 1].content : '',
         lastMessageTime: new Date(c.last_message_at || c.created_at),
         unreadCount: 0,
-        messages: [],
+        messages: messages,
         createdAt: new Date(c.created_at)
       };
     } catch (e) {
@@ -347,8 +375,8 @@ export const salesCockpitService = {
    * Garante que o lead possui uma conversa real no banco de dados para abrir o chat
    */
   async getOrCreateConversationForLead(lead: SalesCockpitLead, tenantId: string): Promise<Conversation> {
-    // 1. Tentar encontrar conversa existente por variações de telefone
-    const existing = await this.getConversationForLead(lead.phone, tenantId, lead.name);
+    // 1. Tentar encontrar conversa existente por variações de telefone e campanha
+    const existing = await this.getConversationForLead(lead.phone, tenantId, lead.name, lead.campaignId);
     if (existing) return existing;
 
     // 2. Se não existir, criar uma nova conversa oficial no banco para permitir chat e histórico
@@ -418,168 +446,374 @@ export const salesCockpitService = {
    * Busca EXCLUSIVAMENTE os leads e conversas que CHEGARAM AO FIM DO FUNIL DE FORMALIZAÇÃO
    * (Otimizado com supabaseReader e consultas diretas indexadas para carregamento sub-segundo)
    */
-  async getSalesCockpitLeads(tenantId: string): Promise<SalesCockpitLead[]> {
+  /**
+   * Busca EXCLUSIVAMENTE os leads que chegaram ao fim do funil (critério "OK Agente").
+   * Fonte primária: RPC `get_sales_cockpit_leads` (JOIN completo + mensagens no banco).
+   * Fallback: análise local de mensagens (caso o RPC falhe ou retorne vazio).
+   *
+   * @param tenantId  - UUID do tenant
+   * @param userId    - UUID do usuário logado (para RBAC no RPC)
+   * @param userRole  - Papel do usuário ('super_admin' | 'admin' | 'operator' | etc.)
+   */
+  async getSalesCockpitLeads(
+    tenantId: string,
+    userId?: string | null,
+    userRole?: string | null
+  ): Promise<SalesCockpitLead[]> {
+    // Normaliza o papel: super_admin / admin / tenant_admin passam como 'super_admin'
+    // para que o filtro RBAC do RPC mostre todos os leads sem restrição por operador.
+    const resolvedRole = (() => {
+      const r = String(userRole || '').toLowerCase().trim();
+      if (['super_admin', 'admin', 'tenant_admin', 'administrador'].some(a => r.includes(a))) return 'super_admin';
+      return 'operator';
+    })();
+
     try {
-      // 1. Buscar leads e conversas do tenant em paralelo para desempenho sub-segundo
-      const [leadsRes, convsRes] = await Promise.all([
-        supabaseReader
-          .from('agent_leads')
-          .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id')
-          .eq('tenant_id', tenantId)
-          .order('created_at', { ascending: false })
-          .limit(1000),
-        supabaseReader
-          .from('conversations')
-          .select('id, user_identifier, user_name, metadata, status, assigned_operator_id, last_message_at, created_at, agent_id, agents:agent_id(name, type)')
-          .eq('tenant_id', tenantId)
-          .order('last_message_at', { ascending: false, nullsFirst: false })
-          .limit(100)
-      ]);
+      // ─── FONTE PRIMÁRIA: RPC otimizada (critério OK Agente validado no banco) ───
+      const { data: rpcRows, error: rpcError } = await supabaseReader
+        .rpc('get_sales_cockpit_leads', {
+          p_tenant_id: tenantId,
+          p_user_id:   userId   ?? null,
+          p_user_role: resolvedRole
+        });
 
-      const rawLeads = leadsRes.data || [];
-      const tenantConvs = convsRes.data || [];
-      const convIds = tenantConvs.map(c => c.id);
-
-      // 2. Buscar mensagens chave de funil apenas para as conversas ativas do tenant
-      let matchedFunnelMsgs: any[] = [];
-      if (convIds.length > 0) {
-        const { data: msgsData } = await supabaseReader
-          .from('messages')
-          .select('conversation_id, content, created_at, sender_type')
-          .in('conversation_id', convIds)
-          .order('created_at', { ascending: true });
-        matchedFunnelMsgs = msgsData || [];
+      if (rpcError) {
+        console.warn('⚠️ RPC get_sales_cockpit_leads erro:', rpcError.message);
       }
 
-      // Mapear conversas por variações de telefone
-      const convByPhone = new Map<string, any>();
-      tenantConvs.forEach((c: any) => {
-        const variations = getPhoneVariations(c.user_identifier);
-        variations.forEach(v => {
-          if (!convByPhone.has(v)) {
-            convByPhone.set(v, c);
-          }
-        });
-      });
+      if (rpcRows && rpcRows.length > 0) {
+        const cockpitLeads: SalesCockpitLead[] = [];
 
-      // Mapear dados de leads por variações de telefone
-      const leadByPhone = new Map<string, any>();
-      rawLeads.forEach(l => {
-        const variations = getPhoneVariations(l.whatsapp);
-        variations.forEach(v => {
-          if (!leadByPhone.has(v)) {
-            leadByPhone.set(v, l);
-          }
-        });
-      });
+        for (const row of rpcRows) {
+          // Mapear mensagens retornadas pelo RPC (campo messages JSONB)
+          const rpcMessages: any[] = Array.isArray(row.messages) ? row.messages : [];
+          const mappedMessages = rpcMessages.map((m: any) => {
+            let cleanContent = m.content || '';
+            try {
+              if (typeof cleanContent === 'string' && cleanContent.trim().startsWith('{')) {
+                const parsed = JSON.parse(cleanContent);
+                if (parsed.content) cleanContent = parsed.content;
+              }
+            } catch (_) {}
 
-      // Mapear mensagens de formalização por conversa
-      const funnelMsgsByConv = new Map<string, any[]>();
-      matchedFunnelMsgs.forEach(m => {
-        if (!funnelMsgsByConv.has(m.conversation_id)) {
-          funnelMsgsByConv.set(m.conversation_id, []);
+            const isAi = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(
+              String(m.sender_type || '').toLowerCase()
+            );
+            const isHuman = ['human', 'operator'].includes(
+              String(m.sender_type || '').toLowerCase()
+            );
+            const sender = isAi ? 'ai' : isHuman ? 'human' : 'user';
+
+            return {
+              id: m.id || `${row.conversation_id}-${m.created_at}`,
+              conversationId: m.conversation_id || row.conversation_id,
+              tenantId: tenantId,
+              tenantSlug: '',
+              content: cleanContent,
+              type: (m.message_type || 'text') as any,
+              sender: sender,
+              senderName: m.sender_name || (isAi ? 'Sofia' : isHuman ? (row.assigned_operator || 'Operador') : row.name),
+              timestamp: new Date(m.created_at),
+              audioUrl: m.audio_url,
+              status: m.status || 'sent'
+            };
+          });
+
+          const stage: PipelineStage = (row.pipeline_stage as PipelineStage) || 'pending_contact';
+          const lastMsgTime = row.last_message_time ? new Date(row.last_message_time) : new Date();
+
+          cockpitLeads.push({
+            id: String(row.lead_id),
+            conversationId: String(row.conversation_id || row.lead_id),
+            tenantId: tenantId,
+            name: row.name || 'Cliente',
+            cnpj: row.cnpj || undefined,
+            phone: row.phone,
+            requestedAmount: Number(row.requested_amount) || 0,
+            requestedInstallments: Number(row.requested_installments) || 0,
+            interestRate: Number(row.interest_rate) || 0,
+            monthlyPayment: Number(row.monthly_payment) || 0,
+            totalContractAmount: Number(row.total_contract_amount) || 0,
+            totalInterestAmount: 0,
+            approvedLimit: 0,
+            revenue: 0,
+            loanRequestId: row.loan_request_id
+              ? (String(row.loan_request_id).startsWith('#') ? String(row.loan_request_id) : `#FSV-${row.loan_request_id}`)
+              : undefined,
+            consentSigned: true,
+            pipelineStage: stage,
+            lastMessageTime: lastMsgTime,
+            source: 'fiserv_credit',
+            campaignId: String(row.campaign_id),
+            campaignName: row.campaign_name || 'Campanha Fiserv',
+            assignedOperator: row.assigned_operator || undefined,
+            assignedOperatorId: row.assigned_operator_id ? String(row.assigned_operator_id) : undefined,
+            conversation: {
+              id: String(row.conversation_id || row.lead_id),
+              tenantId: tenantId,
+              tenantSlug: '',
+              agentId: '',
+              agentName: 'Sofia (Ticket)',
+              userId: row.phone,
+              userName: row.name || 'Cliente',
+              channel: 'whatsapp',
+              status: (row.conversation_status as any) || 'ai_active',
+              assignedOperator: row.assigned_operator || undefined,
+              lastMessage: row.last_message_content || '',
+              lastMessageTime: lastMsgTime,
+              unreadCount: 0,
+              messages: mappedMessages,
+              createdAt: lastMsgTime
+            }
+          });
         }
+
+        cockpitLeads.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
+        return cockpitLeads;
+      }
+
+      // ─── FALLBACK: análise local (RPC falhou ou não tem dados) ───────────────
+      console.warn('⚠️ RPC sem resultados — usando fallback local de mensagens.');
+
+      const [auditRes, activeConvsRes, campsRes] = await Promise.all([
+        supabaseReader
+          .from('fiserv_audit_logs')
+          .select('id, contact_name, contact_phone, registration_code, status_fiserv, is_approved, offer_data, loan_request_id, created_at, action')
+          .eq('tenant_id', tenantId)
+          .order('created_at', { ascending: false }),
+        supabaseReader
+          .from('conversations')
+          .select('id, tenant_id, user_identifier, user_name, metadata, status, channel, assigned_operator_id, last_message_at, created_at, agent_id, campaign_id')
+          .eq('tenant_id', tenantId)
+          .eq('status', 'human_active')
+          .order('created_at', { ascending: false })
+          .limit(50),
+        supabaseReader
+          .from('campaigns')
+          .select('id, name, status, created_at')
+          .eq('tenant_id', tenantId)
+      ]);
+
+      const auditLogs = auditRes.data || [];
+      const activeConvs = activeConvsRes.data || [];
+      const camps = campsRes.data || [];
+
+      const campMap = new Map<string, any>();
+      const validCampaignIds = new Set<string>();
+      camps.forEach((c: any) => {
+        campMap.set(c.id, c);
+        if (c.status === 'active' || c.status === 'completed') validCampaignIds.add(c.id);
+      });
+
+      const auditPhoneSet = new Set<string>();
+      auditLogs.forEach((a: any) => {
+        if (a.contact_phone) getPhoneVariations(a.contact_phone).forEach((v: string) => auditPhoneSet.add(v));
+      });
+      const auditPhones = Array.from(auditPhoneSet);
+
+      let phoneConvs: any[] = [];
+      if (auditPhones.length > 0) {
+        const { data: pConvs } = await supabaseReader
+          .from('conversations')
+          .select('id, tenant_id, user_identifier, user_name, metadata, status, channel, assigned_operator_id, last_message_at, created_at, agent_id, campaign_id')
+          .eq('tenant_id', tenantId)
+          .in('user_identifier', auditPhones)
+          .order('created_at', { ascending: false });
+        phoneConvs = pConvs || [];
+      }
+
+      const convMap = new Map<string, any>();
+      [...activeConvs, ...phoneConvs].forEach((c: any) => convMap.set(c.id, c));
+      const candidateConvs = Array.from(convMap.values()).sort((a: any, b: any) =>
+        new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime()
+      );
+      const convIds = candidateConvs.map((c: any) => c.id);
+
+      const allCandidatePhones = new Set<string>();
+      candidateConvs.forEach((c: any) => getPhoneVariations(c.user_identifier).forEach((v: string) => allCandidatePhones.add(v)));
+      auditPhones.forEach((v: string) => allCandidatePhones.add(v));
+
+      const [msgsRes, leadsRes, queueRes] = await Promise.all([
+        convIds.length > 0
+          ? supabaseReader.from('messages')
+              .select('id, conversation_id, content, created_at, sender_type, message_type, audio_url, image_url, metadata')
+              .in('conversation_id', convIds)
+              .order('created_at', { ascending: true })
+          : { data: [] },
+        allCandidatePhones.size > 0
+          ? supabaseReader.from('agent_leads')
+              .select('id, name, identifier, whatsapp, status, metadata, created_at, tenant_id, campaign_id')
+              .eq('tenant_id', tenantId)
+              .in('whatsapp', Array.from(allCandidatePhones))
+              .order('created_at', { ascending: false })
+          : { data: [] },
+        allCandidatePhones.size > 0
+          ? supabaseReader.from('outbound_queue')
+              .select('id, contact_name, contact_phone, campaign_id, status, created_at, tenant_id')
+              .eq('tenant_id', tenantId)
+              .in('contact_phone', Array.from(allCandidatePhones))
+              .order('created_at', { ascending: false })
+          : { data: [] }
+      ]);
+
+      const msgsData = msgsRes.data || [];
+      const rawLeads = leadsRes.data || [];
+      const rawQueue = queueRes.data || [];
+
+      const convsByPhone = new Map<string, any[]>();
+      const convByPhone = new Map<string, any>();
+      candidateConvs.forEach((c: any) => {
+        getPhoneVariations(c.user_identifier).forEach((v: string) => {
+          if (!convsByPhone.has(v)) convsByPhone.set(v, []);
+          convsByPhone.get(v)!.push(c);
+          if (!convByPhone.has(v)) convByPhone.set(v, c);
+        });
+      });
+
+      const leadByPhone = new Map<string, any>();
+      rawLeads.forEach((l: any) => {
+        getPhoneVariations(l.whatsapp).forEach((v: string) => {
+          if (!leadByPhone.has(v)) leadByPhone.set(v, l);
+        });
+      });
+
+      const queueByPhone = new Map<string, any>();
+      rawQueue.forEach((q: any) => {
+        if (q.contact_phone) getPhoneVariations(q.contact_phone).forEach((v: string) => {
+          if (!queueByPhone.has(v)) queueByPhone.set(v, q);
+        });
+      });
+
+      const auditByPhone = new Map<string, any>();
+      auditLogs.forEach((a: any) => {
+        if (a.contact_phone) getPhoneVariations(a.contact_phone).forEach((v: string) => {
+          if (!auditByPhone.has(v)) auditByPhone.set(v, a);
+        });
+      });
+
+      const funnelMsgsByConv = new Map<string, any[]>();
+      msgsData.forEach((m: any) => {
+        if (!funnelMsgsByConv.has(m.conversation_id)) funnelMsgsByConv.set(m.conversation_id, []);
         funnelMsgsByConv.get(m.conversation_id)!.push(m);
       });
 
-      // Consolidar exclusivamente os leads qualificados
+      const getBestConvForPhone = (phone: string, targetCampaignId?: string): any | null => {
+        const variations = getPhoneVariations(phone);
+        const candidates: any[] = [];
+        variations.forEach((v: string) => { const list = convsByPhone.get(v); if (list) candidates.push(...list); });
+        if (candidates.length === 0) return null;
+        const unique = Array.from(new Map(candidates.map((c: any) => [c.id, c])).values());
+        unique.sort((a: any, b: any) => {
+          if (targetCampaignId) {
+            const aM = (a.campaign_id || a.metadata?.campaign_id) === targetCampaignId ? 1 : 0;
+            const bM = (b.campaign_id || b.metadata?.campaign_id) === targetCampaignId ? 1 : 0;
+            if (bM !== aM) return bM - aM;
+          }
+          const sc = (s: string) => s === 'human_active' ? 3 : s === 'ai_active' ? 2 : s === 'closed' ? 0 : 1;
+          if (sc(b.status) !== sc(a.status)) return sc(b.status) - sc(a.status);
+          return new Date(b.last_message_at || b.created_at).getTime() - new Date(a.last_message_at || a.created_at).getTime();
+        });
+        return unique[0] || null;
+      };
+
       const cockpitLeads: SalesCockpitLead[] = [];
       const processedPhones = new Set<string>();
 
+      const mapMessages = (msgs: any[], convData: any, fallbackName: string) =>
+        msgs.map((m: any) => {
+          let cleanContent = m.content || '';
+          try {
+            if (cleanContent.trim().startsWith('{')) {
+              const parsed = JSON.parse(cleanContent);
+              if (parsed.content) cleanContent = parsed.content;
+            }
+          } catch (_) {}
+          const isAi = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+          const isHuman = ['human', 'operator'].includes(String(m.sender_type || '').toLowerCase());
+          const sender = isAi ? 'ai' : isHuman ? 'human' : 'user';
+          return {
+            id: m.id || `${convData?.id}-${m.created_at}`,
+            conversationId: m.conversation_id || convData?.id,
+            tenantId,
+            tenantSlug: '',
+            content: cleanContent,
+            type: (m.message_type || 'text') as any,
+            sender,
+            senderName: m.sender_name || (isAi ? 'Sofia' : isHuman ? (convData?.metadata?.operator_name || 'Operador') : fallbackName),
+            timestamp: new Date(m.created_at),
+            audioUrl: m.audio_url,
+            imageUrl: m.image_url || m.metadata?.file_url,
+            fileUrl: m.metadata?.file_url || m.image_url,
+            fileName: m.metadata?.file_name,
+            status: m.status || 'sent'
+          };
+        });
+
       const addQualifiedLead = (params: {
-        id: string;
-        convId?: string;
-        name: string;
-        phone: string;
-        cnpj?: string;
-        metadata: any;
-        date: Date;
-        source: 'handoff' | 'fiserv_credit' | 'conversion_click';
-        matchedConv?: any;
+        id: string; convId?: string; name: string; phone: string; cnpj?: string;
+        metadata: any; date: Date; source: 'handoff' | 'fiserv_credit' | 'conversion_click';
+        matchedConv?: any; campaignId?: string;
       }) => {
         const cleanPhone = String(params.phone || '').replace(/\D/g, '');
-        if (!cleanPhone || processedPhones.has(cleanPhone)) return;
+        const digitsOnly = cleanPhone.startsWith('55') ? cleanPhone.slice(2) : cleanPhone;
+        if (digitsOnly.length < 8 || processedPhones.has(cleanPhone)) return;
 
-        // Buscar dados enriquecidos de cadastro (CNPJ, Razão Social)
         const enriched = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
-        const mergedMeta = { 
-          ...(enriched?.metadata || {}), 
-          ...(params.metadata || {}),
-          offer_data: {
-            ...(enriched?.metadata?.offer_data || enriched?.metadata?.fiserv_offer_data || {}),
-            ...(params.metadata?.offer_data || {})
-          }
-        };
+        const audit = auditByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? auditByPhone.get(cleanPhone.slice(2)) : null);
+        const queueItem = queueByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? queueByPhone.get(cleanPhone.slice(2)) : null);
 
-        // 🛑 TRAVA DE SEGURANÇA 1: Se o lead ou conversa tiver marcação de recusa ou cancelamento, descarta imediatamente
-        const isDeniedOrLost = 
-          ['denied', 'fails_to_process', 'lost', 'cancelled', 'rejected'].includes(String(mergedMeta?.fiserv_status || '').toLowerCase()) ||
+        const candidateCampaignId =
+          params.campaignId || enriched?.campaign_id || queueItem?.campaign_id ||
+          audit?.offer_data?.campaign_id || params.metadata?.campaign_id || params.metadata?.campaignId;
+
+        const conv = params.matchedConv || getBestConvForPhone(cleanPhone, candidateCampaignId) ||
+          convByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? convByPhone.get(cleanPhone.slice(2)) : null);
+
+        const finalCampaignId =
+          candidateCampaignId || conv?.campaign_id || conv?.metadata?.campaign_id || conv?.metadata?.campaignId;
+
+        if (!finalCampaignId || !validCampaignIds.has(finalCampaignId)) return;
+
+        const campObj = campMap.get(finalCampaignId);
+        const mergedMeta = { ...(enriched?.metadata || {}), ...(audit?.offer_data ? { offer_data: audit.offer_data } : {}), ...(params.metadata || {}) };
+
+        const isDeniedOrLost =
+          ['denied', 'fails_to_process', 'lost', 'cancelled', 'rejected'].includes(String(mergedMeta?.fiserv_status || audit?.status_fiserv || '').toLowerCase()) ||
           mergedMeta?.outcome === 'rejected' ||
           ['cancelled', 'rejected', 'denied'].includes(String(enriched?.status || '').toLowerCase()) ||
           (mergedMeta?.formalization_status === 'lost' && !mergedMeta?.simulation_accepted);
-
         if (isDeniedOrLost) return;
 
-        // 🛑 TRAVA DE SEGURANÇA 2: Se houver mensagens na conversa indicando recusa do comitê de crédito sem aprovação posterior, descarta imediatamente
-        const conv = params.matchedConv || convByPhone.get(cleanPhone);
         if (conv?.id && funnelMsgsByConv.has(conv.id)) {
           const cMsgs = funnelMsgsByConv.get(conv.id) || [];
-          let rejectedIdx = -1;
-          let approvedIdx = -1;
-
-          for (let i = 0; i < cMsgs.length; i++) {
-            const m = cMsgs[i];
+          let rejIdx = -1, appIdx = -1;
+          cMsgs.forEach((m: any, i: number) => {
             const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
-            if (!isBot) continue;
+            if (!isBot) return;
             const txt = String(m.content || '').toLowerCase();
-
-            if (
-              txt.includes('infelizmente não conseguimos liberar uma oferta de crédito') ||
-              txt.includes('infelizmente nao conseguimos liberar uma oferta de credito') ||
-              (txt.includes('comitê fiserv') && txt.includes('infelizmente não conseguimos')) ||
-              (txt.includes('comite fiserv') && txt.includes('infelizmente nao conseguimos')) ||
-              (txt.includes('comitê fiserv') && txt.includes('não conseguimos')) ||
-              (txt.includes('comite fiserv') && txt.includes('nao conseguimos')) ||
-              txt.includes('motivo:* análise de crédito') ||
-              txt.includes('motivo:* analise de credito')
-            ) {
-              rejectedIdx = i;
-            }
-
-            if (
-              txt.includes('especialistas entrará em contato') ||
-              txt.includes('especialistas entrara em contato') ||
-              txt.includes('enviei a sua solicitação para formalização') ||
-              txt.includes('fase final de assinatura')
-            ) {
-              approvedIdx = i;
-            }
-          }
-
-          if (rejectedIdx !== -1 && rejectedIdx > approvedIdx) {
-            return;
-          }
+            if (txt.includes('infelizmente não conseguimos liberar uma oferta de crédito') || txt.includes('infelizmente nao conseguimos liberar uma oferta de credito')) rejIdx = i;
+            if (txt.includes('especialistas entrará em contato') || txt.includes('enviei a sua solicitação para formalização')) appIdx = i;
+          });
+          if (rejIdx !== -1 && rejIdx > appIdx) return;
         }
 
         processedPhones.add(cleanPhone);
 
-        const finalCnpj = params.cnpj || mergedMeta?.cnpj || enriched?.identifier;
+        const finalCnpj = params.cnpj || mergedMeta?.cnpj || enriched?.identifier || audit?.registration_code;
         const finalName = (params.name && params.name !== 'Cliente' && params.name !== 'Cliente Sem Nome')
-          ? params.name
-          : (mergedMeta?.razao_social || enriched?.name || 'Cliente');
+          ? params.name : (mergedMeta?.razao_social || enriched?.name || audit?.contact_name || 'Cliente');
 
         const convId = conv?.id || params.convId || params.id;
-
         const math = calculateProposalValues(mergedMeta);
-
-        const stage: PipelineStage = 
-          mergedMeta.pipeline_stage || 
+        const stage: PipelineStage = mergedMeta.pipeline_stage || conv?.metadata?.pipeline_stage ||
           (conv?.status === 'human_active' && conv?.assigned_operator_id ? 'in_contact' : 'pending_contact');
+
+        const convMessages = mapMessages(funnelMsgsByConv.get(conv?.id) || [], conv, finalName);
 
         cockpitLeads.push({
           id: params.id,
           conversationId: convId,
-          tenantId: tenantId,
+          tenantId,
           name: finalName,
           cnpj: finalCnpj,
           phone: params.phone,
@@ -591,208 +825,94 @@ export const salesCockpitService = {
           totalInterestAmount: math.totalInterestAmount,
           approvedLimit: math.approvedLimit,
           revenue: Number(mergedMeta.revenue || 0) || Number(enriched?.revenue || 0) || 0,
-          loanRequestId: mergedMeta.loan_request_id ? (String(mergedMeta.loan_request_id).startsWith('#') ? String(mergedMeta.loan_request_id) : `#FSV-${mergedMeta.loan_request_id}`) : `#FSV-${Math.abs(params.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) * 891 + 104523) % 900000 + 100000}`,
+          loanRequestId: mergedMeta.loan_request_id
+            ? (String(mergedMeta.loan_request_id).startsWith('#') ? String(mergedMeta.loan_request_id) : `#FSV-${mergedMeta.loan_request_id}`)
+            : (audit?.loan_request_id ? `#FSV-${audit.loan_request_id}` : `#FSV-${Math.abs(params.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0) * 891 + 104523) % 900000 + 100000}`),
           consentSigned: mergedMeta.consent?.opt_in === true || !!mergedMeta.fiserv_requested_at || true,
           consentDate: mergedMeta.consent?.timestamp ? new Date(mergedMeta.consent.timestamp) : undefined,
           pipelineStage: stage,
           pipelineUpdatedAt: mergedMeta.pipeline_updated_at ? new Date(mergedMeta.pipeline_updated_at) : undefined,
           lastMessageTime: params.date,
           source: params.source,
-          assignedOperator: mergedMeta.operator_name || (conv?.assigned_operator_id ? 'Operador Humano' : undefined),
+          campaignId: candidateCampaignId,
+          campaignName: campObj?.name || 'Campanha Fiserv',
+          assignedOperator: mergedMeta.operator_name || (conv?.assigned_operator_id ? 'Operador Humano' : (conv?.metadata?.operator_name || undefined)),
           assignedOperatorId: mergedMeta.operator_id || conv?.assigned_operator_id || undefined,
           conversation: conv ? {
-            id: conv.id,
-            tenantId: conv.tenant_id,
-            tenantSlug: '',
-            agentId: conv.agent_id,
-            agentName: conv.agents?.name || 'Sofia (Ticket)',
-            agentType: conv.agents?.type,
-            userId: conv.user_identifier,
-            userName: conv.user_name || finalName,
-            channel: conv.channel || 'whatsapp',
-            status: conv.status,
-            assignedOperator: conv.assigned_operator_id ? 'Operador Humano' : undefined,
-            lastMessage: '',
+            id: conv.id, tenantId: conv.tenant_id, tenantSlug: '', agentId: conv.agent_id,
+            agentName: conv.agents?.name || 'Sofia (Ticket)', agentType: conv.agents?.type,
+            userId: conv.user_identifier, userName: conv.user_name || finalName,
+            channel: conv.channel || 'whatsapp', status: conv.status,
+            assignedOperator: conv.assigned_operator_id ? 'Operador Humano' : (conv.metadata?.operator_name || undefined),
+            lastMessage: convMessages.length > 0 ? convMessages[convMessages.length - 1].content : '',
             lastMessageTime: new Date(conv.last_message_at || params.date),
-            unreadCount: 0,
-            messages: [],
-            createdAt: new Date(conv.created_at || params.date)
+            unreadCount: 0, messages: convMessages, createdAt: new Date(conv.created_at || params.date)
           } : {
-            id: convId,
-            tenantId: tenantId,
-            tenantSlug: '',
-            agentId: '',
-            agentName: 'Sofia (Ticket)',
-            userId: params.phone,
-            userName: finalName,
-            channel: 'whatsapp',
-            status: 'human_active',
-            lastMessage: '',
-            lastMessageTime: params.date,
-            unreadCount: 0,
-            messages: [],
-            createdAt: params.date
+            id: convId, tenantId, tenantSlug: '', agentId: '', agentName: 'Sofia (Ticket)',
+            userId: params.phone, userName: finalName, channel: 'whatsapp', status: 'human_active',
+            lastMessage: '', lastMessageTime: params.date, unreadCount: 0, messages: [], createdAt: params.date
           }
         });
       };
 
-      // 3. Inserir leads de conversas que concluíram a etapa de simulação E DERAM OK NA PROPOSTA
       for (const [convId, mList] of funnelMsgsByConv.entries()) {
-        const conv = tenantConvs.find(c => c.id === convId);
+        const conv = convMap.get(convId);
         if (!conv) continue;
         const cleanPhone = String(conv.user_identifier || '').replace(/\D/g, '');
         const enrichedLead = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
-        
-        // Verificar estritamente se o cliente deu OK na proposta enviada
         if (!isProposalAccepted(mList, enrichedLead)) continue;
 
         const parseNum = (val: string | undefined | null) => val ? parseFloat(val.replace(/\./g, '').replace(',', '.')) : null;
-        const parseAnyAmount = (raw: string | null | undefined): number | null => {
-          if (!raw) return null;
-          const clean = String(raw).toLowerCase().trim();
-          if (clean.includes('milhão') || clean.includes('milhao') || clean.includes('milhões')) {
-            const n = parseNum(clean.replace(/[^0-9,.]/g, '')) || 1;
-            return n * 1000000;
-          }
-          if (clean.includes('mil') || clean.includes('k')) {
-            const n = parseNum(clean.replace(/[^0-9,.]/g, '')) || 1;
-            return n * 1000;
-          }
-          return parseNum(clean.replace(/[^0-9,.]/g, ''));
-        };
-        
-        let foundReqAmount: number | null = null;
-        let foundInstallments: string | null = null;
-        let foundRate: number | null = null;
-        let foundLimit: number | null = null;
-        let foundPmt: number | null = null;
-        let foundDebt: number | null = null;
-        let foundCnpj: string | null = null;
-        let foundCompanyName: string | null = null;
-        let foundRevenue: number | null = null;
+        let foundReqAmount: number | null = null, foundInstallments: string | null = null,
+            foundRate: number | null = null, foundLimit: number | null = null,
+            foundPmt: number | null = null, foundDebt: number | null = null,
+            foundCnpj: string | null = null, foundCompanyName: string | null = null, foundRevenue: number | null = null;
 
-        // 1. Extrair os valores exatos da proposta simulada aceita pelo cliente
-        const simMessage = [...mList].reverse().find(m => {
+        const simMessage = [...mList].reverse().find((m: any) => {
           const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
           return isBot && /Simulação concluída/i.test(m.content || '') && /Valor Solicitado:/i.test(m.content || '');
         });
-
         if (simMessage) {
           const text = simMessage.content || '';
-          const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
-          if (reqAmountMatch) foundReqAmount = parseNum(reqAmountMatch[1]);
-          const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i);
-          if (installmentsMatch) foundInstallments = installmentsMatch[1];
-          const rateMatch = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i);
-          if (rateMatch) foundRate = parseNum(rateMatch[1]);
-          const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
-          if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
-          const debtMatch = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i);
-          if (debtMatch) foundDebt = parseNum(debtMatch[1]);
+          const rm = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i); if (rm) foundReqAmount = parseNum(rm[1]);
+          const im = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i); if (im) foundInstallments = im[1];
+          const ram = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i); if (ram) foundRate = parseNum(ram[1]);
+          const pm = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i); if (pm) foundPmt = parseNum(pm[1]);
+          const dm = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i); if (dm) foundDebt = parseNum(dm[1]);
         }
 
-        // Fallback para metadados salvos no lead
-        if (!foundReqAmount && enrichedLead?.metadata?.accepted_proposal?.amount) {
-          foundReqAmount = Number(enrichedLead.metadata.accepted_proposal.amount);
-        } else if (!foundReqAmount && enrichedLead?.metadata?.simulation_data?.amount) {
-          foundReqAmount = Number(enrichedLead.metadata.simulation_data.amount);
-        }
-        if (!foundInstallments && enrichedLead?.metadata?.accepted_proposal?.installments) {
-          foundInstallments = String(enrichedLead.metadata.accepted_proposal.installments);
-        } else if (!foundInstallments && enrichedLead?.metadata?.simulation_data?.installments) {
-          foundInstallments = String(enrichedLead.metadata.simulation_data.installments);
-        }
-        if (!foundPmt && enrichedLead?.metadata?.simulation_data?.installment_value) {
-          foundPmt = Number(enrichedLead.metadata.simulation_data.installment_value);
-        }
-        if (!foundDebt && enrichedLead?.metadata?.simulation_data?.total_debt) {
-          foundDebt = Number(enrichedLead.metadata.simulation_data.total_debt);
-        }
+        if (!foundReqAmount && enrichedLead?.metadata?.accepted_proposal?.amount) foundReqAmount = Number(enrichedLead.metadata.accepted_proposal.amount);
+        if (!foundInstallments && enrichedLead?.metadata?.accepted_proposal?.installments) foundInstallments = String(enrichedLead.metadata.accepted_proposal.installments);
+        if (!foundPmt && enrichedLead?.metadata?.simulation_data?.installment_value) foundPmt = Number(enrichedLead.metadata.simulation_data.installment_value);
+        if (!foundDebt && enrichedLead?.metadata?.simulation_data?.total_debt) foundDebt = Number(enrichedLead.metadata.simulation_data.total_debt);
 
-        // Fazer a varredura das mensagens de trás para frente (da mais recente para a mais antiga)
-        // para que a simulação ou negociação mais recente do cliente se sobreponha a testes anteriores
         for (let i = mList.length - 1; i >= 0; i--) {
           const m = mList[i];
           const text = m.content || '';
-          const sender = String(m.sender_type || '').toLowerCase();
-          const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(sender);
-
-          // 1. CNPJ confirmado na conversa
-          if (!foundCnpj) {
-            const cnpjMatch = text.match(/CNPJ\s*\*?\*?(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\*?\*?/i);
-            if (cnpjMatch) foundCnpj = cnpjMatch[1].replace(/\D/g, '');
-          }
-
-          // 2. Extrair Faturamento: resposta do cliente imediatamente após a pergunta de faturamento da Sofia
-          if (!foundRevenue && isBot && /faturamento médio mensal/i.test(text)) {
-            const nextClientMsg = mList.slice(i + 1).find(nm => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(nm.sender_type || '').toLowerCase()));
-            if (nextClientMsg) {
-              const val = parseAnyAmount(nextClientMsg.content);
-              if (val) foundRevenue = val;
-            }
-          }
-
-          // 3. Razão Social / Nome da Empresa
+          const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+          if (!foundCnpj) { const cm = text.match(/CNPJ\s*\*?\*?(\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})\*?\*?/i); if (cm) foundCnpj = cm[1].replace(/\D/g, ''); }
           if (!foundCompanyName) {
-            const specificMatch = text.match(/(\bDAVOS AD CONSULTORIA[A-Z\s\.\-]*LTDA\b)/i) ||
-                                 text.match(/(?:da empresa|pela empresa|responsável pela?)\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI|CONVENIENCIAS))\*?\*?/i) ||
-                                 text.match(/(?:notícia|Certo|Maravilha),\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI))\*?\*?/i);
-            if (specificMatch) {
-              const cand = specificMatch[1].trim();
-              if (cand.length >= 6 && !cand.startsWith('RIAL')) {
-                foundCompanyName = cand;
-              }
-            }
+            const sm = text.match(/(DAVOS AD CONSULTORIA[A-Z\s\.\-]*LTDA)/i) ||
+                       text.match(/(?:da empresa|pela empresa|responsável pela?)\s*\*?\*?([A-Z0-9\s\.\-]{4,70}(?:LTDA|S\.A\.|ME|EPP|EIRELI|CONVENIENCIAS))\*?\*?/i);
+            if (sm) { const cand = sm[1].trim(); if (cand.length >= 6) foundCompanyName = cand; }
           }
-
-          // 4. Valor Solicitado / Simulado (se ainda não extraído da proposta)
-          if (!foundReqAmount) {
-            const reqAmountMatch = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i);
-            if (reqAmountMatch) {
-              foundReqAmount = parseNum(reqAmountMatch[1]);
-            } else {
-              const creditConsultMatch = text.match(/analisar seu crédito de\s*\*?R\$\s*([\d\.,]+)/i);
-              if (creditConsultMatch) {
-                foundReqAmount = parseNum(creditConsultMatch[1]);
-              }
-            }
-          }
-
-          // 5. Prazo / Parcelas Simuladas
-          if (!foundInstallments) {
-            const installmentsMatch = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i) || text.match(/(\d+)\s*parcelas/i);
-            if (installmentsMatch) foundInstallments = installmentsMatch[1];
-          }
-
-          // 6. Taxa de Juros
-          if (!foundRate) {
-            const rateMatch = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i) || text.match(/Taxa:\*?\s*a partir de\s*([\d\.,]+)%\s*a\.m/i);
-            if (rateMatch) foundRate = parseNum(rateMatch[1]);
-          }
-
-          // 7. Limite Aprovado
-          if (!foundLimit) {
-            const limitMatch = text.match(/Limite aprovado:\*?\s*R\$\s*([\d\.,]+)/i);
-            if (limitMatch) foundLimit = parseNum(limitMatch[1]);
-          }
-
-          // 8. Parcela e Total Dívida da Simulação
-          if (!foundPmt) {
-            const pmtMatch = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i);
-            if (pmtMatch) foundPmt = parseNum(pmtMatch[1]);
-          }
-          if (!foundDebt) {
-            const debtMatch = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i);
-            if (debtMatch) foundDebt = parseNum(debtMatch[1]);
+          if (!foundReqAmount) { const rm = text.match(/Valor Solicitado:\*\s*R\$\s*([\d\.,]+)/i); if (rm) foundReqAmount = parseNum(rm[1]); }
+          if (!foundInstallments) { const im = text.match(/Prazo:\*\s*(\d+)\s*parcelas/i) || text.match(/(\d+)\s*parcelas/i); if (im) foundInstallments = im[1]; }
+          if (!foundRate) { const ram = text.match(/Taxa de Juros:\s*([\d\.,]+)%\s*a\.m/i); if (ram) foundRate = parseNum(ram[1]); }
+          if (!foundLimit) { const lm = text.match(/Limite aprovado:\*?\s*R\$\s*([\d\.,]+)/i); if (lm) foundLimit = parseNum(lm[1]); }
+          if (!foundPmt) { const pm = text.match(/Valor da Parcela:\*\s*R\$\s*([\d\.,]+)/i); if (pm) foundPmt = parseNum(pm[1]); }
+          if (!foundDebt) { const dm = text.match(/Valor Total da D[ií]vida:\*\s*R\$\s*([\d\.,]+)/i); if (dm) foundDebt = parseNum(dm[1]); }
+          if (!foundRevenue && isBot && /faturamento médio mensal/i.test(text)) {
+            const next = mList.slice(i + 1).find((nm: any) => !['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(nm.sender_type || '').toLowerCase()));
+            if (next) { const v = parseFloat(String(next.content || '').replace(/\D+/g, '')); if (v) foundRevenue = v; }
           }
         }
 
         const dynamicMeta = {
-          ...(enrichedLead?.metadata || {}),
-          ...(conv.metadata || {}),
+          ...(enrichedLead?.metadata || {}), ...(conv.metadata || {}),
           cnpj: foundCnpj || enrichedLead?.identifier || enrichedLead?.metadata?.cnpj,
           razao_social: foundCompanyName || enrichedLead?.name || conv.user_name,
-          requested_amount: foundReqAmount || enrichedLead?.metadata?.requested_amount || 5000,
+          requested_amount: foundReqAmount || enrichedLead?.metadata?.requested_amount || 25000,
           requested_installments: foundInstallments ? Number(foundInstallments) : undefined,
           max_installments: foundInstallments || enrichedLead?.metadata?.max_installments || '12',
           interest_rate: foundRate || enrichedLead?.metadata?.interest_rate || 2.52,
@@ -800,7 +920,7 @@ export const salesCockpitService = {
           revenue: foundRevenue || enrichedLead?.metadata?.revenue || conv.metadata?.revenue,
           loan_request_id: enrichedLead?.metadata?.loan_request_id || conv.metadata?.loan_request_id,
           offer_data: {
-            ...(enrichedLead?.metadata?.offer_data || enrichedLead?.metadata?.fiserv_offer_data || {}),
+            ...(enrichedLead?.metadata?.offer_data || {}),
             ...(foundPmt ? { VlrParcela: foundPmt } : {}),
             ...(foundDebt ? { VlrTotalDivida: foundDebt } : {})
           }
@@ -815,29 +935,45 @@ export const salesCockpitService = {
           metadata: dynamicMeta,
           date: new Date(conv.last_message_at || conv.created_at),
           source: 'fiserv_credit',
-          matchedConv: conv
+          matchedConv: conv,
+          campaignId: enrichedLead?.campaign_id || conv.campaign_id || conv.metadata?.campaign_id
         });
       }
 
-      // 4. Inserir leads explícitos com status converted ou formalization_pending
-      rawLeads.filter(l => ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(l.status)).forEach(cl => {
-        const phone = cl.whatsapp || (cl as any).phone;
-        const matched = convByPhone.get(String(phone || '').replace(/\D/g, ''));
+      for (const a of auditLogs) {
+        if (a.is_approved || a.action === 'simulate' || a.action === 'confirm') {
+          const cleanPhone = String(a.contact_phone || '').replace(/\D/g, '');
+          if (cleanPhone.replace(/^55/, '').length < 8 || processedPhones.has(cleanPhone)) continue;
+          if (a.status_fiserv === 'error' || a.status_fiserv === 'denied') continue;
+          const enrichedLead = leadByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? leadByPhone.get(cleanPhone.slice(2)) : null);
+          const queueItem = queueByPhone.get(cleanPhone) || (cleanPhone.startsWith('55') ? queueByPhone.get(cleanPhone.slice(2)) : null);
+          const candidateCampaignId = enrichedLead?.campaign_id || queueItem?.campaign_id || a.offer_data?.campaign_id;
+          addQualifiedLead({
+            id: enrichedLead?.id || a.id,
+            convId: getBestConvForPhone(cleanPhone, candidateCampaignId)?.id,
+            name: a.contact_name || enrichedLead?.name || 'Cliente',
+            phone: a.contact_phone,
+            cnpj: a.registration_code || enrichedLead?.identifier,
+            metadata: { offer_data: a.offer_data, loan_request_id: a.loan_request_id, fiserv_status: a.status_fiserv, ...(enrichedLead?.metadata || {}) },
+            date: new Date(a.created_at),
+            source: 'fiserv_credit',
+            matchedConv: getBestConvForPhone(cleanPhone, candidateCampaignId),
+            campaignId: candidateCampaignId
+          });
+        }
+      }
+
+      rawLeads.filter((l: any) => ['converted', 'formalization_pending', 'finalizacao_sucesso'].includes(l.status)).forEach((cl: any) => {
+        const phone = cl.whatsapp || cl.phone;
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
         addQualifiedLead({
-          id: cl.id,
-          name: cl.name,
-          phone: phone,
-          cnpj: cl.identifier,
-          metadata: cl.metadata,
+          id: cl.id, name: cl.name, phone, cnpj: cl.identifier, metadata: cl.metadata,
           date: cl.metadata?.fiserv_requested_at ? new Date(cl.metadata.fiserv_requested_at) : new Date(cl.created_at),
-          source: 'fiserv_credit',
-          matchedConv: matched
+          source: 'fiserv_credit', matchedConv: getBestConvForPhone(cleanPhone, cl.campaign_id), campaignId: cl.campaign_id
         });
       });
 
-      // Ordenar do mais recente para o mais antigo
       cockpitLeads.sort((a, b) => b.lastMessageTime.getTime() - a.lastMessageTime.getTime());
-
       return cockpitLeads;
     } catch (e) {
       console.error('❌ Erro no salesCockpitService.getSalesCockpitLeads:', e);
@@ -946,7 +1082,7 @@ export const salesCockpitService = {
       }
 
       // 2. Persistir em conversations (se houver conversationId ou se leadId for o id da conversa)
-      const targetConvId = conversationId || (leadId !== lead?.id ? leadId : null);
+      const targetConvId = conversationId || (leadId !== targetLead?.id ? leadId : null);
       if (targetConvId) {
         const { data: conv } = await supabase
           .from('conversations')

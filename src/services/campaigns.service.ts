@@ -1223,6 +1223,7 @@ async deleteCampaign(id: string): Promise<void> {
                 response_detected: false,
                 scheduled_at: scheduledAtIso,
                 created_at: new Date().toISOString(),
+                idempotency_key: `${params.campaignId}:${c.contact_phone}:${batchId}`,
                 metadata: {
                     ...(c.metadata || {}),
                     is_reengagement: true,

@@ -150,7 +150,7 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
 }
 
 export default function SalesCockpit() {
-  const { currentTenant, currentUser, conversations, selectedConversation, setSelectedConversation, takeOverConversation, returnToAI, hasPermission } = useApp();
+  const { currentTenant, currentUser, conversations, selectedConversation, setSelectedConversation, takeOverConversation, returnToAI, hasPermission, fetchMessages } = useApp();
   const [leads, setLeads] = useState<SalesCockpitLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -178,7 +178,11 @@ export default function SalesCockpit() {
     if (!currentTenant) return;
     setIsLoading(true);
     try {
-      const data = await api.getSalesCockpitLeads(currentTenant.id);
+      const data = await api.getSalesCockpitLeads(
+        currentTenant.id,
+        currentUser?.id ?? null,
+        currentUser?.role ?? currentUser?.profileName ?? null
+      );
       setLeads(data);
     } catch (error) {
       console.error('Erro ao carregar leads do Cockpit:', error);
@@ -265,6 +269,7 @@ export default function SalesCockpit() {
 
       const matchesSearch = !termClean ||
         lead.name.toLowerCase().includes(termClean) ||
+        (lead.campaignName && lead.campaignName.toLowerCase().includes(termClean)) ||
         (termDigits.length > 0 && cnpjDigits.includes(termDigits)) ||
         (termDigits.length > 0 && phoneDigits.includes(termDigits)) ||
         formattedPhone.includes(termClean) ||
@@ -310,6 +315,9 @@ export default function SalesCockpit() {
     // 1. Se o lead já possui o objeto de conversa em memória
     if (activeLead.conversation) {
       setSelectedConversation(activeLead.conversation);
+      if (!activeLead.conversation.messages || activeLead.conversation.messages.length === 0) {
+        fetchMessages(activeLead.conversation.id);
+      }
       return;
     }
 
@@ -318,6 +326,9 @@ export default function SalesCockpit() {
       const existingConv = conversations?.find(c => c.id === activeLead.conversationId);
       if (existingConv) {
         setSelectedConversation(existingConv);
+        if (!existingConv.messages || existingConv.messages.length === 0) {
+          fetchMessages(existingConv.id);
+        }
         return;
       }
     }
@@ -328,6 +339,9 @@ export default function SalesCockpit() {
         if (conv && conv.id) {
           setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
           setSelectedConversation(conv);
+          if (!conv.messages || conv.messages.length === 0) {
+            fetchMessages(conv.id);
+          }
         }
       }).catch(console.error);
     }
@@ -340,6 +354,9 @@ export default function SalesCockpit() {
     // 1. Se já possui conversa válida mapeada em memória
     if (lead.conversation) {
       setSelectedConversation(lead.conversation);
+      if (!lead.conversation.messages || lead.conversation.messages.length === 0) {
+        fetchMessages(lead.conversation.id);
+      }
       return;
     }
 
@@ -348,6 +365,9 @@ export default function SalesCockpit() {
       const existingConv = conversations?.find(c => c.id === lead.conversationId);
       if (existingConv) {
         setSelectedConversation(existingConv);
+        if (!existingConv.messages || existingConv.messages.length === 0) {
+          fetchMessages(existingConv.id);
+        }
         return;
       }
     }
@@ -359,6 +379,9 @@ export default function SalesCockpit() {
         if (conv && conv.id) {
           setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
           setSelectedConversation(conv);
+          if (!conv.messages || conv.messages.length === 0) {
+            fetchMessages(conv.id);
+          }
         }
       }
     } catch (err) {
@@ -500,7 +523,7 @@ export default function SalesCockpit() {
         if (selectedConversation) {
           setSelectedConversation({
             ...selectedConversation,
-            assigned_operator_id: null as any,
+            assigned_operator_id: null,
             assignedOperator: undefined
           });
         }
@@ -765,6 +788,13 @@ export default function SalesCockpit() {
                             </span>
                           )}
                         </div>
+
+                        {/* Campanha vinculada */}
+                        {lead.campaignName && (
+                          <div className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-slate-400 mb-1 truncate" title={`Campanha: ${lead.campaignName}`}>
+                            <span className="truncate max-w-full font-medium text-slate-600 dark:text-slate-400">🎯 {lead.campaignName}</span>
+                          </div>
+                        )}
 
                         {/* Valor e Parcelas Solicitados */}
                         <div className="flex items-center justify-between text-[10px] mb-1.5 px-1.5 py-0.5 rounded bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800">
@@ -1084,6 +1114,20 @@ export default function SalesCockpit() {
                               : (activeLead.pipelineStage !== 'pending_contact' ? (currentUser?.name || 'Carlos Silva') : 'Aguardando Operador'))}
                         </strong>
                       </div>
+
+                      {activeLead.campaignName && (
+                        <div className="pt-1.5 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center text-[11px]">
+                          <span className="text-slate-600 dark:text-slate-400 font-medium flex items-center gap-1">
+                            🎯 Campanha:
+                          </span>
+                          <strong 
+                            className="text-slate-950 dark:text-white truncate max-w-[140px]" 
+                            title={activeLead.campaignName}
+                          >
+                            {activeLead.campaignName}
+                          </strong>
+                        </div>
+                      )}
                     </div>
 
                     {/* Card Unificado: Valor Simulado e Parcelas (uma embaixo da outra sem quebrar) */}
