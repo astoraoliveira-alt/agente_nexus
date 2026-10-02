@@ -1,4 +1,12 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.6 (ANTI-REGRESSÃO: CONFIRMAÇÃO DE SIMULAÇÃO APÓS DÚVIDAS & BLINDAGEM DE IDENTIDADE) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.7 (BLINDAGEM TOTAL DE RECUSA & PROIBIÇÃO ABSOLUTA DE DADOS TÉCNICOS) */
+/* MUDANÇAS V27.7:
+   1. Proibição Absoluta de Dados Técnicos ao Cliente:
+      - Sanitização global mandatória de qualquer mensagem, expurgando termos técnicos (loan_request, detail, simulation_data, 422, status codes).
+      - Erros de API ou recusas são obrigatoriamente traduzidos para linguagem humanizada, acolhedora e em bom português.
+   2. Blindagem Total de Crédito Recusado:
+      - Clientes com crédito recusado pelo comitê Fiserv NUNCA mais avançam para apresenta_ofertas ou solicitar_simulacao.
+      - Se o cliente perguntar de simulação, taxas ou parcelas após a recusa, a Sofia responde empaticamente que o sistema não gera simulações para propostas não aprovadas e orienta nova análise em 30 dias.
+   3. Preserva 100% das regras da V27.6 (Anti-Regressão de Identidade, Preservação de Simulação e FAQs). */
 /* MUDANÇAS V27.6:
    1. Correção Crítica na Confirmação de Simulação após Dúvidas:
       - Reconhecimento completo de confirmacao_cliente quando a Sofia pergunta "Podemos seguir nessas condições?" ou "Podemos seguir com a simulação nas condições informadas anteriormente?".
@@ -86,9 +94,36 @@ try {
         }
     }
 
-    const hasPriorOptIn = isOptInWithin30Days;
-    const hasActiveLoan = Boolean(leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id);
-    const isApprovedFiserv = Boolean(leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_external_status === 'Pré-aprovado');
+    // 🛡️ RECONHECIMENTO DE RECUSA DE CRÉDITO NO COMITÊ FISERV
+    const isDeniedFiserv = Boolean(
+        leadInfo.fiserv_status === 'denied' ||
+        leadInfo.status === 'denied' ||
+        leadInfo.formalization_status === 'lost' ||
+        String(leadInfo.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
+        String(leadInfo.fiserv_external_status || '').toLowerCase().includes('reprovado') ||
+        String(leadInfo.fiserv_external_status || '').toLowerCase().includes('cancelado')
+    );
+
+    const hasPriorOptIn = isOptInWithin30Days && !isDeniedFiserv;
+    const hasActiveLoan = Boolean((leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) && !isDeniedFiserv);
+    const isApprovedFiserv = Boolean((leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_external_status === 'Pré-aprovado') && !isDeniedFiserv);
+
+    // 🛡️ SANITIZAÇÃO GLOBAL OBRIGATÓRIA: NUNCA ENVIAR CAMPOS OU DADOS TÉCNICOS AO CLIENTE
+    function sanitizeUserFacingMessage(text) {
+        if (!text) return "";
+        let clean = String(text);
+
+        // 1. Remove qualquer menção a nomes de campos técnicos, JSON ou banco
+        clean = clean.replace(/loan request is not eligible for simulation/gi, 'A proposta não está disponível para cálculo de simulação no momento');
+        clean = clean.replace(/\b(loan_request_id|loan request|simulation_data|http_status|error_code|detail|status_code)\b/gi, '');
+        clean = clean.replace(/not eligible/gi, 'não elegível');
+        clean = clean.replace(/internal server error|failed to fetch/gi, 'Instabilidade temporária no serviço');
+
+        // 2. Remove valores de código não renderizados
+        clean = clean.replace(/\b(undefined|null|NaN)\b/g, '');
+
+        return clean.replace(/[ \t]+/g, ' ').trim();
+    }
 
     // --- 🛠️ FUNÇÕES AUXILIARES DE PARSING (V26 BLINDADA) ---
     function parseNumber(text) {
@@ -709,15 +744,21 @@ try {
         transitionApplied = true;
     }
 
+    // 🛡️ BLINDAGEM 4: CLIENTE RECUSADO NO CRÉDITO NUNCA MAIS AVANÇA PARA SIMULAÇÃO OU APRESENTAÇÃO DE OFERTAS
+    if (isDeniedFiserv) {
+        nextStep = 'recusa_analise';
+        transitionApplied = true;
+    }
+
     // --- 5) MODO DE RESPOSTA ---
     let mode = "consultive";
-    if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint) {
+    if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint || isDeniedFiserv) {
         mode = "parrot";
     }
-    if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false) {
+    if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false && !isDeniedFiserv) {
         mode = "consultive";
     }
-    if (isSelfSimulationRequest && leadInfo.is_lead !== false) {
+    if (isSelfSimulationRequest && leadInfo.is_lead !== false && !isDeniedFiserv) {
         mode = "consultive";
     }
 
@@ -778,8 +819,13 @@ try {
     } else if (nextStep === 'recusa_analise') {
         const nomeCliente = leadInfo.name ? `Olá, *${leadInfo.name}*!` : 'Olá!';
         const motivoFiserv = leadInfo.fiserv_external_status || "Analisamos sua solicitação e desta vez não conseguimos aprová-la devido a políticas internas de crédito.";
+        const recusaAlreadySent = historyTexts.includes("não conseguimos liberar") || historyTexts.includes("políticas internas de crédito") || historyTexts.includes("politicas internas de credito");
 
-        forcedText = `${nomeCliente}\n\n${motivoFiserv}\n\nAs análises de crédito são dinâmicas e baseadas em critérios de mercado e volume de transações Ticket. Você poderá solicitar uma nova análise em *30 dias*!\n\nObrigado pela confiança na Ticket! 🙏`;
+        if (recusaAlreadySent) {
+            forcedText = `${nomeCliente}\n\nConforme verificamos anteriormente, a solicitação de crédito para a sua empresa não foi aprovada pelo comitê neste momento.\n\nPor esse motivo, o sistema não permite gerar novas propostas ou simulações de parcelas. Uma nova avaliação poderá ser realizada daqui a *30 dias*.\n\nSe tiver qualquer outra dúvida sobre o credenciamento ou benefícios Ticket, estou à disposição! 🙏`;
+        } else {
+            forcedText = `${nomeCliente}\n\n${motivoFiserv}\n\nAs análises de crédito são dinâmicas e baseadas em critérios de mercado e volume de transações Ticket. Você poderá solicitar uma nova análise em *30 dias*!\n\nObrigado pela confiança na Ticket! 🙏`;
+        }
         mode = "parrot";
     } else if (nextStep === 'criar_lead') {
         forcedText = `Perfeito! Sua solicitação já está em analise.\n\n⏳ Avaliando em ~1 minuto...\nAssim que tivermos o retorno, chamaremos aqui com o resultado!`;
@@ -1078,6 +1124,11 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 3. GANCHO DE RETORNO AO FUNIL: Sempre que responder a uma dúvida técnica, responda com precisão e adicione o gancho convidando o cliente a continuar a etapa atual (${nextStep}).
 </regra_de_ouro>
 
+<proibicoes_estritas>
+- NUNCA ENVIAR DADOS TÉCNICOS: É expressamente proibido enviar termos técnicos, nomes de campos de sistema/banco (ex: loan_request, detail, simulation_data, id), mensagens de erro de sistema ou frases em inglês para o cliente. Toda comunicação deve ser 100% humanizada, acolhedora e em português claro.
+- CLIENTES COM CRÉDITO RECUSADO: Se o status do Comitê Fiserv indicar recusa ou não aprovação, NUNCA convide para simular, NUNCA prometa simulação e NUNCA pergunte parcelas. Esclareça com empatia que a análise não foi aprovada pelo comitê neste momento e que uma nova avaliação poderá ser feita em 30 dias.
+</proibicoes_estritas>
+
 <CONTEXTO_ATUAL>
 - Passo Anterior: ${currentStep}
 - Passo Atual / Próximo: ${nextStep}
@@ -1099,6 +1150,8 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         .replace(/{{installments}}/gi, ctx.chosen_installments || "24")
         .replace(/{{installment_value}}/gi, ctx.chosen_installment_value || "0,00")
         .replace(/{{interest_rate}}/gi, ctx.chosen_interest_rate || "1,89");
+
+    finalPrompt = sanitizeUserFacingMessage(finalPrompt);
 
     let interactive_buttons = null;
     if (nextStep === 'verificacao_cnpj') {
@@ -1223,6 +1276,14 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
             .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
             .replace(/{{lead_info\.link}}/gi, leadInfo.link || "https://fiserv.ticket.com.br/simulacao-sofia");
+
+        // Sanitização de segurança contra vazamento de termos técnicos no fallback
+        fallbackText = fallbackText
+            .replace(/loan request is not eligible for simulation/gi, 'A proposta não está disponível para cálculo de simulação no momento')
+            .replace(/\b(loan_request_id|loan request|simulation_data|http_status|error_code|detail|status_code)\b/gi, '')
+            .replace(/not eligible/gi, 'não elegível')
+            .replace(/\b(undefined|null|NaN)\b/g, '')
+            .trim();
     } catch (e) { }
 
     return {
