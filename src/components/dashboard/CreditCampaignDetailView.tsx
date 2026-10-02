@@ -52,6 +52,7 @@ interface LeadDetailRow {
   status: string;
   deliveryStatus: string;
   rawStatus: string;
+  hasInteracted: boolean;
   revenue?: number | null;
   requestedAmount?: number | null;
   optIn?: boolean;
@@ -195,24 +196,59 @@ export function CreditCampaignDetailView({
         const rawCnpj = q.cnpj || meta?.cnpj || meta?.identifier || matchedLead?.identifier || matchedLead?.metadata?.cnpj || '-';
         const leadName = q.establishmentName || matchedLead?.name || meta?.razao_social || meta?.nomeLoja || q.contactName || 'Sem Nome';
 
+        // Lógica de Interação com expurgo de robô e garantia de avanço no funil
+        const queueMeta = q.metadata || {};
+        const leadMeta = matchedLead?.metadata || {};
+        const isAutoReply = queueMeta.is_auto_reply === true || 
+                            queueMeta.is_auto_reply === 'true' || 
+                            leadMeta.is_auto_reply === true || 
+                            leadMeta.is_auto_reply === 'true' ||
+                            queueMeta.is_bot === true ||
+                            queueMeta.is_bot === 'true';
+
+        const isResponded = Boolean(
+          q.response_detected || 
+          q.responseDetected || 
+          queueMeta.responded === 'true' || 
+          queueMeta.responded === true || 
+          ['respondida', 'interagiu'].includes(qStatus)
+        );
+
+        const hasAdvancedInFunnel = Boolean(
+          leadMeta.identity_confirmed || 
+          leadMeta.cnpj_confirmed || 
+          leadMeta.revenue || 
+          leadMeta.faturamento || 
+          leadMeta.opt_in || 
+          leadMeta.optin || 
+          leadMeta.consent?.opt_in || 
+          leadMeta.fiserv_status || 
+          matchedLead?.status === 'approved' || 
+          matchedLead?.status === 'denied' ||
+          ['Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(displayStatus)
+        );
+
+        const hasInteracted = hasAdvancedInFunnel || (isResponded && !isAutoReply);
+
         return {
           id: q.id,
           cnpj: rawCnpj,
-          whatsapp: q.contactPhone,
+          whatsapp: q.contactPhone || q.contact_phone,
           name: leadName,
-          contactName: q.contactName || 'Sem Nome',
-          establishmentName: q.establishmentName || matchedLead?.name || null,
-          conversationId: q.conversationId || meta.conversation_id || null,
+          contactName: q.contactName || q.contact_name || 'Sem Nome',
+          establishmentName: q.establishmentName || q.establishment_name || matchedLead?.name || null,
+          conversationId: q.conversationId || q.conversation_id || meta.conversation_id || null,
           status: displayStatus,
           deliveryStatus: qStatus,
           rawStatus: qStatus,
+          hasInteracted,
           revenue: meta.revenue || meta.faturamento || null,
           requestedAmount: meta.requested_amount || meta.valor_inicial || null,
           optIn: Boolean(meta.opt_in || meta.consent?.opt_in),
           fiservStatus: fiservSt || null,
           formalizationStatus: formalSt || null,
-          sentAt: q.sentAt || null,
-          errorMessage: q.errorMessage || null
+          sentAt: q.sentAt || q.sent_at || null,
+          errorMessage: q.errorMessage || q.error_message || null
         };
       });
 
@@ -338,6 +374,7 @@ export function CreditCampaignDetailView({
   // Status dinâmicos para filtro com contagem
   const statusOptions = useMemo(() => {
     const list = ['Entregue', 'Lida', 'Não Entregue'];
+    if (leads.some(l => l.hasInteracted)) list.push('Conversas Iniciadas');
     if (leads.some(l => l.status === 'Opt-in')) list.push('Opt-in');
     if (leads.some(l => l.status === 'Aprovado')) list.push('Aprovado');
     if (leads.some(l => l.status === 'Recusado')) list.push('Recusado');
@@ -350,6 +387,9 @@ export function CreditCampaignDetailView({
     if (selectedStatuses.length > 0) {
       result = result.filter(lead => {
         return selectedStatuses.some(status => {
+          if (status === 'Conversas Iniciadas') {
+            return lead.hasInteracted;
+          }
           if (status === 'Entregue') {
             return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(lead.status) || 
                    ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(lead.deliveryStatus);
@@ -717,6 +757,10 @@ export function CreditCampaignDetailView({
                 percentage={interactionRate} 
                 isInfo 
                 subLabel="Taxa Interação: (Conversas Iniciadas/Entregues)" 
+                onClick={() => {
+                  setSelectedStatuses(['Conversas Iniciadas']);
+                  document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
+                }}
               />
             </div>
 
@@ -784,6 +828,9 @@ export function CreditCampaignDetailView({
               {statusOptions.map((status) => {
                 const isSelected = selectedStatuses.includes(status);
                 const count = leads.filter(l => {
+                  if (status === 'Conversas Iniciadas') {
+                    return l.hasInteracted;
+                  }
                   if (status === 'Entregue') {
                     return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(l.status) || 
                            ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(l.deliveryStatus);

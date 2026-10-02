@@ -549,9 +549,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             };
             
             setHandoffRequests(prev => [enrichedNew, ...prev]);
-            toast.info("Novo pedido de humano!", {
-               description: payload.new.initial_message || "Um cliente solicitou ajuda.",
-            });
           } else if (payload.eventType === 'UPDATE') {
             setHandoffRequests(prev => prev.map(h => {
               if (h.id === payload.new.id) {
