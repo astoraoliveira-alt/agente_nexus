@@ -60,6 +60,7 @@ interface LeadDetailRow {
   formalizationStatus?: string | null;
   sentAt?: string | null;
   errorMessage?: string | null;
+  stages?: any;
 }
 
 interface CreditCampaignDetailViewProps {
@@ -230,6 +231,124 @@ export function CreditCampaignDetailView({
 
         const hasInteracted = hasAdvancedInFunnel || (isResponded && !isAutoReply);
 
+        // Etapas estritas do Funil
+        const pipelineStage = String(meta.pipeline_stage || '').toLowerCase().trim();
+        const isCarregado = true;
+        const isEnviado = Boolean(
+          !['queued', 'pending', 'scheduled', 'draft'].includes(qStatus) ||
+          q.response_detected ||
+          q.responseDetected ||
+          qStatus === 'converted' ||
+          queueMeta.converted === 'true' ||
+          q.sentAt ||
+          q.sent_at
+        );
+        const isEntregue = Boolean(
+          ['sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu'].includes(qStatus) ||
+          q.response_detected ||
+          q.responseDetected ||
+          qStatus === 'converted' ||
+          queueMeta.converted === 'true'
+        );
+        const isLida = Boolean(
+          ['read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu'].includes(qStatus) ||
+          q.response_detected ||
+          q.responseDetected ||
+          qStatus === 'converted' ||
+          queueMeta.converted === 'true'
+        );
+
+        const hasOptIn = Boolean(
+          meta.opt_in === true || 
+          meta.opt_in === 'true' || 
+          meta.optin === true || 
+          meta.optin === 'true' || 
+          meta.consent?.opt_in === true || 
+          meta.fiserv_requested_at || 
+          meta.loan_request_id || 
+          ['approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservSt) || 
+          ['approved', 'aprovado', 'denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
+        );
+
+        const rawRev = meta.revenue || meta.faturamento;
+        const hasFaturamento = Boolean(rawRev || hasOptIn);
+
+        const reqAmt = meta.requested_amount || meta.valor_inicial;
+        const hasValidAmount = Boolean(
+          reqAmt && 
+          !isNaN(Number(String(reqAmt).replace(/[^\d.-]/g, ''))) &&
+          Number(String(reqAmt).replace(/[^\d.-]/g, '')) >= 10000 &&
+          Number(String(reqAmt).replace(/[^\d.-]/g, '')) <= 500000
+        ) || Boolean(meta.simulation_data?.amount || meta.fiserv_amount_approved);
+
+        const hasValorInicial = Boolean((hasFaturamento && hasValidAmount) || hasOptIn);
+
+        const hasIdentityConfirmed = Boolean(
+          ['true', 't', '1', true].includes(meta.identity_confirmed) || 
+          ['true', 't', '1', true].includes(meta.cnpj_confirmed) || 
+          hasFaturamento
+        );
+
+        const isInteragiram = Boolean(hasIdentityConfirmed || (isResponded && !isAutoReply));
+
+        const isAprovado = Boolean(
+          ['approved', 'in_quoting', 'comite_approved'].includes(fiservSt) || 
+          ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
+        );
+
+        const isRecusado = Boolean(
+          ['denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservSt) || 
+          ['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
+        );
+
+        const isSimularam = Boolean(
+          !isRecusado && (
+            meta.simulation_data?.installment_value != null ||
+            meta.simulation_data?.installments != null ||
+            meta.simulation_data?.monthly_interest != null ||
+            (meta.simularam === true && String(meta.fiserv_last_status || '').toLowerCase() === 'success') ||
+            meta.simulation_accepted === true ||
+            meta.ok_agente === true ||
+            meta.accepted_proposal != null ||
+            meta.formalized_at != null
+          )
+        );
+
+        const isOkAgente = Boolean(
+          !isRecusado && (
+            meta.simulation_accepted === true ||
+            meta.ok_agente === true ||
+            meta.accepted_proposal != null ||
+            meta.formalized_at != null
+          )
+        );
+
+        const isFormalizationLost = Boolean(
+          ['lost', 'cancelled', 'declined', 'desistente', 'recusado'].includes(formalSt) ||
+          ['declined', 'lost'].includes(pipelineStage) ||
+          ['lost', 'cancelled', 'declined'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
+          String(meta.fiserv_external_status || '').toLowerCase().includes('desistiu') ||
+          meta.decline_at != null ||
+          meta.decline_reason != null
+        );
+
+        const isFormalizado = Boolean(
+          ['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) ||
+          pipelineStage === 'contract_signed' ||
+          fiservSt === 'won' ||
+          meta.formalized_at != null
+        );
+
+        const isEmAtendimento = Boolean(
+          ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalSt) ||
+          ['in_contact', 'proposal_sent'].includes(pipelineStage)
+        );
+
+        const isFormalizacaoDesistencia = Boolean(isOkAgente && isFormalizationLost);
+        const isFormalizacaoFormalizado = Boolean(isOkAgente && !isFormalizationLost && isFormalizado);
+        const isFormalizacaoEmAtendimento = Boolean(isOkAgente && !isFormalizationLost && !isFormalizado && isEmAtendimento);
+        const isFormalizacaoAguarContato = Boolean(isOkAgente && !isFormalizationLost && !isFormalizado && !isEmAtendimento);
+
         return {
           id: q.id,
           cnpj: rawCnpj,
@@ -248,7 +367,26 @@ export function CreditCampaignDetailView({
           fiservStatus: fiservSt || null,
           formalizationStatus: formalSt || null,
           sentAt: q.sentAt || q.sent_at || null,
-          errorMessage: q.errorMessage || q.error_message || null
+          errorMessage: q.errorMessage || q.error_message || null,
+          stages: {
+            isCarregado,
+            isEnviado,
+            isEntregue,
+            isLida,
+            isInteragiram,
+            hasIdentityConfirmed,
+            hasFaturamento,
+            hasValorInicial,
+            hasOptIn,
+            isAprovado,
+            isRecusado,
+            isSimularam,
+            isOkAgente,
+            isFormalizacaoAguarContato,
+            isFormalizacaoEmAtendimento,
+            isFormalizacaoFormalizado,
+            isFormalizacaoDesistencia
+          }
         };
       });
 
@@ -447,6 +585,7 @@ export function CreditCampaignDetailView({
   const handleExportExcel = () => {
     // Exportar os dados filtrados/ordenados da tabela se houver filtro ativo, caso contrário todos os leads da campanha
     const targetLeads = sortedLeads.length > 0 ? sortedLeads : leads;
+    const campName = currentStat?.campaignName || selectedCampaign?.name || 'campanha';
 
     const exportData = targetLeads.map(l => {
       let dataEnvio = '-';
@@ -461,23 +600,45 @@ export function CreditCampaignDetailView({
         }
       }
 
+      const st = l.stages;
+
       return {
+        'Campanha': campName,
         'CNPJ': l.cnpj || '-',
         'WhatsApp': l.whatsapp || '-',
         'Razão Social': l.name || l.establishmentName || l.contactName || '-',
-        'Status': l.status || '-',
-        'Faturamento': l.revenue || '-',
+        'Data de Envio': dataEnvio,
+        'Status Atual': l.status || '-',
+        // Envio da Campanha
+        'Carregados': st?.isCarregado ? 'Sim' : 'Não',
+        'Enviados': st?.isEnviado ? 'Sim' : 'Não',
+        'Entregues': st?.isEntregue ? 'Sim' : 'Não',
+        'Lidas': st?.isLida ? 'Sim' : 'Não',
+        'Interagiram': st?.isInteragiram ? 'Sim' : 'Não',
+        // Funil de Venda
+        'Confirmaram': st?.hasIdentityConfirmed ? 'Sim' : 'Não',
+        'Faturamento': st?.hasFaturamento ? 'Sim' : 'Não',
+        'Valor Faturamento': l.revenue || '-',
+        'Valor Inicial': st?.hasValorInicial ? 'Sim' : 'Não',
         'Valor Solicitado': l.requestedAmount || '-',
-        'Opt-In': l.optIn ? 'Sim' : 'Não',
-        'Status Fiserv': l.fiservStatus || '-',
-        'Data de Envio': dataEnvio
+        'Opt-in': st?.hasOptIn ? 'Sim' : 'Não',
+        'Aprovados': st?.isAprovado ? 'Sim' : 'Não',
+        'Recusados': st?.isRecusado ? 'Sim' : 'Não',
+        'Simularam': st?.isSimularam ? 'Sim' : 'Não',
+        'OK Agente': st?.isOkAgente ? 'Sim' : 'Não',
+        // Funil de Formalização
+        'Aguar. Contato': st?.isFormalizacaoAguarContato ? 'Sim' : 'Não',
+        'Em Atendimento': st?.isFormalizacaoEmAtendimento ? 'Sim' : 'Não',
+        'Formalizado': st?.isFormalizacaoFormalizado ? 'Sim' : 'Não',
+        'Desistência': st?.isFormalizacaoDesistencia ? 'Sim' : 'Não',
+        // Extras
+        'Status Fiserv': l.fiservStatus || '-'
       };
     });
 
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Leads');
-    const campName = currentStat?.campaignName || selectedCampaign?.name || 'campanha';
     const fileName = `exportacao_${campName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   };

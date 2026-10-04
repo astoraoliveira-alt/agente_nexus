@@ -1,16 +1,18 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
-const parseLocalDate = (d: any): Date => {
-    if (!d) return new Date();
-    if (typeof d === 'string' && d.indexOf('T') === -1) {
-        const parts = d.split('-');
-        if (parts.length === 3) {
-            return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]), 12, 0, 0);
+const parseLocalDate = (d: any): Date | null => {
+    if (!d) return null;
+    if (d instanceof Date) return d;
+    if (typeof d === 'string') {
+        const match = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (match) {
+            const [, y, m, day] = match;
+            return new Date(parseInt(y), parseInt(m) - 1, parseInt(day), 12, 0, 0);
         }
     }
     const dt = new Date(d);
-    // If it's a UTC midnight date, force it to noon local time to avoid previous day shifts
+    if (isNaN(dt.getTime())) return null;
     if (dt.getUTCHours() === 0 && dt.getUTCMinutes() === 0) {
         return new Date(dt.getUTCFullYear(), dt.getUTCMonth(), dt.getUTCDate(), 12, 0, 0);
     }
@@ -1459,7 +1461,7 @@ async deleteCampaign(id: string): Promise<void> {
                 return data.map((row: any) => ({
                     campaignId: row.campaign_id,
                     campaignName: row.campaign_name || 'Campanha',
-                    startDate: row.start_date ? new Date(row.start_date) : null,
+                    startDate: parseLocalDate(row.start_date),
                     status: row.status || 'active',
                     carregados: Number(row.carregados || 0),
                     enviados: Number(row.enviados || 0),
@@ -1511,7 +1513,7 @@ async deleteCampaign(id: string): Promise<void> {
             // Buscar métricas da outbound_queue
             const { data: oqRows } = await supabase
                 .from('outbound_queue')
-                .select('campaign_id, status, response_detected, sent_at')
+                .select('campaign_id, status, response_detected, sent_at, metadata')
                 .in('campaign_id', cIds);
 
             // Buscar leads e metadados com chunking para não estourar o limite de 10.000 linhas da API
@@ -1541,7 +1543,11 @@ async deleteCampaign(id: string): Promise<void> {
                 if (isSent) m.enviados++;
                 if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || r.response_detected) m.entregues++;
                 if (['read', 'respondida', 'interagiu'].includes(st)) m.lidas++;
-                if (r.response_detected || ['respondida', 'interagiu'].includes(st)) m.interagiram++;
+                
+                const isAutoReply = r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true;
+                if ((r.response_detected || ['respondida', 'interagiu'].includes(st)) && !isAutoReply) {
+                    m.interagiram++;
+                }
             }
 
             const leadMap = new Map<string, {
@@ -1701,7 +1707,7 @@ async deleteCampaign(id: string): Promise<void> {
                 return {
                     campaignId: c.id,
                     campaignName: c.name || 'Campanha',
-                    startDate: c.start_date ? new Date(c.start_date) : (c.created_at ? new Date(c.created_at) : null),
+                    startDate: parseLocalDate(c.start_date || c.created_at),
                     status: c.status || 'active',
                     carregados: oq.carregados,
                     enviados: oq.enviados,

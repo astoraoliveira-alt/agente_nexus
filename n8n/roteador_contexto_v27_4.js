@@ -453,7 +453,7 @@ try {
     ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
-    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
+    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
 
     const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
     const isDoubt = regexDoubt || ["EXACT_FAQ", "DYNAMIC_FAQ", "INSTITUTIONAL_FAQ", "DOUBT"].includes(semanticIntent);
@@ -588,7 +588,7 @@ try {
             nextStep = 'coleta_valor';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'coleta_faturamento';
@@ -600,7 +600,7 @@ try {
             nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'coleta_valor';
@@ -632,7 +632,7 @@ try {
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'aguardando_fiserv';
@@ -643,7 +643,7 @@ try {
             nextStep = 'solicitar_simulacao';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'apresenta_ofertas';
@@ -789,7 +789,7 @@ try {
         }
     } else if (effectiveComplaint) {
         forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiência atual esteja sendo assim.\n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa.\n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
-    } else if (currentStep === 'start' && assistantMessages.length < 2) {
+    } else if (currentStep === 'start' && assistantMessages.length < 2 && !isDeniedFiserv && nextStep !== 'recusa_analise' && nextStep !== 'desistencia_cliente') {
         forcedText = `Já pensou em reforçar o caixa sem burocracia?\n\nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Gostaria de fazer uma simulação sem compromisso aqui mesmo pelo WhatsApp ou ficou com alguma dúvida?`;
     } else if (nextStep === 'explicacao_agente') {
         forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
@@ -813,6 +813,9 @@ try {
         mode = "parrot";
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema, *${leadInfo.name || "parceiro"}*. Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
+        mode = "parrot";
+    } else if (nextStep === 'desistencia_cliente') {
+        forcedText = `Sem problemas, *${leadInfo.name || "parceiro"}*! Compreendo perfeitamente. Caso precise de reforço de caixa no futuro ou queira conhecer as condições para sua empresa, estarei por aqui à disposição. Tenha um ótimo dia! 👍`;
         mode = "parrot";
     } else if (nextStep === 'aguardando_fiserv') {
         forcedText = `Sua solicitação já está em análise pelo comitê da Fiserv! ⏳\n\nEstamos acompanhando de perto e, assim que tivermos um retorno sobre os valores liberados para o seu CNPJ *${leadInfo.cnpj || ""}*, chamaremos você por aqui mesmo com o resultado.\n\nEnquanto esperamos, posso te ajudar com mais alguma dúvida?`;

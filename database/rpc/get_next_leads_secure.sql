@@ -125,12 +125,13 @@ BEGIN
                           + INTERVAL '3 days'
                       )
                   )
-              )
-              -- [FREQUÊNCIA CAPPING HIERÁRQUICO]
+                 -- [FREQUÊNCIA CAPPING HIERÁRQUICO]
               AND (
                   (v_capping->>'override_for_incidents')::boolean = true -- Emergência ignora capping
                   OR
                   (oq.status != 'pending') -- [FIX]: Reengajamento ignora a trava de cooldown do Capping Global para respeitar estritamente o tempo configurado na campanha
+                  OR
+                  (COALESCE((oq.metadata->>'is_funnel_followup')::boolean, false) = true) -- Follow-up de funil em andamento ignora capping global
                   OR
                   NOT EXISTS (
                       SELECT 1 FROM public.contact_pressure_logs cpl
@@ -141,36 +142,39 @@ BEGIN
               )
               -- [EXCLUSÃO DE LEADS JÁ CONVERTIDOS]
               AND NOT (
-                  trim(lower(oq.status)) = 'converted' 
-                  OR COALESCE(oq.metadata->>'converted', 'false') = 'true'
-                  OR EXISTS (
-                      SELECT 1 FROM public.messages m
-                      WHERE m.conversation_id = oq.conversation_id
-                        AND (m.content ILIKE '%[CONVERSÃO]%' OR m.content ILIKE '%✅ [CONVERSÃO]%')
-                        AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
-                  )
-                  OR (
-                      'CLIENT_RESPONDED' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
-                      AND EXISTS (
+                  COALESCE((oq.metadata->>'is_funnel_followup')::boolean, false) = false
+                  AND (
+                      trim(lower(oq.status)) = 'converted' 
+                      OR COALESCE(oq.metadata->>'converted', 'false') = 'true'
+                      OR EXISTS (
                           SELECT 1 FROM public.messages m
                           WHERE m.conversation_id = oq.conversation_id
-                            AND m.sender_type = 'user'
-                            AND m.direction = 'inbound'
+                            AND (m.content ILIKE '%[CONVERSÃO]%' OR m.content ILIKE '%✅ [CONVERSÃO]%')
                             AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
                       )
-                  )
-                  OR (
-                      'LINK_SENT' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
-                      AND COALESCE(camp.success_link_filter, '') <> ''
-                      AND EXISTS (
-                          SELECT 1 FROM public.messages m
-                          WHERE m.conversation_id = oq.conversation_id
-                            AND (
-                              (m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system') AND m.content ILIKE '%' || camp.success_link_filter || '%')
-                              OR m.content ILIKE '%✅ [CONVERSÃO]%'
-                              OR m.content ILIKE '%[CONVERSÃO]%'
-                            )
-                            AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                      OR (
+                          'CLIENT_RESPONDED' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
+                          AND EXISTS (
+                              SELECT 1 FROM public.messages m
+                              WHERE m.conversation_id = oq.conversation_id
+                                AND m.sender_type = 'user'
+                                AND m.direction = 'inbound'
+                                AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                          )
+                      )
+                      OR (
+                          'LINK_SENT' = ANY(COALESCE(camp.success_criteria, '{}'::text[]))
+                          AND COALESCE(camp.success_link_filter, '') <> ''
+                          AND EXISTS (
+                              SELECT 1 FROM public.messages m
+                              WHERE m.conversation_id = oq.conversation_id
+                                AND (
+                                  (m.sender_type IN ('ai', 'bot', 'assistant', 'lia', 'system') AND m.content ILIKE '%' || camp.success_link_filter || '%')
+                                  OR m.content ILIKE '%✅ [CONVERSÃO]%'
+                                  OR m.content ILIKE '%[CONVERSÃO]%'
+                                )
+                                AND m.created_at >= COALESCE(oq.sent_at, oq.created_at)
+                          )
                       )
                   )
               )
@@ -183,7 +187,11 @@ BEGIN
                     AND (oq_check.id <> oq.id)
                     AND (oq_check.sent_at > (NOW() - INTERVAL '2 hours') OR (oq_check.status = 'processing' AND oq_check.last_attempt_at > NOW() - INTERVAL '30 minutes'))
               )
-            ORDER BY (oq.status = 'pending') DESC, COALESCE(oq.scheduled_at, NOW()) ASC, oq.created_at ASC
+            ORDER BY 
+                (COALESCE((oq.metadata->>'is_funnel_followup')::boolean, false)) DESC,
+                (oq.status = 'pending') DESC, 
+                COALESCE(oq.scheduled_at, NOW()) ASC, 
+                oq.created_at ASC
             LIMIT v_actual_limit
             FOR UPDATE SKIP LOCKED 
         )
@@ -202,6 +210,7 @@ BEGIN
         c.agent_id,
         sl.tenant_id,
         CASE 
+            WHEN (sl.metadata->>'is_funnel_followup')::boolean = true THEN (sl.metadata->>'content')::text
             WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_message, c.initial_message)
             ELSE COALESCE(sl.metadata->>'content', c.initial_message)
         END::text as message,
@@ -212,8 +221,9 @@ BEGIN
         ag.meta_phone_number_id::text as meta_phone_number_id,
         ag.zenvia_api_token::text as zenvia_api_token,
         ag.zenvia_channel_id::text as zenvia_channel_id,
-        -- LÓGICA DE TEMPLATE: Se for reengajamento, usa o template específico; caso contrário, cai de volta no template da campanha original.
+        -- LÓGICA DE TEMPLATE: Se for follow-up de abandono, template_id é vazio (texto livre no WhatsApp)
         CASE 
+            WHEN (sl.metadata->>'is_funnel_followup')::boolean = true THEN ''
             WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_template_id, (c.metadata->>'template_id')::text, '')
             ELSE COALESCE((c.metadata->>'template_id')::text, '')
         END::text as template_id,

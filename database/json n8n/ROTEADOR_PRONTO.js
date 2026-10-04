@@ -1,4 +1,14 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.7 (BLINDAGEM TOTAL DE RECUSA & PROIBIÇÃO ABSOLUTA DE DADOS TÉCNICOS) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V27.8 (TRATAMENTO INTELIGENTE DE FATURAMENTO, DÚVIDAS DE CARTÃO E ANTI-LOOP) */
+/* MUDANÇAS V27.8:
+   1. Tratamento Inteligente de Dúvidas sobre Cartão/Faturamento:
+      - Adiciona 'cartão', 'cartao', 'cartões' e 'só no cartão' em regexDoubt e na etapa coleta_faturamento.
+      - Responde com clareza que o faturamento pedido é o total da empresa e que o empréstimo é pago via boleto bancário sem retenção das vendas de cartão.
+   2. Acolhimento de Respostas Qualitativas em Faturamento:
+      - Reconhece termos como "muito mais", "bem mais", "bastante", "alto" e pede o valor aproximado em reais com cordialidade em vez de repetir a pergunta engessada.
+   3. Blindagem Anti-Loop contra Handoff Prematuro para Especialistas:
+      - Dúvidas de cartão, perguntas com '?' e respostas qualitativas nunca são tratadas como loop cego.
+      - Varia a mensagem se a Sofia já tiver perguntado o faturamento antes, eliminando repetições consecutivas idênticas.
+   4. Preserva 100% das regras da V27.7 (Proibição de Dados Técnicos, Blindagem de Recusa, Anti-Regressão e Opt-in). */
 /* MUDANÇAS V27.7:
    1. Proibição Absoluta de Dados Técnicos ao Cliente:
       - Sanitização global mandatória de qualquer mensagem, expurgando termos técnicos (loan_request, detail, simulation_data, 422, status codes).
@@ -107,6 +117,21 @@ try {
     const hasPriorOptIn = isOptInWithin30Days && !isDeniedFiserv;
     const hasActiveLoan = Boolean((leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) && !isDeniedFiserv);
     const isApprovedFiserv = Boolean((leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_external_status === 'Pré-aprovado') && !isDeniedFiserv);
+
+    // 🤖 FILTRO DE AUTO-RESPOSTA / ROBÔS DE WHATSAPP BUSINESS
+    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|não est(ou|amos) dispon[ií]ve|não estamos funcionando|não está funcionando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|faça seu pedido|nosso card[aá]pio|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç)/i;
+
+    const isButtonTemplateClick = ['quero simular!', 'quero simular', 'falar com um agente!', 'falar com um agente', 'simular'].includes(lastUserLower);
+
+    // Se o cliente ainda não avançou no funil e enviou uma mensagem de auto-resposta/robô
+    if (!isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower)) {
+        return {
+            stop_flow: true,
+            is_auto_reply: true,
+            reason: "Auto-resposta detectada: mensagem de ausência ou robô da empresa recebida. Fluxo pausado aguardando interação humana.",
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+        };
+    }
 
     // 🛡️ SANITIZAÇÃO GLOBAL OBRIGATÓRIA: NUNCA ENVIAR CAMPOS OU DADOS TÉCNICOS AO CLIENTE
     function sanitizeUserFacingMessage(text) {
@@ -453,9 +478,9 @@ try {
     ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
-    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
+    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
 
-    const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower);
+    const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|cartão|cartao|cartões|cartoes|faturamento|só no cartão|so no cartao|crédito|credito|débito|debito|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower) || /^cart[aã]o\??$/i.test(lastUserLower.trim());
     const isDoubt = regexDoubt || ["EXACT_FAQ", "DYNAMIC_FAQ", "INSTITUTIONAL_FAQ", "DOUBT"].includes(semanticIntent);
 
     const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
@@ -588,7 +613,7 @@ try {
             nextStep = 'coleta_valor';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'coleta_faturamento';
@@ -600,7 +625,7 @@ try {
             nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'coleta_valor';
@@ -632,7 +657,7 @@ try {
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'aguardando_fiserv';
@@ -643,7 +668,7 @@ try {
             nextStep = 'solicitar_simulacao';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'recusa_analise';
+            nextStep = 'desistencia_cliente';
             transitionApplied = true;
         } else {
             nextStep = 'apresenta_ofertas';
@@ -789,12 +814,24 @@ try {
         }
     } else if (effectiveComplaint) {
         forcedText = `Certo, entendo perfeitamente sua frustração. Sinto muito que sua experiência atual esteja sendo assim.\n\nComo você mencionou esse problema, vou priorizar o seu contato com um de nossos consultores humanos para que ele verifique isso detalhadamente antes de qualquer outra coisa.\n\nVocê gostaria de falar sobre mais algum ponto específico antes do nosso especialista entrar em contato?`;
-    } else if (currentStep === 'start' && assistantMessages.length < 2) {
+    } else if (currentStep === 'start' && assistantMessages.length < 2 && !isDeniedFiserv && nextStep !== 'recusa_analise' && nextStep !== 'desistencia_cliente') {
         forcedText = `Já pensou em reforçar o caixa sem burocracia?\n\nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Gostaria de fazer uma simulação sem compromisso aqui mesmo pelo WhatsApp ou ficou com alguma dúvida?`;
     } else if (nextStep === 'explicacao_agente') {
         forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
     } else if (nextStep === 'coleta_faturamento') {
-        forcedText = `Certo, *${leadInfo.name || "parceiro"}*! Qual o *faturamento médio mensal* atual da sua empresa?\n\n_Exemplo: *80 mil*_`;
+        const isCartaoQuestion = /\b(cart[aã]o|cart[oõ]es|s[oó] no cart[aã]o|maquininha|total|geral)\b/i.test(lastUserLower) || /^cart[aã]o\??$/i.test(lastUserLower.trim());
+        const isMuchMore = /\b(muito mais|bem mais|bastante|muito acima|alto|mais que isso|acima de|mais de|depende|n[aã]o sei exato|varia)\b/i.test(lastUserLower);
+        const alreadyAskedFaturamento = lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento aproximado") || lastSofiaMsg.includes("qual o faturamento");
+
+        if (isCartaoQuestion) {
+            forcedText = `Pode ser o *faturamento total* da sua empresa (incluindo vendas no cartão, Pix, boletos, etc.). Uma média aproximada já é suficiente para a nossa simulação!\n\nLembrando que o pagamento do empréstimo é feito mensalmente via *Boleto Bancário*, sem desconto direto das suas vendas diárias de cartão.\n\nQual seria o faturamento médio mensal aproximado para seguirmos?\n\n_Exemplo: *100 mil*_`;
+        } else if (isMuchMore) {
+            forcedText = `Entendi que o faturamento é maior! 📈\n\nPara que possamos calcular o limite exato e as melhores condições para a *${leadInfo.name || "sua empresa"}*, você poderia me informar um valor aproximado em reais?\n\n_Exemplo: *150 mil*_`;
+        } else if (alreadyAskedFaturamento) {
+            forcedText = `Para avançarmos com a simulação sem compromisso, preciso apenas de um valor médio aproximado do faturamento mensal da *${leadInfo.name || "sua empresa"}* em reais.\n\n_Exemplo: *80 mil*_`;
+        } else {
+            forcedText = `Certo, *${leadInfo.name || "parceiro"}*! Qual o *faturamento médio mensal* atual da sua empresa?\n\n_Exemplo: *80 mil*_`;
+        }
         mode = "parrot";
     } else if (nextStep === 'coleta_valor') {
         const rawNum = parseNumber(lastUserLower);
@@ -813,6 +850,9 @@ try {
         mode = "parrot";
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema, *${leadInfo.name || "parceiro"}*. Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
+        mode = "parrot";
+    } else if (nextStep === 'desistencia_cliente') {
+        forcedText = `Sem problemas, *${leadInfo.name || "parceiro"}*! Compreendo perfeitamente. Caso precise de reforço de caixa no futuro ou queira conhecer as condições para sua empresa, estarei por aqui à disposição. Tenha um ótimo dia! 👍`;
         mode = "parrot";
     } else if (nextStep === 'aguardando_fiserv') {
         forcedText = `Sua solicitação já está em análise pelo comitê da Fiserv! ⏳\n\nEstamos acompanhando de perto e, assim que tivermos um retorno sobre os valores liberados para o seu CNPJ *${leadInfo.cnpj || ""}*, chamaremos você por aqui mesmo com o resultado.\n\nEnquanto esperamos, posso te ajudar com mais alguma dúvida?`;
@@ -899,7 +939,8 @@ try {
     }
 
     // Só é loop se a Sofia JÁ enviou essa exata mensagem pelo menos 2 vezes seguidas OU se a mesma etapa falhou 3x seguidas
-    const isLoopDetected = mode === 'parrot' && (consecutiveSameCount >= 2 || stepRepetitionCount >= 3) && cleanNextText.length > 0;
+    const isClientAskingOrQualitative = isDoubt || lastUserLower.includes("?") || /\b(cart[aã]o|cart[oõ]es|muito mais|bem mais|bastante)\b/i.test(lastUserLower);
+    const isLoopDetected = mode === 'parrot' && !isClientAskingOrQualitative && (consecutiveSameCount >= 2 || stepRepetitionCount >= 3) && cleanNextText.length > 0;
 
     let loopDetectedHandoff = false;
     if (isLoopDetected && leadInfo.is_lead !== false) {
@@ -966,6 +1007,12 @@ Quem sou eu? / Qual minha empresa? / Você sabe meu nome?
 
 Como funciona o empréstimo?
 Este é um reforço de caixa exclusivo para parceiros Ticket, realizado em parceria com a Fiserv. Você pode simular valores de *R$ 10.000 a R$ 500.000* com prazos de pagamento de até 24 meses. O pagamento é feito mensalmente por boleto bancário e a garantia da operação são apenas seus recebíveis Ticket futuros (o que significa que você não precisa comprometer bens físicos como automóveis ou imóveis). A análise inicial é rápida e leva menos de 24h.
+
+O faturamento médio que você pede é só de cartão ou o total da empresa?
+Pode ser o faturamento total médio mensal da sua empresa (incluindo vendas no cartão, Pix, boletos, etc.). Uma média aproximada já é suficiente para a nossa simulação.
+
+O pagamento das parcelas desconta direto das minhas vendas de cartão ou da maquininha?
+Não! O pagamento das parcelas é feito mensalmente via Boleto Bancário. Suas vendas de cartão continuam caindo normalmente na sua conta, sem nenhum desconto diário automático. Seus recebíveis futuros servem apenas como garantia da operação se os boletos não forem pagos.
 
 Não quero usar meu recebível como pagamento
 Infelizmente é necessário que haja alguma garantia para o fornecimento do crédito. O desconto da parcela só será feito através do seu recebível Ticket se não houver o pagamento do boleto, ou seja, você receberá suas vendas normalmente, não se preocupe.

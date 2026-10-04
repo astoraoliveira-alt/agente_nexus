@@ -1,4 +1,4 @@
-import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info, X, Cloud, Key, Smartphone } from 'lucide-react';
+import { Bot, MessageSquare, Phone, Settings, Plus, Search, ShieldCheck, ShieldAlert, BookOpen, AlertCircle, MoreVertical, Trash2, Pencil, Sparkles, Headphones, Workflow, Play, Copy, Globe, MessageCircle, HelpCircle, History, FileText, Info, X, Cloud, Key, Smartphone, CheckCircle2 } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { api } from '@/services/api';
 import { useApp } from '@/contexts/AppContext';
@@ -241,7 +241,10 @@ export default function Agents() {
         },
         zendesk_api_token: '',
         zenvia_aliases: [],
-        workflow_blueprint: undefined
+        workflow_blueprint: undefined,
+        funnel_followup_enabled: false,
+        funnel_followup_delay_minutes: 30,
+        funnel_followup_max_attempts: 1
       });
       setBlueprintRaw('');
     }
@@ -1184,6 +1187,71 @@ export default function Agents() {
                                 value={formData.idle_closure_message || ''}
                                 onChange={(e) => setFormData({ ...formData, idle_closure_message: e.target.value })}
                               />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Recuperação de Abandono de Funil (Follow-up Proativo) */}
+                        <div className="space-y-4 pt-3 border-t border-border/30 mt-4 animate-in slide-in-from-top-1">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <Label className="text-xs font-bold text-accent">Recuperação de Abandono no Funil</Label>
+                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full font-medium">Anti-Abandono</span>
+                              </div>
+                              <p className="text-[9px] text-muted-foreground">Envia lembrete no WhatsApp se o cliente parar no meio do funil (faturamento, valor ou autorização).</p>
+                            </div>
+                            <Switch
+                              checked={formData.funnel_followup_enabled || false}
+                              onCheckedChange={(checked) => setFormData({ ...formData, funnel_followup_enabled: checked })}
+                            />
+                          </div>
+
+                          {formData.funnel_followup_enabled && (
+                            <div className="space-y-3 p-3 rounded-lg bg-muted/20 border border-border/40 animate-in fade-in slide-in-from-top-2">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Tempo de Espera (minutos)</Label>
+                                  <Input
+                                    type="number"
+                                    min={5}
+                                    max={180}
+                                    className="bg-muted/30 text-xs h-8"
+                                    value={formData.funnel_followup_delay_minutes || 30}
+                                    onChange={(e) => setFormData({ ...formData, funnel_followup_delay_minutes: Math.max(5, parseInt(e.target.value) || 30) })}
+                                  />
+                                  <p className="text-[8px] text-muted-foreground">Inatividade antes do envio (ex: 15 ou 30 min).</p>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">Máximo de Tentativas</Label>
+                                  <Select
+                                    value={String(formData.funnel_followup_max_attempts || 1)}
+                                    onValueChange={(val) => setFormData({ ...formData, funnel_followup_max_attempts: parseInt(val) || 1 })}
+                                  >
+                                    <SelectTrigger className="bg-muted/30 text-xs h-8">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="1">1 tentativa</SelectItem>
+                                      <SelectItem value="2">2 tentativas</SelectItem>
+                                      <SelectItem value="3">3 tentativas (Máx)</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  <p className="text-[8px] text-muted-foreground">Limite por cliente (máx: 3).</p>
+                                </div>
+                              </div>
+
+                              <div className="text-[9px] text-muted-foreground/90 bg-background/50 p-2.5 rounded border border-border/30 space-y-1">
+                                <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
+                                  <CheckCircle2 className="h-3 w-3 text-emerald-400 inline shrink-0" /> Regras de Operação Automática:
+                                </p>
+                                <ul className="list-disc list-inside space-y-0.5 text-[8.5px] text-muted-foreground pl-1">
+                                  <li><strong>Mensagem contextual:</strong> Adaptada automaticamente para a etapa onde o cliente parou (Faturamento, Valor ou Opt-in).</li>
+                                  <li><strong>Horário Comercial:</strong> Dispara estritamente dentro da janela da campanha do cliente e desconsidera finais de semana.</li>
+                                  <li><strong>Campanhas do Mesmo Dia:</strong> Dispara exclusivamente para leads de campanhas iniciadas no mesmo dia (dentro das primeiras 24 horas).</li>
+                                  <li><strong>Fila Outbound:</strong> Enfileirado automaticamente na tabela de disparos pelo fluxo do n8n.</li>
+                                </ul>
+                              </div>
                             </div>
                           )}
                         </div>

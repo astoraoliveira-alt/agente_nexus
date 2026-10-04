@@ -47,7 +47,10 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             requires_security: agent.requires_security || false,
             workflow_blueprint: agent.workflow_blueprint || null,
             send_idle_closure_message: agent.send_idle_closure_message || false,
-            idle_closure_message: agent.idle_closure_message || null
+            idle_closure_message: agent.idle_closure_message || null,
+            funnel_followup_enabled: agent.funnel_followup_enabled || false,
+            funnel_followup_delay_minutes: agent.funnel_followup_delay_minutes || 30,
+            funnel_followup_max_attempts: agent.funnel_followup_max_attempts || 1
         };
 
         const { data, error } = await supabase
@@ -89,7 +92,10 @@ async createAgent(agent: Partial<Agent>): Promise<Agent> {
             zenvia_api_token: data.zenvia_api_token,
             workflow_blueprint: data.workflow_blueprint,
             send_idle_closure_message: data.send_idle_closure_message || false,
-            idle_closure_message: data.idle_closure_message || null
+            idle_closure_message: data.idle_closure_message || null,
+            funnel_followup_enabled: data.funnel_followup_enabled || false,
+            funnel_followup_delay_minutes: data.funnel_followup_delay_minutes || 30,
+            funnel_followup_max_attempts: data.funnel_followup_max_attempts || 1
         } as unknown as Agent;
     },
 
@@ -134,6 +140,9 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
         if (updates.workflow_blueprint !== undefined) dbPayload.workflow_blueprint = updates.workflow_blueprint;
         if (updates.send_idle_closure_message !== undefined) dbPayload.send_idle_closure_message = updates.send_idle_closure_message;
         if (updates.idle_closure_message !== undefined) dbPayload.idle_closure_message = updates.idle_closure_message;
+        if (updates.funnel_followup_enabled !== undefined) dbPayload.funnel_followup_enabled = updates.funnel_followup_enabled;
+        if (updates.funnel_followup_delay_minutes !== undefined) dbPayload.funnel_followup_delay_minutes = updates.funnel_followup_delay_minutes;
+        if (updates.funnel_followup_max_attempts !== undefined) dbPayload.funnel_followup_max_attempts = updates.funnel_followup_max_attempts;
 
         const { data, error } = await supabase
             .from('agents')
@@ -180,6 +189,9 @@ async updateAgent(agentId: string, updates: Partial<Agent>): Promise<Agent> {
             workflow_blueprint: data.workflow_blueprint,
             send_idle_closure_message: data.send_idle_closure_message || false,
             idle_closure_message: data.idle_closure_message || null,
+            funnel_followup_enabled: data.funnel_followup_enabled || false,
+            funnel_followup_delay_minutes: data.funnel_followup_delay_minutes || 30,
+            funnel_followup_max_attempts: data.funnel_followup_max_attempts || 1,
             // Legacy mapping
             integration: {
                 voice_provider: data.voice_config?.provider === 'none' ? null : data.voice_config?.provider,

@@ -438,6 +438,9 @@ export interface Agent {
   zenvia_api_token?: string;   // API Token Zenvia (armazenado criptografado)
   send_idle_closure_message?: boolean; // Fechamento inativo configurável
   idle_closure_message?: string;
+  funnel_followup_enabled?: boolean; // Recuperação de abandono no funil
+  funnel_followup_delay_minutes?: number; // Tempo de inatividade em minutos (15, 30, etc.)
+  funnel_followup_max_attempts?: number; // Limite de disparos por cliente (1 a 3)
   knowledgeItems?: KnowledgeItem[]; // Phase 2: Knowledge Base
   integrationConfig?: {
     n8n_webhook_url?: string;
