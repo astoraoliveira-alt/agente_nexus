@@ -3,22 +3,37 @@
   "nodes": [
     {
       "parameters": {
+        "content": "## Agente - Follow-up de Abandono no Funil (Anti-Abandono)\n\n### Objetivo:\nExecuta a cada 5 minutos a RPC `enqueue_funnel_abandonment_followups` no Supabase.\n\n### Regras de Negócio Automáticas Aplicadas no Banco:\n1. **Segunda a Sexta Apenas:** Desconsidera automaticamente finais de semana (Sábado e Domingo).\n2. **Horário Comercial da Campanha:** Respeita estritamente o `start_time` e `end_time` cadastrados na campanha do lead (Horário de Brasília).\n3. **Identificação da Etapa:** Detecta se o cliente travou na pergunta de **Faturamento**, **Valor do Empréstimo**, **Opt-in/Termo** ou **Confirmação de CNPJ**.\n4. **Mensagens Humanizadas & Contextuais:** Cria mensagens personalizadas com o primeiro nome do cliente e razão social da empresa.\n5. **Controle de Tentativas:** Limita a 1, 2 ou 3 envios por cliente (conforme configurado na aba do Agente no painel).\n6. **Fila Outbound Padrão:** Insere os leads com status `pending` na tabela `outbound_queue`, onde o fluxo existente `Agente - Campanha - Scheduler(Msg Inicial)` os consome automaticamente e envia pelo WhatsApp!",
+        "height": 450,
+        "width": 2308,
+        "color": 6
+      },
+      "id": "ebe208a5-693d-4387-85d1-a41caf15cf76",
+      "name": "Documentação do Workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        -304
+      ]
+    },
+    {
+      "parameters": {
         "rule": {
           "interval": [
             {
-              "field": "minutes",
-              "minutesInterval": 5
+              "field": "minutes"
             }
           ]
         }
       },
-      "id": "f0110001-a1b2-4c3d-8e5f-000000000001",
+      "id": "37d014eb-e7e5-4569-83c5-88b9e0e01452",
       "name": "Cron (A cada 5 min)",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        -1100,
-        200
+        -320,
+        384
       ]
     },
     {
@@ -41,13 +56,39 @@
         },
         "options": {}
       },
-      "id": "f0110002-a1b2-4c3d-8e5f-000000000002",
+      "id": "f58d5985-13d0-4a74-9e79-e5771a47bca5",
       "name": "Vars de Configuração",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
       "position": [
-        -880,
-        200
+        -112,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst list = items.map(item => item.json);\n\nreturn [{\n  json: {\n    executed_at: new Date().toISOString(),\n    total_processed: list.length,\n    results: list,\n    summary_log: `🚀 Sofia (IA) analisou ${list.length} conversas com precisão e enfileirou mensagens contextuais no WhatsApp!`\n  }\n}];"
+      },
+      "id": "396c5a27-923f-44b7-96d7-4b984861917a",
+      "name": "Auditoria & Log de Sucesso",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputData = $input.first()?.json || {};\nreturn [{\n  json: {\n    executed_at: new Date().toISOString(),\n    enqueued_count: 0,\n    reason: inputData.reason || \"Nenhum lead com tempo de inatividade expirado no momento.\",\n    status: \"NO_ACTION_REQUIRED\"\n  }\n}];"
+      },
+      "id": "e96e6f87-c865-4e67-9f2b-a131535dffe5",
+      "name": "Log Sem Envios",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        496
       ]
     },
     {
@@ -76,13 +117,13 @@
         "jsonBody": "={\n  \"p_agent_id\": null,\n  \"p_tenant_id\": null\n}",
         "options": {}
       },
-      "id": "f0110003-a1b2-4c3d-8e5f-000000000003",
-      "name": "Buscar Candidatos ao Follow-up",
+      "id": "b0592123-8655-408b-bac3-b8021d35c5b8",
+      "name": "Buscar Candidatos ao Follow-up1",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -640,
-        200
+        128,
+        384
       ]
     },
     {
@@ -109,13 +150,13 @@
         },
         "options": {}
       },
-      "id": "f0110004-a1b2-4c3d-8e5f-000000000004",
-      "name": "Houve Leads em Abandono?",
+      "id": "7e328106-8d1d-488b-b053-a88adb7c6024",
+      "name": "Houve Leads em Abandono?1",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -400,
-        200
+        368,
+        384
       ]
     },
     {
@@ -123,13 +164,13 @@
         "fieldToSplitOut": "candidates",
         "options": {}
       },
-      "id": "f0110005-a1b2-4c3d-8e5f-000000000005",
-      "name": "Listar Candidatos",
+      "id": "0eadd65c-99d6-4dd5-9203-71f8fb2d1ea3",
+      "name": "Listar Candidatos1",
       "type": "n8n-nodes-base.splitOut",
       "typeVersion": 1,
       "position": [
-        -160,
-        100
+        608,
+        272
       ]
     },
     {
@@ -147,7 +188,6 @@
               "content": "=Você é a Sofia, consultora sênior da Ticket Edenred, especializada em crédito e capital de giro.\nVocê está analisando uma conversa no WhatsApp que parou de responder há mais de 30 minutos.\nSua ÚNICA missão é analisar com total inteligência o histórico recente e gerar uma mensagem humana, acolhedora e precisa para retomar a conversa de onde ela parou.\n\n## MAPEAMENTO DE ETAPAS E REGRAS MANDATÓRIAS:\n1. ETAPA consentimento_optin:\n   - Situação: O cliente acabou de informar o valor desejado (ex: 100 mil) e a Sofia enviou o termo de autorização legal (SCR/Bacen/LGPD), mas o cliente NÃO respondeu/autorizou ainda.\n   - ⚠️ REGRA CRÍTICA ABSOLUTA: A proposta NÃO está pré-analisada e NÃO foi analisada pela Fiserv ainda. É TERMINANTEMENTE PROIBIDO dizer que a proposta \"já está pré-analisada\" ou aprovada!\n   - Como redigir: Confirme o interesse no valor informado (ex: \"Vi que você gostaria de simular R$ 100 mil...\") e pergunte com simpatia se ficou com alguma dúvida sobre o termo ou se autoriza a consulta para vermos as taxas e prazos liberados.\n   - Botões sugeridos: [\"✅ SIM, AUTORIZO\", \"Tirar dúvida\"]\n\n2. ETAPA coleta_faturamento:\n   - Situação: A Sofia perguntou o faturamento médio mensal e o cliente parou.\n   - Como redigir: Pergunte se ele ficou com alguma dúvida e se prefere passar apenas uma estimativa aproximada em reais (ex: 80 mil) para avançar.\n   - Botões: null (aguarda digitação de valor numérico).\n\n3. ETAPA coleta_valor:\n   - Situação: O cliente informou o faturamento e a Sofia perguntou qual valor aproximado ele gostaria de solicitar, mas o cliente parou.\n   - Como redigir: Relembre que temos limites entre 10 e 500 mil reais e pergunte qual valor ele tem em mente para a simulação.\n   - Botões: null (aguarda digitação de valor numérico).\n\n4. ETAPA verificacao_cnpj:\n   - Situação: Sofia perguntou se é o responsável pelo CNPJ/Razão Social e o cliente parou.\n   - Como redigir: Pergunte com cordialidade se podemos confirmar os dados para apresentar as condições disponíveis.\n   - Botões: [\"Sim\", \"Não\"]\n\n5. ETAPA apresenta_ofertas / confirmacao_cliente:\n   - Situação: A simulação já foi apresentada ou perguntou parcelas e o cliente parou.\n   - Como redigir: Pergunte se as parcelas ficaram boas ou se prefere ajustar o prazo ou valor para encaixar melhor no fluxo de caixa.\n   - Botões: [\"Sim\", \"Ajustar valor\"]\n\n## DIRETRIZES DE COMUNICAÇÃO:\n- TRATAMENTO AO CLIENTE: NUNCA chame o cliente pela primeira palavra da Razão Social se for empresa (ex: \"SAAAXX DI VERONA LTDA\" NUNCA deve ser chamado de \"Olá, Saaaxx!\"). Se não houver nome próprio de pessoa física (ex: Marcos, João), use apenas \"Olá!\" ou \"Olá, parceiro!\".\n- TAMANHO: Máximo de 2 a 3 frases curtas e diretas para WhatsApp. Sem enrolação.\n\n## FORMATO DE RESPOSTA (JSON ESTRITO):\nVocê DEVE retornar APENAS um JSON válido no formato:\n{\n  \"funnel_step\": \"consentimento_optin\" | \"coleta_faturamento\" | \"coleta_valor\" | \"verificacao_cnpj\" | \"apresenta_ofertas\" | \"geral\",\n  \"message\": \"Texto exato e humanizado da mensagem para enviar no WhatsApp\",\n  \"buttons\": [\"Botão 1\", \"Botão 2\"] ou null\n}"
             },
             {
-              "role": "user",
               "content": "=\nEmpresa: {{ $json.company_name }}\nNome Contato Cadastrado: {{ $json.contact_name || \"Não informado\" }}\nÚltima Mensagem Enviada pela Sofia:\n{{ $json.last_bot_message }}\n\nHistórico Recente da Conversa:\n{{ ($json.messages_history || []).map(m => m.sender + \": \" + m.content).join(\"\\n\") }}\n"
             }
           ]
@@ -163,13 +203,13 @@
           "temperature": 0.2
         }
       },
-      "id": "f0110009-a1b2-4c3d-8e5f-000000000009",
-      "name": "Sofia IA - Analisar & Redigir Follow-up",
+      "id": "eb53eaac-c00b-432e-8aa1-98d01aa50caa",
+      "name": "Sofia IA - Analisar & Redigir Follow-up1",
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 2.1,
       "position": [
-        80,
-        100
+        848,
+        272
       ],
       "credentials": {
         "openAiApi": {
@@ -180,15 +220,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const candidate = $('Listar Candidatos').item.json;\nconst aiRaw = $input.first()?.json || {};\n\n// Compatibilidade total com n8n LangChain OpenAI v2.1\nlet rawData = aiRaw.output?.[0]?.content?.[0]?.text || aiRaw.text || aiRaw.message?.content || aiRaw.output || aiRaw;\n\nlet parsed = {\n  funnel_step: \"geral\",\n  message: \"\",\n  buttons: null\n};\n\ntry {\n  if (typeof rawData === \"string\") {\n    const start = rawData.indexOf('{');\n    const end = rawData.lastIndexOf('}');\n    if (start >= 0 && end >= 0) {\n      parsed = JSON.parse(rawData.substring(start, end + 1));\n    }\n  } else if (typeof rawData === \"object\" && rawData !== null) {\n    parsed = rawData;\n  }\n} catch (e) {}\n\nconst finalMessage = parsed.message || `Olá! Vi que paramos a simulação de crédito para a ${candidate.company_name}. Gostaria de continuar de onde paramos para conferir os valores liberados?`;\nlet buttonsObj = null;\n\nif (Array.isArray(parsed.buttons) && parsed.buttons.length > 0) {\n  buttonsObj = {\n    tipo: \"botoes\",\n    opcoes: parsed.buttons\n  };\n}\n\nreturn [{\n  json: {\n    queue_id: candidate.queue_id,\n    conversation_id: candidate.conversation_id,\n    phone: candidate.phone,\n    company_name: candidate.company_name,\n    funnel_step: parsed.funnel_step || \"geral\",\n    message: finalMessage,\n    interactive_buttons: buttonsObj\n  }\n}];"
+        "jsCode": "const items = $input.all();\n\nreturn items.map((item, index) => {\n  let candidate = {};\n  try {\n    candidate = $('Listar Candidatos1').all()[index]?.json || {};\n  } catch (e) {\n    try {\n      candidate = $('Listar Candidatos1').itemMatching(index)?.json || {};\n    } catch (e2) {\n      candidate = item.json?.candidate || item.json || {};\n    }\n  }\n\n  const aiRaw = item.json || {};\n  let rawData = aiRaw.output?.[0]?.content?.[0]?.text || aiRaw.text || aiRaw.message?.content || aiRaw.output || aiRaw;\n\n  let parsed = {\n    funnel_step: \"geral\",\n    message: \"\",\n    buttons: null\n  };\n\n  try {\n    if (typeof rawData === \"string\") {\n      const start = rawData.indexOf('{');\n      const end = rawData.lastIndexOf('}');\n      if (start >= 0 && end >= 0) {\n        parsed = JSON.parse(rawData.substring(start, end + 1));\n      }\n    } else if (typeof rawData === \"object\" && rawData !== null) {\n      parsed = rawData;\n    }\n  } catch (e) {}\n\n  const finalMessage = parsed.message || `Olá! Vi que paramos a simulação de crédito para a ${candidate.company_name || 'sua empresa'}. Gostaria de continuar de onde paramos para conferir os valores liberados?`;\n  let buttonsObj = null;\n\n  if (Array.isArray(parsed.buttons) && parsed.buttons.length > 0) {\n    buttonsObj = {\n      tipo: \"botoes\",\n      opcoes: parsed.buttons\n    };\n  }\n\n  return {\n    json: {\n      queue_id: candidate.queue_id,\n      conversation_id: candidate.conversation_id,\n      phone: candidate.phone,\n      company_name: candidate.company_name,\n      funnel_step: parsed.funnel_step || \"geral\",\n      message: finalMessage,\n      interactive_buttons: buttonsObj\n    }\n  };\n});"
       },
-      "id": "f0110010-a1b2-4c3d-8e5f-000000000010",
-      "name": "Formatar Dados de Envio",
+      "id": "e0c8ba9d-7f64-466b-a6f0-46380bcb81ce",
+      "name": "Formatar Dados de Envio1",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        320,
-        100
+        1200,
+        272
       ]
     },
     {
@@ -217,42 +257,17 @@
         "jsonBody": "={\n  \"p_queue_id\": \"{{ $json.queue_id }}\",\n  \"p_conversation_id\": \"{{ $json.conversation_id }}\",\n  \"p_message\": {{ JSON.stringify($json.message) }},\n  \"p_interactive_buttons\": {{ $json.interactive_buttons ? JSON.stringify($json.interactive_buttons) : \"null\" }},\n  \"p_step\": \"{{ $json.funnel_step }}\"\n}",
         "options": {}
       },
-      "id": "f0110011-a1b2-4c3d-8e5f-000000000011",
-      "name": "Gravar Follow-up na Fila",
+      "id": "7e69ca3b-02f8-43fe-a85c-6e480bcf57c3",
+      "name": "Gravar Follow-up na Fila1",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        560,
-        100
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const items = $input.all();\nconst list = items.map(item => item.json);\n\nreturn [{\n  json: {\n    executed_at: new Date().toISOString(),\n    total_processed: list.length,\n    results: list,\n    summary_log: `🚀 Sofia (IA) analisou ${list.length} conversas com precisão e enfileirou mensagens contextuais no WhatsApp!`\n  }\n}];"
-      },
-      "id": "f0110006-a1b2-4c3d-8e5f-000000000006",
-      "name": "Auditoria & Log de Sucesso",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        800,
-        100
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const inputData = $input.first()?.json || {};\nreturn [{\n  json: {\n    executed_at: new Date().toISOString(),\n    enqueued_count: 0,\n    reason: inputData.reason || \"Nenhum lead com tempo de inatividade expirado no momento.\",\n    status: \"NO_ACTION_REQUIRED\"\n  }\n}];"
-      },
-      "id": "f0110007-a1b2-4c3d-8e5f-000000000007",
-      "name": "Log Sem Envios",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -160,
-        320
+        1440,
+        272
       ]
     }
   ],
+  "pinData": {},
   "connections": {
     "Cron (A cada 5 min)": {
       "main": [
@@ -269,29 +284,29 @@
       "main": [
         [
           {
-            "node": "Buscar Candidatos ao Follow-up",
+            "node": "Buscar Candidatos ao Follow-up1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Buscar Candidatos ao Follow-up": {
+    "Buscar Candidatos ao Follow-up1": {
       "main": [
         [
           {
-            "node": "Houve Leads em Abandono?",
+            "node": "Houve Leads em Abandono?1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Houve Leads em Abandono?": {
+    "Houve Leads em Abandono?1": {
       "main": [
         [
           {
-            "node": "Listar Candidatos",
+            "node": "Listar Candidatos1",
             "type": "main",
             "index": 0
           }
@@ -305,40 +320,40 @@
         ]
       ]
     },
-    "Listar Candidatos": {
+    "Listar Candidatos1": {
       "main": [
         [
           {
-            "node": "Sofia IA - Analisar & Redigir Follow-up",
+            "node": "Sofia IA - Analisar & Redigir Follow-up1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Sofia IA - Analisar & Redigir Follow-up": {
+    "Sofia IA - Analisar & Redigir Follow-up1": {
       "main": [
         [
           {
-            "node": "Formatar Dados de Envio",
+            "node": "Formatar Dados de Envio1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Formatar Dados de Envio": {
+    "Formatar Dados de Envio1": {
       "main": [
         [
           {
-            "node": "Gravar Follow-up na Fila",
+            "node": "Gravar Follow-up na Fila1",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Gravar Follow-up na Fila": {
+    "Gravar Follow-up na Fila1": {
       "main": [
         [
           {
@@ -349,5 +364,18 @@
         ]
       ]
     }
-  }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "482aa4d8-8a8c-4398-9e33-648f7d429386",
+  "meta": {
+    "instanceId": "7f3565af616f5c3d71ac26fc62e019b544cb381f93ebca61b95c3a0cc3e0e6f8"
+  },
+  "nodeGroups": [],
+  "id": "TXLdI29uLFLtWC8y",
+  "tags": []
 }
