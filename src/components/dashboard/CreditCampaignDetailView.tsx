@@ -131,7 +131,7 @@ export function CreditCampaignDetailView({
         api.getEnrichedOutboundQueue(currentTenant.id, campaignId as any),
         supabase
           .from('agent_leads')
-          .select('whatsapp, identifier, name, status, metadata')
+          .select('id, whatsapp, identifier, name, status, metadata, created_at')
           .eq('tenant_id', currentTenant.id)
           .eq('campaign_id', campaignId)
       ]);
@@ -140,29 +140,66 @@ export function CreditCampaignDetailView({
       const agentLeadByPhone = new Map<string, any>();
       const agentLeadByIdentifier = new Map<string, any>();
 
+      const getPhoneVariantsList = (phone?: string | null): string[] => {
+        if (!phone) return [];
+        const clean = String(phone).replace(/\D/g, '');
+        if (!clean) return [];
+        const variants = new Set<string>();
+        variants.add(clean);
+        const without55 = clean.startsWith('55') ? clean.slice(2) : clean;
+        variants.add(without55);
+        variants.add(`55${without55}`);
+        if (without55.length === 11) {
+          const ddd = without55.slice(0, 2);
+          const rest = without55.slice(3);
+          variants.add(`${ddd}${rest}`);
+          variants.add(`55${ddd}${rest}`);
+        } else if (without55.length === 10) {
+          const ddd = without55.slice(0, 2);
+          const rest = without55.slice(2);
+          variants.add(`${ddd}9${rest}`);
+          variants.add(`55${ddd}9${rest}`);
+        }
+        return Array.from(variants);
+      };
+
       for (const al of agentLeadsData) {
         if (al.whatsapp) {
-          const cleanPhone = String(al.whatsapp).replace(/\D/g, '');
-          agentLeadByPhone.set(cleanPhone, al);
-          if (cleanPhone.length >= 10) {
-            agentLeadByPhone.set(cleanPhone.slice(-8), al);
-            agentLeadByPhone.set(cleanPhone.slice(-9), al);
+          for (const v of getPhoneVariantsList(al.whatsapp)) {
+            agentLeadByPhone.set(v, al);
           }
         }
-        if (al.identifier) {
-          agentLeadByIdentifier.set(String(al.identifier).replace(/\D/g, ''), al);
-        }
+        const idf = al.identifier ? String(al.identifier).replace(/\D/g, '') : '';
+        if (idf) agentLeadByIdentifier.set(idf, al);
+        const metaCnpj = al.metadata?.cnpj ? String(al.metadata.cnpj).replace(/\D/g, '') : '';
+        if (metaCnpj) agentLeadByIdentifier.set(metaCnpj, al);
+        const metaId = al.metadata?.identifier ? String(al.metadata.identifier).replace(/\D/g, '') : '';
+        if (metaId) agentLeadByIdentifier.set(metaId, al);
       }
+
+      const matchedAgentLeadIds = new Set<string>();
 
       // Mapear Leads combinando status de entrega e funil
       const mappedLeads: LeadDetailRow[] = (enrichedQueue || []).map((q: any) => {
-        const cleanPhone = String(q.contactPhone || '').replace(/\D/g, '');
-        const cleanCnpj = String(q.cnpj || '').replace(/\D/g, '');
-        const matchedLead = 
-          agentLeadByIdentifier.get(cleanCnpj) || 
-          agentLeadByPhone.get(cleanPhone) || 
-          agentLeadByPhone.get(cleanPhone.slice(-9)) || 
-          agentLeadByPhone.get(cleanPhone.slice(-8)) || null;
+        const rawPhone = q.contactPhone || q.contact_phone;
+        const qVariants = getPhoneVariantsList(rawPhone);
+        const cleanCnpj = String(q.cnpj || q.metadata?.cnpj || q.metadata?.identifier || '').replace(/\D/g, '');
+
+        let matchedLead: any = null;
+        if (cleanCnpj && agentLeadByIdentifier.has(cleanCnpj)) {
+          matchedLead = agentLeadByIdentifier.get(cleanCnpj);
+        } else {
+          for (const v of qVariants) {
+            if (agentLeadByPhone.has(v)) {
+              matchedLead = agentLeadByPhone.get(v);
+              break;
+            }
+          }
+        }
+
+        if (matchedLead?.id) {
+          matchedAgentLeadIds.add(matchedLead.id);
+        }
 
         const meta = matchedLead?.metadata || q.metadata || {};
         const qStatus = String(q.status || '').toLowerCase().trim();
@@ -292,8 +329,10 @@ export function CreditCampaignDetailView({
         const isInteragiram = Boolean(hasIdentityConfirmed || (isResponded && !isAutoReply));
 
         const isAprovado = Boolean(
-          ['approved', 'in_quoting', 'comite_approved'].includes(fiservSt) || 
-          ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
+          ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservSt) || 
+          ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
+          ['approved', 'aprovado'].includes(String(q.status || '').toLowerCase().trim()) ||
+          ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(String(q.metadata?.fiserv_status || '').toLowerCase().trim())
         );
 
         const isRecusado = Boolean(
@@ -388,6 +427,82 @@ export function CreditCampaignDetailView({
             isFormalizacaoDesistencia
           }
         };
+      });
+
+      // Garantir que todos os leads do funil (aprovados / com opt-in) em agent_leads apareçam na listagem
+      const unmatchedFunnelLeads = agentLeadsData.filter((al: any) => {
+        if (matchedAgentLeadIds.has(al.id)) return false;
+        const meta = al.metadata || {};
+        const fiservSt = String(meta.fiserv_status || al.status || '').toLowerCase().trim();
+        return Boolean(
+          meta.opt_in === true || meta.optin === true || meta.consent?.opt_in === true ||
+          meta.fiserv_requested_at || meta.loan_request_id ||
+          ['approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservSt) ||
+          ['approved', 'aprovado', 'denied', 'recusado', 'reprovado'].includes(String(al.status || '').toLowerCase().trim())
+        );
+      });
+
+      unmatchedFunnelLeads.forEach((al: any) => {
+        const meta = al.metadata || {};
+        const fiservSt = String(meta.fiserv_status || al.status || '').toLowerCase().trim();
+        const formalSt = String(meta.formalization_status || '').toLowerCase().trim();
+        const isApp = ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservSt) ||
+                      ['approved', 'aprovado'].includes(String(al.status || '').toLowerCase().trim());
+        const isRec = ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
+                      ['denied', 'recusado', 'reprovado'].includes(String(al.status || '').toLowerCase().trim());
+
+        let dispSt = 'Opt-in';
+        if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
+          dispSt = 'Formalizado';
+        } else if (['in_service', 'em_atendimento', 'in_progress'].includes(formalSt)) {
+          dispSt = 'Em Atendimento';
+        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt)) {
+          dispSt = 'Aguardando Contato';
+        } else if (isApp) {
+          dispSt = 'Aprovado';
+        } else if (isRec) {
+          dispSt = 'Recusado';
+        }
+
+        mappedLeads.push({
+          id: al.id || `al-${al.whatsapp}`,
+          cnpj: al.identifier || meta.cnpj || '-',
+          whatsapp: al.whatsapp,
+          name: al.name || 'Lead Aprovado',
+          contactName: al.name || 'Lead Aprovado',
+          establishmentName: al.name || null,
+          conversationId: meta.conversation_id || null,
+          status: dispSt,
+          deliveryStatus: 'delivered',
+          rawStatus: 'delivered',
+          hasInteracted: true,
+          revenue: meta.revenue || meta.faturamento || null,
+          requestedAmount: meta.requested_amount || meta.valor_inicial || null,
+          optIn: true,
+          fiservStatus: fiservSt || (isApp ? 'approved' : isRec ? 'denied' : null),
+          formalizationStatus: formalSt || null,
+          sentAt: al.created_at || null,
+          errorMessage: null,
+          stages: {
+            isCarregado: true,
+            isEnviado: true,
+            isEntregue: true,
+            isLida: true,
+            isInteragiram: true,
+            hasIdentityConfirmed: true,
+            hasFaturamento: true,
+            hasValorInicial: true,
+            hasOptIn: true,
+            isAprovado: isApp,
+            isRecusado: isRec,
+            isSimularam: false,
+            isOkAgente: false,
+            isFormalizacaoAguarContato: dispSt === 'Aguardando Contato',
+            isFormalizacaoEmAtendimento: dispSt === 'Em Atendimento',
+            isFormalizacaoFormalizado: dispSt === 'Formalizado',
+            isFormalizacaoDesistencia: false
+          }
+        });
       });
 
       setLeads(mappedLeads);
@@ -513,10 +628,11 @@ export function CreditCampaignDetailView({
   const statusOptions = useMemo(() => {
     const list = ['Entregue', 'Lida', 'Não Entregue'];
     if (leads.some(l => l.hasInteracted)) list.push('Conversas Iniciadas');
-    if (leads.some(l => l.status === 'Opt-in')) list.push('Opt-in');
-    if (leads.some(l => l.status === 'Aprovado')) list.push('Aprovado');
-    if (leads.some(l => l.status === 'Recusado')) list.push('Recusado');
-    if (leads.some(l => l.status === 'Formalizado')) list.push('Formalizado');
+    if (leads.some(l => l.stages?.hasOptIn || l.status === 'Opt-in' || l.optIn)) list.push('Opt-in');
+    if (leads.some(l => l.stages?.isAprovado || l.status === 'Aprovado' || ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(String(l.fiservStatus || '').toLowerCase()))) list.push('Aprovado');
+    if (leads.some(l => l.stages?.isRecusado || l.status === 'Recusado' || ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(String(l.fiservStatus || '').toLowerCase()))) list.push('Recusado');
+    if (leads.some(l => l.stages?.isFormalizacaoEmAtendimento || l.status === 'Em Atendimento')) list.push('Em Atendimento');
+    if (leads.some(l => l.stages?.isFormalizacaoFormalizado || l.status === 'Formalizado')) list.push('Formalizado');
     return list;
   }, [leads]);
 
@@ -529,15 +645,38 @@ export function CreditCampaignDetailView({
             return lead.hasInteracted;
           }
           if (status === 'Entregue') {
-            return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(lead.status) || 
+            return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(lead.status) || 
                    ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(lead.deliveryStatus);
           }
           if (status === 'Lida') {
-            return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(lead.status) || 
+            return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(lead.status) || 
                    ['read', 'lida'].includes(lead.deliveryStatus);
           }
           if (status === 'Não Entregue') {
             return lead.status === 'Não Entregue' || ['failed', 'erro', 'not_delivered', 'rejected', 'rejeitada'].includes(lead.deliveryStatus);
+          }
+          if (status === 'Aprovado') {
+            return Boolean(
+              lead.stages?.isAprovado || 
+              lead.status === 'Aprovado' || 
+              ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(String(lead.fiservStatus || '').toLowerCase())
+            );
+          }
+          if (status === 'Opt-in') {
+            return Boolean(lead.stages?.hasOptIn || lead.status === 'Opt-in' || lead.optIn);
+          }
+          if (status === 'Recusado') {
+            return Boolean(
+              lead.stages?.isRecusado || 
+              lead.status === 'Recusado' || 
+              ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(String(lead.fiservStatus || '').toLowerCase())
+            );
+          }
+          if (status === 'Formalizado') {
+            return Boolean(lead.stages?.isFormalizacaoFormalizado || lead.status === 'Formalizado');
+          }
+          if (status === 'Em Atendimento') {
+            return Boolean(lead.stages?.isFormalizacaoEmAtendimento || lead.status === 'Em Atendimento');
           }
           return lead.status === status;
         });
@@ -643,7 +782,34 @@ export function CreditCampaignDetailView({
     XLSX.writeFile(workbook, fileName);
   };
 
-  const renderStatusBadge = (status: string) => {
+  const renderStatusBadge = (status: string, lead?: LeadItem) => {
+    const isApp = Boolean(
+      status === 'Aprovado' || 
+      lead?.stages?.isAprovado || 
+      ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(String(lead?.fiservStatus || '').toLowerCase())
+    );
+
+    if (isApp && !['Formalizado'].includes(status)) {
+      return (
+        <div className="inline-flex flex-col items-center gap-1">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-200">
+            <CheckCircle2 className="w-3 h-3" />
+            Aprovado
+          </span>
+          {status === 'Em Atendimento' && (
+            <span className="text-[8px] font-bold uppercase tracking-wider text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+              Em Atendimento
+            </span>
+          )}
+          {status === 'Aguardando Contato' && (
+            <span className="text-[8px] font-bold uppercase tracking-wider text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+              Aguard. Contato
+            </span>
+          )}
+        </div>
+      );
+    }
+
     switch (status) {
       case 'Lida':
         return (
@@ -692,6 +858,20 @@ export function CreditCampaignDetailView({
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-800 border border-emerald-300">
             <Zap className="w-3 h-3" />
             Formalizado
+          </span>
+        );
+      case 'Em Atendimento':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200">
+            <Clock className="w-3 h-3" />
+            Em Atendimento
+          </span>
+        );
+      case 'Aguardando Contato':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-purple-50 text-purple-700 border border-purple-200">
+            <Clock className="w-3 h-3" />
+            Aguardando Contato
           </span>
         );
       default:
@@ -938,17 +1118,41 @@ export function CreditCampaignDetailView({
                 }}
               >
                 <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100/50 pt-3">
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[9px] font-black uppercase text-emerald-600/70 tracking-widest">Aprovados</span>
-                    <span className="text-sm font-black text-emerald-700">{stat.aprovados}</span>
+                  <div 
+                    className="flex flex-col gap-1 cursor-pointer hover:bg-emerald-50/80 p-1 rounded transition-all group"
+                    title="Clique para filtrar apenas os Aprovados"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStatuses(['Aprovado']);
+                      document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                  >
+                    <span className="text-[9px] font-black uppercase text-emerald-600/70 tracking-widest group-hover:text-emerald-700">Aprovados</span>
+                    <span className="text-sm font-black text-emerald-700 group-hover:underline">{stat.aprovados}</span>
                   </div>
-                  <div className="flex flex-col gap-1 border-l border-slate-100/50 pl-2">
-                    <span className="text-[9px] font-black uppercase text-rose-500 tracking-widest">Recusados</span>
-                    <span className="text-sm font-black text-rose-600">{stat.recusados}</span>
+                  <div 
+                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-2 cursor-pointer hover:bg-rose-50/80 p-1 rounded transition-all group"
+                    title="Clique para filtrar apenas os Recusados"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStatuses(['Recusado']);
+                      document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                  >
+                    <span className="text-[9px] font-black uppercase text-rose-500 tracking-widest group-hover:text-rose-600">Recusados</span>
+                    <span className="text-sm font-black text-rose-600 group-hover:underline">{stat.recusados}</span>
                   </div>
-                  <div className="flex flex-col gap-1 border-l border-slate-100/50 pl-2">
-                    <span className="text-[9px] font-black uppercase text-indigo-600 tracking-widest">Formalizados</span>
-                    <span className="text-sm font-black text-indigo-700">{stat.formalizado}</span>
+                  <div 
+                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-2 cursor-pointer hover:bg-indigo-50/80 p-1 rounded transition-all group"
+                    title="Clique para filtrar apenas os Formalizados"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStatuses(['Formalizado']);
+                      document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                  >
+                    <span className="text-[9px] font-black uppercase text-indigo-600 tracking-widest group-hover:text-indigo-700">Formalizados</span>
+                    <span className="text-sm font-black text-indigo-700 group-hover:underline">{stat.formalizado}</span>
                   </div>
                 </div>
               </KPISquare>
@@ -993,15 +1197,38 @@ export function CreditCampaignDetailView({
                     return l.hasInteracted;
                   }
                   if (status === 'Entregue') {
-                    return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(l.status) || 
+                    return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(l.status) || 
                            ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(l.deliveryStatus);
                   }
                   if (status === 'Lida') {
-                    return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado'].includes(l.status) || 
+                    return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(l.status) || 
                            ['read', 'lida'].includes(l.deliveryStatus);
                   }
                   if (status === 'Não Entregue') {
                     return l.status === 'Não Entregue' || ['failed', 'erro', 'not_delivered', 'rejected', 'rejeitada'].includes(l.deliveryStatus);
+                  }
+                  if (status === 'Aprovado') {
+                    return Boolean(
+                      l.stages?.isAprovado || 
+                      l.status === 'Aprovado' || 
+                      ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(String(l.fiservStatus || '').toLowerCase())
+                    );
+                  }
+                  if (status === 'Opt-in') {
+                    return Boolean(l.stages?.hasOptIn || l.status === 'Opt-in' || l.optIn);
+                  }
+                  if (status === 'Recusado') {
+                    return Boolean(
+                      l.stages?.isRecusado || 
+                      l.status === 'Recusado' || 
+                      ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(String(l.fiservStatus || '').toLowerCase())
+                    );
+                  }
+                  if (status === 'Formalizado') {
+                    return Boolean(l.stages?.isFormalizacaoFormalizado || l.status === 'Formalizado');
+                  }
+                  if (status === 'Em Atendimento') {
+                    return Boolean(l.stages?.isFormalizacaoEmAtendimento || l.status === 'Em Atendimento');
                   }
                   return l.status === status;
                 }).length;
@@ -1103,7 +1330,7 @@ export function CreditCampaignDetailView({
                       <p className="text-sm font-bold text-slate-900">{lead.name}</p>
                     </td>
                     <td className="px-8 py-5 text-center">
-                      {renderStatusBadge(lead.status)}
+                      {renderStatusBadge(lead.status, lead)}
                     </td>
                     <td className="px-8 py-5 last:pr-10 text-right">
                       <Button

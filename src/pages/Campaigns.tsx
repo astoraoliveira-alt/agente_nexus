@@ -61,7 +61,6 @@ import {
     LayoutGrid,
     MessageSquareText,
     Smartphone,
-    Target,
     Sparkles,
     CheckCircle2,
     Loader2,
@@ -300,6 +299,7 @@ export default function Campaigns() {
         templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
         zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
         zenviaCtaLink: "",
+        campaignType: "standard" as "standard" | "pre_approved",
         successCriteria: ['LINK_SENT'] as string[],
         successLinkFilter: "fiservcapital",
         reengagementEnabled: false,
@@ -569,10 +569,12 @@ export default function Campaigns() {
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
                 initialMessage: normalizeMessagingText(newCampaign.initialMessage),
+                campaignType: newCampaign.campaignType,
                 metadata: {
                     template_id: newCampaign.templateId || undefined,
                     zenvia_image_url: newCampaign.zenviaImageUrl || undefined,
-                    zenvia_cta_link: newCampaign.zenviaCtaLink || undefined
+                    zenvia_cta_link: newCampaign.zenviaCtaLink || undefined,
+                    campaign_type: newCampaign.campaignType
                 },
                 dailyLimit: newCampaign.dailyLimit,
                 successCriteria: newCampaign.successCriteria,
@@ -625,6 +627,7 @@ export default function Campaigns() {
                 templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
                 zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
                 zenviaCtaLink: "",
+                campaignType: "standard",
                 successCriteria: ['LINK_SENT'],
                 successLinkFilter: "fiservcapital",
                 reengagementEnabled: false,
@@ -793,6 +796,7 @@ export default function Campaigns() {
         }
 
         try {
+            const isPreApproved = campaign.campaignType === 'pre_approved' || campaign.metadata?.campaign_type === 'pre_approved';
             const validContactsMap: Record<string, any> = {};
             const validLeadsByIdentifier: Record<string, any> = {};
 
@@ -812,11 +816,18 @@ export default function Campaigns() {
                     phone = '55' + phone;
                 }
 
+                const rawAmount = (item as any).requestedAmount ?? (item as any).rawData?.requestedAmount ?? (item as any).rawData?.limite ?? (item as any).rawData?.valor ?? 50000;
+                const rawRevenue = (item as any).revenue ?? (item as any).rawData?.revenue ?? (item as any).rawData?.faturamento ?? 80000;
+                const parsedAmount = typeof rawAmount === 'number' ? rawAmount : (parseFloat(String(rawAmount).replace(/\./g, '').replace(',', '.')) || 50000);
+                const parsedRevenue = typeof rawRevenue === 'number' ? rawRevenue : (parseFloat(String(rawRevenue).replace(/\./g, '').replace(',', '.')) || 80000);
+
                 validContactsMap[phone] = {
                     ...item,
                     phone,
                     identifier: cleanIdentifier,
-                    ctaLink: sanitizedLink
+                    ctaLink: sanitizedLink,
+                    parsedAmount,
+                    parsedRevenue
                 };
 
                 validLeadsByIdentifier[cleanIdentifier] = {
@@ -835,7 +846,16 @@ export default function Campaigns() {
                         razao_social: item.name,
                         cta_link: sanitizedLink || null,
                         audit_category: item.category,
-                        audit_reason: item.reason
+                        audit_reason: item.reason,
+                        ...(isPreApproved ? {
+                            journey_type: 'pre_approved',
+                            opt_in: true,
+                            opt_in_completed_at: new Date().toISOString(),
+                            identity_confirmed: true,
+                            fiserv_status: 'approved',
+                            requested_amount: parsedAmount,
+                            revenue: parsedRevenue,
+                        } : {})
                     }
                 };
             });
@@ -860,7 +880,15 @@ export default function Campaigns() {
                         template_id: campaign.metadata?.template_id || null,
                         zenvia_image_url: campaign.metadata?.zenvia_image_url || null,
                         audit_category: item.category,
-                        audit_reason: item.reason
+                        audit_reason: item.reason,
+                        ...(isPreApproved ? {
+                            journey_type: 'pre_approved',
+                            opt_in: true,
+                            identity_confirmed: true,
+                            fiserv_status: 'approved',
+                            requested_amount: item.parsedAmount,
+                            revenue: item.parsedRevenue
+                        } : {})
                     }
                 };
             });
@@ -956,6 +984,7 @@ export default function Campaigns() {
         };
 
         try {
+            const isPreApproved = campaign.campaignType === 'pre_approved' || campaign.metadata?.campaign_type === 'pre_approved';
             const importLogs: any[] = [];
             const validContactsMap: Record<string, any> = {};
             const validLeadsByIdentifier: Record<string, any> = {};
@@ -1039,11 +1068,18 @@ export default function Campaigns() {
                     return;
                 }
 
+                const rawAmount = (item as any).requestedAmount ?? (item as any).rawData?.requestedAmount ?? (item as any).rawData?.limite ?? (item as any).rawData?.valor ?? 50000;
+                const rawRevenue = (item as any).revenue ?? (item as any).rawData?.revenue ?? (item as any).rawData?.faturamento ?? 80000;
+                const parsedAmount = typeof rawAmount === 'number' ? rawAmount : (parseFloat(String(rawAmount).replace(/\./g, '').replace(',', '.')) || 50000);
+                const parsedRevenue = typeof rawRevenue === 'number' ? rawRevenue : (parseFloat(String(rawRevenue).replace(/\./g, '').replace(',', '.')) || 80000);
+
                 validContactsMap[phone] = {
                     ...item,
                     phone,
                     identifier: cleanIdentifier,
-                    ctaLink: sanitizedLink
+                    ctaLink: sanitizedLink,
+                    parsedAmount,
+                    parsedRevenue
                 };
 
                 validLeadsByIdentifier[cleanIdentifier] = {
@@ -1061,6 +1097,15 @@ export default function Campaigns() {
                         cnpj: cleanIdentifier,
                         razao_social: item.name,
                         cta_link: sanitizedLink || null,
+                        ...(isPreApproved ? {
+                            journey_type: 'pre_approved',
+                            opt_in: true,
+                            opt_in_completed_at: new Date().toISOString(),
+                            identity_confirmed: true,
+                            fiserv_status: 'approved',
+                            requested_amount: parsedAmount,
+                            revenue: parsedRevenue,
+                        } : {})
                     }
                 };
             });
@@ -1084,6 +1129,14 @@ export default function Campaigns() {
                         cta_link: item.ctaLink || campaign.metadata?.zenvia_cta_link || null,
                         template_id: campaign.metadata?.template_id || null,
                         zenvia_image_url: campaign.metadata?.zenvia_image_url || null,
+                        ...(isPreApproved ? {
+                            journey_type: 'pre_approved',
+                            opt_in: true,
+                            identity_confirmed: true,
+                            fiserv_status: 'approved',
+                            requested_amount: item.parsedAmount,
+                            revenue: item.parsedRevenue
+                        } : {})
                     }
                 };
             });
@@ -1356,6 +1409,7 @@ export default function Campaigns() {
             templateId: campaign.metadata?.template_id || "",
             zenviaImageUrl: campaign.metadata?.zenvia_image_url || "",
             zenviaCtaLink: campaign.metadata?.zenvia_cta_link || "",
+            campaignType: (campaign.campaignType || campaign.metadata?.campaign_type || "standard") as "standard" | "pre_approved",
             successCriteria: campaign.successCriteria || ['LINK_SENT'],
             successLinkFilter: campaign.successLinkFilter || "fiservcapital",
             reengagementEnabled: campaign.reengagementEnabled || false,
@@ -1573,13 +1627,6 @@ export default function Campaigns() {
                                                     <Smartphone className="w-4 h-4 transition-colors group-data-[state=active]:text-blue-500" />
                                                     WhatsApp
                                                 </TabsTrigger>
-                                                <TabsTrigger 
-                                                    value="metas" 
-                                                    className="flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider text-slate-400 data-[state=active]:bg-white data-[state=active]:text-orange-600 data-[state=active]:shadow-sm rounded-lg transition-all group"
-                                                >
-                                                    <Target className="w-4 h-4 transition-colors group-data-[state=active]:text-orange-500" />
-                                                    Metas
-                                                </TabsTrigger>
                                             </TabsList>
                                         </div>
 
@@ -1615,6 +1662,31 @@ export default function Campaigns() {
                                                                             </div>
                                                                         </SelectItem>
                                                                     ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="campaignType" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Modalidade da Campanha</Label>
+                                                            <Select
+                                                                value={newCampaign.campaignType}
+                                                                onValueChange={(val: "standard" | "pre_approved") => setNewCampaign({ ...newCampaign, campaignType: val })}
+                                                            >
+                                                                <SelectTrigger id="campaignType" className="h-10 border-slate-200 focus:ring-accent/10 focus:border-accent transition-all rounded-none">
+                                                                    <SelectValue placeholder="Selecione a modalidade" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="standard">
+                                                                        <div className="flex flex-col text-left">
+                                                                            <span className="font-medium text-xs">Jornada Padrão WhatsApp</span>
+                                                                            <span className="text-[10px] text-muted-foreground">Inicia com confirmação de CNPJ, faturamento e opt-in</span>
+                                                                        </div>
+                                                                    </SelectItem>
+                                                                    <SelectItem value="pre_approved">
+                                                                        <div className="flex flex-col text-left">
+                                                                            <span className="font-medium text-xs text-emerald-700">Retomada Pré-Aprovada (Crédito Externo)</span>
+                                                                            <span className="text-[10px] text-muted-foreground">Opt-in já realizado; pula verificação cadastral direto para simulação</span>
+                                                                        </div>
+                                                                    </SelectItem>
                                                                 </SelectContent>
                                                             </Select>
                                                         </div>
@@ -2096,68 +2168,6 @@ export default function Campaigns() {
                                                     </div>
                                                 </div>
                                             </TabsContent>
-
-                                            <TabsContent value="metas" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2">
-                                                <div className="grid grid-cols-1 gap-6">
-                                                    <div className="bg-emerald-50 border border-emerald-100 p-6 space-y-6">
-                                                        <div className="space-y-1">
-                                                            <h4 className="text-sm font-bold text-emerald-700">Gatilhos de Sucesso</h4>
-                                                            <p className="text-xs text-emerald-600/70">Defina o que caracteriza uma conversão nesta campanha.</p>
-                                                        </div>
-                                                        
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {[
-                                                                { id: 'CLIENT_RESPONDED', label: 'Lead Respondeu', desc: 'Qualquer resposta encerra o ciclo' },
-                                                                { id: 'LINK_SENT', label: 'Clicou no Link', desc: 'Identificado pelo termo do link' },
-                                                                { id: 'APPOINTMENT', label: 'Agendamento Realizado', desc: 'Marcação confirmada no CRM' },
-                                                                { id: 'SALE', label: 'Venda Concluída', desc: 'Conversão final em faturamento' }
-                                                            ].map(opt => (
-                                                                <div 
-                                                                    key={opt.id}
-                                                                    onClick={() => {
-                                                                        const current = [...newCampaign.successCriteria];
-                                                                        if (current.includes(opt.id)) {
-                                                                            setNewCampaign({ ...newCampaign, successCriteria: current.filter(id => id !== opt.id) });
-                                                                        } else {
-                                                                            setNewCampaign({ ...newCampaign, successCriteria: [...current, opt.id] });
-                                                                        }
-                                                                    }}
-                                                                    className={cn(
-                                                                        "flex-1 min-w-[200px] p-4 border transition-all cursor-pointer group",
-                                                                        newCampaign.successCriteria.includes(opt.id) 
-                                                                            ? "bg-emerald-600 border-emerald-600 text-white" 
-                                                                            : "bg-white border-emerald-100 text-slate-600 hover:border-emerald-300"
-                                                                    )}
-                                                                >
-                                                                    <div className="flex items-center justify-between mb-1">
-                                                                        <span className="text-[11px] font-bold uppercase tracking-wider">{opt.label}</span>
-                                                                        <div className={cn("w-2 h-2 rounded-full", newCampaign.successCriteria.includes(opt.id) ? "bg-white animate-pulse" : "bg-emerald-100")} />
-                                                                    </div>
-                                                                    <p className={cn("text-[10px] leading-tight", newCampaign.successCriteria.includes(opt.id) ? "text-emerald-50" : "text-slate-400")}>
-                                                                        {opt.desc}
-                                                                    </p>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-
-                                                        {newCampaign.successCriteria.includes('LINK_SENT') && (
-                                                            <div className="p-4 bg-white border border-emerald-200 space-y-3 animate-in slide-in-from-top-2">
-                                                                <Label htmlFor="linkFilter" className="text-[11px] font-bold uppercase text-emerald-700">Termo de Identificação do Link</Label>
-                                                                <Input
-                                                                    id="linkFilter"
-                                                                    placeholder="Ex: fiservcapital, proposta, checkout"
-                                                                    className="h-10 border-emerald-100 focus:ring-emerald-500 rounded-none font-mono text-sm"
-                                                                    value={newCampaign.successLinkFilter}
-                                                                    onChange={(e) => setNewCampaign({ ...newCampaign, successLinkFilter: e.target.value })}
-                                                                />
-                                                                <p className="text-[10px] text-emerald-600/60 italic">
-                                                                    O sistema contará conversão sempre que um link enviado contiver este termo.
-                                                                </p>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </TabsContent>
                                         </div>
                                     </Tabs>
 
@@ -2386,7 +2396,14 @@ export default function Campaigns() {
                                                 <TableRow key={campaign.id} className="hover:bg-accent/5">
                                                     <TableCell className="px-3 py-4">
                                                         <div className="flex flex-col">
-                                                            <span className="font-bold leading-tight break-words">{campaign.name}</span>
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="font-bold leading-tight break-words">{campaign.name}</span>
+                                                                {(campaign.campaignType === 'pre_approved' || campaign.metadata?.campaign_type === 'pre_approved') && (
+                                                                    <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-500/20 text-[9px] px-1.5 py-0 font-medium">
+                                                                        Pré-Aprovado
+                                                                    </Badge>
+                                                                )}
+                                                            </div>
                                                             <span className="text-[10px] text-muted-foreground uppercase flex items-center gap-1">
                                                                 <Bot className="h-3 w-3" />
                                                                 {agents.find(a => a.id === campaign.agentId)?.name || 'Agente'}

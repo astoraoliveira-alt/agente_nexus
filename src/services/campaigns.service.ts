@@ -525,6 +525,7 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             initialMessage: c.initial_message,
             successCriteria: c.success_criteria,
             successLinkFilter: c.success_link_filter,
+            campaignType: (c.metadata?.campaign_type as any) || 'standard',
             metadata: c.metadata,
             reengagementEnabled: c.reengagement_enabled,
             reengagementWaitHours: c.reengagement_wait_hours,
@@ -576,6 +577,7 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             initialMessage: c.initial_message,
             successCriteria: c.success_criteria,
             successLinkFilter: c.success_link_filter,
+            campaignType: (c.metadata?.campaign_type as any) || 'standard',
             metadata: c.metadata,
             reengagementEnabled: c.reengagement_enabled,
             reengagementWaitHours: c.reengagement_wait_hours,
@@ -602,7 +604,10 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             initial_message: campaign.initialMessage,
             success_criteria: campaign.successCriteria || [],
             success_link_filter: campaign.successLinkFilter,
-            metadata: campaign.metadata || {},
+            metadata: {
+                ...(campaign.metadata || {}),
+                ...(campaign.campaignType ? { campaign_type: campaign.campaignType } : {})
+            },
             reengagement_enabled: campaign.reengagementEnabled || false,
             reengagement_wait_hours: campaign.reengagementWaitHours || 24,
             reengagement_max_attempts: campaign.reengagementMaxAttempts || 1,
@@ -635,6 +640,7 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             conversionCount: data.conversion_count || 0,
             successCriteria: data.success_criteria,
             successLinkFilter: data.success_link_filter,
+            campaignType: (data.metadata?.campaign_type as any) || campaign.campaignType || 'standard',
             reengagementEnabled: data.reengagement_enabled,
             reengagementWaitHours: data.reengagement_wait_hours,
             reengagementMaxAttempts: data.reengagement_max_attempts,
@@ -658,7 +664,13 @@ async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign
         if (updates.initialMessage) dbPayload.initial_message = updates.initialMessage;
         if (updates.successCriteria) dbPayload.success_criteria = updates.successCriteria;
         if (updates.successLinkFilter !== undefined) dbPayload.success_link_filter = updates.successLinkFilter;
-        if (updates.metadata) dbPayload.metadata = updates.metadata;
+        if (updates.metadata || updates.campaignType) {
+            const meta = { ...(updates.metadata || {}) };
+            if (updates.campaignType) {
+                meta.campaign_type = updates.campaignType;
+            }
+            dbPayload.metadata = meta;
+        }
         if (updates.reengagementEnabled !== undefined) dbPayload.reengagement_enabled = updates.reengagementEnabled;
         if (updates.reengagementWaitHours !== undefined) dbPayload.reengagement_wait_hours = updates.reengagementWaitHours;
         if (updates.reengagementMaxAttempts !== undefined) dbPayload.reengagement_max_attempts = updates.reengagementMaxAttempts;
@@ -962,10 +974,18 @@ async deleteCampaign(id: string): Promise<void> {
                 }
             });
 
-            // 3. Buscar leads da campanha em agent_leads para mapear status de crédito e opt-in
-            const creditApprovedSet = new Set<string>();
-            const creditDeclinedMap = new Map<string, { daysAgo: number; reason: string }>();
-            const optInSet = new Set<string>();
+            // 3. Buscar leads da campanha em agent_leads para mapear status de crédito e etapas do funil
+            const leadsClassificationMap = new Map<string, {
+                isApproved: boolean;
+                isDeclined: boolean;
+                isOptIn: boolean;
+                inFormalization: boolean;
+                isBlocked: boolean;
+                hasValorInicial: boolean;
+                hasFaturamento: boolean;
+                hasConfirmed: boolean;
+                declinedInfo?: { daysAgo: number; reason: string };
+            }>();
 
             try {
                 const { data: campaignLeads, error: leadErr } = await supabase
@@ -977,39 +997,78 @@ async deleteCampaign(id: string): Promise<void> {
                 if (!leadErr && campaignLeads) {
                     campaignLeads.forEach((lead: any) => {
                         const meta = lead.metadata || {};
-                        const fiservStatus = String(meta.fiserv_status || '').toLowerCase().trim();
+                        const fiservStatus = String(meta.fiserv_status || lead.status || '').toLowerCase().trim();
                         const statusStr = String(lead.status || '').toLowerCase().trim();
+                        const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
+                        const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
+
+                        const isApproved =
+                            ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
+                            ['approved', 'aprovado'].includes(statusStr) ||
+                            meta.fiserv_is_approved === true ||
+                            ['pré-aprovado', 'pre-aprovado', 'aprovado'].includes(String(meta.fiserv_external_status || '').toLowerCase());
+
+                        const isDeclined =
+                            ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                            ['denied', 'recusado', 'reprovado'].includes(statusStr) ||
+                            String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
+                            String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado');
 
                         const isOptIn =
                             meta.opt_in === true ||
                             meta.optin === true ||
                             meta.consent?.opt_in === true ||
                             meta.fiserv_requested_at != null ||
-                            meta.loan_request_id != null;
+                            meta.loan_request_id != null ||
+                            isApproved ||
+                            isDeclined;
 
-                        const isApproved =
-                            ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
-                            ['approved', 'aprovado'].includes(statusStr);
+                        const inFormalization =
+                            ['formalized', 'formalizado', 'won', 'concluido', 'in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus) ||
+                            ['contract_signed', 'in_contact', 'proposal_sent'].includes(pipeStage) ||
+                            meta.formalized_at != null ||
+                            meta.ok_agente === true ||
+                            meta.ok_agente === 'true' ||
+                            meta.simulation_accepted === true ||
+                            meta.simulation_accepted === 'true' ||
+                            ['lost', 'cancelled', 'declined', 'desistente', 'recusado'].includes(formalStatus);
 
-                        const isDeclined =
-                            ['denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservStatus) ||
-                            ['denied', 'recusado', 'reprovado'].includes(statusStr);
+                        const isBlocked = isApproved || isDeclined || isOptIn || inFormalization;
 
-                        const variants = this.getPhoneVariants(lead.whatsapp);
-                        const idf = lead.identifier ? String(lead.identifier).replace(/\D/g, '') : '';
-                        const metaCnpj = meta.cnpj ? String(meta.cnpj).replace(/\D/g, '') : '';
+                        const rawAmount = meta.requested_amount || meta.valor_inicial || meta.simulation_data?.amount || meta.fiserv_amount_approved;
+                        const numAmount = rawAmount ? Number(String(rawAmount).replace(/[^0-9.]/g, '')) : 0;
+                        const hasValidAmount = numAmount >= 10000 && numAmount <= 500000;
 
-                        if (isOptIn) {
-                            variants.forEach(v => optInSet.add(v));
-                            if (idf) optInSet.add(idf);
-                            if (metaCnpj) optInSet.add(metaCnpj);
-                        }
+                        const hasValorInicial = Boolean(
+                            !isBlocked && (
+                                ((meta.revenue || meta.faturamento) && hasValidAmount) ||
+                                meta.requested_amount ||
+                                meta.valor_inicial ||
+                                meta.simulation_data?.amount ||
+                                meta.fiserv_amount_approved
+                            )
+                        );
 
-                        if (isApproved) {
-                            variants.forEach(v => creditApprovedSet.add(v));
-                            if (idf) creditApprovedSet.add(idf);
-                            if (metaCnpj) creditApprovedSet.add(metaCnpj);
-                        } else if (isDeclined) {
+                        const hasFaturamento = Boolean(
+                            !isBlocked && (
+                                hasValorInicial ||
+                                meta.revenue ||
+                                meta.faturamento
+                            )
+                        );
+
+                        const hasConfirmed = Boolean(
+                            !isBlocked && (
+                                hasFaturamento ||
+                                meta.identity_confirmed === true ||
+                                meta.identity_confirmed === 'true' ||
+                                meta.cnpj_confirmed === true ||
+                                meta.cnpj_confirmed === 'true'
+                            )
+                        );
+
+                        let declinedInfo: { daysAgo: number; reason: string } | undefined;
+                        if (isDeclined) {
                             const deniedDateRaw =
                                 meta.fiserv_last_audit_at ||
                                 meta.lost_at ||
@@ -1022,15 +1081,31 @@ async deleteCampaign(id: string): Promise<void> {
                                 ? Math.floor(Math.abs(Date.now() - deniedDate.getTime()) / (1000 * 60 * 60 * 24))
                                 : 0;
 
-                            const refInfo = {
+                            declinedInfo = {
                                 daysAgo,
                                 reason: meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason || 'Proposta recusada em análise de crédito'
                             };
-
-                            variants.forEach(v => creditDeclinedMap.set(v, refInfo));
-                            if (idf) creditDeclinedMap.set(idf, refInfo);
-                            if (metaCnpj) creditDeclinedMap.set(metaCnpj, refInfo);
                         }
+
+                        const leadInfo = {
+                            isApproved,
+                            isDeclined,
+                            isOptIn,
+                            inFormalization,
+                            isBlocked,
+                            hasValorInicial,
+                            hasFaturamento,
+                            hasConfirmed,
+                            declinedInfo
+                        };
+
+                        const variants = this.getPhoneVariants(lead.whatsapp);
+                        const idf = lead.identifier ? String(lead.identifier).replace(/\D/g, '') : '';
+                        const metaCnpj = meta.cnpj ? String(meta.cnpj).replace(/\D/g, '') : '';
+
+                        variants.forEach(v => leadsClassificationMap.set(v, leadInfo));
+                        if (idf) leadsClassificationMap.set(idf, leadInfo);
+                        if (metaCnpj) leadsClassificationMap.set(metaCnpj, leadInfo);
                     });
                 }
             } catch (err) {
@@ -1047,7 +1122,19 @@ async deleteCampaign(id: string): Promise<void> {
             let totalOptIn = 0;
             let totalRecusados60d = 0;
             let totalAprovados = 0;
+            let totalFormalizacao = 0;
+            let totalNaoEnviados = 0;
             let totalBusy = 0;
+
+            const stagesCount: Record<import('@/lib/types').ReengagementStageId, number> = {
+                nao_entregue: 0,
+                nao_leu: 0,
+                leu: 0,
+                interagiu: 0,
+                confirmou: 0,
+                faturamento: 0,
+                valor: 0
+            };
 
             contactsMap.forEach((entry, cleanPhone) => {
                 const row = entry.primaryRow;
@@ -1055,6 +1142,7 @@ async deleteCampaign(id: string): Promise<void> {
                 const idf = meta.identifier || meta.cnpj || meta.cpf;
                 const cleanId = idf ? String(idf).replace(/\D/g, '') : '';
 
+                let isSent = false;
                 let delivered = false;
                 let read = false;
                 let replied = false;
@@ -1062,16 +1150,25 @@ async deleteCampaign(id: string): Promise<void> {
 
                 entry.allRows.forEach(r => {
                     const st = String(r.status || '').toLowerCase().trim();
+                    if (!['queued', 'pending', 'scheduled', 'draft'].includes(st) || r.sent_at != null || r.response_detected) {
+                        isSent = true;
+                    }
                     // Alinhado 100% com a RPC get_credit_campaign_funnel_stats:
-                    // 'sent', 'delivered', 'read', 'respondida', 'interagiu' contam como entregues no celular
-                    if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || !!r.response_detected) {
+                    if (['sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu'].includes(st) || 
+                        r.response_detected || 
+                        st === 'converted' || 
+                        r.metadata?.converted === 'true') {
                         delivered = true;
                     }
-                    if (['read', 'respondida', 'interagiu'].includes(st)) {
+                    if (['read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu'].includes(st) || 
+                        r.response_detected || 
+                        st === 'converted' || 
+                        r.metadata?.converted === 'true') {
                         delivered = true;
                         read = true;
                     }
-                    if (r.response_detected || ['respondida', 'interagiu'].includes(st)) {
+                    const isAutoReply = r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true;
+                    if ((r.response_detected || ['respondida', 'interagiu'].includes(st) || (r.metadata?.responded === 'true')) && !isAutoReply) {
                         replied = true;
                     }
                     if (['failed', 'undelivered', 'error', 'not_delivered', 'rejected'].includes(st)) {
@@ -1080,9 +1177,13 @@ async deleteCampaign(id: string): Promise<void> {
                 });
 
                 const variants = this.getPhoneVariants(row.contact_phone);
-                const isOptIn = variants.some(v => optInSet.has(v)) || (cleanId ? optInSet.has(cleanId) : false);
-                const isApproved = variants.some(v => creditApprovedSet.has(v)) || (cleanId ? creditApprovedSet.has(cleanId) : false);
-                const declinedInfo = variants.map(v => creditDeclinedMap.get(v)).find(Boolean) || (cleanId ? creditDeclinedMap.get(cleanId) : undefined);
+                const leadInfo = variants.map(v => leadsClassificationMap.get(v)).find(Boolean) || (cleanId ? leadsClassificationMap.get(cleanId) : undefined);
+
+                const isApproved = leadInfo?.isApproved || false;
+                const isDeclined = leadInfo?.isDeclined || false;
+                const isOptIn = leadInfo?.isOptIn || false;
+                const inFormalization = leadInfo?.inFormalization || false;
+                const declinedInfo = leadInfo?.declinedInfo;
                 const isDeclined60d = !!declinedInfo;
 
                 if (delivered) totalEntregues++;
@@ -1092,36 +1193,117 @@ async deleteCampaign(id: string): Promise<void> {
                 if (isOptIn) totalOptIn++;
                 if (isDeclined60d) totalRecusados60d++;
                 if (isApproved) totalAprovados++;
+                if (inFormalization) totalFormalizacao++;
+                if (!isSent) totalNaoEnviados++;
                 if (entry.isBusy) totalBusy++;
 
-                contacts.push({
-                    id: row.id,
-                    contact_name: row.contact_name || 'Contato sem nome',
-                    contact_phone: row.contact_phone,
-                    clean_phone: cleanPhone,
-                    identifier: idf,
-                    original_status: row.status,
-                    delivered,
-                    read,
-                    replied,
-                    failed,
-                    opt_in: isOptIn,
-                    credit_status: isApproved ? 'approved' : isDeclined60d ? 'declined_60d' : 'none',
-                    credit_declined_reason: declinedInfo?.reason,
-                    credit_declined_days_ago: declinedInfo?.daysAgo,
-                    credit_declined_60d: isDeclined60d,
-                    credit_approved: isApproved,
-                    is_busy: entry.isBusy,
-                    reengagement_count: entry.reengagementCount,
-                    last_scheduled_at: row.scheduled_at,
-                    metadata: meta
-                });
+                // Classificação rigorosa de exclusão de bloqueados
+                const isBlocked = isApproved || isDeclined || isOptIn || inFormalization || !isSent;
+
+                let blockedReason = '';
+                if (isApproved) blockedReason = 'Cliente com proposta aprovada/formalizada';
+                else if (isDeclined) blockedReason = 'Cliente com proposta recusada';
+                else if (isOptIn) blockedReason = 'Cliente já realizou opt-in';
+                else if (inFormalization) blockedReason = 'Cliente em formalização de crédito';
+                else if (!isSent) blockedReason = 'Contato carregado mas não disparado';
+
+                // Determinar a etapa exclusiva onde o lead parou
+                let stoppedStage: import('@/lib/types').ReengagementStageId = 'nao_entregue';
+                if (leadInfo?.hasValorInicial) {
+                    stoppedStage = 'valor';
+                } else if (leadInfo?.hasFaturamento) {
+                    stoppedStage = 'faturamento';
+                } else if (leadInfo?.hasConfirmed) {
+                    stoppedStage = 'confirmou';
+                } else if (replied) {
+                    stoppedStage = 'interagiu';
+                } else if (read) {
+                    stoppedStage = 'leu';
+                } else if (delivered) {
+                    stoppedStage = 'nao_leu';
+                } else {
+                    stoppedStage = 'nao_entregue';
+                }
+
+                if (!isBlocked) {
+                    stagesCount[stoppedStage] = (stagesCount[stoppedStage] || 0) + 1;
+
+                    contacts.push({
+                        id: row.id,
+                        contact_name: row.contact_name || 'Contato sem nome',
+                        contact_phone: row.contact_phone,
+                        clean_phone: cleanPhone,
+                        identifier: idf,
+                        original_status: row.status,
+                        delivered,
+                        read,
+                        replied,
+                        failed,
+                        opt_in: isOptIn,
+                        credit_status: isApproved ? 'approved' : isDeclined60d ? 'declined_60d' : 'none',
+                        credit_declined_reason: declinedInfo?.reason,
+                        credit_declined_days_ago: declinedInfo?.daysAgo,
+                        credit_declined_60d: isDeclined60d,
+                        credit_approved: isApproved,
+                        is_busy: entry.isBusy,
+                        reengagement_count: entry.reengagementCount,
+                        last_scheduled_at: row.scheduled_at,
+                        metadata: meta,
+                        stopped_stage: stoppedStage,
+                        is_blocked: false
+                    });
+                }
             });
+
+            // Se temos campStat da RPC oficial, usamos para cálculo consistente dos números do funil
+            let officialStages = stagesCount;
+            let totalReengajavel = contacts.length;
+            let totalBloqueados = totalAprovados + totalRecusados60d + totalFormalizacao + totalNaoEnviados;
+            let bloqueadosBreakdown = {
+                aprovados: totalAprovados,
+                recusados: totalRecusados60d,
+                formalizacao: totalFormalizacao,
+                naoEnviados: totalNaoEnviados
+            };
+
+            if (campStat) {
+                const sEnviados = Number(campStat.enviados || 0);
+                const sEntregues = Number(campStat.entregues || 0);
+                const sLidas = Number(campStat.lidas || 0);
+                const sInteragiram = Number(campStat.interagiram || 0);
+                const sConfirmaram = Number(campStat.confirmaram || 0);
+                const sFaturamento = Number(campStat.faturamento || 0);
+                const sValor = Number(campStat.valorInicial || 0);
+                const sOptIn = Number(campStat.optIn || campStat.opt_in || 0);
+                const sAprovados = Number(campStat.aprovados || 0);
+                const sRecusados = Number(campStat.recusados || 0);
+                const sFormalizados = Number(campStat.formalizado || 0) + Number(campStat.emAtendimento || 0) + Number(campStat.aguarContato || 0) + Number(campStat.desistencia || 0);
+                const sNaoEnviados = Math.max(0, Number(campStat.carregados || 0) - sEnviados);
+
+                officialStages = {
+                    nao_entregue: Math.max(0, sEnviados - sEntregues),
+                    nao_leu: Math.max(0, sEntregues - sLidas),
+                    leu: Math.max(0, sLidas - sInteragiram),
+                    interagiu: Math.max(0, sInteragiram - sConfirmaram),
+                    confirmou: Math.max(0, sConfirmaram - sFaturamento),
+                    faturamento: Math.max(0, sFaturamento - sValor),
+                    valor: Math.max(0, sValor - sOptIn)
+                };
+
+                totalReengajavel = Object.values(officialStages).reduce((a, b) => a + b, 0);
+                totalBloqueados = sAprovados + sRecusados + sFormalizados + sNaoEnviados;
+                bloqueadosBreakdown = {
+                    aprovados: sAprovados,
+                    recusados: sRecusados,
+                    formalizacao: sFormalizados,
+                    naoEnviados: sNaoEnviados
+                };
+            }
 
             return {
                 contacts,
                 summary: {
-                    totalCarregados: campStat ? Number(campStat.carregados) : contacts.length,
+                    totalCarregados: campStat ? Number(campStat.carregados) : (contacts.length + totalBloqueados),
                     entregues: campStat ? Number(campStat.entregues) : totalEntregues,
                     lidos: campStat ? Number(campStat.lidas) : totalLidos,
                     interagiram: campStat ? Number(campStat.interagiram) : totalInteragiram,
@@ -1129,7 +1311,11 @@ async deleteCampaign(id: string): Promise<void> {
                     optIn: campStat ? Number(campStat.optIn || campStat.opt_in || 0) : totalOptIn,
                     recusadosCredito60d: campStat ? Number(campStat.recusados) : totalRecusados60d,
                     aprovadosCredito: campStat ? Number(campStat.aprovados) : totalAprovados,
-                    emAndamentoFila: totalBusy
+                    emAndamentoFila: totalBusy,
+                    stages: officialStages,
+                    totalReengajavel,
+                    totalBloqueados,
+                    bloqueadosBreakdown
                 }
             };
         } catch (err) {
@@ -1161,6 +1347,7 @@ async deleteCampaign(id: string): Promise<void> {
             metadata?: any;
         }[];
         targetOptions?: string[];
+        templateId?: string;
     }): Promise<{
         success: boolean;
         insertedCount: number;
@@ -1228,6 +1415,7 @@ async deleteCampaign(id: string): Promise<void> {
                 idempotency_key: `${params.campaignId}:${c.contact_phone}:${batchId}`,
                 metadata: {
                     ...(c.metadata || {}),
+                    ...(params.templateId ? { template_id: params.templateId } : {}),
                     is_reengagement: true,
                     reengagement_batch_id: batchId,
                     reengagement_scheduled_at: scheduledAtIso,
@@ -1898,6 +2086,8 @@ async deleteCampaign(id: string): Promise<void> {
             const refusalByCnpj = cleanId ? refusalMap.get(cleanId) : undefined;
             const refusalByPhone = rawPh ? refusalMap.get(rawPh) : undefined;
             const refusal = refusalByCnpj || refusalByPhone;
+            const requestedAmount = (contact as any).requestedAmount || contact.rawData?.requestedAmount || null;
+            const revenue = (contact as any).revenue || contact.rawData?.revenue || null;
 
             if (refusal && refusal.daysAgo <= 60) {
                 return {
@@ -1911,6 +2101,8 @@ async deleteCampaign(id: string): Promise<void> {
                     selected: false, // Desmarcado por padrão
                     reason: `Recusado há ${refusal.daysAgo} dia(s) (${refusal.reason || 'Crédito negado'})`,
                     refusalDaysAgo: refusal.daysAgo,
+                    requestedAmount,
+                    revenue,
                     rawData: contact.rawData
                 };
             }
@@ -1932,6 +2124,8 @@ async deleteCampaign(id: string): Promise<void> {
                         ? `Mensagem não chegou ao aparelho: ${deliveryInfo.lastError}` 
                         : 'Tentativa anterior sem entrega no celular (Número com erro ou sem WhatsApp)',
                     refusalDaysAgo: null,
+                    requestedAmount,
+                    revenue,
                     rawData: contact.rawData
                 };
             }
@@ -1951,6 +2145,8 @@ async deleteCampaign(id: string): Promise<void> {
                     ? 'Contato já validado anteriormente com entrega confirmada' 
                     : 'Apto para envio',
                 refusalDaysAgo: null,
+                requestedAmount,
+                revenue,
                 rawData: contact.rawData
             };
         });

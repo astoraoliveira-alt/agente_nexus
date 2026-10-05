@@ -54,6 +54,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   const [isInitialized, setIsInitialized] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [isExportingLeads, setIsExportingLeads] = useState(false);
+  const [campaignTypes, setCampaignTypes] = useState<Record<string, string>>({});
 
   // 1. Carrega os agentes e auto-seleciona o Agente Novo por padrão para blindar os big numbers
   useEffect(() => {
@@ -126,13 +127,21 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
       const agentFilterParam = selectedAgentId && selectedAgentId !== 'all' ? selectedAgentId : undefined;
 
-      const stats = await api.getCreditCampaignFunnelStats(
-        currentTenant.id, 
-        undefined, 
-        startDate, 
-        agentFilterParam
-      );
+      const [stats, campaigns] = await Promise.all([
+        api.getCreditCampaignFunnelStats(
+          currentTenant.id, 
+          undefined, 
+          startDate, 
+          agentFilterParam
+        ),
+        api.getCampaigns(currentTenant.id)
+      ]);
 
+      const typeMap: Record<string, string> = {};
+      (campaigns || []).forEach(c => {
+        typeMap[c.id] = c.campaignType || c.metadata?.campaign_type || 'standard';
+      });
+      setCampaignTypes(typeMap);
       setFunnelData(stats || []);
     } catch (err) {
       console.error('Error loading credit funnel data:', err);
@@ -809,6 +818,11 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                             )} 
                           />
                           <span className="truncate">{row.campaignName}</span>
+                          {(campaignTypes[row.campaignId] === 'pre_approved' || (row as any).campaignType === 'pre_approved') && (
+                            <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-500/20 text-[9px] px-1.5 py-0 font-medium shrink-0">
+                              Pré-Aprovado
+                            </Badge>
+                          )}
                         </div>
                       </td>
                       <td className="px-2 py-3 text-center text-slate-500 text-[11px] border-r border-slate-200">

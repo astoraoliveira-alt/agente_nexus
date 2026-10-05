@@ -995,6 +995,7 @@ export interface Campaign {
   successCriteria?: string[];
   successLinkFilter?: string;
   metadata?: Record<string, any>;
+  campaignType?: 'standard' | 'pre_approved';
   reengagementEnabled?: boolean;
   reengagementWaitHours?: number;
   reengagementMaxAttempts?: number;
@@ -1030,6 +1031,8 @@ export interface AuditedLeadItem {
   selected: boolean;
   reason: string;
   refusalDaysAgo?: number | null;
+  requestedAmount?: number | null;
+  revenue?: number | null;
   rawData?: Record<string, any>;
 }
 
@@ -1124,6 +1127,15 @@ export interface CreditCampaignFunnelStat {
 }
 
 // ============ Central de Reengajamento Types ============
+export type ReengagementStageId =
+  | 'nao_entregue'
+  | 'nao_leu'
+  | 'leu'
+  | 'interagiu'
+  | 'confirmou'
+  | 'faturamento'
+  | 'valor';
+
 export interface ReengagementContact {
   id: string; // ID original na outbound_queue
   contact_name: string;
@@ -1145,6 +1157,9 @@ export interface ReengagementContact {
   reengagement_count: number;
   last_scheduled_at?: string;
   metadata?: any;
+  stopped_stage?: ReengagementStageId;
+  is_blocked?: boolean;
+  blocked_reason?: string;
 }
 
 export interface ReengagementFunnelSummary {
@@ -1157,6 +1172,15 @@ export interface ReengagementFunnelSummary {
   recusadosCredito60d: number;
   aprovadosCredito: number;
   emAndamentoFila: number;
+  stages?: Record<ReengagementStageId, number>;
+  totalReengajavel?: number;
+  totalBloqueados?: number;
+  bloqueadosBreakdown?: {
+    aprovados: number;
+    recusados: number;
+    formalizacao: number;
+    naoEnviados: number;
+  };
 }
 
 export interface ReengagementComparisonData {

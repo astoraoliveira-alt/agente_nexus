@@ -156,6 +156,8 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
             let phoneIdx = 1;
             let nameIdx = 2;
             let ctaLinkIdx = -1;
+            let amountIdx = -1;
+            let revenueIdx = -1;
             let startRow = 0;
 
             const normalizeHeader = (value: any) =>
@@ -186,7 +188,10 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                     c.includes('estabelecimento') ||
                     c === 'link' ||
                     c.includes('cta') ||
-                    c.includes('url')
+                    c.includes('url') ||
+                    c.includes('aprovado') ||
+                    c.includes('limite') ||
+                    c.includes('faturamento')
                 ).length;
 
                 if (matchesCount > maxMatches) {
@@ -201,11 +206,15 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                 const foundPhone = headerRow.findIndex(c => c.includes('tel') || c.includes('phone') || c.includes('cel') || c.includes('whatsapp'));
                 const foundName = headerRow.findIndex(c => c.includes('razao social') || c.includes('razao') || c.includes('nome') || c.includes('name') || c.includes('empresa') || c.includes('estabelecimento'));
                 const foundCta = headerRow.findIndex(c => c === 'link' || c.includes('cta') || c.includes('url'));
+                const foundAmount = headerRow.findIndex(c => c.includes('aprovado') || c.includes('limite') || c.includes('emprestimo') || c.includes('valor'));
+                const foundRevenue = headerRow.findIndex(c => c.includes('faturamento') || c.includes('receita'));
 
                 if (foundId !== -1) identifierIdx = foundId;
                 if (foundPhone !== -1) phoneIdx = foundPhone;
                 if (foundName !== -1) nameIdx = foundName;
                 ctaLinkIdx = foundCta;
+                if (foundAmount !== -1) amountIdx = foundAmount;
+                if (foundRevenue !== -1) revenueIdx = foundRevenue;
                 startRow = bestHeaderRowIdx + 1;
             }
 
@@ -219,13 +228,27 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                 const name = row[nameIdx] !== undefined ? String(row[nameIdx]).trim().substring(0, 100) : 'Sem Nome';
                 const ctaLink = (ctaLinkIdx !== -1 && row[ctaLinkIdx] !== undefined) ? sanitizeUrlValue(row[ctaLinkIdx]) : '';
 
+                let rawAmountVal: number | null = null;
+                if (amountIdx !== -1 && row[amountIdx] !== undefined) {
+                    const parsed = Number(String(row[amountIdx]).replace(/[^\d.-]/g, ''));
+                    if (!isNaN(parsed) && parsed > 0) rawAmountVal = parsed;
+                }
+
+                let rawRevVal: number | null = null;
+                if (revenueIdx !== -1 && row[revenueIdx] !== undefined) {
+                    const parsed = Number(String(row[revenueIdx]).replace(/[^\d.-]/g, ''));
+                    if (!isNaN(parsed) && parsed > 0) rawRevVal = parsed;
+                }
+
                 return {
                     name,
                     phone,
                     identifier,
                     ctaLink,
+                    requestedAmount: rawAmountVal,
+                    revenue: rawRevVal,
                     rowNumber: startRow + idx + 1,
-                    rawData: { identifier, phone, name, ctaLink }
+                    rawData: { identifier, phone, name, ctaLink, requestedAmount: rawAmountVal, revenue: rawRevVal }
                 };
             }).filter(r => r.identifier || r.phone || r.name !== 'Sem Nome');
 
