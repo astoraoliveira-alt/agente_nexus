@@ -36,21 +36,37 @@ export const conversationsService = {
                 }
             } catch (e) { /* Not JSON, ignore */ }
 
+            let resolvedType = (m.message_type || 'text') as 'text' | 'image' | 'audio' | 'document';
+            const attachedUrl = m.metadata?.file_url || m.image_url || m.audio_url;
+            const mime = (m.metadata?.mime_type || '').toLowerCase();
+            const fileName = m.metadata?.file_name || (m.metadata?.file_url ? m.metadata.file_url.split('/').pop() : undefined);
+
+            // Salvaguarda: Se o tipo veio 'text' mas existe URL de mídia anexada, infere o tipo real
+            if (resolvedType === 'text' && attachedUrl) {
+                if (m.audio_url || mime.includes('audio') || /\.(oga|ogg|mp3|wav|m4a)$/i.test(fileName || '')) {
+                    resolvedType = 'audio';
+                } else if (m.image_url || mime.includes('image') || /\.(jpe?g|png|gif|webp)$/i.test(fileName || '')) {
+                    resolvedType = 'image';
+                } else {
+                    resolvedType = 'document';
+                }
+            }
+
             return {
                 id: m.id,
                 conversationId: m.conversation_id,
                 tenantId: m.tenant_id,
                 tenantSlug: '', // Not needed for display
                 content: cleanContent,
-                type: (m.message_type || 'text') as 'text' | 'image' | 'audio' | 'document',
+                type: resolvedType,
                 sender: (m.sender_type === 'user' ? 'user' :
                     (m.sender_type === 'human' || m.sender_type === 'operator') ? 'human' : 'ai') as 'user' | 'ai' | 'human',
                 senderName: m.sender_name,
                 timestamp: new Date(m.created_at),
-                audioUrl: m.audio_url,
-                imageUrl: m.image_url || (m.message_type === 'image' ? m.metadata?.file_url : undefined),
-                fileUrl: m.metadata?.file_url || m.image_url,
-                fileName: m.metadata?.file_name || (m.metadata?.file_url ? m.metadata.file_url.split('/').pop() : undefined),
+                audioUrl: m.audio_url || (resolvedType === 'audio' ? attachedUrl : undefined),
+                imageUrl: m.image_url || (resolvedType === 'image' ? attachedUrl : undefined),
+                fileUrl: attachedUrl,
+                fileName: fileName,
                 transcription: m.transcription,
                 status: m.status,
                 statusDescription: m.metadata?.status_description || m.metadata?.last_status_description || m.metadata?.prov_error

@@ -737,10 +737,12 @@ export function ChatArea({
                                 <FileText className="h-5 w-5" />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-xs font-bold text-foreground truncate" title={message.fileName || 'Contrato'}>
-                                  {message.fileName || 'Documento / Contrato'}
+                                <p className="text-xs font-bold text-foreground truncate" title={message.fileName || 'Documento'}>
+                                  {message.fileName || 'Documento / Anexo'}
                                 </p>
-                                <span className="text-[10px] text-muted-foreground uppercase font-medium">Documento PDF</span>
+                                <span className="text-[10px] text-muted-foreground uppercase font-medium">
+                                  {message.fileName?.toLowerCase().endsWith('.pdf') ? 'Documento PDF' : 'Anexo / Documento'}
+                                </span>
                               </div>
                             </div>
                             {message.content && !message.content.startsWith('http') && (
@@ -756,7 +758,7 @@ export function ChatArea({
                                 className="inline-flex items-center justify-center gap-1.5 w-full py-1.5 px-3 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shadow-sm"
                               >
                                 <Download className="h-3.5 w-3.5" />
-                                Baixar Contrato
+                                Abrir Documento
                               </a>
                             )}
                           </div>

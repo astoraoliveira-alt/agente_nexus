@@ -1315,13 +1315,29 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (convId) {
                     console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Salvando mensagem no banco...`);
                     const content = (msg.contents || body.contents)?.[0];
-                    const isAudio = content?.type === 'audio' || content?.fileMimeType?.includes('audio') || (content?.type === 'file' && content?.fileUrl && (content?.fileUrl?.endsWith('.bin') || content?.fileUrl?.endsWith('.oga') || content?.fileUrl?.endsWith('.ogg') || content?.fileUrl?.endsWith('.mp3')));
-                    const type = content?.type === 'image' ? 'image' : (isAudio ? 'audio' : (content?.type === 'file' ? 'document' : 'text'));
-                    const text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? '[Documento recebido]' : (type === 'image' ? '[Imagem recebida]' : '')));
+                    const mime = (content?.fileMimeType || '').toLowerCase();
+                    const fileName = content?.fileName || content?.fileCaption || '';
+                    
+                    const isExplicitImage = content?.type === 'image' || mime.includes('image') || /\.(jpe?g|png|gif|webp)$/i.test(fileName);
+                    const isExplicitDoc = (content?.type === 'file' && !mime.includes('audio')) || mime.includes('pdf') || mime.includes('document') || mime.includes('sheet') || mime.includes('excel') || mime.includes('msword') || mime.includes('zip') || mime.includes('text/csv') || /\.(pdf|docx?|xlsx?|csv|zip)$/i.test(fileName);
+                    const isExplicitAudio = content?.type === 'audio' || mime.includes('audio') || (!isExplicitDoc && !isExplicitImage && content?.fileUrl && (content?.fileUrl?.endsWith('.oga') || content?.fileUrl?.endsWith('.ogg') || content?.fileUrl?.endsWith('.mp3')));
+
+                    let type: 'text' | 'image' | 'audio' | 'document' = 'text';
+                    if (isExplicitImage) {
+                        type = 'image';
+                    } else if (isExplicitDoc) {
+                        type = 'document';
+                    } else if (isExplicitAudio) {
+                        type = 'audio';
+                    } else if (content?.fileUrl) {
+                        type = content?.type === 'file' ? 'document' : (content?.type === 'audio' ? 'audio' : 'text');
+                    }
+
+                    const text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? (fileName ? `Documento: ${fileName}` : '[Documento recebido]') : (type === 'image' ? '[Imagem recebida]' : '')));
                     
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
-                    console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message...`);
+                    console.log(`[ZENVIA] 🚀 [${traceId}] Chamando RPC fn_enqueue_inbound_message (Tipo: ${type}, Arquivo: ${fileName || 'N/A'})...`);
                     const { error: rpcError } = await supabaseAdmin.rpc('fn_enqueue_inbound_message', {
                         p_tenant_id: agent.tenant_id,
                         p_agent_id: agent.id,
@@ -1334,7 +1350,9 @@ app.post('/v1/zenvia/webhook', async (c) => {
                             content: text, 
                             platform: 'zenvia', 
                             mediaUrl: content?.fileUrl,
-                            messageType: type
+                            messageType: type,
+                            fileName: fileName || null,
+                            fileMimeType: content?.fileMimeType || null
                         },
                         p_trace_id: trace,
                         p_message_type: type === 'text' ? 'conversation' : type,
