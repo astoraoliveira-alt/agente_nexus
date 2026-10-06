@@ -998,14 +998,22 @@ try {
         }
         mode = "parrot";
     } else if (nextStep === 'coleta_valor') {
-        const rawNum = parseNumber(lastUserLower);
-        if (rawNum !== null && rawNum < 10000) {
-            forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise?\n\n_Exemplo: *30 mil*_`;
-        } else if (rawNum !== null && rawNum > 500000) {
-            forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar?\n\n_Exemplo: *100 mil*_`;
-        } else if (lastSofiaMsg.includes("valor aproximado") || lastSofiaMsg.includes("deseja solicitar") || lastSofiaMsg.includes("gostaria de solicitar") || lastSofiaMsg.includes("qual valor")) {
-            forcedText = `Por favor, me informe apenas o valor aproximado que deseja solicitar para a análise de crédito da *${leadInfo.name || "sua empresa"}*.\n\n_Exemplo: *30 mil*_`;
+        if (currentStep === 'coleta_valor') {
+            let loanNum = parseNumber(lastUserLower);
+            if (loanNum !== null && loanNum >= 10 && loanNum <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) {
+                loanNum = loanNum * 1000;
+            }
+            if (loanNum !== null && loanNum < 10000) {
+                forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise?\n\n_Exemplo: *30 mil*_`;
+            } else if (loanNum !== null && loanNum > 500000) {
+                forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar?\n\n_Exemplo: *100 mil*_`;
+            } else if (lastSofiaMsg.includes("valor aproximado") || lastSofiaMsg.includes("deseja solicitar") || lastSofiaMsg.includes("gostaria de solicitar") || lastSofiaMsg.includes("qual valor")) {
+                forcedText = `Por favor, me informe apenas o valor aproximado que deseja solicitar para a análise de crédito da *${leadInfo.name || "sua empresa"}*.\n\n_Exemplo: *30 mil*_`;
+            } else {
+                forcedText = `Obrigada! E qual *valor aproximado* você gostaria de solicitar nessa análise?\n\n_Exemplo: *50 mil*_`;
+            }
         } else {
+            // Transição vinda de coleta_faturamento: pergunta o valor pela primeira vez de forma acolhedora
             forcedText = `Obrigada! E qual *valor aproximado* você gostaria de solicitar nessa análise?\n\n_Exemplo: *50 mil*_`;
         }
         mode = "parrot";
