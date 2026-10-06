@@ -10,7 +10,7 @@ services:
     # No ports needed if it's just a queue consumer, 
     # but Hono server suggests it might have healthchecks.
     networks:
-      - n8n-traefik_app_network
+      - automacao_app_network
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.nexus-porteiro.rule=Host(`api.davosconsulting.com.br`)"
@@ -19,5 +19,5 @@ services:
       - "traefik.http.services.nexus-porteiro.loadbalancer.server.port=3001"
 
 networks:
-  n8n-traefik_app_network:
+  automacao_app_network:
     external: true
