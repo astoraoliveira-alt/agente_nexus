@@ -252,8 +252,8 @@ try {
             circuit_breaker: true,
             reason: stopReason,
             conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
-            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
-            status_conversa: "human_active"
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            // 🛡️ Não trava em human_active para preservar a revalidação de 30 dias do lead
         };
     }
 
@@ -560,15 +560,23 @@ try {
             revenue = fallbackNumber;
         } else if (!revenue && fallbackNumber > 100) {
             revenue = fallbackNumber;
+        } else if (!revenue && fallbackNumber >= 5 && fallbackNumber <= 500) {
+            revenue = fallbackNumber * 1000; // Ex: "70" -> 70.000
         }
-    } else if (currentStep === 'coleta_valor') {
+    } else if (currentStep === 'coleta_valor' || currentStep === 'valor_proposta') {
         if (fallbackNumber !== null && fallbackNumber >= 1000) {
             extractedAmount = fallbackNumber;
         } else if (!extractedAmount && fallbackNumber > 100) {
             extractedAmount = fallbackNumber;
+        } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500) {
+            extractedAmount = fallbackNumber * 1000; // Ex: "50" -> 50.000
         }
     } else {
-        if (!extractedAmount && fallbackNumber > 100) extractedAmount = fallbackNumber;
+        if (!extractedAmount && fallbackNumber > 100) {
+            extractedAmount = fallbackNumber;
+        } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) {
+            extractedAmount = fallbackNumber * 1000; // Ex: "50" -> 50.000
+        }
     }
 
     if (!extractedInstallments) {
@@ -1018,7 +1026,16 @@ try {
         const recusaAlreadySent = historyTexts.includes("não conseguimos liberar") || historyTexts.includes("políticas internas de crédito") || historyTexts.includes("politicas internas de credito");
 
         if (recusaAlreadySent) {
-            forcedText = `${nomeCliente}\n\nConforme verificamos anteriormente, a solicitação de crédito para a sua empresa não foi aprovada pelo comitê neste momento.\n\nPor esse motivo, o sistema não permite gerar novas propostas ou simulações de parcelas. Uma nova avaliação poderá ser realizada daqui a *30 dias*.\n\nSe tiver qualquer outra dúvida sobre o credenciamento ou benefícios Ticket, estou à disposição! 🙏`;
+            // 🛡️ Lead já foi notificado da recusa. Silencia para não papaguear nem gerar atrito.
+            // A mensagem do cliente fica gravada no banco e visível na Fila de Atendimento,
+            // mas o robô não envia resposta e NÃO trava em human_active (preservando o ciclo de 30 dias).
+            return {
+                currentStep: "stop_flow",
+                stop_flow: true,
+                reason: "Lead já notificado de recusa Fiserv. Robô silenciado para evitar respostas repetitivas.",
+                conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+                p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            };
         } else {
             forcedText = `${nomeCliente}\n\n${motivoFiserv}\n\nAs análises de crédito são dinâmicas e baseadas em critérios de mercado e volume de transações Ticket. Você poderá solicitar uma nova análise em *30 dias*!\n\nObrigado pela confiança na Ticket! 🙏`;
         }
