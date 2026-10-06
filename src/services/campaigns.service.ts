@@ -917,11 +917,11 @@ async deleteCampaign(id: string): Promise<void> {
             // 2. Buscar todos os registros da fila para esta campanha
             const { data: queueRows, error: queueError } = await supabase
                 .from('outbound_queue')
-                .select('id, contact_name, contact_phone, status, error_message, response_detected, metadata, scheduled_at, sent_at, created_at')
+                .select('id, contact_name, contact_phone, status, error_message, response_detected, metadata, scheduled_at, sent_at, created_at, reengagement_attempt_count, reengagement_last_sent_at')
                 .eq('campaign_id', campaignId)
                 .eq('tenant_id', tenantId)
                 .order('created_at', { ascending: false })
-                .limit(10000);
+                .limit(50000);
 
             if (queueError || !queueRows) {
                 console.error('Erro ao buscar contatos da fila para reengajamento:', queueError);
@@ -955,19 +955,21 @@ async deleteCampaign(id: string): Promise<void> {
 
                 const existing = contactsMap.get(cleanPhone);
                 const isPendingOrProcessing = ['pending', 'processing'].includes(String(row.status || '').toLowerCase().trim());
-                const isReengagement = !!(row.metadata?.is_reengagement);
+                const reengAttempts = Number(row.reengagement_attempt_count || 0);
+                const isReengagement = !!(row.metadata?.is_reengagement) || reengAttempts > 0 || !!row.reengagement_last_sent_at;
+                const reengDelta = isReengagement ? Math.max(1, reengAttempts) : 0;
 
                 if (!existing) {
                     contactsMap.set(cleanPhone, {
                         primaryRow: row,
                         allRows: [row],
                         isBusy: isPendingOrProcessing,
-                        reengagementCount: isReengagement ? 1 : 0
+                        reengagementCount: reengDelta
                     });
                 } else {
                     existing.allRows.push(row);
                     if (isPendingOrProcessing) existing.isBusy = true;
-                    if (isReengagement) existing.reengagementCount += 1;
+                    if (isReengagement) existing.reengagementCount += reengDelta;
                     if (!existing.primaryRow.sent_at && row.sent_at) {
                         existing.primaryRow = row;
                     }
@@ -1495,23 +1497,45 @@ async deleteCampaign(id: string): Promise<void> {
             // 2. Buscar todos os registros da outbound_queue desta campanha
             const { data: rows, error } = await supabaseReader
                 .from('outbound_queue')
-                .select('id, contact_phone, status, response_detected, metadata, created_at, sent_at')
+                .select('id, contact_phone, status, response_detected, metadata, created_at, sent_at, reengagement_attempt_count, reengagement_last_sent_at')
                 .eq('tenant_id', tenantId)
                 .eq('campaign_id', campaignId)
-                .limit(10000);
+                .limit(50000);
 
             if (error || !rows) return null;
 
-            // Separar original vs reengajamento
+            // Separar original vs reengajamento:
+            // No fluxo automatizado pelo n8n, a linha original recebe reengagement_attempt_count > 0 e reengagement_last_sent_at.
+            // No fluxo manual da interface, novas linhas podem ser criadas com metadata.is_reengagement = true.
             const originalRows = rows.filter(r => !r.metadata?.is_reengagement);
-            const reengRows = rows.filter(r => !!r.metadata?.is_reengagement);
+            const reengRows = rows.filter(r => 
+                Boolean(
+                    r.metadata?.is_reengagement || 
+                    (r.reengagement_attempt_count && Number(r.reengagement_attempt_count) > 0) || 
+                    r.reengagement_last_sent_at
+                )
+            );
 
             const calcMetrics = (list: typeof rows) => {
-                const totalSent = list.filter(r => ['sent', 'delivered', 'read'].includes(String(r.status || ''))).length;
-                const delivered = list.filter(r => ['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(String(r.status || '')) || r.response_detected).length;
-                const read = list.filter(r => ['read', 'respondida', 'interagiu'].includes(String(r.status || ''))).length;
-                const replied = list.filter(r => r.response_detected || ['respondida', 'interagiu'].includes(String(r.status || ''))).length;
-                const failed = list.filter(r => ['failed', 'undelivered', 'error', 'not_delivered', 'rejected'].includes(String(r.status || ''))).length;
+                const totalSent = list.filter(r => 
+                    ['sent', 'delivered', 'read', 'respondida', 'interagiu', 'failed', 'undelivered', 'error', 'not_delivered', 'rejected', 'processing'].includes(String(r.status || '')) || 
+                    Boolean(r.reengagement_last_sent_at) || 
+                    Boolean(r.sent_at)
+                ).length;
+                const delivered = list.filter(r => 
+                    ['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(String(r.status || '')) || 
+                    Boolean(r.response_detected)
+                ).length;
+                const read = list.filter(r => 
+                    ['read', 'respondida', 'interagiu'].includes(String(r.status || ''))
+                ).length;
+                const replied = list.filter(r => 
+                    Boolean(r.response_detected) || 
+                    ['respondida', 'interagiu'].includes(String(r.status || ''))
+                ).length;
+                const failed = list.filter(r => 
+                    ['failed', 'undelivered', 'error', 'not_delivered', 'rejected'].includes(String(r.status || ''))
+                ).length;
 
                 return {
                     totalSent,
@@ -1559,17 +1583,16 @@ async deleteCampaign(id: string): Promise<void> {
                 console.warn('Nota: usando fallback local para métricas originais:', funnelErr);
             }
 
-            // 4. Buscar conversões em agent_leads cruzando com os telefones de reengajamento
+            // 4. Buscar conversões e opt-ins em agent_leads cruzando com os telefones de reengajamento
             const reengPhones = new Set(reengRows.map(r => this.normalizePhone(r.contact_phone)));
             const origPhones = new Set(originalRows.map(r => this.normalizePhone(r.contact_phone)));
 
-            const allPhonesToQuery = Array.from(new Set([...Array.from(origPhones), ...Array.from(reengPhones)]));
-            if (allPhonesToQuery.length > 0) {
+            try {
                 const { data: leads } = await supabaseReader
                     .from('agent_leads')
                     .select('whatsapp, status, metadata')
                     .eq('tenant_id', tenantId)
-                    .in('whatsapp', allPhonesToQuery);
+                    .eq('campaign_id', campaignId);
 
                 if (leads) {
                     leads.forEach(l => {
@@ -1578,10 +1601,19 @@ async deleteCampaign(id: string): Promise<void> {
                         const fiservStatus = String(meta.fiserv_status || '').toLowerCase().trim();
                         const statusStr = String(l.status || '').toLowerCase().trim();
 
+                        const isOptIn = fiservStatus === 'opt_in_registered' ||
+                            statusStr === 'opt_in' ||
+                            statusStr === 'optin' ||
+                            Boolean(meta.formalization_opt_in);
+
                         const isConverted =
                             ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
                             ['approved', 'aprovado', 'formalized', 'pago'].includes(statusStr) ||
                             ['approved', 'formalized', 'pago'].includes(String(meta.formalization_status || '').toLowerCase());
+
+                        if (isOptIn && reengPhones.has(ph)) {
+                            reengMetrics.optIn += 1;
+                        }
 
                         if (isConverted) {
                             if (reengPhones.has(ph)) {
@@ -1592,18 +1624,48 @@ async deleteCampaign(id: string): Promise<void> {
                         }
                     });
                 }
+            } catch (leadsErr) {
+                console.warn('Nota: erro ao cruzar conversões de leads:', leadsErr);
             }
 
             origMetrics.conversionRate = origMetrics.delivered > 0 ? Math.round((origMetrics.conversions / origMetrics.delivered) * 100) : 0;
             reengMetrics.conversionRate = reengMetrics.delivered > 0 ? Math.round((reengMetrics.conversions / reengMetrics.delivered) * 100) : 0;
+            reengMetrics.optInRate = reengMetrics.delivered > 0 ? Math.round((reengMetrics.optIn / reengMetrics.delivered) * 100) : 0;
 
-            // 4. Buscar histórico de lotes da tabela campaign_recovery_logs
-            const { data: batches } = await supabaseReader
+            // 5. Buscar histórico de lotes da tabela campaign_recovery_logs
+            let { data: batches } = await supabaseReader
                 .from('campaign_recovery_logs')
                 .select('*')
                 .eq('tenant_id', tenantId)
                 .eq('campaign_id', campaignId)
                 .order('started_at', { ascending: false });
+
+            // Se não houver lote explícito registrado na tabela de logs mas o reengajamento foi disparado na fila
+            if ((!batches || batches.length === 0) && reengRows.length > 0) {
+                const timestamps = reengRows
+                    .map(r => r.reengagement_last_sent_at || r.sent_at)
+                    .filter(Boolean)
+                    .sort();
+                const minStarted = timestamps.length > 0 ? timestamps[0] : new Date().toISOString();
+                const maxSent = timestamps.length > 0 ? timestamps[timestamps.length - 1] : minStarted;
+                const hasProcessing = reengRows.some(r => r.status === 'processing');
+
+                batches = [{
+                    id: `auto-reeng-${campaignId.substring(0, 8)}`,
+                    tenant_id: tenantId,
+                    campaign_id: campaignId,
+                    status: hasProcessing ? 'running' : 'completed',
+                    target_options: ['Reativação Automática (Sem Resposta / Lido)'],
+                    records_affected: reengRows.length,
+                    started_at: minStarted,
+                    completed_at: hasProcessing ? null : maxSent,
+                    duration_seconds: 0,
+                    snapshot_before: {
+                        enqueued: reengRows.length,
+                        type: 'automatic_scheduler'
+                    }
+                }];
+            }
 
             const extraReplies = reengMetrics.replied;
             const extraConversions = reengMetrics.conversions;

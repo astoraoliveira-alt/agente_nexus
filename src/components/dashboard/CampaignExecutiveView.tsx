@@ -117,11 +117,17 @@ interface ConversationAnalytics {
     contactTags: string[];
 }
 
-export function CampaignExecutiveView() {
+interface CampaignExecutiveViewProps {
+  onSelectCampaign?: (campaignId: string) => void;
+}
+
+export function CampaignExecutiveView({ onSelectCampaign }: CampaignExecutiveViewProps = {}) {
   const { currentTenant } = useApp();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(() => {
+    return sessionStorage.getItem('davos_active_campaign_id') || null;
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('15days');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
@@ -293,7 +299,11 @@ export function CampaignExecutiveView() {
             <CampaignSummaryView 
                 campaigns={campaigns} 
                 agents={agents} 
-                onSelectCampaign={setSelectedCampaignId}
+                onSelectCampaign={(id) => {
+                  setSelectedCampaignId(id);
+                  sessionStorage.setItem('davos_active_campaign_id', id);
+                  onSelectCampaign?.(id);
+                }}
                 timeFilter={timeFilter}
                 setTimeFilter={setTimeFilter}
                 currentPage={currentPage}
@@ -307,7 +317,11 @@ export function CampaignExecutiveView() {
                 campaignId={selectedCampaignId} 
                 campaigns={campaigns}
                 agents={agents}
-                onSelect={setSelectedCampaignId}
+                onSelect={(id) => {
+                  setSelectedCampaignId(id);
+                  sessionStorage.setItem('davos_active_campaign_id', id);
+                  onSelectCampaign?.(id);
+                }}
                 onBack={() => setSelectedCampaignId(null)} 
             />
         )}

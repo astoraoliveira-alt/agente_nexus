@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt, HelpCircle, Info, Timer, Zap } from 'lucide-react';
+import { format } from 'date-fns';
+import { Cpu, MessageSquare, Mic, Volume2, DollarSign, TrendingUp, Filter, Download, Calendar, CreditCard, Receipt, HelpCircle, Info, Timer, Zap, FileSpreadsheet } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { cn, isMetricBillable } from '@/lib/utils';
 import { mockPeakUsageMatrix } from '@/lib/mock-extended-data';
@@ -9,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { HeatmapChart } from '@/components/consumption/HeatmapChart';
+import { MetaBillingReportTab } from '@/components/consumption/MetaBillingReportTab';
 import {
   Select,
   SelectContent,
@@ -64,8 +66,11 @@ export default function Consumption() {
   const { currentTenant } = useApp();
   const [period, setPeriod] = useState('cutoff'); // Default is cutoff date
   const [cutoffDay, setCutoffDay] = useState<string | number>('last_day');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
+  const nowInit = new Date();
+  const initStart = `${nowInit.getFullYear()}-${String(nowInit.getMonth() + 1).padStart(2, '0')}-01`;
+  const initEnd = `${nowInit.getFullYear()}-${String(nowInit.getMonth() + 1).padStart(2, '0')}-${String(new Date(nowInit.getFullYear(), nowInit.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
+  const [customStartDate, setCustomStartDate] = useState(initStart);
+  const [customEndDate, setCustomEndDate] = useState(initEnd);
   const [agentFilter, setAgentFilter] = useState('all');
   const [channelFilter, setChannelFilter] = useState('all');
   const [campaignFilter, setCampaignFilter] = useState('all');
@@ -73,6 +78,8 @@ export default function Consumption() {
   const [realMetrics, setRealMetrics] = useState<any[]>([]);
   const [realAgents, setRealAgents] = useState<any[]>([]);
   const [freshTenant, setFreshTenant] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState('timeline');
+  const [billingRate, setBillingRate] = useState<number>(1.05);
 
   const tenantToUse = freshTenant || currentTenant;
 
@@ -87,9 +94,10 @@ export default function Consumption() {
       return { calculatedStartDate: start, calculatedEndDate: now, calculatedDays: 30 };
     }
     if (period === 'custom') {
-      const start = customStartDate ? new Date(customStartDate + 'T00:00:00') : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      const end = customEndDate ? new Date(customEndDate + 'T23:59:59') : now;
-      return { calculatedStartDate: start, calculatedEndDate: end, calculatedDays: 60 };
+      const start = customStartDate ? new Date(customStartDate + 'T00:00:00') : new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      const end = customEndDate ? new Date(customEndDate + 'T23:59:59') : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const diffDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+      return { calculatedStartDate: start, calculatedEndDate: end, calculatedDays: diffDays };
     }
     // Default or 'cutoff'
     const { startDate, end } = (() => {
@@ -399,12 +407,49 @@ export default function Consumption() {
             <div>
               <h1 className="text-2xl font-bold">Consumo Detalhado</h1>
               <p className="text-sm text-muted-foreground">Análise de faturamento baseada no Contrato Operacional</p>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 bg-muted/50 px-2 py-1 rounded w-fit">
-                <Calendar className="h-3 w-3 text-primary" />
-                <span>Período Ativo:</span>
-                <span className="font-semibold text-foreground">
-                  {calculatedStartDate.toLocaleDateString('pt-BR')} até {calculatedEndDate.toLocaleDateString('pt-BR')}
-                </span>
+              <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded w-fit border border-border/40">
+                  <Calendar className="h-3.5 w-3.5 text-primary" />
+                  <span className="font-semibold text-foreground">Período Ativo:</span>
+                  <div className="flex items-center gap-1">
+                    <input 
+                      type="date"
+                      value={period === 'custom' ? customStartDate : format(calculatedStartDate, 'yyyy-MM-dd')}
+                      onChange={(e) => {
+                        setPeriod('custom');
+                        setCustomStartDate(e.target.value);
+                      }}
+                      className="h-6 px-1.5 py-0.5 text-xs font-bold text-foreground bg-background border border-input rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
+                    />
+                    <span className="text-muted-foreground font-medium text-[10px]">até</span>
+                    <input 
+                      type="date"
+                      value={period === 'custom' ? customEndDate : format(calculatedEndDate, 'yyyy-MM-dd')}
+                      onChange={(e) => {
+                        setPeriod('custom');
+                        setCustomEndDate(e.target.value);
+                      }}
+                      className="h-6 px-1.5 py-0.5 text-xs font-bold text-foreground bg-background border border-input rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded w-fit border border-border/40">
+                  <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>Valor Sugerido Faturamento:</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[11px] font-bold text-foreground">R$</span>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      min="0.01"
+                      value={billingRate}
+                      onChange={(e) => setBillingRate(parseFloat(e.target.value) || 0)}
+                      className="w-16 h-6 text-xs font-bold text-foreground bg-background border border-input rounded px-1.5 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                    />
+                    <span className="text-[10px] text-muted-foreground font-medium">/ disparo</span>
+                  </div>
+                </div>
               </div>
             </div>
             <Button variant="outline" size="sm" className="w-fit">
@@ -622,190 +667,216 @@ export default function Consumption() {
             </div>
           </TooltipProvider>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
-              <Tabs defaultValue="timeline" className="space-y-4">
-                <TabsList className="bg-muted/50 p-1 h-9 rounded-none border border-border">
-                  <TabsTrigger value="timeline" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Timeline</TabsTrigger>
-                  <TabsTrigger value="heatmap" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Horários</TabsTrigger>
-                  <TabsTrigger value="by-agent" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Agentes</TabsTrigger>
-                  <TabsTrigger value="by-channel" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Canais</TabsTrigger>
-                  <TabsTrigger value="cost" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Análise</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="timeline" className="mt-0">
-                  <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
-                    <h3 className="font-semibold mb-6 flex items-center gap-2 text-sm uppercase tracking-wider">
-                      Tendência de Interações
-                    </h3>
-                    <div className="h-80">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={dailyTimeline}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                          <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                          <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                          <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '4px' }} />
-                          <Line type="monotone" dataKey="messages" stroke="hsl(var(--primary))" strokeWidth={3} dot={false} name="Mensagens" />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="by-agent" className="mt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {byAgentData.map((agent) => (
-                      <div key={agent.agentId} className="kpi-card border border-border/50 bg-background p-5 rounded-none">
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <h4 className="font-bold flex items-center gap-2">{agent.agentName} <Badge variant="outline" className="text-[9px] uppercase">{agent.stage}</Badge></h4>
-                            <div className="flex gap-1 mt-1">
-                              {Array.from(agent.usedChannels || []).map((ch: any) => (
-                                <Badge key={ch} variant="secondary" className="text-[8px] h-3 px-1">{ch}</Badge>
-                              ))}
-                            </div>
-                          </div>
-                          <p className="text-lg font-black text-accent font-mono">R$ {agent.cost.toFixed(2)}</p>
-                        </div>
-                        <div className="p-3 bg-muted/50 rounded-none flex justify-between items-center text-xs">
-                          <span className="text-muted-foreground">Interações</span>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold">{agent.messages}</span>
-                            <div className="h-3 w-[1px] bg-border" />
-                            <span className="font-semibold text-primary font-mono">R$ {agent.messageCost.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="by-channel" className="mt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {byChannelData.map((channel) => (
-                      <div key={channel.channel} className="kpi-card border border-border/50 bg-background p-5 rounded-none">
-                        <div className="flex justify-between items-start mb-4">
-                          <h4 className="font-bold capitalize flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary" /> {channel.name}</h4>
-                          <p className="text-lg font-black text-accent font-mono">R$ {channel.cost.toFixed(2)}</p>
-                        </div>
-                        <div className="p-3 bg-muted/50 rounded-none flex justify-between items-center text-xs">
-                          <span className="text-muted-foreground font-medium">Interações</span>
-                          <div className="flex items-center gap-2 font-mono font-bold">
-                            {channel.messages}
-                            <div className="h-3 w-[1px] bg-border mx-1" />
-                            <span className="text-primary font-bold">R$ {channel.messageCost.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="cost" className="mt-0">
-                  <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
-                    <h3 className="font-semibold mb-6 flex items-center gap-2 text-sm uppercase tracking-wider">Histórico de Faturamento Variável</h3>
-                    <div className="h-80">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={dailyTimeline}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                          <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
-                          <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
-                          <RechartsTooltip />
-                          <Bar dataKey="cost" fill="hsl(var(--accent))" radius={[0, 0, 0, 0]} name="Custo (R$)" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="heatmap" className="mt-0">
-                  <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
-                    <h3 className="font-semibold mb-2 text-sm uppercase tracking-wider">Horários de Pico</h3>
-                    <p className="text-xs text-muted-foreground mb-6 italic">Densidade de interações processadas (Etapa 3 Predictive Analytics).</p>
-                    <HeatmapChart data={heatmapData} />
-                  </div>
-                </TabsContent>
-              </Tabs>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <TabsList className="bg-muted/50 p-1 h-9 rounded-none border border-border">
+                <TabsTrigger value="timeline" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Timeline</TabsTrigger>
+                <TabsTrigger value="heatmap" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Horários</TabsTrigger>
+                <TabsTrigger value="by-agent" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Agentes</TabsTrigger>
+                <TabsTrigger value="by-channel" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Canais</TabsTrigger>
+                <TabsTrigger value="cost" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Análise</TabsTrigger>
+                <TabsTrigger 
+                  value="meta-billing" 
+                  className="h-7 text-xs font-semibold rounded-none data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all flex items-center gap-1.5"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5 text-primary" />
+                  Faturamento / Disparos Meta
+                </TabsTrigger>
+              </TabsList>
             </div>
 
-            <div className="lg:col-span-1">
-              <div className="kpi-card border border-border/50 bg-background p-6 rounded-none space-y-4 shadow-sm">
-                <div className="flex items-center justify-between pb-2 border-b border-border/40">
-                  <h3 className="font-semibold text-xs uppercase tracking-wider flex items-center gap-2 text-foreground">
-                    <TrendingUp className="h-4 w-4 text-primary" />
-                    Faturamento por Disparo
-                  </h3>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger>
-                        <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-[240px] text-xs">
-                        Divisão do faturamento por tipo de disparo. O Envio Inicial abre a janela faturável de 24h. Reenvios posteriores programados geram novos ciclos de reengajamento e cobranças adicionais.
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+            {activeTab !== 'meta-billing' ? (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-4">
+                  <TabsContent value="timeline" className="mt-0">
+                    <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
+                      <h3 className="font-semibold mb-6 flex items-center gap-2 text-sm uppercase tracking-wider">
+                        Tendência de Interações
+                      </h3>
+                      <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={dailyTimeline}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                            <RechartsTooltip contentStyle={{ backgroundColor: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: '4px' }} />
+                            <Line type="monotone" dataKey="messages" stroke="hsl(var(--primary))" strokeWidth={3} dot={false} name="Mensagens" />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="by-agent" className="mt-0">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {byAgentData.map((agent) => (
+                        <div key={agent.agentId} className="kpi-card border border-border/50 bg-background p-5 rounded-none">
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h4 className="font-bold flex items-center gap-2">{agent.agentName} <Badge variant="outline" className="text-[9px] uppercase">{agent.stage}</Badge></h4>
+                              <div className="flex gap-1 mt-1">
+                                {Array.from(agent.usedChannels || []).map((ch: any) => (
+                                  <Badge key={ch} variant="secondary" className="text-[8px] h-3 px-1">{ch}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-lg font-black text-accent font-mono">R$ {agent.cost.toFixed(2)}</p>
+                          </div>
+                          <div className="p-3 bg-muted/50 rounded-none flex justify-between items-center text-xs">
+                            <span className="text-muted-foreground">Interações</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold">{agent.messages}</span>
+                              <div className="h-3 w-[1px] bg-border" />
+                              <span className="font-semibold text-primary font-mono">R$ {agent.messageCost.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="by-channel" className="mt-0">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {byChannelData.map((channel) => (
+                        <div key={channel.channel} className="kpi-card border border-border/50 bg-background p-5 rounded-none">
+                          <div className="flex justify-between items-start mb-4">
+                            <h4 className="font-bold capitalize flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-primary" /> {channel.name}</h4>
+                            <p className="text-lg font-black text-accent font-mono">R$ {channel.cost.toFixed(2)}</p>
+                          </div>
+                          <div className="p-3 bg-muted/50 rounded-none flex justify-between items-center text-xs">
+                            <span className="text-muted-foreground font-medium">Interações</span>
+                            <div className="flex items-center gap-2 font-mono font-bold">
+                              {channel.messages}
+                              <div className="h-3 w-[1px] bg-border mx-1" />
+                              <span className="text-primary font-bold">R$ {channel.messageCost.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="cost" className="mt-0">
+                    <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
+                      <h3 className="font-semibold mb-6 flex items-center gap-2 text-sm uppercase tracking-wider">Histórico de Faturamento Variável</h3>
+                      <div className="h-80">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={dailyTimeline}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} />
+                            <YAxis stroke="hsl(var(--muted-foreground))" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `R$${v}`} />
+                            <RechartsTooltip />
+                            <Bar dataKey="cost" fill="hsl(var(--accent))" radius={[0, 0, 0, 0]} name="Custo (R$)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="heatmap" className="mt-0">
+                    <div className="kpi-card border border-border/50 bg-background p-6 rounded-none">
+                      <h3 className="font-semibold mb-2 text-sm uppercase tracking-wider">Horários de Pico</h3>
+                      <p className="text-xs text-muted-foreground mb-6 italic">Densidade de interações processadas (Etapa 3 Predictive Analytics).</p>
+                      <HeatmapChart data={heatmapData} />
+                    </div>
+                  </TabsContent>
                 </div>
 
-                <div className="space-y-4">
-                  <div className="flex justify-between items-end bg-muted/30 p-3 border border-border/40">
-                    <div>
-                      <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Total WhatsApp</p>
-                      <p className="text-lg font-bold font-mono">
-                        {summary.messages.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">conversas</span>
-                      </p>
+                <div className="lg:col-span-1">
+                  <div className="kpi-card border border-border/50 bg-background p-6 rounded-none space-y-4 shadow-sm">
+                    <div className="flex items-center justify-between pb-2 border-b border-border/40">
+                      <h3 className="font-semibold text-xs uppercase tracking-wider flex items-center gap-2 text-foreground">
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                        Faturamento por Disparo
+                      </h3>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <HelpCircle className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-[240px] text-xs">
+                            Divisão do faturamento por tipo de disparo. O Envio Inicial abre a janela faturável de 24h. Reenvios posteriores programados geram novos ciclos de reengajamento e cobranças adicionais.
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </div>
-                    <p className="text-lg font-black text-primary font-mono">R$ {summary.messageCost.toFixed(2)}</p>
-                  </div>
 
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>Primeiro Envio (Envio Inicial)</span>
-                      <span className="font-mono">R$ {summary.initialCost.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>{summary.initialCount.toLocaleString()} conversas</span>
-                      <span>{summary.messages > 0 ? ((summary.initialCount / summary.messages) * 100).toFixed(1) : 0}%</span>
-                    </div>
-                    <div className="w-full bg-muted h-2 rounded-none overflow-hidden border border-border/20">
-                      <div 
-                        className="bg-primary h-full transition-all duration-500" 
-                        style={{ width: `${summary.messages > 0 ? (summary.initialCount / summary.messages) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-end bg-muted/30 p-3 border border-border/40">
+                        <div>
+                          <p className="text-[9px] text-muted-foreground uppercase font-bold tracking-wider">Total WhatsApp</p>
+                          <p className="text-lg font-bold font-mono">
+                            {summary.messages.toLocaleString()} <span className="text-[10px] font-normal text-muted-foreground">conversas</span>
+                          </p>
+                        </div>
+                        <p className="text-lg font-black text-primary font-mono">R$ {summary.messageCost.toFixed(2)}</p>
+                      </div>
 
-                  {sortedRetries.map((retry) => {
-                    const percentage = summary.messages > 0 ? (retry.count / summary.messages) * 100 : 0;
-                    return (
-                      <div key={retry.attempt} className="space-y-1.5 pt-1.5 border-t border-border/10">
+                      <div className="space-y-1.5">
                         <div className="flex justify-between text-xs font-semibold">
-                          <span>{retry.attempt}º Reenvio / Reengajamento</span>
-                          <span className="font-mono">R$ {retry.cost.toFixed(2)}</span>
+                          <span>Primeiro Envio (Envio Inicial)</span>
+                          <span className="font-mono">R$ {summary.initialCost.toFixed(2)}</span>
                         </div>
                         <div className="flex justify-between text-[10px] text-muted-foreground">
-                          <span>{retry.count.toLocaleString()} conversas</span>
-                          <span>{percentage.toFixed(1)}%</span>
+                          <span>{summary.initialCount.toLocaleString()} conversas</span>
+                          <span>{summary.messages > 0 ? ((summary.initialCount / summary.messages) * 100).toFixed(1) : 0}%</span>
                         </div>
                         <div className="w-full bg-muted h-2 rounded-none overflow-hidden border border-border/20">
                           <div 
-                            className="bg-accent h-full transition-all duration-500" 
-                            style={{ width: `${percentage}%` }}
+                            className="bg-primary h-full transition-all duration-500" 
+                            style={{ width: `${summary.messages > 0 ? (summary.initialCount / summary.messages) * 100 : 0}%` }}
                           />
                         </div>
                       </div>
-                    );
-                  })}
 
-                  {sortedRetries.length === 0 && (
-                    <p className="text-xs text-muted-foreground italic text-center py-4">
-                      Nenhum reenvio ou reengajamento registrado neste período.
-                    </p>
-                  )}
+                      {sortedRetries.map((retry) => {
+                        const percentage = summary.messages > 0 ? (retry.count / summary.messages) * 100 : 0;
+                        return (
+                          <div key={retry.attempt} className="space-y-1.5 pt-1.5 border-t border-border/10">
+                            <div className="flex justify-between text-xs font-semibold">
+                              <span>{retry.attempt}º Reenvio / Reengajamento</span>
+                              <span className="font-mono">R$ {retry.cost.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] text-muted-foreground">
+                              <span>{retry.count.toLocaleString()} conversas</span>
+                              <span>{percentage.toFixed(1)}%</span>
+                            </div>
+                            <div className="w-full bg-muted h-2 rounded-none overflow-hidden border border-border/20">
+                              <div 
+                                className="bg-accent h-full transition-all duration-500" 
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {sortedRetries.length === 0 && (
+                        <p className="text-xs text-muted-foreground italic text-center py-4">
+                          Nenhum reenvio ou reengajamento registrado neste período.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            ) : (
+              <TabsContent value="meta-billing" className="mt-0">
+                <MetaBillingReportTab
+                  tenantId={currentTenant?.id || ''}
+                  startDate={calculatedStartDate}
+                  endDate={calculatedEndDate}
+                  campaignId={campaignFilter !== 'all' ? campaignFilter : undefined}
+                  contractUnitPrice={billingRate}
+                  onDateChange={(start, end) => {
+                    setPeriod('custom');
+                    setCustomStartDate(format(start, 'yyyy-MM-dd'));
+                    setCustomEndDate(format(end, 'yyyy-MM-dd'));
+                  }}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
 
           <div className="p-4 bg-muted/30 border border-dashed border-border/60 rounded-none">
             <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-2">

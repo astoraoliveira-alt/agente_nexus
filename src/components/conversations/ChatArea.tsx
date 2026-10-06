@@ -712,7 +712,7 @@ export function ChatArea({
                           <Copy className="h-3 w-3 text-muted-foreground" />
                         </Button>
 
-                        {message.type === 'audio' ? (
+                        {(message.type === 'audio' || !!message.audioUrl) ? (
                           <div className="space-y-2">
                             <AudioMessage message={message} />
                             {message.transcription && (
@@ -762,7 +762,11 @@ export function ChatArea({
                           </div>
                         ) : (
                           <p className="text-sm custom-markdown leading-relaxed">
-                            <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
+                            {(!parseMessageContent(message.content) && !message.content?.trim()) ? (
+                              <span className="italic opacity-60 text-xs">[Mensagem sem texto ou mídia não suportada]</span>
+                            ) : (
+                              <HighlightText text={maskSensitiveData(parseMessageContent(message.content), maskingEnabled)} term={highlightTerm} />
+                            )}
                           </p>
                         )}
                       </div>

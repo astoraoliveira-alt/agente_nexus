@@ -12,6 +12,7 @@ import { api } from '@/services/api';
 import { dashboardService } from '@/services/dashboard.service';
 import { cn } from '@/lib/utils';
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ABPerformanceArena } from '@/components/dashboard/ABPerformanceArena';
 import { CampaignExecutiveView } from '@/components/dashboard/CampaignExecutiveView';
@@ -24,6 +25,15 @@ const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 export default function Index() {
   const { currentTenant, openSlideOver } = useApp();
   const navigate = useNavigate();
+
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(() => {
+    return sessionStorage.getItem('davos_active_campaign_id') || null;
+  });
+
+  const handleSelectCampaign = (campId: string) => {
+    setActiveCampaignId(campId);
+    sessionStorage.setItem('davos_active_campaign_id', campId);
+  };
 
   const { data: dashData, isLoading } = useQuery({
     queryKey: ['dashboard-stats', currentTenant?.id],
@@ -111,7 +121,7 @@ export default function Index() {
             </div>
 
             <TabsContent value="credit-funnel" className="mt-0 focus-visible:outline-none">
-              <CreditCampaignFunnelView />
+              <CreditCampaignFunnelView onSelectCampaign={handleSelectCampaign} />
             </TabsContent>
 
             <TabsContent value="daily-status" className="mt-0 focus-visible:outline-none">
@@ -119,11 +129,14 @@ export default function Index() {
             </TabsContent>
 
             <TabsContent value="campaign-overview" className="mt-0 focus-visible:outline-none">
-              <CampaignExecutiveView />
+              <CampaignExecutiveView onSelectCampaign={handleSelectCampaign} />
             </TabsContent>
 
             <TabsContent value="reengagement-comparison" className="mt-0 focus-visible:outline-none">
-              <ReengagementComparisonView />
+              <ReengagementComparisonView 
+                initialCampaignId={activeCampaignId || undefined}
+                onSelectCampaign={handleSelectCampaign}
+              />
             </TabsContent>
           </Tabs>
         </div>

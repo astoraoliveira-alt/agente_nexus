@@ -38,7 +38,9 @@ export function ReengagementComparisonView({
 }: ReengagementComparisonViewProps) {
   const { currentTenant } = useApp();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(initialCampaignId || '');
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>(() => {
+    return initialCampaignId || sessionStorage.getItem('davos_active_campaign_id') || '';
+  });
   const [comparison, setComparison] = useState<ReengagementComparisonData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -51,6 +53,7 @@ export function ReengagementComparisonView({
   useEffect(() => {
     if (initialCampaignId) {
       setSelectedCampaignId(initialCampaignId);
+      sessionStorage.setItem('davos_active_campaign_id', initialCampaignId);
     }
   }, [initialCampaignId]);
 
@@ -65,8 +68,17 @@ export function ReengagementComparisonView({
     try {
       const data = await api.getCampaigns(currentTenant.id, false);
       setCampaigns(data || []);
-      if (!selectedCampaignId && data && data.length > 0) {
+      
+      const rememberedId = initialCampaignId || selectedCampaignId || sessionStorage.getItem('davos_active_campaign_id');
+      const validTarget = data?.find(c => c.id === rememberedId);
+
+      if (validTarget) {
+        setSelectedCampaignId(validTarget.id);
+        sessionStorage.setItem('davos_active_campaign_id', validTarget.id);
+        if (onSelectCampaign) onSelectCampaign(validTarget.id);
+      } else if (data && data.length > 0) {
         setSelectedCampaignId(data[0].id);
+        sessionStorage.setItem('davos_active_campaign_id', data[0].id);
         if (onSelectCampaign) onSelectCampaign(data[0].id);
       }
     } catch (err) {
@@ -111,6 +123,7 @@ export function ReengagementComparisonView({
               value={selectedCampaignId} 
               onValueChange={(val) => {
                 setSelectedCampaignId(val);
+                sessionStorage.setItem('davos_active_campaign_id', val);
                 if (onSelectCampaign) onSelectCampaign(val);
               }}
             >

@@ -615,6 +615,12 @@ export function CreditCampaignDetailView({
     fetchMessages();
   }, [selectedLead, currentTenant]);
 
+  useEffect(() => {
+    if (campaignId) {
+      sessionStorage.setItem('davos_active_campaign_id', campaignId);
+    }
+  }, [campaignId]);
+
   const selectedCampaign = useMemo(() => {
     return campaigns.find(c => c.id === campaignId) || null;
   }, [campaigns, campaignId]);
@@ -970,7 +976,10 @@ export function CreditCampaignDetailView({
                 {allCampaignStats.length > 0 && onSelectCampaign && (
                   <select 
                     value={campaignId}
-                    onChange={(e) => onSelectCampaign(e.target.value)}
+                    onChange={(e) => {
+                      sessionStorage.setItem('davos_active_campaign_id', e.target.value);
+                      onSelectCampaign(e.target.value);
+                    }}
                     className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] font-black uppercase text-slate-900 outline-none cursor-pointer min-w-[200px]"
                   >
                     {allCampaignStats.map(c => (

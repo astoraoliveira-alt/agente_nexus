@@ -1139,8 +1139,9 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (convId) {
                     console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Salvando mensagem no banco...`);
                     const content = (msg.contents || body.contents)?.[0];
-                    const text = content?.text || content?.fileCaption || '';
-                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'text');
+                    const isAudio = content?.type === 'audio' || content?.fileMimeType?.includes('audio') || (content?.type === 'file' && content?.fileUrl && (content?.fileUrl?.endsWith('.bin') || content?.fileUrl?.endsWith('.oga') || content?.fileUrl?.endsWith('.ogg') || content?.fileUrl?.endsWith('.mp3')));
+                    const type = content?.type === 'image' ? 'image' : (isAudio ? 'audio' : (content?.type === 'file' ? 'document' : 'text'));
+                    const text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? '[Documento recebido]' : (type === 'image' ? '[Imagem recebida]' : '')));
 
                     // 💾 SALVA NA TABELA MESSAGES (Para visibilidade no Dashboard)
                     const { error: msgInsertError } = await supabaseAdmin.from('messages').insert({
@@ -1149,9 +1150,16 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         content: text,
                         direction: 'inbound',
                         sender_type: 'user',
-                        message_type: 'text',
+                        message_type: type,
+                        audio_url: type === 'audio' ? content?.fileUrl : null,
+                        image_url: type === 'image' ? content?.fileUrl : null,
                         remote_id: externalId,
-                        metadata: { trace_id: traceId, provider: 'zenvia' }
+                        metadata: { 
+                            trace_id: traceId, 
+                            provider: 'zenvia',
+                            file_url: content?.fileUrl,
+                            mimetype: content?.fileMimeType
+                        }
                     });
 
                     if (msgInsertError) {

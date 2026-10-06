@@ -1315,8 +1315,9 @@ app.post('/v1/zenvia/webhook', async (c) => {
                 if (convId) {
                     console.log(`[ZENVIA] 📝 [${traceId}] Conversa identificada: ${convId}. Salvando mensagem no banco...`);
                     const content = (msg.contents || body.contents)?.[0];
-                    const text = content?.text || content?.fileCaption || '';
-                    const type = content?.type === 'image' ? 'image' : (content?.type === 'file' ? 'document' : 'text');
+                    const isAudio = content?.type === 'audio' || content?.fileMimeType?.includes('audio') || (content?.type === 'file' && content?.fileUrl && (content?.fileUrl?.endsWith('.bin') || content?.fileUrl?.endsWith('.oga') || content?.fileUrl?.endsWith('.ogg') || content?.fileUrl?.endsWith('.mp3')));
+                    const type = content?.type === 'image' ? 'image' : (isAudio ? 'audio' : (content?.type === 'file' ? 'document' : 'text'));
+                    const text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? '[Documento recebido]' : (type === 'image' ? '[Imagem recebida]' : '')));
                     
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 

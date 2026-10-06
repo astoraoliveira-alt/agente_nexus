@@ -1225,4 +1225,18 @@ export interface ReengagementComparisonData {
   batches: any[];
 }
 
+export interface MetaBillingDispatchItem {
+  dispatchDate: string; // YYYY-MM-DD
+  dispatchType: 'campaign_initial' | 'reengagement' | 'funnel_followup' | string;
+  dispatchTypeLabel: string;
+  attemptedCount: number; // Enviados (disparos realizados)
+  deliveredCount: number; // Entregues no celular
+  readCount: number;      // Lidos
+  repliedCount: number;   // Responderam / Interagiram
+  failedCount: number;    // Falhas de entrega
+  deliveryRate: number;   // % de entrega
+  unitPrice: number;      // R$ por disparo
+  totalCost: number;      // R$ faturável
+}
+
 

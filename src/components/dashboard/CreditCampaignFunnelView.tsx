@@ -801,6 +801,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       key={row.campaignId}
                       onClick={() => {
                         setSelectedCampaignId(row.campaignId);
+                        sessionStorage.setItem('davos_active_campaign_id', row.campaignId);
                         onSelectCampaign?.(row.campaignId);
                       }}
                       className="hover:bg-slate-50/90 transition-colors cursor-pointer"
