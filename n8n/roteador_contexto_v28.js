@@ -96,9 +96,11 @@ try {
     // 🛡️ PROTEÇÃO DE HANDOFF (HITL)
     if (ctx.status === 'human_active') {
         return {
+            currentStep: "stop_flow",
             stop_flow: true,
             reason: "Handoff Ativo: Operador humano está no controle.",
-            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
         };
     }
 
@@ -107,7 +109,19 @@ try {
     const blueprint = agent.workflow_blueprint || { steps: {} };
     const history = ctx.messages_history || [];
 
-    const currentMsg = String($json?.content ?? $json?.text ?? $json?.message ?? $json?.body ?? rpcData?.message ?? ctx?.current_message ?? "").trim();
+    const currentMsg = String(
+        $node["Edit Fields"]?.json?.message ??
+        $node["Edit Fields"]?.first?.()?.json?.message ??
+        $json?.content ??
+        $json?.text ??
+        $json?.message ??
+        $json?.body ??
+        rpcData?.message ??
+        rpcData?.payload?.content ??
+        ctx?.current_message ??
+        (history.length > 0 && ['user', 'inbound', 'customer', 'cliente'].includes(String(history[history.length - 1]?.sender_type || history[history.length - 1]?.role || '').toLowerCase()) ? history[history.length - 1]?.content : "") ??
+        ""
+    ).trim();
     const lastUserLower = currentMsg.toLowerCase();
 
     // 🕒 REGRA DE AUDITORIA: VALIDAÇÃO DE OPT-IN PRÉVIO DENTRO DA JANELA DE 30 DIAS
@@ -158,18 +172,88 @@ try {
     const hasActiveLoan = Boolean((leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) && !isDeniedFiserv);
     const isApprovedFiserv = Boolean((isPreApprovedJourney || leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_status === 'approved' || leadInfo.fiserv_external_status === 'Pré-aprovado' || leadInfo.fiserv_external_status === 'Aprovado') && !isDeniedFiserv);
 
-    // 🤖 FILTRO DE AUTO-RESPOSTA / ROBÔS DE WHATSAPP BUSINESS
-    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|não est(ou|amos) dispon[ií]ve|não estamos funcionando|não está funcionando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|faça seu pedido|nosso card[aá]pio|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç)/i;
+    // =========================================================================
+    // 🛡️ CIRCUIT BREAKER ANTI-LOOP TRIPLO & DETECTOR DE AUTO-RESPOSTAS (UNIVERSAL)
+    // =========================================================================
+
+    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs
+    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|faça seu pedido|faca seu pedido|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|🤖|[rR]ob[oô]|l[ií]v[iI]a|deeliv\.app|anota\.ai|ola\.click|cardapioweb|cardapio\.menu|instadelivery|hubt\.com|goomer)/i;
 
     const isButtonTemplateClick = ['quero simular!', 'quero simular', 'falar com um agente!', 'falar com um agente', 'simular'].includes(lastUserLower);
 
-    // Se o cliente ainda não avançou no funil e enviou uma mensagem de auto-resposta/robô
-    if (!isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower)) {
+    // 2. Normalizador de Texto para Detecção Algorítmica de Repetição / Eco
+    function normalizeForComparison(t) {
+        if (!t) return "";
+        return String(t)
+            .toLowerCase()
+            .replace(/[*_~`]/g, "")
+            .replace(/[^\w\sáéíóúâêîôûãõç]/gi, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    const currentNormalized = normalizeForComparison(currentMsg);
+
+    // 3. Inspeção do Histórico Recente (Eco, Repetição e Rajada)
+    let isIdenticalUserRepeated = false;
+    let isEchoPingPong = false;
+    let isHighFrequencyBurst = false;
+    let repeatCount = 0;
+
+    const userMsgs = history.filter(m => ['user', 'inbound', 'customer', 'cliente'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase()));
+    const botMsgs = history.filter(m => ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase()));
+
+    // Detecção 3A: Cliente enviou exatamente o mesmo texto consecutivo (ex: 2+ vezes seguidas)
+    if (currentNormalized.length > 5 && userMsgs.length >= 2) {
+        const prevUserNormalized = normalizeForComparison(userMsgs[userMsgs.length - 2]?.content || userMsgs[userMsgs.length - 2]?.text);
+        if (currentNormalized === prevUserNormalized) {
+            repeatCount++;
+            if (userMsgs.length >= 3) {
+                const prev2UserNormalized = normalizeForComparison(userMsgs[userMsgs.length - 3]?.content || userMsgs[userMsgs.length - 3]?.text);
+                if (currentNormalized === prev2UserNormalized) repeatCount++;
+            }
+        }
+        if (repeatCount >= 1) {
+            isIdenticalUserRepeated = true;
+        }
+    }
+
+    // Detecção 3B: Eco / Ping-Pong (Cliente ecoou o que o robô mandou ou o robô ecoou o cliente)
+    if (currentNormalized.length > 8 && botMsgs.length > 0) {
+        const lastBotNormalized = normalizeForComparison(botMsgs[botMsgs.length - 1]?.content || botMsgs[botMsgs.length - 1]?.text);
+        if (currentNormalized === lastBotNormalized || (lastBotNormalized.length > 15 && lastBotNormalized.includes(currentNormalized)) || (currentNormalized.length > 15 && currentNormalized.includes(lastBotNormalized))) {
+            isEchoPingPong = true;
+        }
+    }
+
+    // Detecção 3C: Frequência Acelerada em Janela Curta (Burst de robôs)
+    if (history.length >= 4) {
+        const recentSlice = history.slice(-6);
+        const firstTime = new Date(recentSlice[0].created_at || Date.now()).getTime();
+        const lastTime = new Date(recentSlice[recentSlice.length - 1].created_at || Date.now()).getTime();
+        const timeDiffSec = (lastTime - firstTime) / 1000;
+        if (timeDiffSec > 0 && timeDiffSec < 180 && (repeatCount > 0 || isEchoPingPong)) {
+            isHighFrequencyBurst = true;
+        }
+    }
+
+    const isAutoReplyDetected = !isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower);
+    const isCircuitBreakerTriggered = !isButtonTemplateClick && (isIdenticalUserRepeated || isEchoPingPong || isHighFrequencyBurst);
+
+    if (isAutoReplyDetected || isCircuitBreakerTriggered) {
+        const stopReason = isAutoReplyDetected
+            ? "Auto-resposta detectada: mensagem de ausência, cardápio ou robô do WhatsApp Business recebida. Fluxo pausado aguardando interação humana."
+            : `Circuit Breaker Anti-Loop ativado: padrão repetitivo detectado (repetição: ${repeatCount}, eco: ${isEchoPingPong}, rajada: ${isHighFrequencyBurst}). Fluxo interrompido com segurança.`;
+
         return {
+            currentStep: "stop_flow",
             stop_flow: true,
             is_auto_reply: true,
-            reason: "Auto-resposta detectada: mensagem de ausência ou robô da empresa recebida. Fluxo pausado aguardando interação humana.",
-            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            circuit_breaker: true,
+            reason: stopReason,
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            status_conversa: "human_active"
         };
     }
 
