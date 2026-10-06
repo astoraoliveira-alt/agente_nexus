@@ -631,18 +631,22 @@ try {
     const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|cartão|cartao|cartões|cartoes|faturamento|só no cartão|so no cartao|crédito|credito|débito|debito|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower) || /^cart[aã]o\??$/i.test(lastUserLower.trim());
     const isDoubt = regexDoubt || ["EXACT_FAQ", "DYNAMIC_FAQ", "INSTITUTIONAL_FAQ", "DOUBT"].includes(semanticIntent);
 
-    const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso)\b.*\b(humano|persona|atendente|vendedor|algu[ée]m|especialista|assessor|fone|telefone|ligar|ligação)\b/i.test(lastUserLower) || /^(atendente|assessor|humano|pessoa|fone|telefone)$/i.test(lastUserLower);
+    const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso|transferir|conectar|tem como)\b.*\b(humano|persona|atendente|atensente|vendedor|algu[ée]m|especialista|assessor|operador|consultor|fone|telefone|ligar|ligação|gente|pessoa de verdade|humano de verdade)\b/i.test(lastUserLower) || /^(atendente|atensente|assessor|humano|pessoa|fone|telefone|ligar)$/i.test(lastUserLower.trim());
     const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF" || isCnpjDivergent) && !isAgentButtonClick;
 
     const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
     const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 
+    // 🛡️ DETECÇÃO DE TOM AGRESSIVO, OFENSAS E INSULTOS (PRIORIDADE ALTA NA FILA DE ATENDIMENTO)
+    const regexOffensiveOrAggressive = /\b(idiota|idiotas|imbecil|imbecis|babaca|babacas|burro|burros|palhaço|palhaco|palhaçada|palhacada|safado|safados|sem vergonha|mentiroso|mentirosos|canalha|canalhas|otário|otario|otários|otarios|ridículo|ridiculo|trouxa|trouxas|farsante|golpe|golpistas|estelionato|estelionatário|processo|processar|vou processar|advogado|procon|policia|polícia|denúncia|denuncia|denunciar|porra|caralho|merda|pqp|fdp|fode|foder|foda-se|fodase|vsf|vtmnc|vtnc|cacete|desgraça|desgraca|lixo)\b/i.test(lastUserLower) || /\b(por que mandou|pq mandou|pra que mandar)\b/i.test(lastUserLower);
+    const isOffensiveOrAggressive = regexOffensiveOrAggressive;
+
     const regexComplaint = (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(lastUserLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(lastUserLower) && !/reembolso/i.test(lastUserLower)));
-    const isComplaint = regexComplaint || semanticIntent === "COMPLAINT" || semanticIntent === "COMPLAINT_RECOVERY";
+    const isComplaint = regexComplaint || isOffensiveOrAggressive || semanticIntent === "COMPLAINT" || semanticIntent === "COMPLAINT_RECOVERY";
 
     const checkIfComplaint = (msgText) => {
         const textLower = String(msgText || "").toLowerCase();
-        return (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(textLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(textLower) && !/reembolso/i.test(textLower)));
+        return (/\b(atraso|problema|errado|reclamação|ruim|péssimo|horrível|lixo|merda|falha|não funciona|nao funciona|está ruim|está péssimo)\b/i.test(textLower) || (/\b(n[ãa]o recebi|nao recebi)\b/i.test(textLower) && !/reembolso/i.test(textLower)) || regexOffensiveOrAggressive);
     };
 
     const previousClientComplaints = history
@@ -650,7 +654,7 @@ try {
         .filter(m => checkIfComplaint(m.content || m.text));
 
     const isFirstComplaint = previousClientComplaints.length === 0;
-    const effectiveComplaint = isComplaint && !isFirstComplaint;
+    const effectiveComplaint = (isComplaint && !isFirstComplaint) || isOffensiveOrAggressive;
 
     // --- 3) GESTÃO DINÂMICA DE INCIDENTES ---
     let forcedIncidentText = null;
@@ -1033,21 +1037,29 @@ try {
         const motivoFiserv = leadInfo.fiserv_external_status || "Analisamos sua solicitação e desta vez não conseguimos aprová-la devido a políticas internas de crédito.";
         const recusaAlreadySent = historyTexts.includes("não conseguimos liberar") || historyTexts.includes("políticas internas de crédito") || historyTexts.includes("politicas internas de credito");
 
-        if (recusaAlreadySent) {
-            // 🛡️ Lead já foi notificado da recusa. Silencia para não papaguear nem gerar atrito.
-            // A mensagem do cliente fica gravada no banco e visível na Fila de Atendimento,
-            // mas o robô não envia resposta e NÃO trava em human_active (preservando o ciclo de 30 dias).
+        // 🛡️ REQUISITO: NÃO colocar na Fila de Atendimento todo lead recusado!
+        // Apenas transferir para humano se o cliente pedir explicitamente OU usar tom agressivo/ofensas.
+        if (isHumanRequest || isOffensiveOrAggressive) {
+            forcedText = isOffensiveOrAggressive
+                ? `Compreendo sua insatisfação e peço desculpas pelo ocorrido. Vou direcionar sua mensagem imediatamente para a nossa equipe de supervisão verificar seu caso com prioridade.`
+                : `Entendido! Vou transferir o seu atendimento para um de nossos especialistas humanos. Em breve entraremos em contato com você por aqui. 👍`;
+            mode = "parrot";
+        } else if (recusaAlreadySent) {
+            // Lead recusado comum/neutro (respondeu "ok", "obrigado", emojis ou clicou em botão antigo):
+            // 🛡️ NÃO envia para Fila de Atendimento, NÃO trava em human_active, e silencia o robô!
             return {
                 currentStep: "stop_flow",
                 stop_flow: true,
-                reason: "Lead já notificado de recusa Fiserv. Robô silenciado para evitar respostas repetitivas.",
+                trigger_handoff: false,
+                reason: "Lead recusado neutro. Robô silenciado sem transbordo humano (preserva revalidação de 30 dias).",
                 conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
                 p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
             };
         } else {
+            // Notificação inicial de recusa da Fiserv: resposta amigável direta sem transbordo humano
             forcedText = `${nomeCliente}\n\n${motivoFiserv}\n\nAs análises de crédito são dinâmicas e baseadas em critérios de mercado e volume de transações Ticket. Você poderá solicitar uma nova análise em *30 dias*!\n\nObrigado pela confiança na Ticket! 🙏`;
+            mode = "parrot";
         }
-        mode = "parrot";
     } else if (nextStep === 'criar_lead') {
         forcedText = `Perfeito! Sua solicitação já está em analise.\n\n⏳ Avaliando em ~1 minuto...\nAssim que tivermos o retorno, chamaremos aqui com o resultado!`;
         mode = "parrot";
@@ -1434,7 +1446,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             campaign_id: leadInfo.campaign_id || ctx.campaign_id,
             lead_id: leadInfo.id || ctx.lead_id,
             tenant_id: ctx.tenant_id,
-            priority: (effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || isCnpjDivergent) ? 'high' : 'medium'
+            priority: (isOffensiveOrAggressive || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || isCnpjDivergent) ? 'high' : 'medium'
         },
         identity_confirmed: isIdentityConfirmed,
         cnpj_confirmed: isIdentityConfirmed,
