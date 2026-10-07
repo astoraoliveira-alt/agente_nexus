@@ -15,7 +15,8 @@ import {
   FileCheck,
   AlertCircle,
   Bot,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
@@ -568,6 +569,17 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={loadFunnelData}
+            disabled={isLoading}
+            title="Atualizar dados do funil"
+            className="h-9 w-9 bg-white hover:bg-slate-100 border-slate-200 text-slate-700 shadow-sm transition-all rounded-xl"
+          >
+            <RefreshCw className={cn("w-4 h-4 text-slate-600", isLoading && "animate-spin text-emerald-600")} />
+          </Button>
+
           <Button
             variant="outline"
             size="sm"

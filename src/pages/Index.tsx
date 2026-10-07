@@ -1,13 +1,14 @@
-import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target, Layers, RotateCcw, CalendarDays } from 'lucide-react';
+import { MessageSquare, BarChart3, Bell, Clock, Users, TrendingUp, Bot, Zap, Target, Layers, RotateCcw, CalendarDays, RefreshCw } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { KPICard } from '@/components/dashboard/KPICard';
 import { EdenredConversionBanner } from '@/components/dashboard/EdenredConversionBanner';
 import { useApp } from '@/contexts/AppContext';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/services/api';
 import { dashboardService } from '@/services/dashboard.service';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,10 @@ const EDENRED_TENANT_ID = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
 export default function Index() {
   const { currentTenant, openSlideOver } = useApp();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [activeCampaignId, setActiveCampaignId] = useState<string | null>(() => {
     return sessionStorage.getItem('davos_active_campaign_id') || null;
@@ -35,7 +40,7 @@ export default function Index() {
     sessionStorage.setItem('davos_active_campaign_id', campId);
   };
 
-  const { data: dashData, isLoading } = useQuery({
+  const { data: dashData, isLoading, refetch: refetchDash } = useQuery({
     queryKey: ['dashboard-stats', currentTenant?.id],
     queryFn: () => api.getDashMaster(currentTenant!.id),
     enabled: !!currentTenant?.id,
@@ -44,12 +49,25 @@ export default function Index() {
 
   // Edenred-specific conversion query
   const isEdenred = currentTenant?.id === EDENRED_TENANT_ID;
-  const { data: edenredFunnel, isLoading: isLoadingEdenred } = useQuery({
+  const { data: edenredFunnel, isLoading: isLoadingEdenred, refetch: refetchEdenred } = useQuery({
     queryKey: ['edenred-conversion', currentTenant?.id],
     queryFn: () => dashboardService.getEdenredConversionFunnel(currentTenant!.id),
     enabled: isEdenred,
     refetchInterval: 60000,
   });
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    setRefreshKey(prev => prev + 1);
+    await Promise.allSettled([
+      queryClient.invalidateQueries(),
+      refetchDash(),
+      refetchEdenred?.()
+    ]);
+    setTimeout(() => {
+      setIsRefreshing(false);
+    }, 400);
+  };
 
   // Default structure to prevent Uncaught TypeError
   const defaultRoi = { minsPerMsg: 2, operatorHourRate: 30 };
@@ -118,22 +136,34 @@ export default function Index() {
                   Comparativo de Reengajamento
                 </TabsTrigger>
               </TabsList>
+
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                title="Atualizar dados do dashboard"
+                className="h-9 w-9 bg-white hover:bg-slate-100 border-slate-200 text-slate-700 shadow-sm transition-all rounded-xl"
+              >
+                <RefreshCw className={cn("w-4 h-4 text-slate-600", isRefreshing && "animate-spin text-emerald-600")} />
+              </Button>
             </div>
 
             <TabsContent value="credit-funnel" className="mt-0 focus-visible:outline-none">
-              <CreditCampaignFunnelView onSelectCampaign={handleSelectCampaign} />
+              <CreditCampaignFunnelView key={refreshKey} onSelectCampaign={handleSelectCampaign} />
             </TabsContent>
 
             <TabsContent value="daily-status" className="mt-0 focus-visible:outline-none">
-              <DailyFunnelStatusView />
+              <DailyFunnelStatusView key={refreshKey} />
             </TabsContent>
 
             <TabsContent value="campaign-overview" className="mt-0 focus-visible:outline-none">
-              <CampaignExecutiveView onSelectCampaign={handleSelectCampaign} />
+              <CampaignExecutiveView key={refreshKey} onSelectCampaign={handleSelectCampaign} />
             </TabsContent>
 
             <TabsContent value="reengagement-comparison" className="mt-0 focus-visible:outline-none">
               <ReengagementComparisonView 
+                key={refreshKey}
                 initialCampaignId={activeCampaignId || undefined}
                 onSelectCampaign={handleSelectCampaign}
               />
