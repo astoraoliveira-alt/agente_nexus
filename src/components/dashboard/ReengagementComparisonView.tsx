@@ -103,6 +103,66 @@ export function ReengagementComparisonView({
   const reeng = comparison?.reengagement;
   const delta = comparison?.delta;
 
+  const origFunnel = comparison?.originalFunnel || {
+    carregados: orig?.totalSent || 0,
+    enviados: orig?.totalSent || 0,
+    entregues: orig?.delivered || 0,
+    lidas: orig?.read || 0,
+    interagiram: orig?.replied || 0,
+    confirmaram: 0,
+    faturamento: 0,
+    valorInicial: 0,
+    optIn: orig?.optIn || 0,
+    aprovados: orig?.conversions || 0,
+    recusados: 0,
+    simularam: 0,
+    okAgente: 0,
+    aguarContato: 0,
+    emAtendimento: 0,
+    formalizado: 0,
+    desistencia: 0,
+  };
+
+  const reengFunnel = comparison?.reengagementFunnel || {
+    carregados: reeng?.totalSent || 0,
+    enviados: reeng?.totalSent || 0,
+    entregues: reeng?.delivered || 0,
+    lidas: reeng?.read || 0,
+    interagiram: reeng?.replied || 0,
+    confirmaram: 0,
+    faturamento: 0,
+    valorInicial: 0,
+    optIn: reeng?.optIn || 0,
+    aprovados: reeng?.conversions || 0,
+    recusados: 0,
+    simularam: 0,
+    okAgente: 0,
+    aguarContato: 0,
+    emAtendimento: 0,
+    formalizado: 0,
+    desistencia: 0,
+  };
+
+  const totalConsolidado = {
+    carregados: origFunnel.carregados,
+    enviados: origFunnel.enviados + reengFunnel.enviados,
+    entregues: origFunnel.entregues + reengFunnel.entregues,
+    lidas: origFunnel.lidas + reengFunnel.lidas,
+    interagiram: origFunnel.interagiram + reengFunnel.interagiram,
+    confirmaram: origFunnel.confirmaram + reengFunnel.confirmaram,
+    faturamento: origFunnel.faturamento + reengFunnel.faturamento,
+    valorInicial: origFunnel.valorInicial + reengFunnel.valorInicial,
+    optIn: origFunnel.optIn + reengFunnel.optIn,
+    aprovados: origFunnel.aprovados + reengFunnel.aprovados,
+    recusados: origFunnel.recusados + reengFunnel.recusados,
+    simularam: origFunnel.simularam + reengFunnel.simularam,
+    okAgente: origFunnel.okAgente + reengFunnel.okAgente,
+    aguarContato: origFunnel.aguarContato + reengFunnel.aguarContato,
+    emAtendimento: origFunnel.emAtendimento + reengFunnel.emAtendimento,
+    formalizado: origFunnel.formalizado + reengFunnel.formalizado,
+    desistencia: origFunnel.desistencia + reengFunnel.desistencia,
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Bar com Seleção de Campanha e Ações */}
@@ -249,162 +309,189 @@ export function ReengagementComparisonView({
             </Card>
           </div>
 
-          {/* Comparativo Lado a Lado (Tabela Executiva de Funil) */}
-          <Card className="border-border/60 shadow-sm overflow-hidden">
-            <CardHeader className="bg-muted/30 border-b border-border/50 py-4">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-500" />
-                Matriz Comparativa de Desempenho
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Valores absolutos e percentuais de conversão em cada etapa
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50 uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60">
-                    <tr>
-                      <th className="py-3 px-4">Etapa do Funil</th>
-                      <th className="py-3 px-4 text-center">Envio Original</th>
-                      <th className="py-3 px-4 text-center">Reengajamento</th>
-                      <th className="py-3 px-4 text-right">Impacto Adicional (Delta)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border/40">
-                    {/* Disparos */}
-                    <tr className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-medium flex items-center gap-2">
-                        <Users className="w-4 h-4 text-slate-400" />
-                        Disparos Realizados
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-bold text-foreground">
-                        {orig?.totalSent || 0}
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-bold text-blue-600">
-                        {reeng?.totalSent || 0}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-muted-foreground">
-                        +{reeng?.totalSent || 0} novos envios
-                      </td>
-                    </tr>
-
-                    {/* Entregues */}
-                    <tr className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-medium flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        Chegaram no Celular (Entregues)
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-foreground">{orig?.delivered || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({orig?.deliveredRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-blue-600">{reeng?.delivered || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({reeng?.deliveredRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-emerald-600 font-bold">
-                        +{reeng?.delivered || 0} entregues
-                      </td>
-                    </tr>
-
-                    {/* Lidos */}
-                    <tr className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-medium flex items-center gap-2">
-                        <Eye className="w-4 h-4 text-sky-500" />
-                        Mensagens Lidas
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-foreground">{orig?.read || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({orig?.readRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-blue-600">{reeng?.read || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({reeng?.readRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-sky-600 font-bold">
-                        +{reeng?.read || 0} lidas
-                      </td>
-                    </tr>
-
-                    {/* Responderam / Interagiram */}
-                    <tr className="hover:bg-muted/20 bg-emerald-500/5">
-                      <td className="py-3.5 px-4 font-semibold text-foreground flex items-center gap-2">
-                        <MessageSquare className="w-4 h-4 text-emerald-600" />
-                        Responderam / Interagiram
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-foreground">{orig?.replied || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({orig?.replyRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-emerald-600">{reeng?.replied || 0}</span>
-                        <span className="text-[11px] text-emerald-700 ml-1.5 font-bold">({reeng?.replyRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-emerald-600 font-bold">
-                        +{delta?.extraReplies || 0} reativações (+{delta?.replyGrowthPct || 0}%)
-                      </td>
-                    </tr>
-
-                    {/* Opt-in Formalizado */}
-                    <tr className="hover:bg-muted/20 bg-indigo-500/5">
-                      <td className="py-3.5 px-4 font-semibold text-foreground flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-indigo-600" />
-                        Opt-in Formalizado
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-foreground">{orig?.optIn || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({orig?.optInRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-indigo-600">{reeng?.optIn || 0}</span>
-                        <span className="text-[11px] text-indigo-700 ml-1.5 font-bold">({reeng?.optInRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-indigo-600 font-bold">
-                        +{reeng?.optIn || 0} opt-ins
-                      </td>
-                    </tr>
-
-                    {/* Conversões de Crédito */}
-                    <tr className="hover:bg-muted/20 bg-amber-500/5">
-                      <td className="py-3.5 px-4 font-semibold text-foreground flex items-center gap-2">
-                        <Award className="w-4 h-4 text-amber-600" />
-                        Aprovados / Formalizados
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-foreground">{orig?.conversions || 0}</span>
-                        <span className="text-[11px] text-muted-foreground ml-1.5">({orig?.conversionRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        <span className="font-bold text-amber-600">{reeng?.conversions || 0}</span>
-                        <span className="text-[11px] text-amber-700 ml-1.5 font-bold">({reeng?.conversionRate || 0}%)</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-amber-600 font-bold">
-                        +{delta?.extraConversions || 0} novos contratos
-                      </td>
-                    </tr>
-
-                    {/* Falhas */}
-                    <tr className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-medium text-muted-foreground flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-rose-500" />
-                        Falhas de Entrega
-                      </td>
-                      <td className="py-3.5 px-4 text-center text-muted-foreground">
-                        {orig?.failed || 0} ({orig?.failedRate || 0}%)
-                      </td>
-                      <td className="py-3.5 px-4 text-center text-rose-600 font-medium">
-                        {reeng?.failed || 0} ({reeng?.failedRate || 0}%)
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono text-muted-foreground">
-                        -
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+          {/* Matriz Comparativa no Formato de Planilha do Funil Principal */}
+          <div className="bg-white border border-border/60 rounded-2xl shadow-sm overflow-hidden">
+            <div className="p-4 bg-muted/20 border-b border-border/40 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-blue-600" />
+                  Matriz Comparativa do Funil: Envio Original vs Reengajamento
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Estrutura idêntica ao Funil Executivo de Crédito com todas as etapas de Envio, Venda e Formalização
+                </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                {/* Header Nível 1 — Macro Grupos */}
+                <thead>
+                  <tr className="border-b border-slate-200">
+                    <th colSpan={2} className="px-4 py-3 bg-slate-100/70 text-slate-600 font-bold uppercase tracking-wider text-[11px] border-r border-slate-200">
+                      Identificação do Disparo
+                    </th>
+                    <th colSpan={5} className="px-4 py-3 bg-blue-50/80 text-blue-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-blue-100">
+                      Envio da Campanha
+                    </th>
+                    <th colSpan={8} className="px-4 py-3 bg-emerald-50/80 text-emerald-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-emerald-100">
+                      Funil de Venda
+                    </th>
+                    <th colSpan={4} className="px-4 py-3 bg-purple-50/80 text-purple-900 font-bold uppercase tracking-wider text-[11px] text-center">
+                      Funil de Formalização
+                    </th>
+                  </tr>
+
+                  {/* Header Nível 2 — Colunas Individuais */}
+                  <tr className="bg-slate-50/90 border-b border-slate-200 text-[10px] font-bold uppercase text-slate-500">
+                    <th className="px-4 py-2.5">Origem / Etapa</th>
+                    <th className="px-2 py-2.5 text-center border-r border-slate-200">Tipo</th>
+                    
+                    {/* Envio */}
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950">Carregados</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950">Enviados</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950">Entregues</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950">Lidas</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-blue-950 border-r border-blue-100">Interagiram</th>
+
+                    {/* Venda */}
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Confirmaram</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Faturamento</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Valor Inicial</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Opt-in</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Aprovados</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Recusados</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Simularam</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950 border-r border-emerald-100">OK Agente</th>
+
+                    {/* Formalização */}
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Aguar. Contato</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Em Atendimento</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-purple-950">Formalizado</th>
+                    <th className="px-2.5 py-2.5 text-right font-semibold text-rose-950">Desistência</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {/* Linha 1: Envio Original */}
+                  <tr className="hover:bg-slate-50/90 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 ring-2 ring-blue-100 shrink-0" />
+                        <span>Envio Original</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-center border-r border-slate-200">
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-blue-700 bg-blue-50 border-blue-200">
+                        1º Disparo
+                      </Badge>
+                    </td>
+
+                    {/* Envio */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{origFunnel.carregados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{origFunnel.enviados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{origFunnel.entregues.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{origFunnel.lidas.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-blue-700 bg-blue-50/40 border-r border-blue-100">{origFunnel.interagiram.toLocaleString('pt-BR')}</td>
+
+                    {/* Venda */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{origFunnel.confirmaram.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{origFunnel.faturamento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{origFunnel.valorInicial.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{origFunnel.optIn.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">{origFunnel.aprovados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-emerald-50/20">{origFunnel.recusados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{origFunnel.simularam.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20 border-r border-emerald-100">{origFunnel.okAgente.toLocaleString('pt-BR')}</td>
+
+                    {/* Formalização */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-purple-50/20">{origFunnel.aguarContato.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-purple-50/20">{origFunnel.emAtendimento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-purple-700 bg-purple-50/30">{origFunnel.formalizado.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-purple-50/20">{origFunnel.desistencia.toLocaleString('pt-BR')}</td>
+                  </tr>
+
+                  {/* Linha 2: Reengajamento */}
+                  <tr className="hover:bg-slate-50/90 transition-colors bg-emerald-50/10">
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-100 shrink-0" />
+                        <span>Reengajamento</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-center border-r border-slate-200">
+                      <Badge variant="outline" className="text-[9px] px-1.5 py-0 font-medium text-emerald-700 bg-emerald-50 border-emerald-200">
+                        Reativação
+                      </Badge>
+                    </td>
+
+                    {/* Envio */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{reengFunnel.carregados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{reengFunnel.enviados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{reengFunnel.entregues.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-blue-50/20">{reengFunnel.lidas.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-600 bg-blue-50/40 border-r border-blue-100">
+                      +{reengFunnel.interagiram.toLocaleString('pt-BR')}
+                    </td>
+
+                    {/* Venda */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{reengFunnel.confirmaram.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{reengFunnel.faturamento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{reengFunnel.valorInicial.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{reengFunnel.optIn.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">+{reengFunnel.aprovados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-emerald-50/20">{reengFunnel.recusados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{reengFunnel.simularam.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20 border-r border-emerald-100">{reengFunnel.okAgente.toLocaleString('pt-BR')}</td>
+
+                    {/* Formalização */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-purple-50/20">{reengFunnel.aguarContato.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-purple-50/20">{reengFunnel.emAtendimento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-purple-700 bg-purple-50/30">+{reengFunnel.formalizado.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-purple-50/20">{reengFunnel.desistencia.toLocaleString('pt-BR')}</td>
+                  </tr>
+
+                  {/* Linha 3: Total Consolidado */}
+                  <tr className="bg-slate-100/70 font-semibold border-t-2 border-slate-300">
+                    <td className="px-4 py-3 text-slate-900 font-bold">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-600 ring-2 ring-purple-200 shrink-0" />
+                        <span>Total Consolidado</span>
+                      </div>
+                    </td>
+                    <td className="px-2 py-3 text-center border-r border-slate-200">
+                      <Badge className="text-[9px] px-1.5 py-0 font-bold bg-slate-800 text-white hover:bg-slate-800">
+                        Acumulado
+                      </Badge>
+                    </td>
+
+                    {/* Envio */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-blue-100/40">{totalConsolidado.carregados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-blue-100/40">{totalConsolidado.enviados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-blue-100/40">{totalConsolidado.entregues.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-blue-100/40">{totalConsolidado.lidas.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-blue-800 bg-blue-100/60 border-r border-blue-200">{totalConsolidado.interagiram.toLocaleString('pt-BR')}</td>
+
+                    {/* Venda */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">{totalConsolidado.confirmaram.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">{totalConsolidado.faturamento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">{totalConsolidado.valorInicial.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">{totalConsolidado.optIn.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-800 bg-emerald-100/60">{totalConsolidado.aprovados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-emerald-100/40">{totalConsolidado.recusados.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40">{totalConsolidado.simularam.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-emerald-100/40 border-r border-emerald-200">{totalConsolidado.okAgente.toLocaleString('pt-BR')}</td>
+
+                    {/* Formalização */}
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-purple-100/40">{totalConsolidado.aguarContato.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-slate-900 bg-purple-100/40">{totalConsolidado.emAtendimento.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono font-bold text-purple-800 bg-purple-100/60">{totalConsolidado.formalizado.toLocaleString('pt-BR')}</td>
+                    <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-purple-100/40">{totalConsolidado.desistencia.toLocaleString('pt-BR')}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* Histórico dos Lotes Executados da Campanha */}
           <Card className="border-border/60 shadow-sm">

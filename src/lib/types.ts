@@ -1183,6 +1183,26 @@ export interface ReengagementFunnelSummary {
   };
 }
 
+export interface ReengagementFunnelRow {
+  carregados: number;
+  enviados: number;
+  entregues: number;
+  lidas: number;
+  interagiram: number;
+  confirmaram: number;
+  faturamento: number;
+  valorInicial: number;
+  optIn: number;
+  aprovados: number;
+  recusados: number;
+  simularam: number;
+  okAgente: number;
+  aguarContato: number;
+  emAtendimento: number;
+  formalizado: number;
+  desistencia: number;
+}
+
 export interface ReengagementComparisonData {
   campaignId: string;
   campaignName: string;
@@ -1222,6 +1242,8 @@ export interface ReengagementComparisonData {
     replyGrowthPct: number;
     conversionGrowthPct: number;
   };
+  originalFunnel?: ReengagementFunnelRow;
+  reengagementFunnel?: ReengagementFunnelRow;
   batches: any[];
 }
 

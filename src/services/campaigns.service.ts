@@ -1557,6 +1557,47 @@ async deleteCampaign(id: string): Promise<void> {
             const origMetrics = calcMetrics(originalRows);
             const reengMetrics = calcMetrics(reengRows);
 
+            // Funil estruturado completo (estilo planilha do Dashboard)
+            const reengFunnel: import('@/lib/types').ReengagementFunnelRow = {
+                carregados: reengRows.length,
+                enviados: reengMetrics.totalSent,
+                entregues: reengMetrics.delivered,
+                lidas: reengMetrics.read,
+                interagiram: reengMetrics.replied,
+                confirmaram: 0,
+                faturamento: 0,
+                valorInicial: 0,
+                optIn: 0,
+                aprovados: 0,
+                recusados: 0,
+                simularam: 0,
+                okAgente: 0,
+                aguarContato: 0,
+                emAtendimento: 0,
+                formalizado: 0,
+                desistencia: 0
+            };
+
+            let origFunnel: import('@/lib/types').ReengagementFunnelRow = {
+                carregados: originalRows.length,
+                enviados: origMetrics.totalSent,
+                entregues: origMetrics.delivered,
+                lidas: origMetrics.read,
+                interagiram: origMetrics.replied,
+                confirmaram: 0,
+                faturamento: 0,
+                valorInicial: 0,
+                optIn: 0,
+                aprovados: 0,
+                recusados: 0,
+                simularam: 0,
+                okAgente: 0,
+                aguarContato: 0,
+                emAtendimento: 0,
+                formalizado: 0,
+                desistencia: 0
+            };
+
             // 3. Buscar métricas consolidadas oficiais do envio original via getCreditCampaignFunnelStats
             try {
                 const getFunnel = (this?.getCreditCampaignFunnelStats ? this.getCreditCampaignFunnelStats.bind(this) : campaignsService.getCreditCampaignFunnelStats);
@@ -1578,6 +1619,26 @@ async deleteCampaign(id: string): Promise<void> {
                     origMetrics.conversionRate = origMetrics.delivered > 0 ? Math.round((origMetrics.conversions / origMetrics.delivered) * 100) : 0;
                     origMetrics.failed = Math.max(0, origMetrics.totalSent - origMetrics.delivered);
                     origMetrics.failedRate = origMetrics.totalSent > 0 ? Math.round((origMetrics.failed / origMetrics.totalSent) * 100) : 0;
+
+                    origFunnel = {
+                        carregados: Number(campStat.carregados || origMetrics.totalSent || 0),
+                        enviados: Number(campStat.enviados || origMetrics.totalSent || 0),
+                        entregues: Number(campStat.entregues || origMetrics.delivered || 0),
+                        lidas: Number(campStat.lidas || origMetrics.read || 0),
+                        interagiram: Number(campStat.interagiram || origMetrics.replied || 0),
+                        confirmaram: Number(campStat.confirmaram || 0),
+                        faturamento: Number(campStat.faturamento || 0),
+                        valorInicial: Number(campStat.valorInicial || 0),
+                        optIn: Number(campStat.optIn || 0),
+                        aprovados: Number(campStat.aprovados || 0),
+                        recusados: Number(campStat.recusados || 0),
+                        simularam: Number(campStat.simularam || 0),
+                        okAgente: Number(campStat.okAgente || 0),
+                        aguarContato: Number(campStat.aguarContato || 0),
+                        emAtendimento: Number(campStat.emAtendimento || 0),
+                        formalizado: Number(campStat.formalizado || 0),
+                        desistencia: Number(campStat.desistencia || 0)
+                    };
                 }
             } catch (funnelErr) {
                 console.warn('Nota: usando fallback local para métricas originais:', funnelErr);
@@ -1598,27 +1659,94 @@ async deleteCampaign(id: string): Promise<void> {
                     leads.forEach(l => {
                         const ph = this.normalizePhone(l.whatsapp);
                         const meta = l.metadata || {};
-                        const fiservStatus = String(meta.fiserv_status || '').toLowerCase().trim();
+                        const fiservStatus = String(meta.fiserv_status || l.status || '').toLowerCase().trim();
+                        const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
+                        const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
+                        const extStatus = String(meta.fiserv_external_status || '').toLowerCase().trim();
                         const statusStr = String(l.status || '').toLowerCase().trim();
 
+                        const isConfirmed = Boolean(
+                            meta.identity_confirmed === true ||
+                            meta.identity_confirmed === 'true' ||
+                            meta.cnpj_confirmed === true ||
+                            meta.cnpj_confirmed === 'true' ||
+                            meta.revenue ||
+                            meta.faturamento ||
+                            meta.requested_amount ||
+                            meta.valor_inicial ||
+                            meta.simulation_data?.amount ||
+                            meta.fiserv_amount_approved ||
+                            meta.opt_in === true ||
+                            meta.optin === true ||
+                            meta.consent?.opt_in === true ||
+                            meta.loan_request_id ||
+                            meta.simulation_requested ||
+                            meta.simularam ||
+                            meta.simulation_accepted === true ||
+                            meta.simulation_accepted === 'true' ||
+                            meta.ok_agente === true ||
+                            meta.ok_agente === 'true'
+                        );
+                        const isRevenue = Boolean(meta.revenue || meta.faturamento);
+                        const isValorInicial = Boolean(meta.requested_amount || meta.valor_inicial || meta.simulation_data?.amount || meta.fiserv_amount_approved);
                         const isOptIn = fiservStatus === 'opt_in_registered' ||
                             statusStr === 'opt_in' ||
                             statusStr === 'optin' ||
-                            Boolean(meta.formalization_opt_in);
+                            Boolean(meta.formalization_opt_in) ||
+                            Boolean(meta.opt_in) ||
+                            Boolean(meta.consent?.opt_in);
 
                         const isConverted =
-                            ['approved', 'in_quoting', 'comite_approved'].includes(fiservStatus) ||
+                            ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus) ||
                             ['approved', 'aprovado', 'formalized', 'pago'].includes(statusStr) ||
                             ['approved', 'formalized', 'pago'].includes(String(meta.formalization_status || '').toLowerCase());
 
-                        if (isOptIn && reengPhones.has(ph)) {
-                            reengMetrics.optIn += 1;
-                        }
+                        const isRecusado =
+                            ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                            ['denied', 'recusado', 'reprovado'].includes(statusStr);
 
-                        if (isConverted) {
-                            if (reengPhones.has(ph)) {
-                                reengMetrics.conversions += 1;
-                            } else if (origPhones.has(ph) && origMetrics.conversions === 0) {
+                        const isSimularam = Boolean(meta.simulation_requested || meta.simulation_data || meta.simularam);
+                        const hasOkAgente = Boolean(meta.simulation_accepted === true || meta.simulation_accepted === 'true' || meta.ok_agente === true || meta.ok_agente === 'true');
+
+                        if (reengPhones.has(ph)) {
+                            if (isConfirmed) reengFunnel.confirmaram++;
+                            if (isRevenue) reengFunnel.faturamento++;
+                            if (isValorInicial) reengFunnel.valorInicial++;
+                            if (isOptIn) {
+                                reengFunnel.optIn++;
+                                reengMetrics.optIn++;
+                            }
+                            if (isConverted) {
+                                reengFunnel.aprovados++;
+                                reengMetrics.conversions++;
+                            }
+                            if (isRecusado) reengFunnel.recusados++;
+                            if (isSimularam) reengFunnel.simularam++;
+                            if (hasOkAgente) {
+                                reengFunnel.okAgente++;
+                                const isDesistencia = (
+                                    ['lost', 'cancelled', 'declined', 'desistente', 'recusado'].includes(formalStatus) ||
+                                    ['declined', 'lost'].includes(pipeStage) ||
+                                    ['lost', 'cancelled', 'declined'].includes(statusStr) ||
+                                    extStatus.includes('desistiu')
+                                );
+                                const isFormalizado = !isDesistencia && (
+                                    ['formalized', 'formalizado', 'won', 'concluido'].includes(formalStatus) ||
+                                    pipeStage === 'contract_signed'
+                                );
+                                const isEmAtendimento = !isDesistencia && !isFormalizado && (
+                                    ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalStatus) ||
+                                    ['in_contact', 'proposal_sent'].includes(pipeStage)
+                                );
+                                const isAguarContato = !isDesistencia && !isFormalizado && !isEmAtendimento;
+
+                                if (isDesistencia) reengFunnel.desistencia++;
+                                else if (isFormalizado) reengFunnel.formalizado++;
+                                else if (isEmAtendimento) reengFunnel.emAtendimento++;
+                                else if (isAguarContato) reengFunnel.aguarContato++;
+                            }
+                        } else if (origPhones.has(ph)) {
+                            if (origMetrics.conversions === 0 && isConverted) {
                                 origMetrics.conversions += 1;
                             }
                         }
@@ -1677,6 +1805,8 @@ async deleteCampaign(id: string): Promise<void> {
                 campaignName,
                 original: origMetrics,
                 reengagement: reengMetrics,
+                originalFunnel: origFunnel,
+                reengagementFunnel: reengFunnel,
                 delta: {
                     extraReplies,
                     extraConversions,
