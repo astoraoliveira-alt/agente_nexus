@@ -32,6 +32,7 @@ interface MetaBillingReportTabProps {
   campaignId?: string;
   contractUnitPrice?: number;
   onDateChange?: (start: Date, end: Date) => void;
+  onUnitPriceChange?: (price: number) => void;
 }
 
 export function MetaBillingReportTab({
@@ -40,14 +41,15 @@ export function MetaBillingReportTab({
   endDate,
   campaignId,
   contractUnitPrice = 1.05,
-  onDateChange
+  onDateChange,
+  onUnitPriceChange
 }: MetaBillingReportTabProps) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<MetaBillingDispatchItem[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [customPrice, setCustomPrice] = useState<number>(contractUnitPrice);
-  const [billingBasis, setBillingBasis] = useState<'attempted' | 'delivered'>('attempted');
+  const billingBasis = 'delivered'; // Faturamento calculado sobre entregues no celular (onde a Meta de fato cobra)
 
   useEffect(() => {
     if (contractUnitPrice !== undefined) {
@@ -108,7 +110,7 @@ export function MetaBillingReportTab({
       ? Number(((totalDelivered / totalAttempted) * 100).toFixed(1)) 
       : 0;
 
-    const billableVolume = billingBasis === 'attempted' ? totalAttempted : totalDelivered;
+    const billableVolume = totalDelivered;
     const totalRevenue = billableVolume * (customPrice || 0);
 
     return {
@@ -120,7 +122,7 @@ export function MetaBillingReportTab({
       billableVolume,
       totalRevenue
     };
-  }, [filteredItems, customPrice, billingBasis]);
+  }, [filteredItems, customPrice]);
 
   // Exportação formatada para Excel (.xlsx)
   const handleExportExcel = () => {
@@ -141,7 +143,7 @@ export function MetaBillingReportTab({
           formattedDate = `${d}/${m}/${y}`;
         } catch {}
 
-        const volume = billingBasis === 'attempted' ? row.attemptedCount : row.deliveredCount;
+        const volume = row.deliveredCount;
         const total = volume * (customPrice || 0);
 
         return {
@@ -275,7 +277,11 @@ export function MetaBillingReportTab({
               step="0.05"
               min="0"
               value={customPrice}
-              onChange={(e) => setCustomPrice(parseFloat(e.target.value) || 0)}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value) || 0;
+                setCustomPrice(val);
+                if (onUnitPriceChange) onUnitPriceChange(val);
+              }}
               className="w-16 h-7 text-xs font-mono font-bold bg-transparent border-none outline-none text-foreground"
             />
           </div>
@@ -324,7 +330,7 @@ export function MetaBillingReportTab({
               <span className="text-xs text-muted-foreground">tentativas</span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Base oficial faturável recebida por disparos
+              Total de tentativas disparadas pelo sistema
             </p>
           </CardContent>
         </Card>
@@ -349,7 +355,7 @@ export function MetaBillingReportTab({
               </Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Mensagens que tocaram no aparelho do cliente
+              Base oficial faturável pela Meta (recebidas no aparelho)
             </p>
           </CardContent>
         </Card>
@@ -396,7 +402,7 @@ export function MetaBillingReportTab({
               </span>
             </div>
             <p className="mt-1 text-[11px] text-emerald-700/80">
-              {totals.billableVolume.toLocaleString('pt-BR')} envios × R$ {customPrice.toFixed(2)}
+              {totals.totalDelivered.toLocaleString('pt-BR')} entregues no celular × R$ {customPrice.toFixed(2)}
             </p>
           </CardContent>
         </Card>
@@ -415,8 +421,8 @@ export function MetaBillingReportTab({
             </CardDescription>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Info className="w-3.5 h-3.5 text-blue-500" />
-            <span>Faturamento calculado sobre: <strong>{billingBasis === 'attempted' ? 'Disparos Realizados (Enviados)' : 'Entregues no Celular'}</strong></span>
+            <Info className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Faturamento calculado sobre: <strong className="text-emerald-700 font-semibold">Entregues no Celular (Base Oficial Meta)</strong></span>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -453,7 +459,7 @@ export function MetaBillingReportTab({
                       formattedDate = format(dateObj, "dd/MM/yyyy (EEE)", { locale: ptBR });
                     } catch {}
 
-                    const volume = billingBasis === 'attempted' ? item.attemptedCount : item.deliveredCount;
+                    const volume = item.deliveredCount;
                     const subtotal = volume * (customPrice || 0);
 
                     return (

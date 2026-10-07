@@ -402,273 +402,21 @@ export default function Consumption() {
   return (
     <MainLayout>
       <div className="h-full overflow-y-auto">
-        <div className="sticky top-0 z-10 bg-background border-b border-border">
-          <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold">Consumo Detalhado</h1>
-              <p className="text-sm text-muted-foreground">Análise de faturamento baseada no Contrato Operacional</p>
-              <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded w-fit border border-border/40">
-                  <Calendar className="h-3.5 w-3.5 text-primary" />
-                  <span className="font-semibold text-foreground">Período Ativo:</span>
-                  <div className="flex items-center gap-1">
-                    <input 
-                      type="date"
-                      value={period === 'custom' ? customStartDate : format(calculatedStartDate, 'yyyy-MM-dd')}
-                      onChange={(e) => {
-                        setPeriod('custom');
-                        setCustomStartDate(e.target.value);
-                      }}
-                      className="h-6 px-1.5 py-0.5 text-xs font-bold text-foreground bg-background border border-input rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
-                    />
-                    <span className="text-muted-foreground font-medium text-[10px]">até</span>
-                    <input 
-                      type="date"
-                      value={period === 'custom' ? customEndDate : format(calculatedEndDate, 'yyyy-MM-dd')}
-                      onChange={(e) => {
-                        setPeriod('custom');
-                        setCustomEndDate(e.target.value);
-                      }}
-                      className="h-6 px-1.5 py-0.5 text-xs font-bold text-foreground bg-background border border-input rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary cursor-pointer"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 px-2.5 py-1 rounded w-fit border border-border/40">
-                  <DollarSign className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>Valor Sugerido Faturamento:</span>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[11px] font-bold text-foreground">R$</span>
-                    <input 
-                      type="number" 
-                      step="0.01" 
-                      min="0.01"
-                      value={billingRate}
-                      onChange={(e) => setBillingRate(parseFloat(e.target.value) || 0)}
-                      className="w-16 h-6 text-xs font-bold text-foreground bg-background border border-input rounded px-1.5 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
-                    />
-                    <span className="text-[10px] text-muted-foreground font-medium">/ disparo</span>
-                  </div>
-                </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <div className="sticky top-0 z-10 bg-background border-b border-border">
+            <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold">Consumo Detalhado</h1>
+                <p className="text-sm text-muted-foreground">Análise de faturamento baseada no Contrato Operacional</p>
               </div>
-            </div>
-            <Button variant="outline" size="sm" className="w-fit">
-              <Download className="h-4 w-4 mr-2" />
-              Exportar Audit Log
-            </Button>
-          </div>
-
-          <div className="px-6 pb-4 flex flex-wrap items-center gap-4 border-t border-border/40 pt-4 bg-background">
-            <div className="flex items-center gap-2 flex-wrap">
-              <Select value={period} onValueChange={setPeriod}>
-                <SelectTrigger className="w-44 h-8 text-xs">
-                  <Calendar className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                  <SelectValue placeholder="Tipo de Período" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cutoff">Ciclo de Fechamento</SelectItem>
-                  <SelectItem value="7d">Últimos 7 dias</SelectItem>
-                  <SelectItem value="30d">Últimos 30 dias</SelectItem>
-                  <SelectItem value="custom">Intervalo Personalizado</SelectItem>
-                </SelectContent>
-              </Select>
-
-              {period === 'cutoff' && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground uppercase font-bold whitespace-nowrap">Dia de Corte:</span>
-                  <Select 
-                    value={cutoffDay.toString()} 
-                    onValueChange={(val) => setCutoffDay(val === 'last_day' ? 'last_day' : Number(val))}
-                  >
-                    <SelectTrigger className="w-32 h-8 text-xs">
-                      <SelectValue placeholder="Dia de Corte" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="last_day">Último dia</SelectItem>
-                      <SelectItem value="25">Dia 25</SelectItem>
-                      <SelectItem value="20">Dia 20</SelectItem>
-                      <SelectItem value="15">Dia 15</SelectItem>
-                      <SelectItem value="10">Dia 10</SelectItem>
-                      <SelectItem value="5">Dia 5</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {period === 'custom' && (
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="date" 
-                    value={customStartDate} 
-                    onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="flex h-8 w-32 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  />
-                  <span className="text-xs text-muted-foreground">até</span>
-                  <input 
-                    type="date" 
-                    value={customEndDate} 
-                    onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="flex h-8 w-32 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  />
-                </div>
-              )}
+              <Button variant="outline" size="sm" className="w-fit">
+                <Download className="h-4 w-4 mr-2" />
+                Exportar Audit Log
+              </Button>
             </div>
 
-            <div className="h-4 w-[1px] bg-border hidden md:block" />
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Select value={campaignFilter} onValueChange={setCampaignFilter}>
-                <SelectTrigger className="w-48 h-8 text-xs">
-                  <SelectValue placeholder="Todas as Campanhas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas as Campanhas</SelectItem>
-                  {campaigns.map((camp) => (
-                    <SelectItem key={camp.id} value={camp.id}>{camp.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={agentFilter} onValueChange={setAgentFilter}>
-                <SelectTrigger className="w-48 h-8 text-xs">
-                  <SelectValue placeholder="Todos os Agentes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Agentes</SelectItem>
-                  {realAgents.map((agent) => (
-                    <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <Select value={channelFilter} onValueChange={setChannelFilter}>
-                <SelectTrigger className="w-36 h-8 text-xs">
-                  <SelectValue placeholder="Canal" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Canais</SelectItem>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="text">Web Chat</SelectItem>
-                  <SelectItem value="voice">Voz</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-6">
-          <TooltipProvider>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* 1. Interações */}
-              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-none bg-primary/10 flex items-center justify-center">
-                      <MessageSquare className="h-4 w-4 text-primary" />
-                    </div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Interações</span>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-primary transition-colors" />
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-[220px] text-[11px]">
-                      Volume faturável agregado. Para WhatsApp oficial com janela de 24h, o sistema consolida o consumo em janelas em vez de contar cada mensagem separadamente.
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex items-end justify-between mb-2">
-                  <div className="flex items-end gap-2">
-                    <p className="text-2xl font-bold leading-none">{summary.messages.toLocaleString()}</p>
-                    <span className="text-[10px] text-muted-foreground pb-0.5 font-semibold">conversas</span>
-                  </div>
-                  <p className="text-lg font-black text-primary font-mono pb-0.5">R$ {summary.messageCost.toFixed(2)}</p>
-                </div>
-                {summary.whatsappWindows > 0 && (
-                  <div className="text-[10px] text-muted-foreground mt-1">
-                    Inclui {summary.whatsappWindows.toLocaleString()} janela(s) oficiais de 24h.
-                  </div>
-                )}
-                <div className="mt-3 flex items-center gap-2 text-[10px] text-green-600 font-bold">
-                  <Zap className="h-3.5 w-3.5 text-green-600 animate-pulse" />
-                  <span>{roiStats.display} humanas economizadas</span>
-                </div>
-              </div>
-
-              {/* 2. Voz (STT/TTS) */}
-              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-none bg-muted flex items-center justify-center">
-                      <Volume2 className="h-4 w-4 text-foreground" />
-                    </div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Voz (STT/TTS)</span>
-                  </div>
-                </div>
-                <div className="flex items-end justify-between mb-2">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <p className="text-lg font-bold">{Math.max(summary.stt, summary.tts).toFixed(1)}m</p>
-                      <p className="text-[9px] text-muted-foreground uppercase italic">Minutos</p>
-                    </div>
-                    <div className="h-6 w-[1px] bg-border" />
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-                        <Mic className="h-2.5 w-2.5" /> {summary.stt.toFixed(1)}m STT
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
-                        <Volume2 className="h-2.5 w-2.5" /> {summary.tts.toFixed(1)}m TTS
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-lg font-black text-primary font-mono">R$ {(summary.costSTT + summary.costTTS).toFixed(2)}</p>
-                </div>
-              </div>
-
-              {/* 3. Consumo Variável */}
-              <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-none bg-accent/10 flex items-center justify-center">
-                      <DollarSign className="h-4 w-4 text-accent" />
-                    </div>
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consumo Variável</span>
-                  </div>
-                </div>
-                <div className="flex items-end gap-2 mb-2">
-                  <p className="text-2xl font-bold leading-none text-accent">R$ {summary.totalCost.toFixed(2)}</p>
-                </div>
-                <p className="text-[10px] text-muted-foreground mt-1">Total acumulado de interações, voz e IA.</p>
-              </div>
-
-              {/* 4. Investimento Total */}
-              <div className="kpi-card border-none bg-green-600 shadow-sm ring-1 ring-green-700 text-white p-5 rounded-none">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-white/80 font-bold">Investimento Total</span>
-                  <Receipt className="h-4 w-4 text-white/80" />
-                </div>
-                <p className="text-2xl font-bold">
-                  R$ {(() => {
-                    const basePrice = ((tenantToUse as any)?.planPrices?.basePrice) || 0;
-                    const usageCost = summary.totalCost;
-                    const feeCoversUsage = (tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage;
-                    return (feeCoversUsage ? Math.max(basePrice, usageCost) : basePrice + usageCost).toFixed(2);
-                  })()}
-                </p>
-                <div className="mt-2 flex items-center justify-between">
-                  <div className="py-0.5 px-2 bg-white/15 rounded-none text-[9px] font-bold uppercase tracking-wider">
-                    {(tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage ? 'Mensalidade Flex' : 'Mensalidade + Uso'}
-                  </div>
-                  <p className="text-[10px] text-white/70 italic">
-                    Mensalidade: R$ {(((tenantToUse as any)?.planPrices?.basePrice) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </TooltipProvider>
-
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            {/* Barra de Abas no Topo */}
+            <div className="px-6 pb-3 flex items-center border-t border-border/40 pt-3 bg-background">
               <TabsList className="bg-muted/50 p-1 h-9 rounded-none border border-border">
                 <TabsTrigger value="timeline" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Timeline</TabsTrigger>
                 <TabsTrigger value="heatmap" className="h-7 text-xs rounded-none data-[state=active]:bg-background transition-all">Horários</TabsTrigger>
@@ -684,6 +432,221 @@ export default function Consumption() {
                 </TabsTrigger>
               </TabsList>
             </div>
+
+            {/* Filtros gerais: SOMENTE exibidos se activeTab !== 'meta-billing' */}
+            {activeTab !== 'meta-billing' && (
+              <div className="px-6 pb-4 flex flex-wrap items-center gap-4 border-t border-border/40 pt-4 bg-background">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select value={period} onValueChange={setPeriod}>
+                    <SelectTrigger className="w-44 h-8 text-xs">
+                      <Calendar className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                      <SelectValue placeholder="Tipo de Período" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cutoff">Ciclo de Fechamento</SelectItem>
+                      <SelectItem value="7d">Últimos 7 dias</SelectItem>
+                      <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                      <SelectItem value="custom">Intervalo Personalizado</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {period === 'cutoff' && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-muted-foreground uppercase font-bold whitespace-nowrap">Dia de Corte:</span>
+                      <Select 
+                        value={cutoffDay.toString()} 
+                        onValueChange={(val) => setCutoffDay(val === 'last_day' ? 'last_day' : Number(val))}
+                      >
+                        <SelectTrigger className="w-32 h-8 text-xs">
+                          <SelectValue placeholder="Dia de Corte" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="last_day">Último dia</SelectItem>
+                          <SelectItem value="25">Dia 25</SelectItem>
+                          <SelectItem value="20">Dia 20</SelectItem>
+                          <SelectItem value="15">Dia 15</SelectItem>
+                          <SelectItem value="10">Dia 10</SelectItem>
+                          <SelectItem value="5">Dia 5</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {period === 'custom' && (
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="date" 
+                        value={customStartDate} 
+                        onChange={(e) => setCustomStartDate(e.target.value)}
+                        className="flex h-8 w-32 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      <span className="text-xs text-muted-foreground">até</span>
+                      <input 
+                        type="date" 
+                        value={customEndDate} 
+                        onChange={(e) => setCustomEndDate(e.target.value)}
+                        className="flex h-8 w-32 rounded-md border border-input bg-background px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="h-4 w-[1px] bg-border hidden md:block" />
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Select value={campaignFilter} onValueChange={setCampaignFilter}>
+                    <SelectTrigger className="w-48 h-8 text-xs">
+                      <SelectValue placeholder="Todas as Campanhas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas as Campanhas</SelectItem>
+                      {campaigns.map((camp) => (
+                        <SelectItem key={camp.id} value={camp.id}>{camp.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={agentFilter} onValueChange={setAgentFilter}>
+                    <SelectTrigger className="w-48 h-8 text-xs">
+                      <SelectValue placeholder="Todos os Agentes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Agentes</SelectItem>
+                      {realAgents.map((agent) => (
+                        <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={channelFilter} onValueChange={setChannelFilter}>
+                    <SelectTrigger className="w-36 h-8 text-xs">
+                      <SelectValue placeholder="Canal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos os Canais</SelectItem>
+                      <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                      <SelectItem value="text">Web Chat</SelectItem>
+                      <SelectItem value="voice">Voz</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-6 space-y-6">
+            {/* Cards de KPIs gerais: SOMENTE exibidos se activeTab !== 'meta-billing' */}
+            {activeTab !== 'meta-billing' && (
+              <TooltipProvider>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* 1. Interações */}
+                  <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-none bg-primary/10 flex items-center justify-center">
+                          <MessageSquare className="h-4 w-4 text-primary" />
+                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Interações</span>
+                      </div>
+                      <Tooltip>
+                        <TooltipTrigger>
+                          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-primary transition-colors" />
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-[220px] text-[11px]">
+                          Volume faturável agregado. Para WhatsApp oficial com janela de 24h, o sistema consolida o consumo em janelas em vez de contar cada mensagem separadamente.
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                    <div className="flex items-end justify-between mb-2">
+                      <div className="flex items-end gap-2">
+                        <p className="text-2xl font-bold leading-none">{summary.messages.toLocaleString()}</p>
+                        <span className="text-[10px] text-muted-foreground pb-0.5 font-semibold">conversas</span>
+                      </div>
+                      <p className="text-lg font-black text-primary font-mono pb-0.5">R$ {summary.messageCost.toFixed(2)}</p>
+                    </div>
+                    {summary.whatsappWindows > 0 && (
+                      <div className="text-[10px] text-muted-foreground mt-1">
+                        Inclui {summary.whatsappWindows.toLocaleString()} janela(s) oficiais de 24h.
+                      </div>
+                    )}
+                    <div className="mt-3 flex items-center gap-2 text-[10px] text-green-600 font-bold">
+                      <Zap className="h-3.5 w-3.5 text-green-600 animate-pulse" />
+                      <span>{roiStats.display} humanas economizadas</span>
+                    </div>
+                  </div>
+
+                  {/* 2. Voz (STT/TTS) */}
+                  <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-none bg-muted flex items-center justify-center">
+                          <Volume2 className="h-4 w-4 text-foreground" />
+                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Voz (STT/TTS)</span>
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div>
+                          <p className="text-lg font-bold">{Math.max(summary.stt, summary.tts).toFixed(1)}m</p>
+                          <p className="text-[9px] text-muted-foreground uppercase italic">Minutos</p>
+                        </div>
+                        <div className="h-6 w-[1px] bg-border" />
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+                            <Mic className="h-2.5 w-2.5" /> {summary.stt.toFixed(1)}m STT
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+                            <Volume2 className="h-2.5 w-2.5" /> {summary.tts.toFixed(1)}m TTS
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-lg font-black text-primary font-mono">R$ {(summary.costSTT + summary.costTTS).toFixed(2)}</p>
+                    </div>
+                  </div>
+
+                  {/* 3. Consumo Variável */}
+                  <div className="kpi-card border-none bg-background shadow-sm ring-1 ring-border p-5 rounded-none">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-none bg-accent/10 flex items-center justify-center">
+                          <DollarSign className="h-4 w-4 text-accent" />
+                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Consumo Variável</span>
+                      </div>
+                    </div>
+                    <div className="flex items-end gap-2 mb-2">
+                      <p className="text-2xl font-bold leading-none text-accent">R$ {summary.totalCost.toFixed(2)}</p>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">Total acumulado de interações, voz e IA.</p>
+                  </div>
+
+                  {/* 4. Investimento Total */}
+                  <div className="kpi-card border-none bg-green-600 shadow-sm ring-1 ring-green-700 text-white p-5 rounded-none">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-white/80 font-bold">Investimento Total</span>
+                      <Receipt className="h-4 w-4 text-white/80" />
+                    </div>
+                    <p className="text-2xl font-bold">
+                      R$ {(() => {
+                        const basePrice = ((tenantToUse as any)?.planPrices?.basePrice) || 0;
+                        const usageCost = summary.totalCost;
+                        const feeCoversUsage = (tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage;
+                        return (feeCoversUsage ? Math.max(basePrice, usageCost) : basePrice + usageCost).toFixed(2);
+                      })()}
+                    </p>
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="py-0.5 px-2 bg-white/15 rounded-none text-[9px] font-bold uppercase tracking-wider">
+                        {(tenantToUse as any)?.planDetails?.monthlyFeeCoversUsage ? 'Mensalidade Flex' : 'Mensalidade + Uso'}
+                      </div>
+                      <p className="text-[10px] text-white/70 italic">
+                        Mensalidade: R$ {(((tenantToUse as any)?.planPrices?.basePrice) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </TooltipProvider>
+            )}
 
             {activeTab !== 'meta-billing' ? (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -868,6 +831,7 @@ export default function Consumption() {
                   endDate={calculatedEndDate}
                   campaignId={campaignFilter !== 'all' ? campaignFilter : undefined}
                   contractUnitPrice={billingRate}
+                  onUnitPriceChange={setBillingRate}
                   onDateChange={(start, end) => {
                     setPeriod('custom');
                     setCustomStartDate(format(start, 'yyyy-MM-dd'));
@@ -876,19 +840,19 @@ export default function Consumption() {
                 />
               </TabsContent>
             )}
-          </Tabs>
 
-          <div className="p-4 bg-muted/30 border border-dashed border-border/60 rounded-none">
-            <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-2">
-              <Timer className="h-3 w-3" /> Governança de Dados
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-[10px] text-muted-foreground/80 leading-relaxed">
-              <div><p className="font-black text-foreground mb-1">ORIGEM</p>Webhooks Direct Connect (WA/Voz)</div>
-              <div><p className="font-black text-foreground mb-1">AUDITORIA</p>Log de auditoria registrado no Supabase</div>
-              <div><p className="font-black text-foreground mb-1">POLÍTICA</p>99.9% de acurácia em conformidade ISO 42001</div>
+            <div className="p-4 bg-muted/30 border border-dashed border-border/60 rounded-none">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-2">
+                <Timer className="h-3 w-3" /> Governança de Dados
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-[10px] text-muted-foreground/80 leading-relaxed">
+                <div><p className="font-black text-foreground mb-1">ORIGEM</p>Webhooks Direct Connect (WA/Voz)</div>
+                <div><p className="font-black text-foreground mb-1">AUDITORIA</p>Log de auditoria registrado no Supabase</div>
+                <div><p className="font-black text-foreground mb-1">POLÍTICA</p>99.9% de acurácia em conformidade ISO 42001</div>
+              </div>
             </div>
           </div>
-        </div>
+        </Tabs>
       </div>
     </MainLayout>
   );
