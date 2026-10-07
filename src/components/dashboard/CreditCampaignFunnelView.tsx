@@ -224,8 +224,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       'Envio - Interagiram': d.interagiram,
       // Venda
       'Venda - Confirmaram': d.confirmaram || 0,
-      'Venda - Faturamento': d.faturamento,
       'Venda - Valor Inicial': d.valorInicial,
+      'Venda - Faturamento': d.faturamento,
       'Venda - Opt-in': d.optIn,
       'Venda - Aprovados': d.aprovados,
       'Venda - Recusados': d.recusados,
@@ -365,11 +365,12 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               Number(String(reqAmt).replace(/[^\d.-]/g, '')) <= 500000
             ) || Boolean(meta.simulation_data?.amount || meta.fiserv_amount_approved);
 
-            const hasValorInicial = Boolean((hasFaturamento && hasValidAmount) || hasOptIn);
+            const hasValorInicial = Boolean(hasValidAmount || hasOptIn);
 
             const hasIdentityConfirmed = Boolean(
               ['true', 't', '1', true].includes(meta.identity_confirmed) || 
               ['true', 't', '1', true].includes(meta.cnpj_confirmed) || 
+              hasValorInicial ||
               hasFaturamento
             );
 
@@ -487,10 +488,10 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               'Interagiram': isInteragiram ? 'Sim' : 'Não',
               // Funil de Venda
               'Confirmaram': hasIdentityConfirmed ? 'Sim' : 'Não',
-              'Faturamento': hasFaturamento ? 'Sim' : 'Não',
-              'Valor Faturamento': rawRev || '-',
               'Valor Inicial': hasValorInicial ? 'Sim' : 'Não',
               'Valor Solicitado': reqAmt || '-',
+              'Faturamento': hasFaturamento ? 'Sim' : 'Não',
+              'Valor Faturamento': rawRev || '-',
               'Opt-in': hasOptIn ? 'Sim' : 'Não',
               'Aprovados': isAprovado ? 'Sim' : 'Não',
               'Recusados': isRecusado ? 'Sim' : 'Não',
@@ -776,8 +777,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
                 {/* Venda */}
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Confirmaram</th>
-                <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Faturamento</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Valor Inicial</th>
+                <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Faturamento</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Opt-in</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Aprovados</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Recusados</th>
@@ -853,8 +854,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
                       {/* Venda */}
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{(row.confirmaram || 0).toLocaleString('pt-BR')}</td>
-                      <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.faturamento.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.valorInicial.toLocaleString('pt-BR')}</td>
+                      <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.faturamento.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.optIn.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">{row.aprovados.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-emerald-50/20">{row.recusados.toLocaleString('pt-BR')}</td>
@@ -897,9 +898,9 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   </td>
 
                   {/* Venda */}
-                  <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.confirmaram.toLocaleString('pt-BR')}</td>
-                  <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.faturamento.toLocaleString('pt-BR')}</td>
+                  <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{(totals.confirmaram || 0).toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.valorInicial.toLocaleString('pt-BR')}</td>
+                  <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.faturamento.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.optIn.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-800 bg-emerald-100/60">{totals.aprovados.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono text-rose-700 bg-emerald-100/40">{totals.recusados.toLocaleString('pt-BR')}</td>

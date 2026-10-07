@@ -78,20 +78,20 @@ const STAGES: StageConfig[] = [
   {
     id: 'confirmou',
     group: 'funil',
-    label: 'Confirmou, não informou o faturamento',
-    description: 'Parou na pergunta de faturamento.'
-  },
-  {
-    id: 'faturamento',
-    group: 'funil',
-    label: 'Informou faturamento, não informou o valor',
-    description: 'Parou na escolha do valor inicial.'
+    label: 'Confirmou, não informou o valor desejado',
+    description: 'Parou na pergunta de valor inicial.'
   },
   {
     id: 'valor',
     group: 'funil',
-    label: 'Informou o valor, não deu opt-in',
-    description: 'Mais perto da análise de crédito.'
+    label: 'Informou o valor, não informou o faturamento',
+    description: 'Parou na pergunta de faturamento médio.'
+  },
+  {
+    id: 'faturamento',
+    group: 'funil',
+    label: 'Informou faturamento, não deu opt-in',
+    description: 'Mais perto da análise de crédito (parou no termo SCR).'
   }
 ];
 

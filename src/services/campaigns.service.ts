@@ -1043,7 +1043,7 @@ async deleteCampaign(id: string): Promise<void> {
 
                         const hasValorInicial = Boolean(
                             !isBlocked && (
-                                ((meta.revenue || meta.faturamento) && hasValidAmount) ||
+                                hasValidAmount ||
                                 meta.requested_amount ||
                                 meta.valor_inicial ||
                                 meta.simulation_data?.amount ||
@@ -1053,7 +1053,6 @@ async deleteCampaign(id: string): Promise<void> {
 
                         const hasFaturamento = Boolean(
                             !isBlocked && (
-                                hasValorInicial ||
                                 meta.revenue ||
                                 meta.faturamento
                             )
@@ -1061,6 +1060,7 @@ async deleteCampaign(id: string): Promise<void> {
 
                         const hasConfirmed = Boolean(
                             !isBlocked && (
+                                hasValorInicial ||
                                 hasFaturamento ||
                                 meta.identity_confirmed === true ||
                                 meta.identity_confirmed === 'true' ||
@@ -1209,12 +1209,12 @@ async deleteCampaign(id: string): Promise<void> {
                 else if (inFormalization) blockedReason = 'Cliente em formalização de crédito';
                 else if (!isSent) blockedReason = 'Contato carregado mas não disparado';
 
-                // Determinar a etapa exclusiva onde o lead parou
+                // Determinar a etapa exclusiva onde o lead parou (V29: Valor antes de Faturamento)
                 let stoppedStage: import('@/lib/types').ReengagementStageId = 'nao_entregue';
-                if (leadInfo?.hasValorInicial) {
-                    stoppedStage = 'valor';
-                } else if (leadInfo?.hasFaturamento) {
+                if (leadInfo?.hasFaturamento) {
                     stoppedStage = 'faturamento';
+                } else if (leadInfo?.hasValorInicial) {
+                    stoppedStage = 'valor';
                 } else if (leadInfo?.hasConfirmed) {
                     stoppedStage = 'confirmou';
                 } else if (replied) {

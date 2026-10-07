@@ -433,12 +433,12 @@ export function DailyFunnelStatusView() {
       '% Interação (sobre Lidas)': r.lidas > 0 ? `${((r.interagiram / r.lidas) * 100).toFixed(1)}%` : '-',
       'Confirmaram': r.confirmaram,
       '% Confirmaram (sobre Interagiram)': r.interagiram > 0 ? `${((r.confirmaram / r.interagiram) * 100).toFixed(1)}%` : '-',
-      'Faturamento': r.faturamento,
-      '% Faturamento (sobre Confirmaram)': r.confirmaram > 0 ? `${((r.faturamento / r.confirmaram) * 100).toFixed(1)}%` : '-',
       'Valor Inicial': r.valorInicial,
-      '% Valor (sobre Faturamento)': r.faturamento > 0 ? `${((r.valorInicial / r.faturamento) * 100).toFixed(1)}%` : '-',
+      '% Valor (sobre Confirmaram)': r.confirmaram > 0 ? `${((r.valorInicial / r.confirmaram) * 100).toFixed(1)}%` : '-',
+      'Faturamento': r.faturamento,
+      '% Faturamento (sobre Valor)': r.valorInicial > 0 ? `${((r.faturamento / r.valorInicial) * 100).toFixed(1)}%` : '-',
       'Opt-In': r.optIn,
-      '% Opt-In (sobre Valor)': r.valorInicial > 0 ? `${((r.optIn / r.valorInicial) * 100).toFixed(1)}%` : '-',
+      '% Opt-In (sobre Faturamento)': r.faturamento > 0 ? `${((r.optIn / r.faturamento) * 100).toFixed(1)}%` : '-',
       'Aprovados': r.aprovados,
       'Recusados': r.recusados
     }));
@@ -552,8 +552,8 @@ export function DailyFunnelStatusView() {
                 <th className="py-3 px-3 text-right">Lidas</th>
                 <th className="py-3 px-3 text-right">Interagiram</th>
                 <th className="py-3 px-3 text-right">Confirmaram</th>
-                <th className="py-3 px-3 text-right">Faturamento</th>
                 <th className="py-3 px-3 text-right">Valor Inicial</th>
+                <th className="py-3 px-3 text-right">Faturamento</th>
                 <th className="py-3 px-3 text-right">Opt-in</th>
                 <th className="py-3 px-3 text-right">Recusados</th>
                 <th className="py-3 px-3 text-right">Aprovados</th>
@@ -647,30 +647,30 @@ export function DailyFunnelStatusView() {
                       />
                     </td>
 
-                    {/* Faturamento (vs Confirmaram) */}
+                    {/* Valor Inicial (vs Confirmaram) */}
                     <td className="py-3 px-3 text-right">
                       <StepMetricCell 
-                        value={row.faturamento} 
+                        value={row.valorInicial} 
                         prev={row.confirmaram} 
                         subLabel="dos confirmados"
                       />
                     </td>
 
-                    {/* Valor Inicial (vs Faturamento) */}
+                    {/* Faturamento (vs Valor Inicial) */}
                     <td className="py-3 px-3 text-right">
                       <StepMetricCell 
-                        value={row.valorInicial} 
-                        prev={row.faturamento} 
-                        subLabel="do faturamento"
+                        value={row.faturamento} 
+                        prev={row.valorInicial} 
+                        subLabel="dos que pediram valor"
                       />
                     </td>
 
-                    {/* Opt-in (vs Valor Inicial) */}
+                    {/* Opt-in (vs Faturamento) */}
                     <td className="py-3 px-3 text-right">
                       <StepMetricCell 
                         value={row.optIn} 
-                        prev={row.valorInicial} 
-                        subLabel="dos valores"
+                        prev={row.faturamento} 
+                        subLabel="do faturamento"
                         isHighlight
                       />
                     </td>
@@ -735,8 +735,8 @@ export function DailyFunnelStatusView() {
                   <th className="py-2.5 px-3 text-right">Lidas</th>
                   <th className="py-2.5 px-3 text-right">Interagiram</th>
                   <th className="py-2.5 px-3 text-right">Confirmaram</th>
-                  <th className="py-2.5 px-3 text-right">Faturamento</th>
                   <th className="py-2.5 px-3 text-right">Valor Inicial</th>
+                  <th className="py-2.5 px-3 text-right">Faturamento</th>
                   <th className="py-2.5 px-3 text-right">Opt-in</th>
                   <th className="py-2.5 px-3 text-right">Recusados</th>
                   <th className="py-2.5 px-3 text-right">Aprovados</th>
@@ -784,15 +784,15 @@ export function DailyFunnelStatusView() {
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.faturamento} prev={row.confirmaram} subLabel="dos confirmados" />
+                      <StepMetricCell value={row.valorInicial} prev={row.confirmaram} subLabel="dos confirmados" />
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.valorInicial} prev={row.faturamento} subLabel="do faturamento" />
+                      <StepMetricCell value={row.faturamento} prev={row.valorInicial} subLabel="dos que pediram valor" />
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.optIn} prev={row.valorInicial} subLabel="dos valores" isHighlight />
+                      <StepMetricCell value={row.optIn} prev={row.faturamento} subLabel="do faturamento" isHighlight />
                     </td>
 
                     <td className="py-2.5 px-3 text-right">
