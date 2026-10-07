@@ -578,80 +578,174 @@ export const coreService = {
         })) as unknown as Conversation[];
     },
 
-    async searchConversations(tenantId: string, query: string): Promise<Conversation[]> {
+    async searchConversations(tenantId: string, query: string, signal?: AbortSignal): Promise<Conversation[]> {
         const q = query.trim();
         if (!q || q.length < 2) return [];
 
         const phoneClean = q.replace(/\D/g, '');
+        const isNumericQuery = phoneClean.length >= 8 && phoneClean.length === q.replace(/\s+/g, '').length;
 
-        // Search conversations by user_name, user_identifier (phone), establishment name,
-        // or message content (via the messages table JOIN)
-        // Phase 1: search by user_name and user_identifier (phone) only
-        // Note: conversations table has NO last_message column — content lives in messages.content (Phase 2)
         const orFilters = [`user_name.ilike.%${q}%`];
-        if (phoneClean) orFilters.push(`user_identifier.ilike.%${phoneClean}%`);
-
-        const { data, error } = await supabase
-            .from('conversations')
-            .select('*, agents:agent_id(name, type)')
-            .eq('tenant_id', tenantId)
-            .or(orFilters.join(','))
-            .order('last_message_at', { ascending: false })
-            .limit(50);
-
-        if (error) {
-            console.warn('searchConversations (phase 1) error:', error.message);
-            return [];
+        if (phoneClean && phoneClean.length >= 3) {
+            orFilters.push(`user_identifier.ilike.%${phoneClean}%`);
         }
 
-        // Phase 2: also search inside messages table for content matches
-        const { data: msgMatches, error: msgError } = await supabase
-            .from('messages')
-            .select('conversation_id')
-            .eq('tenant_id', tenantId)
-            .ilike('content', `%${q}%`)
-            .limit(100);
-
-        let extraConvIds: string[] = [];
-        if (!msgError && msgMatches && msgMatches.length > 0) {
-            const existingIds = new Set((data || []).map((c: any) => c.id));
-            extraConvIds = [...new Set(msgMatches.map((m: any) => m.conversation_id))]
-                .filter(id => !existingIds.has(id));
-        }
-
-        let extraConvs: any[] = [];
-        if (extraConvIds.length > 0) {
-            const { data: extraData } = await supabase
+        try {
+            // Fase 1: Paralelo ultrarrápido — conversas diretas + busca por Razão Social/Loja em agent_leads
+            let convQuery = supabase
                 .from('conversations')
                 .select('*, agents:agent_id(name, type)')
                 .eq('tenant_id', tenantId)
-                .in('id', extraConvIds)
-                .order('last_message_at', { ascending: false });
-            extraConvs = extraData || [];
+                .or(orFilters.join(','))
+                .order('last_message_at', { ascending: false })
+                .limit(50);
+
+            let leadsQuery = supabase
+                .from('agent_leads')
+                .select('whatsapp, name')
+                .eq('tenant_id', tenantId)
+                .ilike('name', `%${q}%`)
+                .limit(50);
+
+            if (signal) {
+                convQuery = convQuery.abortSignal(signal);
+                leadsQuery = leadsQuery.abortSignal(signal);
+            }
+
+            const [convResult, leadsResult] = await Promise.all([convQuery, leadsQuery]);
+
+            if (convResult.error) {
+                console.warn('searchConversations (convQuery) error:', convResult.error.message);
+            }
+
+            const convs = convResult.data || [];
+            const leads = leadsResult.data || [];
+
+            // Monta mapa de estabelecimentos encontrados
+            const establishmentMap = new Map<string, string>();
+            for (const lead of leads) {
+                const name = lead.name?.trim();
+                if (!name) continue;
+                for (const v of this.getPhoneVariants(lead.whatsapp)) {
+                    if (!establishmentMap.has(v)) establishmentMap.set(v, name);
+                }
+            }
+
+            let allConvs = [...convs];
+            const existingPhones = new Set(allConvs.map(c => c.user_identifier));
+            const missingLeadPhones: string[] = [];
+            for (const lead of leads) {
+                if (lead.whatsapp && !existingPhones.has(lead.whatsapp)) {
+                    missingLeadPhones.push(lead.whatsapp);
+                }
+            }
+
+            // Se achou estabelecimentos em agent_leads com conversas correspondentes ainda não incluídas
+            if (missingLeadPhones.length > 0 && allConvs.length < 50) {
+                let extraLeadQuery = supabase
+                    .from('conversations')
+                    .select('*, agents:agent_id(name, type)')
+                    .eq('tenant_id', tenantId)
+                    .in('user_identifier', missingLeadPhones.slice(0, 50))
+                    .order('last_message_at', { ascending: false })
+                    .limit(50 - allConvs.length);
+
+                if (signal) extraLeadQuery = extraLeadQuery.abortSignal(signal);
+                const { data: extraLeadConvs } = await extraLeadQuery;
+                if (extraLeadConvs) {
+                    allConvs.push(...extraLeadConvs);
+                }
+            }
+
+            // Fase 2: Fallback em messages APENAS se encontrou menos de 5 conversas,
+            // o termo NÃO for puramente numérico (telefone) e tiver pelo menos 4 caracteres
+            if (allConvs.length < 5 && !isNumericQuery && q.length >= 4) {
+                let msgQuery = supabase
+                    .from('messages')
+                    .select('conversation_id')
+                    .eq('tenant_id', tenantId)
+                    .ilike('content', `%${q}%`)
+                    .limit(30);
+
+                if (signal) msgQuery = msgQuery.abortSignal(signal);
+                const { data: msgMatches, error: msgError } = await msgQuery;
+
+                if (!msgError && msgMatches && msgMatches.length > 0) {
+                    const existingIds = new Set(allConvs.map(c => c.id));
+                    const extraConvIds = [...new Set(msgMatches.map((m: any) => m.conversation_id))]
+                        .filter(id => !existingIds.has(id))
+                        .slice(0, 50 - allConvs.length);
+
+                    if (extraConvIds.length > 0) {
+                        let extraDataQuery = supabase
+                            .from('conversations')
+                            .select('*, agents:agent_id(name, type)')
+                            .eq('tenant_id', tenantId)
+                            .in('id', extraConvIds)
+                            .order('last_message_at', { ascending: false });
+
+                        if (signal) extraDataQuery = extraDataQuery.abortSignal(signal);
+                        const { data: extraData } = await extraDataQuery;
+                        if (extraData) {
+                            allConvs.push(...extraData);
+                        }
+                    }
+                }
+            }
+
+            // Fase 3: Enriquecimento de nomes de estabelecimento para as conversas retornadas
+            const phonesNeedingEstablishment = allConvs
+                .map(c => c.user_identifier)
+                .filter(phone => !this.getPhoneVariants(phone).some(v => establishmentMap.has(v)));
+
+            if (phonesNeedingEstablishment.length > 0) {
+                let estQuery = supabase
+                    .from('agent_leads')
+                    .select('whatsapp, name')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', phonesNeedingEstablishment.slice(0, 50));
+
+                if (signal) estQuery = estQuery.abortSignal(signal);
+                const { data: estData } = await estQuery;
+
+                if (estData) {
+                    for (const item of estData) {
+                        const name = item.name?.trim();
+                        if (!name) continue;
+                        for (const v of this.getPhoneVariants(item.whatsapp)) {
+                            if (!establishmentMap.has(v)) establishmentMap.set(v, name);
+                        }
+                    }
+                }
+            }
+
+            return allConvs.map(c => ({
+                id: c.id,
+                tenantId: c.tenant_id,
+                agentId: c.agent_id,
+                agentName: c.agents?.name || 'Agente Desconhecido',
+                agentType: c.agents?.type as any,
+                userId: c.user_identifier,
+                userName: c.user_name || 'Cliente Sem Nome',
+                establishmentName: this.getPhoneVariants(c.user_identifier)
+                    .map(variant => establishmentMap.get(variant))
+                    .find(Boolean) || undefined,
+                userStatus: 'active',
+                channel: c.channel,
+                status: c.status,
+                lastMessage: '',
+                lastMessageTime: new Date(c.last_message_at),
+                unreadCount: 0,
+                messageCount: 0,
+                sentiment: c.sentiment ?? null,
+                messages: [],
+                createdAt: new Date(c.created_at)
+            })) as unknown as Conversation[];
+        } catch (err: any) {
+            if (err?.name === 'AbortError') return [];
+            console.error('searchConversations error:', err);
+            return [];
         }
-
-        const allRows = [...(data || []), ...extraConvs];
-
-        return allRows.map(c => ({
-            id: c.id,
-            tenantId: c.tenant_id,
-            agentId: c.agent_id,
-            agentName: c.agents?.name || 'Agente Desconhecido',
-            agentType: c.agents?.type as any,
-            userId: c.user_identifier,
-            userName: c.user_name || 'Cliente Sem Nome',
-            establishmentName: undefined,
-            userStatus: 'active',
-            channel: c.channel,
-            status: c.status,
-            lastMessage: '',
-            lastMessageTime: new Date(c.last_message_at),
-            unreadCount: 0,
-            messageCount: 0,
-            sentiment: c.sentiment ?? null,
-            messages: [],
-            createdAt: new Date(c.created_at)
-        })) as unknown as Conversation[];
     },
 
 

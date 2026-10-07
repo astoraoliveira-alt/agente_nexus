@@ -40,41 +40,59 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
   const [isSearching, setIsSearching] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // 1. Extract Unique Agents for Filter
   const uniqueAgents = useMemo(() => {
     const agents = new Set(conversations.map(c => c.agentName).filter(Boolean));
     return Array.from(agents).sort();
   }, [conversations]);
 
-  // 2. Debounced backend search
+  // 2. Debounced backend search with AbortController
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
 
     const q = searchTerm.trim();
 
     // Clear remote results when search is short
-    if (q.length < 3) {
+    if (q.length < 2) {
       setRemoteResults(null);
       setIsSearching(false);
       return;
     }
 
     setIsSearching(true);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     debounceTimer.current = setTimeout(async () => {
       try {
         if (!currentTenant?.id) return;
-        const results = await coreService.searchConversations(currentTenant.id, q);
-        setRemoteResults(results);
-      } catch (err) {
-        console.error('[ConversationList] Backend search error:', err);
-        setRemoteResults(null);
+        const results = await coreService.searchConversations(currentTenant.id, q, controller.signal);
+        if (!controller.signal.aborted) {
+          setRemoteResults(results);
+        }
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.error('[ConversationList] Backend search error:', err);
+          setRemoteResults(null);
+        }
       } finally {
-        setIsSearching(false);
+        if (!controller.signal.aborted) {
+          setIsSearching(false);
+        }
       }
-    }, 400);
+    }, 250);
 
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, [searchTerm, currentTenant?.id]);
 
@@ -110,12 +128,31 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
       return false;
     });
 
-    // Merge with backend results (dedup by id, local takes precedence)
-    const merged = [...localMatches];
+    // Merge with backend results (dedup by id, preserves messages/state of local cache)
+    const localMap = new Map(localMatches.map(c => [c.id, c]));
+    const merged: Conversation[] = [...localMatches];
+
     if (remoteResults && remoteResults.length > 0) {
       const existingIds = new Set(localMatches.map(c => c.id));
-      const extras = remoteResults.filter(c => !existingIds.has(c.id));
-      merged.push(...extras);
+      for (const remote of remoteResults) {
+        if (agentFilter && remote.agentName !== agentFilter) continue;
+        if (!existingIds.has(remote.id)) {
+          // If conversation exists in global cache, inherit its messages
+          const cached = conversations.find(c => c.id === remote.id);
+          merged.push({
+            ...remote,
+            messages: cached?.messages || remote.messages || [],
+            establishmentName: remote.establishmentName || cached?.establishmentName
+          });
+          existingIds.add(remote.id);
+        } else {
+          // Update establishmentName if remote resolved it
+          const local = localMap.get(remote.id);
+          if (local && !local.establishmentName && remote.establishmentName) {
+            local.establishmentName = remote.establishmentName;
+          }
+        }
+      }
     }
 
     return merged.sort((a, b) =>

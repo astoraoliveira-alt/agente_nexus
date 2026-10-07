@@ -8,9 +8,30 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export default function Conversations() {
-  const { conversations, selectedConversation, setSelectedConversation } = useApp();
+  const { conversations, selectedConversation, setSelectedConversation, setConversations, fetchMessages } = useApp();
   const [isListCollapsed, setIsListCollapsed] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const handleSelect = (conv: any) => {
+    const cached = conversations.find(c => c.id === conv.id);
+    const existingMessages = (cached?.messages && cached.messages.length > 0)
+      ? cached.messages
+      : (selectedConversation?.id === conv.id && selectedConversation.messages?.length)
+        ? selectedConversation.messages
+        : conv.messages || [];
+
+    const fullConv = { ...conv, messages: existingMessages };
+
+    setConversations(prev => {
+      if (prev.some(c => c.id === conv.id)) {
+        return prev.map(c => c.id === conv.id ? { ...c, ...fullConv, messages: existingMessages } : c);
+      }
+      return [fullConv, ...prev];
+    });
+
+    setSelectedConversation(fullConv);
+    fetchMessages(conv.id, true);
+  };
 
   return (
     <MainLayout>
@@ -23,7 +44,7 @@ export default function Conversations() {
           <ConversationList
             conversations={conversations}
             selectedId={selectedConversation?.id || null}
-            onSelect={setSelectedConversation}
+            onSelect={handleSelect}
             searchTerm={searchTerm}
             onSearchChange={setSearchTerm}
           />

@@ -45,6 +45,7 @@ interface AppContextType {
 
   // Conversations
   conversations: Conversation[];
+  setConversations: React.Dispatch<React.SetStateAction<Conversation[]>>;
   selectedConversation: Conversation | null;
   setSelectedConversation: React.Dispatch<React.SetStateAction<Conversation | null>>;
 
@@ -69,7 +70,7 @@ interface AppContextType {
     type?: 'text' | 'image' | 'audio' | 'document',
     attachmentMeta?: { fileUrl?: string; fileName?: string; mimeType?: string }
   ) => Promise<void>;
-  fetchMessages: (convIdOverride?: string) => Promise<void>;
+  fetchMessages: (convIdOverride?: string, force?: boolean) => Promise<void>;
   // Handoff Requests (HITL)
   handoffRequests: any[];
   refreshHandoffs: () => Promise<void>;
@@ -291,21 +292,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const selectedConvIdRef = useRef<string | null>(null);
   
   // Keep stable refs so Realtime closures never go stale and don't trigger re-subscriptions
-  const fetchMessagesRef = useRef<(convIdOverride?: string) => Promise<void>>(async () => {});
+  const fetchMessagesRef = useRef<(convIdOverride?: string, force?: boolean) => Promise<void>>(async () => {});
   const loadConversationsListRef = useRef<() => Promise<void>>(async () => {});
   const isFetchingMessagesRef = useRef(false);
   const lastFetchTrackerRef = useRef<{ id: string; time: number }>({ id: '', time: 0 });
 
-  const fetchMessages = useCallback(async (convIdOverride?: string) => {
+  const fetchMessages = useCallback(async (convIdOverride?: string, force = false) => {
     const activeId = convIdOverride || selectedConvIdRef.current;
     if (!activeId) return;
 
-    // Evita rajadas simultâneas de requests para a mesma conversa
+    // Evita rajadas simultâneas de requests para a mesma conversa (a menos que seja forçado)
     const now = Date.now();
-    if (lastFetchTrackerRef.current.id === activeId && (now - lastFetchTrackerRef.current.time < 1200)) {
+    if (!force && lastFetchTrackerRef.current.id === activeId && (now - lastFetchTrackerRef.current.time < 1200)) {
       return;
     }
-    if (isFetchingMessagesRef.current) return;
+    if (isFetchingMessagesRef.current && !force) return;
     isFetchingMessagesRef.current = true;
     lastFetchTrackerRef.current = { id: activeId, time: now };
     
@@ -314,24 +315,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       
       setSelectedConversation(prev => {
         if (convIdOverride || (prev?.id === activeId)) {
-          // Só atualiza se o número de mensagens ou última mensagem for diferente
-          const prevCount = prev?.messages?.length || 0;
-          if (prevCount === messages.length) {
-            if (prevCount === 0) return prev; // Sem mensagens em ambos: preserva objeto para evitar re-render
-            const lastPrev = prev?.messages?.[prevCount - 1]?.id;
-            const lastNew = messages[messages.length - 1]?.id;
-            if (lastPrev === lastNew) return prev; // Sem alteração, poupa re-render
-          }
           return { ...(prev || { id: activeId } as any), messages };
         }
         return prev;
       });
       
       setConversations(prev => {
-        const target = prev.find(c => c.id === activeId);
-        if (!target) return prev;
-        if (target.messages?.length === messages.length) return prev; // Sem alteração, poupa re-render da lista
-        return prev.map(c => c.id === activeId ? { ...c, messages: messages } : c);
+        const exists = prev.some(c => c.id === activeId);
+        if (exists) {
+          return prev.map(c => c.id === activeId ? { ...c, messages: messages } : c);
+        }
+        return prev;
       });
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -717,108 +711,120 @@ export function AppProvider({ children }: { children: ReactNode }) {
       timestamp: new Date(),
     };
 
-    // Find current conversation state to update optimistically
-    const currentConv = conversations.find(c => c.id === conversationId);
-    if (!currentConv) return;
+    // 2. Atualização otimista funcional preservando o histórico existente
+    setSelectedConversation(prev => {
+      if (!prev || prev.id !== conversationId) return prev;
+      return {
+        ...prev,
+        status: 'human_active',
+        assignedOperator: currentUser.name,
+        messages: [...(prev.messages || []), systemMsg]
+      };
+    });
 
-    const updatedConv = {
-      ...currentConv,
-      status: 'human_active' as const,
-      assignedOperator: currentUser.name,
-      messages: [...(currentConv.messages || []), systemMsg]
-    };
-
-    // 2. Atualização Otimista Síncrona
-    setConversations(prev => prev.map(conv => conv.id === conversationId ? updatedConv : conv));
-    setSelectedConversation(updatedConv);
+    setConversations(prev => {
+      const exists = prev.some(conv => conv.id === conversationId);
+      if (exists) {
+        return prev.map(conv => conv.id === conversationId ? {
+          ...conv,
+          status: 'human_active',
+          assignedOperator: currentUser.name,
+          messages: [...(conv.messages || []), systemMsg]
+        } : conv);
+      }
+      return prev;
+    });
 
     try {
       await api.assignConversation(conversationId, currentUser.id, currentUser.name);
       await api.sendMessage(conversationId, `🔄 ${currentUser.name} assumiu a conversa`, 'ai');
-      return updatedConv;
+      // 3. Força a carga completa do histórico do banco de dados
+      await fetchMessages(conversationId, true);
     } catch (error) {
-      console.error(error);
-      return updatedConv;
+      console.error('Error in takeOverConversation:', error);
     }
   };
 
   const returnToAI = async (conversationId: string) => {
     if (!currentTenant || !currentUser) return;
 
-    setConversations(prev =>
-      prev.map(conv =>
-        conv.id === conversationId
-          ? {
-            ...conv,
-            status: 'ai_active' as const,
-            assignedOperator: undefined,
-            messages: [
-              ...conv.messages,
-              {
-                id: `${conv.id}-return-${Date.now()}`,
-                conversationId,
-                tenantId: currentTenant.id,
-                tenantSlug: currentTenant.slug,
-                content: '🤖 IA retomou o atendimento',
-                type: 'text' as const,
-                sender: 'ai' as const,
-                timestamp: new Date(),
-              },
-            ],
-          }
-          : conv
-      )
-    );
+    const systemMsg = {
+      id: `${conversationId}-return-${Date.now()}`,
+      conversationId,
+      tenantId: currentTenant.id,
+      tenantSlug: currentTenant.slug,
+      content: '🤖 IA retomou o atendimento',
+      type: 'text' as const,
+      sender: 'ai' as const,
+      timestamp: new Date(),
+    };
 
-    if (selectedConversation?.id === conversationId) {
-      setSelectedConversation(prev => prev ? {
+    setSelectedConversation(prev => {
+      if (!prev || prev.id !== conversationId) return prev;
+      return {
         ...prev,
         status: 'ai_active',
         assignedOperator: undefined,
-      } : null);
-    }
+        messages: [...(prev.messages || []), systemMsg]
+      };
+    });
+
+    setConversations(prev => {
+      return prev.map(conv => conv.id === conversationId ? {
+        ...conv,
+        status: 'ai_active',
+        assignedOperator: undefined,
+        messages: [...(conv.messages || []), systemMsg]
+      } : conv);
+    });
 
     try {
-      // Pass currentUser.name as the 'actor' for the audit log (even though operatorId is null for the assignment target)
-      // We need to slightly trick the API or update calls.
-      // api.assignConversation(id, null, actorName) -> actorName used for log.
       await api.assignConversation(conversationId, null, currentUser.name);
       await api.sendMessage(conversationId, '🤖 IA retomou o atendimento', 'ai');
+      // 3. Força a carga completa do histórico do banco de dados
+      await fetchMessages(conversationId, true);
     } catch (error) {
-      console.error(error);
+      console.error('Error in returnToAI:', error);
     }
   };
 
   const transferConversation = async (conversationId: string, operatorName: string) => {
     if (!currentTenant) return;
-    const previousOperator = conversations.find(c => c.id === conversationId)?.assignedOperator || 'IA';
+    const currentConv = conversations.find(c => c.id === conversationId) || 
+      (selectedConversation?.id === conversationId ? selectedConversation : null);
+    const previousOperator = currentConv?.assignedOperator || 'IA';
 
-    setConversations(prev =>
-      prev.map(conv =>
-        conv.id === conversationId
-          ? {
-            ...conv,
-            assignedOperator: operatorName,
-            messages: [
-              ...conv.messages,
-              {
-                id: `${conv.id}-transfer-${Date.now()}`,
-                conversationId,
-                tenantId: currentTenant.id,
-                tenantSlug: currentTenant.slug,
-                content: `🔀 Conversa transferida de ${previousOperator} para ${operatorName}`,
-                type: 'text' as const,
-                sender: 'ai' as const,
-                timestamp: new Date(),
-              },
-            ],
-          }
-          : conv
-      )
-    );
+    const systemMsg = {
+      id: `${conversationId}-transfer-${Date.now()}`,
+      conversationId,
+      tenantId: currentTenant.id,
+      tenantSlug: currentTenant.slug,
+      content: `🔀 Conversa transferida de ${previousOperator} para ${operatorName}`,
+      type: 'text' as const,
+      sender: 'ai' as const,
+      timestamp: new Date(),
+    };
+
+    const updatedConv = currentConv ? {
+      ...currentConv,
+      assignedOperator: operatorName,
+      messages: [...(currentConv.messages || []), systemMsg]
+    } : null;
+
+    setConversations(prev => {
+      const exists = prev.some(conv => conv.id === conversationId);
+      if (exists) {
+        return prev.map(conv => conv.id === conversationId && updatedConv ? updatedConv : conv);
+      }
+      if (updatedConv) return [updatedConv, ...prev];
+      return prev;
+    });
+
+    if (selectedConversation?.id === conversationId && updatedConv) {
+      setSelectedConversation(updatedConv);
+    }
 
     try {
-      // Ideally we need operatorId here, but for now just logging the event message
       await api.sendMessage(conversationId, `🔀 Conversa transferida de ${previousOperator} para ${operatorName}`, 'ai');
     } catch (error) {
       console.error(error);
@@ -827,27 +833,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const closeConversation = async (conversationId: string) => {
     if (!currentTenant) return;
+    const currentConv = conversations.find(c => c.id === conversationId) || 
+      (selectedConversation?.id === conversationId ? selectedConversation : null);
+
+    const updatedConv = currentConv ? { ...currentConv, status: 'closed' as const } : null;
 
     // Optimistic UI Update
-    setConversations(prev =>
-      prev.map(conv =>
-        conv.id === conversationId
-          ? { ...conv, status: 'closed' as const }
-          : conv
-      )
-    );
+    setConversations(prev => {
+      const exists = prev.some(conv => conv.id === conversationId);
+      if (exists) {
+        return prev.map(conv => conv.id === conversationId && updatedConv ? updatedConv : conv);
+      }
+      if (updatedConv) return [updatedConv, ...prev];
+      return prev;
+    });
 
-    if (selectedConversation?.id === conversationId) {
-      setSelectedConversation(prev => prev ? { ...prev, status: 'closed' } : null);
+    if (selectedConversation?.id === conversationId && updatedConv) {
+      setSelectedConversation(updatedConv);
     }
 
     try {
       await api.closeConversation(conversationId);
       // 🔥 Automate Quality Audit Trigger
-      const conv = conversations.find(c => c.id === conversationId);
       await api.triggerAudit(conversationId, {
-        tenantId: conv?.tenantId || currentTenant.id,
-        agentId: conv?.agentId
+        tenantId: currentConv?.tenantId || currentTenant.id,
+        agentId: currentConv?.agentId
       });
     } catch (error) {
       console.error(error);
@@ -945,6 +955,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         hasPermission,
         refreshPermissions,
         conversations,
+        setConversations,
         selectedConversation,
         setSelectedConversation,
         slideOverOpen,
