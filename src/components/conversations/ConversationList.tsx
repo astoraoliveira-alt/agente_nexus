@@ -216,19 +216,21 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
               type="button"
               onClick={() => setAwaitingOnlyFilter(prev => !prev)}
               className={cn(
-                "h-6 px-2.5 text-[11px] gap-1.5 transition-all font-semibold rounded-full flex items-center border select-none cursor-pointer",
+                "h-6 px-2 text-[11px] gap-1 transition-all font-semibold rounded-full flex items-center border select-none cursor-pointer whitespace-nowrap shrink-0",
                 awaitingOnlyFilter 
                   ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-xs" 
                   : "border-amber-300 dark:border-amber-600/80 text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 hover:text-amber-950 dark:hover:text-amber-100"
               )}
-              title={awaitingOnlyFilter ? "Mostrando apenas aguardando resposta (clique para ver todas)" : "Filtrar conversas aguardando resposta"}
+              title={awaitingOnlyFilter ? "Mostrando apenas conversas pendentes (clique para ver todas)" : "Filtrar conversas pendentes de resposta"}
             >
               {isLoadingAwaiting ? (
-                <Loader2 className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-spin" />
+                <Loader2 className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-spin shrink-0" />
               ) : (
-                <span className={cn("w-1.5 h-1.5 rounded-full bg-amber-500", !awaitingOnlyFilter && "animate-pulse")} />
+                <span className={cn("w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0", !awaitingOnlyFilter && "animate-pulse")} />
               )}
-              <span className="font-semibold tracking-tight">{awaitingReplyCount} aguardando</span>
+              <span className="font-semibold tracking-tight whitespace-nowrap">
+                {awaitingReplyCount} pendente{awaitingReplyCount !== 1 ? 's' : ''}
+              </span>
             </button>
           )}
 
