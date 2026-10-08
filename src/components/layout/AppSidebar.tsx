@@ -62,12 +62,15 @@ const platformNavItems = [
 ];
 
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations, handoffRequests } = useApp();
+  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations, handoffRequests, awaitingReplyCount } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const { onlineUsers } = useTenantPresence(currentUser, currentTenant);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
 
-  const activeConversationsCount = conversations.filter(c => c.status !== 'closed').length;
+  // Contador Inteligente (Opção A): Total real de conversas onde a última mensagem foi do cliente e aguarda retorno
+  const activeConversationsCount = (typeof awaitingReplyCount === 'number' && awaitingReplyCount > 0)
+    ? awaitingReplyCount
+    : conversations.filter(c => c.isAwaitingReply).length;
 
   const dynamicMainNavItems = [
     { title: 'Dashboard', url: '/', icon: LayoutDashboard, permission: 'dashboard.view' },

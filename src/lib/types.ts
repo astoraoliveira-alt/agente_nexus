@@ -742,6 +742,9 @@ export interface Conversation {
   voiceStatus?: 'listening' | 'processing' | 'speaking' | 'idle'; // Phase 3: Realtime Status
   complianceScore?: number;
   evaluation?: Evaluation;
+  lastMessageSender?: 'user' | 'agent' | 'human' | 'system' | 'ai';
+  lastMessageDirection?: 'inbound' | 'outbound';
+  isAwaitingReply?: boolean;
 }
 
 export interface ExtendedConversation extends Conversation {

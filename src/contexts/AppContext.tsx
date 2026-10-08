@@ -75,6 +75,8 @@ interface AppContextType {
   handoffRequests: any[];
   refreshHandoffs: () => Promise<void>;
   isLoading: boolean;
+  awaitingReplyCount: number;
+  refreshAwaitingReplyCount: () => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -114,6 +116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [userPermissions, setUserPermissions] = useState<string[]>([]);
   const [maskingEnabled, setMaskingEnabled] = useState(true); // Default to true for safety
   const [handoffRequests, setHandoffRequests] = useState<any[]>([]);
+  const [awaitingReplyCount, setAwaitingReplyCount] = useState<number>(0);
 
   const toggleMasking = () => setMaskingEnabled(prev => !prev);
 
@@ -340,7 +343,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadConversationsList = useCallback(async () => {
     if (!currentTenant) return;
     try {
-      const tenantConversations = await api.getConversationsOverview(currentTenant.id);
+      const [tenantConversations, rpcCount] = await Promise.all([
+        api.getConversationsOverview(currentTenant.id),
+        api.getAwaitingReplyCount(currentTenant.id).catch(() => null)
+      ]);
+
+      const calculatedAwaitingCount = typeof rpcCount === 'number' && rpcCount >= 0
+        ? rpcCount
+        : tenantConversations.filter(c => c.isAwaitingReply).length;
+
+      setAwaitingReplyCount(calculatedAwaitingCount);
+
       setConversations(prev => {
         const hasChanges = tenantConversations.length !== prev.length ||
           tenantConversations.some(c => {
@@ -354,6 +367,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               p.agentName !== c.agentName ||
               p.channel !== c.channel ||
               p.messageCount !== c.messageCount ||
+              p.isAwaitingReply !== c.isAwaitingReply ||
               p.establishmentName !== c.establishmentName;
           });
 
@@ -374,13 +388,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const fresh = tenantConversations.find(c => c.id === prev.id);
         if (!fresh) return prev;
         // Only update if something changed (avoid unnecessary renders)
-        if (fresh.status === prev.status && fresh.lastMessageTime?.getTime() === prev.lastMessageTime?.getTime()) return prev;
+        if (fresh.status === prev.status && fresh.lastMessageTime?.getTime() === prev.lastMessageTime?.getTime() && fresh.isAwaitingReply === prev.isAwaitingReply) return prev;
         return { ...fresh, messages: prev.messages };
       });
     } catch (error) {
       console.error("Failed to load conversations:", error);
     }
   }, [currentTenant?.id]); // ← use only the primitive ID, not the full object
+
+  const refreshAwaitingReplyCount = useCallback(async () => {
+    if (!currentTenant?.id) return;
+    try {
+      const count = await api.getAwaitingReplyCount(currentTenant.id);
+      setAwaitingReplyCount(count);
+    } catch (e) {
+      console.warn("Failed to refresh awaiting reply count:", e);
+    }
+  }, [currentTenant?.id]);
 
   // Keep ref in sync
   useEffect(() => { loadConversationsListRef.current = loadConversationsList; }, [loadConversationsList]);
@@ -972,6 +996,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         fetchMessages,
         handoffRequests,
         refreshHandoffs: loadHandoffs,
+        awaitingReplyCount,
+        refreshAwaitingReplyCount,
         maskingEnabled,
         toggleMasking,
       }}

@@ -487,6 +487,38 @@ export const salesCockpitService = {
         for (const row of rpcRows) {
           // Mapear mensagens retornadas pelo RPC (campo messages JSONB)
           const rpcMessages: any[] = Array.isArray(row.messages) ? row.messages : [];
+
+          // 🛡️ Filtro de segurança defensivo: descarta leads cuja última decisão foi recusa do comitê Fiserv
+          let lastRejIdx = -1;
+          let lastAppIdx = -1;
+          for (let i = 0; i < rpcMessages.length; i++) {
+            const m = rpcMessages[i];
+            const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
+            if (!isBot) continue;
+            const txt = String(m.content || '').toLowerCase();
+            if (
+              txt.includes('infelizmente não conseguimos liberar uma oferta de crédito') ||
+              txt.includes('infelizmente nao conseguimos liberar uma oferta de credito') ||
+              (txt.includes('comitê fiserv') && txt.includes('não conseguimos')) ||
+              (txt.includes('comite fiserv') && txt.includes('nao conseguimos')) ||
+              txt.includes('não foi aprovada pelo comitê') ||
+              txt.includes('nao foi aprovada pelo comite')
+            ) {
+              lastRejIdx = i;
+            }
+            if (
+              txt.includes('especialistas entrará em contato') ||
+              txt.includes('especialistas entrara em contato') ||
+              txt.includes('enviei a sua solicitação para formalização') ||
+              txt.includes('enviei a sua solicitacao para formalizacao')
+            ) {
+              lastAppIdx = i;
+            }
+          }
+          if (lastRejIdx !== -1 && lastRejIdx > lastAppIdx) {
+            continue; // Lead negado/reprovado não é exibido no Cockpit de Vendas
+          }
+
           const mappedMessages = rpcMessages.map((m: any) => {
             let cleanContent = m.content || '';
             try {
@@ -502,7 +534,7 @@ export const salesCockpitService = {
             const isHuman = ['human', 'operator'].includes(
               String(m.sender_type || '').toLowerCase()
             );
-            const sender = isAi ? 'ai' : isHuman ? 'human' : 'user';
+            const sender: 'user' | 'ai' | 'human' = isAi ? 'ai' : isHuman ? 'human' : 'user';
 
             return {
               id: m.id || `${row.conversation_id}-${m.created_at}`,
@@ -730,7 +762,7 @@ export const salesCockpitService = {
           } catch (_) {}
           const isAi = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || '').toLowerCase());
           const isHuman = ['human', 'operator'].includes(String(m.sender_type || '').toLowerCase());
-          const sender = isAi ? 'ai' : isHuman ? 'human' : 'user';
+          const sender: 'user' | 'ai' | 'human' = isAi ? 'ai' : isHuman ? 'human' : 'user';
           return {
             id: m.id || `${convData?.id}-${m.created_at}`,
             conversationId: m.conversation_id || convData?.id,

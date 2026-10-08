@@ -1,9 +1,9 @@
 -- ====================================================================
--- RPC: get_sales_cockpit_leads
--- Descrição: RPC oficial para o Cockpit de Vendas.
--- Baseado 100% no critério da coluna "OK Agente" do Dashboard Executivo
--- (simulation_accepted = true OU ok_agente = true OU accepted_proposal IS NOT NULL).
--- Retorna os dados cadastrais, proposta aceita, operador e o histórico completo de mensagens (JSONB).
+-- Migration: 20261008_exclude_denied_leads_from_sales_cockpit.sql
+-- Descrição: Atualiza a RPC get_sales_cockpit_leads para excluir estritamente
+-- leads com crédito reprovado/negado pelo comitê Fiserv ou lost_reason registrado.
+-- Garante que o Cockpit de Vendas contenha apenas propostas válidas para
+-- fechamento comercial humano, prevenindo falsos positivos de abordagem.
 -- ====================================================================
 
 DROP FUNCTION IF EXISTS get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT);
@@ -230,3 +230,6 @@ BEGIN
   ORDER BY last_message_time DESC;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT) TO service_role;

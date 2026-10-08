@@ -1155,9 +1155,15 @@ export default function SalesCockpit() {
                         </span>
                         <div className="flex items-center gap-1">
                           <span className="font-bold text-slate-950 dark:text-white">{activeLead.interestRate || 2.75}% a.m.</span>
-                          <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300">
-                            Aprovado Fiserv
-                          </Badge>
+                          {activeLead.pipelineStage === 'declined' ? (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-950/50 dark:text-rose-300">
+                              Desistência / Recusa
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/50 dark:text-emerald-300">
+                              Aprovado Fiserv
+                            </Badge>
+                          )}
                         </div>
                       </div>
                       <div className="flex justify-between items-center py-0.5 border-b border-slate-200 dark:border-slate-800">

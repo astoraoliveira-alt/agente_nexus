@@ -441,8 +441,6 @@ try {
             lastSofiaMsg.includes("podemos seguir com a formalizacao") ||
             lastSofiaMsg.includes("podemos seguir nessas condições") ||
             lastSofiaMsg.includes("podemos seguir nessas condicoes") ||
-            lastSofiaMsg.includes("podemos seguir com a simulação") ||
-            lastSofiaMsg.includes("podemos seguir com a simulacao") ||
             lastSofiaMsg.includes("condições informadas anteriormente") ||
             lastSofiaMsg.includes("condicoes informadas anteriormente") ||
             lastSofiaMsg.includes("seguir com a contratação") ||
@@ -450,6 +448,8 @@ try {
             lastSofiaMsg.includes("simulação concluída") ||
             lastSofiaMsg.includes("simulacao concluida") ||
             (hasSimulatedInHistory && (
+                lastSofiaMsg.includes("podemos seguir com a simulação") ||
+                lastSofiaMsg.includes("podemos seguir com a simulacao") ||
                 lastSofiaMsg.includes("podemos seguir") || 
                 lastSofiaMsg.includes("condições") || 
                 lastSofiaMsg.includes("condicoes") ||
@@ -839,7 +839,15 @@ try {
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
         } else if (currentStep === 'confirmacao_cliente' && isAffirmative && !isDoubt && !asksForSimulation && !isRestartSimulation) {
-            nextStep = 'reforco_condicoes';
+            if (hasSimulatedInHistory || (requested_amount && requested_installments) || leadInfo.simulation_data) {
+                nextStep = 'reforco_condicoes';
+            } else if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
+                nextStep = 'apresenta_ofertas';
+            } else if (requested_amount && requested_amount > 0) {
+                nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
+            } else {
+                nextStep = 'coleta_valor';
+            }
             transitionApplied = true;
         } else if (hasNewNumbers || asksForSimulation) {
             if (requested_amount && requested_installments && hasNewNumbers) {
@@ -852,7 +860,15 @@ try {
                 transitionApplied = true;
             }
         } else if (isAffirmative && !isDoubt) {
-            nextStep = 'reforco_condicoes';
+            if (hasSimulatedInHistory || (requested_amount && requested_installments) || leadInfo.simulation_data) {
+                nextStep = 'reforco_condicoes';
+            } else if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
+                nextStep = 'apresenta_ofertas';
+            } else if (requested_amount && requested_amount > 0) {
+                nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
+            } else {
+                nextStep = 'coleta_valor';
+            }
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
             nextStep = 'apresenta_ofertas';
@@ -862,7 +878,13 @@ try {
         }
     } else if (currentStep === 'reforco_condicoes') {
         if (isAffirmative && !isDoubt) {
-            nextStep = 'finalizacao_sucesso';
+            if (hasSimulatedInHistory || (requested_amount && requested_installments) || leadInfo.simulation_data) {
+                nextStep = 'finalizacao_sucesso';
+            } else if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
+                nextStep = 'apresenta_ofertas';
+            } else {
+                nextStep = 'coleta_valor';
+            }
             transitionApplied = true;
         } else if (isDoubt) {
             nextStep = 'reforco_condicoes';

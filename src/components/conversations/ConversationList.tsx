@@ -34,19 +34,56 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ conversations, selectedId, onSelect, searchTerm, onSearchChange }: ConversationListProps) {
-  const { maskingEnabled, currentTenant } = useApp();
+  const { maskingEnabled, currentTenant, awaitingReplyCount } = useApp();
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
+  const [awaitingOnlyFilter, setAwaitingOnlyFilter] = useState(false);
+  const [awaitingConversations, setAwaitingConversations] = useState<Conversation[] | null>(null);
+  const [isLoadingAwaiting, setIsLoadingAwaiting] = useState(false);
   const [remoteResults, setRemoteResults] = useState<Conversation[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Fetch all awaiting reply conversations from Supabase when filter is toggled ON
+  useEffect(() => {
+    if (!awaitingOnlyFilter) {
+      setAwaitingConversations(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingAwaiting(true);
+    coreService.getAwaitingReplyConversations(currentTenant?.id || '')
+      .then(res => {
+        if (isMounted) {
+          setAwaitingConversations(res);
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching awaiting reply conversations:', err);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingAwaiting(false);
+      });
+
+    return () => { isMounted = false; };
+  }, [awaitingOnlyFilter, currentTenant?.id]);
+
+  // Determine active conversation source
+  const sourceConversations = useMemo(() => {
+    if (awaitingOnlyFilter) {
+      if (awaitingConversations) return awaitingConversations;
+      return conversations.filter(c => c.isAwaitingReply);
+    }
+    return conversations;
+  }, [awaitingOnlyFilter, awaitingConversations, conversations]);
+
   // 1. Extract Unique Agents for Filter
   const uniqueAgents = useMemo(() => {
-    const agents = new Set(conversations.map(c => c.agentName).filter(Boolean));
+    const agents = new Set(sourceConversations.map(c => c.agentName).filter(Boolean));
     return Array.from(agents).sort();
-  }, [conversations]);
+  }, [sourceConversations]);
 
   // 2. Debounced backend search with AbortController
   useEffect(() => {
@@ -103,8 +140,9 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     // No search → apply only agent filter
     if (!q) {
       const result = agentFilter
-        ? conversations.filter(c => c.agentName === agentFilter)
-        : conversations;
+        ? sourceConversations.filter(c => c.agentName === agentFilter)
+        : sourceConversations;
+
       return [...result].sort((a, b) =>
         new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
       );
@@ -112,7 +150,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
 
     // Local fast filter (instant, no network)
     const phoneClean = q.replace(/\D/g, '');
-    const localMatches = conversations.filter(c => {
+    const localMatches = sourceConversations.filter(c => {
       if (agentFilter && c.agentName !== agentFilter) return false;
       const name = (c.userName || '').toLowerCase();
       const establishment = (c.establishmentName || '').toLowerCase();
@@ -138,7 +176,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         if (agentFilter && remote.agentName !== agentFilter) continue;
         if (!existingIds.has(remote.id)) {
           // If conversation exists in global cache, inherit its messages
-          const cached = conversations.find(c => c.id === remote.id);
+          const cached = sourceConversations.find(c => c.id === remote.id);
           merged.push({
             ...remote,
             messages: cached?.messages || remote.messages || [],
@@ -158,7 +196,7 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
     return merged.sort((a, b) =>
       new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
     );
-  }, [conversations, searchTerm, agentFilter, remoteResults]);
+  }, [sourceConversations, searchTerm, agentFilter, remoteResults]);
 
   const totalMessages = useMemo(() => {
     return filteredConversations.reduce((acc, curr) => acc + (curr.messages?.length || 0), 0);
@@ -173,22 +211,51 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
           <h2 className="font-semibold text-sm uppercase tracking-wide">Conversas</h2>
           <Badge variant="outline" className="text-xs h-5 px-1.5">{filteredConversations.length}</Badge>
 
+          {awaitingReplyCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setAwaitingOnlyFilter(prev => !prev)}
+              className={cn(
+                "h-6 px-2.5 text-[11px] gap-1.5 transition-all font-semibold rounded-full flex items-center border select-none cursor-pointer",
+                awaitingOnlyFilter 
+                  ? "bg-amber-600 hover:bg-amber-700 text-white border-amber-600 shadow-xs" 
+                  : "border-amber-300 dark:border-amber-600/80 text-amber-900 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/50 hover:text-amber-950 dark:hover:text-amber-100"
+              )}
+              title={awaitingOnlyFilter ? "Mostrando apenas aguardando resposta (clique para ver todas)" : "Filtrar conversas aguardando resposta"}
+            >
+              {isLoadingAwaiting ? (
+                <Loader2 className="w-3 h-3 text-amber-600 dark:text-amber-400 animate-spin" />
+              ) : (
+                <span className={cn("w-1.5 h-1.5 rounded-full bg-amber-500", !awaitingOnlyFilter && "animate-pulse")} />
+              )}
+              <span className="font-semibold tracking-tight">{awaitingReplyCount} aguardando</span>
+            </button>
+          )}
+
           <div className="w-px h-3 bg-border mx-1" />
 
           <div className="flex items-center gap-1.5 text-muted-foreground" title="Total de mensagens">
             <MessageSquare className="h-4 w-4" />
-            <Badge variant="outline" className="text-xs h-5 px-1.5 text-black border-muted-foreground/20">{totalMessages}</Badge>
+            <Badge variant="outline" className="text-xs h-5 px-1.5 text-black dark:text-white border-muted-foreground/20">{totalMessages}</Badge>
           </div>
         </div>
 
         {/* Filter Action */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className={cn("h-8 w-8", agentFilter && "text-accent bg-accent/10")}>
+            <Button variant="ghost" size="icon" className={cn("h-8 w-8", (agentFilter || awaitingOnlyFilter) && "text-accent bg-accent/10")}>
               <Filter className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Filtros Rápidos</DropdownMenuLabel>
+            <DropdownMenuCheckboxItem
+              checked={awaitingOnlyFilter}
+              onCheckedChange={(checked) => setAwaitingOnlyFilter(!!checked)}
+            >
+              Aguardando Resposta {awaitingReplyCount > 0 ? `(${awaitingReplyCount})` : ''}
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuSeparator />
             <DropdownMenuLabel>Filtrar por Agente</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuCheckboxItem
@@ -341,6 +408,17 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                         </Badge>
                       )}
 
+                      {conv.isAwaitingReply && (
+                        <Badge
+                          variant="outline"
+                          className="h-4 px-1.5 text-[9px] font-semibold bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700/60 gap-1 rounded-[2px]"
+                          title="Última mensagem enviada pelo cliente (aguardando resposta)"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          Aguardando Resposta
+                        </Badge>
+                      )}
+
                       {conv.sentiment && (() => {
                         const sentimentMap: Record<string, { label: string; emoji: string; className: string }> = {
                           interessado: {
@@ -375,14 +453,6 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                           </Badge>
                         );
                       })()}
-
-                      {/* Campaign Name replaces Agent Name */}
-                      {conv.campaignName && (
-                        <div className="inline-flex items-center gap-1 rounded-[2px] bg-muted/40 px-1.5 py-0.5 min-w-0 text-[10px] text-muted-foreground">
-                          <Bot className="h-3 w-3 flex-shrink-0" />
-                          <span className="truncate">{conv.campaignName}</span>
-                        </div>
-                      )}
                     </div>
                   </div>
 
