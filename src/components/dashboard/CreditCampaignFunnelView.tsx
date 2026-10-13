@@ -326,12 +326,17 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
             );
 
             const isAutoReply = 
+              q.is_auto_reply === true ||
               queueMeta.is_auto_reply === true || 
               queueMeta.is_auto_reply === 'true' || 
               leadMeta.is_auto_reply === true || 
               leadMeta.is_auto_reply === 'true' ||
               queueMeta.is_bot === true ||
-              queueMeta.is_bot === 'true';
+              queueMeta.is_bot === 'true' ||
+              meta.is_auto_reply === true ||
+              meta.is_auto_reply === 'true' ||
+              meta.circuit_breaker === true ||
+              meta.stop_flow === true;
 
             const isResponded = Boolean(
               q.response_detected || 

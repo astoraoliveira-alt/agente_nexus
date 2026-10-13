@@ -237,12 +237,17 @@ export function CreditCampaignDetailView({
         // Lógica de Interação com expurgo de robô e garantia de avanço no funil
         const queueMeta = q.metadata || {};
         const leadMeta = matchedLead?.metadata || {};
-        const isAutoReply = queueMeta.is_auto_reply === true || 
+        const isAutoReply = q.is_auto_reply === true ||
+                            queueMeta.is_auto_reply === true || 
                             queueMeta.is_auto_reply === 'true' || 
                             leadMeta.is_auto_reply === true || 
                             leadMeta.is_auto_reply === 'true' ||
                             queueMeta.is_bot === true ||
-                            queueMeta.is_bot === 'true';
+                            queueMeta.is_bot === 'true' ||
+                            meta.is_auto_reply === true ||
+                            meta.is_auto_reply === 'true' ||
+                            meta.circuit_breaker === true ||
+                            meta.stop_flow === true;
 
         const isResponded = Boolean(
           q.response_detected || 
