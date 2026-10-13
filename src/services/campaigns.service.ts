@@ -1996,20 +1996,34 @@ async deleteCampaign(id: string): Promise<void> {
                 );
                 if (isConfirmed) lm.confirmaram++;
 
-                if (meta.revenue || meta.faturamento) lm.faturamento++;
-                if (
-                    meta.requested_amount || 
-                    meta.valor_inicial || 
-                    meta.simulation_data?.amount || 
-                    meta.fiserv_amount_approved
-                ) lm.valorInicial++;
-                if (
+                const hasOptInLead = Boolean(
                     meta.opt_in === true || 
                     meta.optin === true || 
                     meta.consent?.opt_in === true ||
                     meta.fiserv_requested_at || 
-                    meta.loan_request_id
-                ) lm.optIn++;
+                    meta.loan_request_id ||
+                    ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus) ||
+                    ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                    ['approved', 'aprovado', 'denied', 'recusado', 'reprovado'].includes(leadStatus)
+                );
+
+                const hasFaturamentoLead = Boolean(
+                    meta.revenue || 
+                    meta.faturamento || 
+                    hasOptInLead
+                );
+
+                const hasValorInicialLead = Boolean(
+                    meta.requested_amount || 
+                    meta.valor_inicial || 
+                    meta.simulation_data?.amount || 
+                    meta.fiserv_amount_approved ||
+                    hasFaturamentoLead
+                );
+
+                if (hasValorInicialLead) lm.valorInicial++;
+                if (hasFaturamentoLead) lm.faturamento++;
+                if (hasOptInLead) lm.optIn++;
                 if (['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus)) lm.aprovados++;
                 if (
                     ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||

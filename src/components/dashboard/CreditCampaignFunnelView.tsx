@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Bot,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Activity
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
@@ -50,6 +51,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('all');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'all'>('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
   const [isInitialized, setIsInitialized] = useState(false);
@@ -139,11 +141,20 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       ]);
 
       const typeMap: Record<string, string> = {};
+      const statusMap: Record<string, string> = {};
       (campaigns || []).forEach(c => {
         typeMap[c.id] = c.campaignType || c.metadata?.campaign_type || 'standard';
+        if (c.status) {
+          statusMap[c.id] = c.status;
+        }
       });
       setCampaignTypes(typeMap);
-      setFunnelData(stats || []);
+
+      const enrichedStats = (stats || []).map(row => ({
+        ...row,
+        status: statusMap[row.campaignId] || row.status || 'active'
+      }));
+      setFunnelData(enrichedStats);
     } catch (err) {
       console.error('Error loading credit funnel data:', err);
       setFunnelData([]);
@@ -154,11 +165,27 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
 
 
+  const isCampActive = (status?: string | null) => {
+    const s = String(status || '').toLowerCase().trim();
+    return s === 'active' || s === 'running';
+  };
+
   const filteredData = useMemo(() => {
-    if (!searchTerm.trim()) return funnelData;
-    const term = searchTerm.toLowerCase();
-    return funnelData.filter(d => d.campaignName.toLowerCase().includes(term));
-  }, [funnelData, searchTerm]);
+    return funnelData.filter(d => {
+      // 1. Filtro por status (default: apenas ativas)
+      const active = isCampActive(d.status);
+      if (statusFilter === 'active' && !active) return false;
+      if (statusFilter === 'paused' && active) return false;
+
+      // 2. Filtro por nome da campanha
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        if (!d.campaignName.toLowerCase().includes(term)) return false;
+      }
+
+      return true;
+    });
+  }, [funnelData, searchTerm, statusFilter]);
 
   // Totais agregados
   const totals = useMemo(() => {
@@ -370,7 +397,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               Number(String(reqAmt).replace(/[^\d.-]/g, '')) <= 500000
             ) || Boolean(meta.simulation_data?.amount || meta.fiserv_amount_approved);
 
-            const hasValorInicial = Boolean(hasValidAmount || hasOptIn);
+            const hasValorInicial = Boolean(hasValidAmount || hasFaturamento || hasOptIn);
 
             const hasIdentityConfirmed = Boolean(
               ['true', 't', '1', true].includes(meta.identity_confirmed) || 
@@ -676,7 +703,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-border/40 shadow-sm">
         <div className="flex flex-col sm:flex-row items-center gap-3 flex-1">
           {/* Busca por nome */}
-          <div className="relative w-full sm:w-72">
+          <div className="relative w-full sm:w-64">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -685,6 +712,38 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#E5003A] text-slate-700 placeholder:text-slate-400"
             />
+          </div>
+
+          {/* Filtro por Status da Campanha */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Select value={statusFilter} onValueChange={(val: 'active' | 'paused' | 'all') => setStatusFilter(val)}>
+              <SelectTrigger className="h-8 text-xs min-w-[145px] sm:w-[155px] bg-slate-50 border-slate-200 text-slate-700">
+                <div className="flex items-center gap-2 truncate">
+                  <Activity className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <SelectValue placeholder="Status..." />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span>Campanhas Ativas</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="paused">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                    <span>Campanhas Pausadas</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="all">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-slate-400 shrink-0" />
+                    <span>Todas as Campanhas</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Filtro por Agente */}
@@ -813,7 +872,8 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 </tr>
               ) : (
                 filteredData.map((row, idx) => {
-                  const isActive = row.status === 'active' || row.status === 'running';
+                  const isActive = isCampActive(row.status);
+                  const isPaused = row.status === 'paused' || row.status === 'stopped';
                   return (
                     <tr 
                       key={row.campaignId}
@@ -828,12 +888,14 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       <td className="px-4 py-3 font-semibold text-slate-900 max-w-[220px]">
                         <div className="flex items-center gap-2">
                           <span 
-                            title={isActive ? 'Campanha Ativa' : `Status: ${row.status}`}
+                            title={isActive ? 'Campanha Ativa' : isPaused ? 'Campanha Pausada' : `Status: ${row.status}`}
                             className={cn(
                               "w-2.5 h-2.5 rounded-full shrink-0 shadow-sm transition-all",
                               isActive 
                                 ? "bg-emerald-500 ring-2 ring-emerald-100" 
-                                : "bg-slate-300 ring-2 ring-slate-100"
+                                : isPaused
+                                  ? "bg-amber-500 ring-2 ring-amber-100"
+                                  : "bg-slate-300 ring-2 ring-slate-100"
                             )} 
                           />
                           <span className="truncate">{row.campaignName}</span>

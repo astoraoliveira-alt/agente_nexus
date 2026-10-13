@@ -323,7 +323,7 @@ export function CreditCampaignDetailView({
           Number(String(reqAmt).replace(/[^\d.-]/g, '')) <= 500000
         ) || Boolean(meta.simulation_data?.amount || meta.fiserv_amount_approved);
 
-        const hasValorInicial = Boolean(hasValidAmount || hasOptIn);
+        const hasValorInicial = Boolean(hasValidAmount || hasFaturamento || hasOptIn);
 
         const hasIdentityConfirmed = Boolean(
           ['true', 't', '1', true].includes(meta.identity_confirmed) || 

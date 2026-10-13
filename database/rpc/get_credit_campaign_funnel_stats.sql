@@ -3,15 +3,14 @@
 -- Descrição:
 -- Retorna as métricas consolidadas dos 3 blocos do funil de crédito:
 --   Bloco 1: Envio da Campanha (outbound_queue)
---   Bloco 2: Funil de Venda (agent_leads - confirmaram, faturamento, valor inicial, opt-in, aprovados, recusados, simularam, ok_agente)
+--   Bloco 2: Funil de Venda (agent_leads - confirmaram, valor_inicial, faturamento, opt-in, aprovados, recusados, simularam, ok_agente)
 --   Bloco 3: Funil de Formalização (agent_leads - aguardando contato, em atendimento, formalizado, desistência)
 --
 -- Regras Fundamentais:
 -- 1. Contabilização baseada estritamente nas etapas formais e metadados estruturados de auditoria do funil.
--- 2. Hierarquia estrita do Funil:
---    Confirmaram >= Faturamento >= Valor Inicial >= Opt-in >= (Aprovados + Recusados) >= Simularam >= Ok Agente
--- 3. 'valor_inicial' exige passagem por 'faturamento' e valor plausível de crédito (10k a 500k),
---    eliminando ruídos de menus/telefones de auto-resposta.
+-- 2. Hierarquia estrita do Funil com a ordem atualizada de perguntas:
+--    Confirmaram >= Valor Inicial (Pergunta 1) >= Faturamento (Pergunta 2) >= Opt-in (Pergunta 3) >= (Aprovados + Recusados) >= Simularam >= Ok Agente
+-- 3. 'valor_inicial' contabiliza quem informou valor válido (10k a 500k) OU quem avançou para faturamento, opt-in ou análise de crédito.
 -- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
 -- ============================================================
 
@@ -109,12 +108,24 @@ BEGIN
   lead_metrics AS (
     SELECT
       al.campaign_id AS l_cid,
-      -- Bloco 2: Funil de Venda (Princípio Estrito: cada etapa subsequente pressupõe as anteriores)
+      -- Bloco 2: Funil de Venda (Hierarquia Estrita do Funil)
       
       -- 1. Confirmaram: Confirmou identidade OU avançou em qualquer etapa posterior
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'identity_confirmed') IN ('true', 't', '1')
            OR (al.metadata->>'cnpj_confirmed') IN ('true', 't', '1')
+           OR (
+             (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
+             AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
+             AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
+           )
+           OR (
+             (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
+             AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
+             AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
+           )
+           OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
+           OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
            OR (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
            OR (al.metadata->>'opt_in')::boolean = true
@@ -126,7 +137,37 @@ BEGIN
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_confirmaram,
 
-      -- 2. Faturamento: Informou faturamento OU avançou em qualquer etapa posterior
+      -- 2. Valor Inicial (Etapa 1 da Qualificação): Informou valor desejado plausível (10k a 500k) OU avançou para faturamento / opt-in / crédito
+      COUNT(al.id) FILTER (
+        WHERE (
+          -- Condição A: Informou valor de empréstimo válido (10k a 500k)
+          (
+            (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
+            AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
+            AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
+          )
+          OR (
+            (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
+            AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
+            AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
+          )
+          OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
+          OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
+          -- Condição B: Avançou para faturamento (pressupõe que já passou por valor inicial no novo fluxo)
+          OR (al.metadata->>'revenue') IS NOT NULL 
+          OR (al.metadata->>'faturamento') IS NOT NULL
+          -- Condição C: Avançou para opt-in ou análise de crédito
+          OR (al.metadata->>'opt_in')::boolean = true
+          OR (al.metadata->>'optin')::boolean = true
+          OR (al.metadata->'consent'->>'opt_in')::boolean = true
+          OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
+          OR (al.metadata->>'loan_request_id') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
+          OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
+        )
+      ) AS m_valor_inicial,
+
+      -- 3. Faturamento (Etapa 2 da Qualificação): Informou faturamento OU avançou para opt-in / crédito
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
@@ -138,39 +179,6 @@ BEGIN
            OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_faturamento,
-
-      -- 3. Valor Inicial: Passou por faturamento E informou valor válido de empréstimo (10k a 500k) OU avançou para opt-in/crédito
-      COUNT(al.id) FILTER (
-        WHERE (
-          -- Condição A: Passou por faturamento E informou valor válido (evita números de telefones/menus espúrios)
-          (
-            (al.metadata->>'revenue') IS NOT NULL 
-            OR (al.metadata->>'faturamento') IS NOT NULL
-          )
-          AND (
-            (
-              (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
-              AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (
-              (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
-              AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
-              AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
-            )
-            OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
-            OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
-          )
-        )
-        -- Condição B: Avançou para opt-in ou análise de crédito (pressupõe valor inicial definido)
-        OR (al.metadata->>'opt_in')::boolean = true
-        OR (al.metadata->>'optin')::boolean = true
-        OR (al.metadata->'consent'->>'opt_in')::boolean = true
-        OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-        OR (al.metadata->>'loan_request_id') IS NOT NULL
-        OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-        OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
-      ) AS m_valor_inicial,
 
       -- 4. Opt-in
       COUNT(al.id) FILTER (
