@@ -794,7 +794,7 @@ export function CreditCampaignDetailView({
     XLSX.writeFile(workbook, fileName);
   };
 
-  const renderStatusBadge = (status: string, lead?: LeadItem) => {
+  const renderStatusBadge = (status: string, lead?: LeadDetailRow) => {
     const isApp = Boolean(
       status === 'Aprovado' || 
       lead?.stages?.isAprovado || 
