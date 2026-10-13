@@ -234,9 +234,9 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   // Taxas de conversão principais
   const deliveryRate = totals.enviados > 0 ? ((totals.entregues / totals.enviados) * 100).toFixed(1) : '0.0';
   const responseRate = totals.entregues > 0 ? ((totals.interagiram / totals.entregues) * 100).toFixed(1) : '0.0';
+  const confirmationRate = totals.interagiram > 0 ? (((totals.confirmaram || 0) / totals.interagiram) * 100).toFixed(1) : '0.0';
   const optInRate = totals.interagiram > 0 ? ((totals.optIn / totals.interagiram) * 100).toFixed(1) : '0.0';
   const approvalRate = totals.optIn > 0 ? ((totals.aprovados / totals.optIn) * 100).toFixed(1) : '0.0';
-  const formalizationRate = totals.enviados > 0 ? ((totals.formalizado / totals.enviados) * 100).toFixed(1) : '0.0';
 
   const exportToExcel = () => {
     const rows = filteredData.map(d => ({
@@ -658,9 +658,9 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
           <Progress value={Number(deliveryRate)} className="h-1.5 mt-3 bg-blue-50" indicatorClassName="bg-blue-600" />
         </div>
 
-        {/* 2. Engajamento (Envio - Índigo/Azul) */}
+        {/* 2. Interagiram (Envio - Índigo/Azul) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Engajamento (Respostas)</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Interagiram</span>
           <div className="mt-2 flex items-baseline justify-between">
             <span className="text-2xl font-extrabold text-blue-700">{responseRate}%</span>
             <span className="text-[11px] text-slate-500 font-medium">{totals.interagiram.toLocaleString('pt-BR')} respostas</span>
@@ -668,7 +668,17 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
           <Progress value={Number(responseRate)} className="h-1.5 mt-3 bg-blue-50" indicatorClassName="bg-blue-700" />
         </div>
 
-        {/* 3. Conversão em Opt-in (Venda - Esmeralda/Verde) */}
+        {/* 3. Confirmaram (Venda - Teal/Verde) */}
+        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Confirmaram</span>
+          <div className="mt-2 flex items-baseline justify-between">
+            <span className="text-2xl font-extrabold text-teal-600">{confirmationRate}%</span>
+            <span className="text-[11px] text-slate-500 font-medium">{(totals.confirmaram || 0).toLocaleString('pt-BR')} confirmados</span>
+          </div>
+          <Progress value={Number(confirmationRate)} className="h-1.5 mt-3 bg-teal-50" indicatorClassName="bg-teal-600" />
+        </div>
+
+        {/* 4. Conversão em Opt-in (Venda - Esmeralda/Verde) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Conversão em Opt-in</span>
           <div className="mt-2 flex items-baseline justify-between">
@@ -678,7 +688,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
           <Progress value={Number(optInRate)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
         </div>
 
-        {/* 4. Aprovação de Crédito (Venda - Verde Esmeralda) */}
+        {/* 5. Aprovação de Crédito (Venda - Verde Esmeralda) */}
         <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Aprovação de Crédito</span>
           <div className="mt-2 flex items-baseline justify-between">
@@ -686,16 +696,6 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
             <span className="text-[11px] text-slate-500 font-medium">{totals.aprovados.toLocaleString('pt-BR')} aprovados</span>
           </div>
           <Progress value={Number(approvalRate)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
-        </div>
-
-        {/* 5. Formalizados (Funil de Formalização - Vinho/Dourado/Verde de Sucesso) */}
-        <div className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col justify-between col-span-2 sm:col-span-1">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Formalizados (Final)</span>
-          <div className="mt-2 flex items-baseline justify-between">
-            <span className="text-2xl font-extrabold text-emerald-700">{totals.formalizado.toLocaleString('pt-BR')}</span>
-            <span className="text-[11px] text-emerald-600 font-bold">{formalizationRate}% do total</span>
-          </div>
-          <Progress value={Math.min(Number(formalizationRate) * 10, 100)} className="h-1.5 mt-3 bg-emerald-50" indicatorClassName="bg-emerald-600" />
         </div>
       </div>
 
