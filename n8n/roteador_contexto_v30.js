@@ -193,9 +193,11 @@ try {
     const isButtonTemplateClick = [
         'quero simular!', 'quero simular', 
         'falar com um agente!', 'falar com um agente', 
-        'simular', 'falar com especialista', 'falar com um especialista',
+        'simular', 'simulação', 'simulacao', 'simulação!', 'simulacao!',
+        'quero uma simulação', 'quero uma simulacao', 'quero simulacao', 'quero simulação',
+        'falar com especialista', 'falar com um especialista',
         'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente'
-    ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase());
+    ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase()) || /\b(simul|simular|simula[çc][ãa]o|proposta|an[áa]lise|empr[eé]stimo|taxa|juros|quero|pode|manda)\b/i.test(lastUserLower);
 
     // 🙋 P1: Saudações Humanas Curtas Isoladas (<= 15 caracteres)
     const regexStrictGreeting = /^(ol[aá]|oi|oie|opa|bom dia|boa tarde|boa noite)[!.,\s]*$/i;
@@ -241,9 +243,10 @@ try {
     }
 
     // Detecção 3B: Eco / Ping-Pong (Cliente ecoou o que o robô mandou ou o robô ecoou o cliente)
-    if (currentNormalized.length > 8 && botMsgs.length > 0) {
+    // 🛡️ Blindagem: Só considera eco real se o texto for longo (>= 35 caracteres) e idêntico, evitando falso-positivo em palavras-chave como "simulação"
+    if (currentNormalized.length >= 35 && botMsgs.length > 0 && !isButtonTemplateClick) {
         const lastBotNormalized = normalizeForComparison(botMsgs[botMsgs.length - 1]?.content || botMsgs[botMsgs.length - 1]?.text);
-        if (currentNormalized === lastBotNormalized || (lastBotNormalized.length > 15 && lastBotNormalized.includes(currentNormalized)) || (currentNormalized.length > 15 && currentNormalized.includes(lastBotNormalized))) {
+        if (currentNormalized === lastBotNormalized || (lastBotNormalized.length > 35 && lastBotNormalized.startsWith(currentNormalized))) {
             isEchoPingPong = true;
         }
     }
@@ -1226,6 +1229,32 @@ try {
         mode = "parrot";
     }
 
+    // 🛡️ BLINDAGEM ANTI-ECO & ANTI-REPETIÇÃO DA CAMPANHA (PRODUÇÃO)
+    const isCampaignEcho = forcedText.includes("capital de giro") || 
+                           forcedText.includes("recebíveis futuros") || 
+                           forcedText.includes("reforçar o caixa") ||
+                           forcedText.includes("taxas a partir de 1,89%");
+
+    // Se o robô já enviou mensagens antes e está tentando reenviar o pitch de abertura:
+    if (assistantMessages.length > 0 && isCampaignEcho && !isStrictGreeting) {
+        nextStep = 'coleta_valor';
+        forcedText = `Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_`;
+        mode = "parrot";
+    }
+
+    // Se a mensagem que o robô vai enviar for idêntica à última que ele já enviou:
+    if (assistantMessages.length > 0) {
+        const lastSentNormalized = normalizeText(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text);
+        if (cleanNextText.length > 20 && lastSentNormalized === cleanNextText) {
+            if (nextStep === 'coleta_valor' || currentStep === 'start' || currentStep === 'explicacao_agente') {
+                forcedText = `Certo! Qual o valor que você gostaria de solicitar na análise?\n\n_Ex.: 50 mil_`;
+                nextStep = 'coleta_valor';
+            } else if (nextStep === 'coleta_faturamento') {
+                forcedText = `Sem problemas! Apenas uma média aproximada do faturamento mensal já é suficiente para avançarmos. Quanto você estima?\n\n_Ex.: 80 mil_`;
+            }
+        }
+    }
+
     // 🛡️ TRAVA MESTRA DE MODO CONSULTIVO: Se o cliente tem dúvida ou pergunta qualitativa, NUNCA opera em Parrot Mode!
     if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && !loopDetectedHandoff && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
         mode = "consultive";
@@ -1583,40 +1612,9 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
     };
 
 } catch (globalError) {
-    let fallbackText = "";
-    try {
-        const blueprint = $node["RPC - Acesso Entrada"].json.context?.agent?.workflow_blueprint || { steps: {} };
-        fallbackText = blueprint.steps?.["start"]?.rules || "";
-    } catch (e) { }
-
-    if (!fallbackText) {
-        fallbackText = "Olá! Sou a Sofia, especialista da *Ticket*. Como posso ajudar você hoje?";
-    }
-
-    try {
-        const history = $node["RPC - Acesso Entrada"].json.context?.messages_history || [];
-        const assistantMessages = history.filter(m =>
-            ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
-        );
-        if (assistantMessages.length > 0) {
-            fallbackText = assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || fallbackText;
-        }
-    } catch (e) { }
-
-    try {
-        const leadInfo = $node["RPC - Acesso Entrada"].json.context?.lead_info || {};
-        fallbackText = fallbackText
-            .replace(/{{lead_info\.cnpj}}/gi, `*${leadInfo.cnpj || "não informado"}*`)
-            .replace(/{{lead_info\.name}}/gi, `*${leadInfo.name || "não informado"}*`)
-            .replace(/{{lead_info\.link}}/gi, leadInfo.link || "https://fiserv.ticket.com.br/simulacao-sofia");
-
-        fallbackText = fallbackText
-            .replace(/loan request is not eligible for simulation/gi, 'A proposta não está disponível para cálculo de simulação no momento')
-            .replace(/\b(loan_request_id|loan request|simulation_data|http_status|error_code|detail|status_code)\b/gi, '')
-            .replace(/not eligible/gi, 'não elegível')
-            .replace(/\b(undefined|null|NaN)\b/g, '')
-            .trim();
-    } catch (e) { }
+    // 🛡️ FALLBACK SEGURO PRODUÇÃO: Nunca mais ecoa a mensagem da campanha
+    let fallbackText = "Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_";
+    let fallbackStep = "coleta_valor";
 
     return {
         final_system_prompt: `<RULES>
@@ -1630,8 +1628,8 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 ${fallbackText}
 </RESPOSTA_OBRIGATORIA>
 </CONTROLE_DE_FLUXO>`,
-        p_conversation_id: $node["RPC - Acesso Entrada"].json.conversation?.id || $node["RPC - Acesso Entrada"].json.p_conversation_id,
-        currentStep: 'start',
+        p_conversation_id: $node["RPC - Acesso Entrada"]?.json?.conversation?.id || $node["RPC - Acesso Entrada"]?.json?.p_conversation_id,
+        currentStep: fallbackStep,
         mode: 'parrot',
         trigger_handoff: false,
         handoff_data: {},
