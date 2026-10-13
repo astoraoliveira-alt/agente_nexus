@@ -109,6 +109,7 @@ export function DailyFunnelStatusView() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [isInitialized, setIsInitialized] = useState(false);
+  const [historyPeriodFilter, setHistoryPeriodFilter] = useState<'15days' | '30days' | '60days' | '90days' | 'all'>('15days');
 
   useEffect(() => {
     if (!currentTenant) return;
@@ -229,6 +230,25 @@ export function DailyFunnelStatusView() {
 
     return Array.from(map.values()).sort((a, b) => b.dateKey.localeCompare(a.dateKey));
   }, [funnelData]);
+
+  // 1.1 Filtragem do Histórico Diário por Período Selecionado (15d, 30d, 60d, 90d, Tudo)
+  const filteredDailyData = useMemo(() => {
+    if (historyPeriodFilter === 'all') return dailyData;
+
+    const days =
+      historyPeriodFilter === '15days' ? 15 :
+      historyPeriodFilter === '30days' ? 30 :
+      historyPeriodFilter === '60days' ? 60 :
+      historyPeriodFilter === '90days' ? 90 : 15;
+
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, 0, 0, 0, 0);
+
+    return dailyData.filter(row => {
+      const d = parseSafeDate(row.dateKey);
+      return d ? d >= cutoff : true;
+    });
+  }, [dailyData, historyPeriodFilter]);
 
   // 2. Linhas do Comparativo de Período Executivo (Hoje vs Esta Semana vs Semana Anterior vs Mês Todo)
   const periodComparisonRows: PeriodComparisonRow[] = useMemo(() => {
@@ -713,16 +733,71 @@ export function DailyFunnelStatusView() {
       {/* 4. Seção Secundária: Histórico Diário Detalhado (Para auditoria por dia) */}
       {dailyData.length > 0 && (
         <div className="bg-white border border-border/50 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-border/50 flex items-center justify-between bg-slate-50/40">
+          <div className="p-4 border-b border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/40">
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4 text-slate-500" />
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                Histórico de Disparos por Data ({dailyData.length} dias registrados)
+                Histórico de Disparos por Data ({filteredDailyData.length} {filteredDailyData.length === 1 ? 'dia registrado' : 'dias registrados'})
               </h4>
             </div>
-            <span className="text-[11px] text-slate-400">
-              Auditoria analítica diária
-            </span>
+
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg shrink-0 overflow-x-auto">
+              <Button
+                variant={historyPeriodFilter === '15days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setHistoryPeriodFilter('15days')}
+                className={cn(
+                  "h-7 px-2.5 text-xs font-medium rounded shadow-none",
+                  historyPeriodFilter === '15days' ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"
+                )}
+              >
+                15 Dias
+              </Button>
+              <Button
+                variant={historyPeriodFilter === '30days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setHistoryPeriodFilter('30days')}
+                className={cn(
+                  "h-7 px-2.5 text-xs font-medium rounded shadow-none",
+                  historyPeriodFilter === '30days' ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"
+                )}
+              >
+                30 Dias
+              </Button>
+              <Button
+                variant={historyPeriodFilter === '60days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setHistoryPeriodFilter('60days')}
+                className={cn(
+                  "h-7 px-2.5 text-xs font-medium rounded shadow-none",
+                  historyPeriodFilter === '60days' ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"
+                )}
+              >
+                60 Dias
+              </Button>
+              <Button
+                variant={historyPeriodFilter === '90days' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setHistoryPeriodFilter('90days')}
+                className={cn(
+                  "h-7 px-2.5 text-xs font-medium rounded shadow-none",
+                  historyPeriodFilter === '90days' ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"
+                )}
+              >
+                90 Dias
+              </Button>
+              <Button
+                variant={historyPeriodFilter === 'all' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setHistoryPeriodFilter('all')}
+                className={cn(
+                  "h-7 px-2.5 text-xs font-medium rounded shadow-none",
+                  historyPeriodFilter === 'all' ? "bg-white text-slate-900 shadow-sm font-semibold" : "text-slate-500 hover:text-slate-900"
+                )}
+              >
+                Tudo
+              </Button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -743,71 +818,93 @@ export function DailyFunnelStatusView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {dailyData.map((row) => (
-                  <tr key={row.dateKey} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-800 font-mono">
-                          {row.dateDisplay}
-                        </span>
-                        <span className="text-[10px] text-slate-400 capitalize">
-                          {row.dayOfWeek}
-                        </span>
-                        {row.campaignCount > 1 && (
-                          <span className="text-[9px] font-semibold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
-                            {row.campaignCount} campanhas
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="font-bold text-slate-800 font-mono">
-                        {row.enviados.toLocaleString('pt-BR')}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.entregues} prev={row.enviados} subLabel="dos enviados" />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.lidas} prev={row.entregues} subLabel="dos entregues" />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.interagiram} prev={row.lidas} subLabel="das lidas" isHighlight />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.confirmaram} prev={row.interagiram} subLabel="dos que interagiram" />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.valorInicial} prev={row.confirmaram} subLabel="dos confirmados" />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.faturamento} prev={row.valorInicial} subLabel="dos que pediram valor" />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <StepMetricCell value={row.optIn} prev={row.faturamento} subLabel="do faturamento" isHighlight />
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="font-bold text-rose-600 font-mono">
-                        {row.recusados.toLocaleString('pt-BR')}
-                      </span>
-                    </td>
-
-                    <td className="py-2.5 px-3 text-right">
-                      <span className="font-bold text-emerald-700 font-mono">
-                        {row.aprovados.toLocaleString('pt-BR')}
-                      </span>
+                {filteredDailyData.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="py-8 text-center text-slate-400 text-xs">
+                      Nenhum disparo registrado no período selecionado ({historyPeriodFilter === '15days' ? '15 dias' : historyPeriodFilter === '30days' ? '30 dias' : historyPeriodFilter === '60days' ? '60 dias' : historyPeriodFilter === '90days' ? '90 dias' : 'todos'}).
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredDailyData.map((row) => (
+                    <tr key={row.dateKey} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-2.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-800 font-mono">
+                            {row.dateDisplay}
+                          </span>
+                          <span className="text-[10px] text-slate-400 capitalize">
+                            {row.dayOfWeek}
+                          </span>
+                          {row.campaignCount > 1 && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+                              {row.campaignCount} campanhas
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <span className="font-bold text-slate-800 font-mono">
+                          {row.enviados.toLocaleString('pt-BR')}
+                        </span>
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.entregues} prev={row.enviados} subLabel="dos enviados" />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.lidas} prev={row.entregues} subLabel="dos entregues" />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.interagiram} prev={row.lidas} subLabel="das lidas" isHighlight />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.confirmaram} prev={row.interagiram} subLabel="dos que interagiram" />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.valorInicial} prev={row.confirmaram} subLabel="dos confirmados" />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.faturamento} prev={row.valorInicial} subLabel="dos que pediram valor" />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <StepMetricCell value={row.optIn} prev={row.faturamento} subLabel="do faturamento" isHighlight />
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex flex-col items-end">
+                          <span className="font-bold text-rose-600 font-mono">
+                            {row.recusados.toLocaleString('pt-BR')}
+                          </span>
+                          {row.optIn > 0 && (
+                            <span className="text-[9px] font-semibold text-rose-500/80 mt-0.5">
+                              {((row.recusados / row.optIn) * 100).toFixed(1)}% do opt-in
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="flex flex-col items-end">
+                          <span className="font-bold text-emerald-700 font-mono">
+                            {row.aprovados.toLocaleString('pt-BR')}
+                          </span>
+                          {row.optIn > 0 && (
+                            <span className="text-[9px] font-semibold text-emerald-600/80 mt-0.5">
+                              {((row.aprovados / row.optIn) * 100).toFixed(1)}% do opt-in
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
