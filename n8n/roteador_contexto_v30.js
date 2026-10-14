@@ -308,7 +308,7 @@ try {
     // --- 🛠️ FUNÇÕES AUXILIARES DE PARSING (V26 BLINDADA) ---
     function parseNumber(text) {
         if (!text) return null;
-        let clean = text.toLowerCase().trim();
+        let clean = text.toLowerCase().trim().replace(/[.,]+$/, '');
 
         // 🎯 P3: Referência direta ao exemplo fornecido na mensagem anterior
         if (/\b(algo em torno disso|mais ou menos isso|por [aá][ií]|pode ser isso|isso mesmo|em torno do exemplo)\b/i.test(clean)) {
@@ -332,11 +332,29 @@ try {
             if (!isNaN(val)) return val * 1000;
         }
 
-        const milMatch = clean.match(/(\d+(?:[.,]\d+)?)\s*(?:mil|k)\b/i);
+        // 🛡️ Fix Brasileiro: "8,921,00 mil", "9.000,00 mil", "9.000 mil"
+        const milMatch = clean.match(/([\d.,]+)\s*(?:mil|k)\b/i);
         if (milMatch) {
-            let numStr = milMatch[1].replace(/\./g, '').replace(',', '.');
-            let val = parseFloat(numStr);
-            if (!isNaN(val)) return val * 1000;
+            let rawNum = milMatch[1].replace(/[.,]+$/, '');
+            let val = null;
+            if (rawNum.includes('.') && rawNum.includes(',')) {
+                val = parseFloat(rawNum.replace(/\./g, '').replace(',', '.'));
+            } else if (rawNum.includes(',')) {
+                const parts = rawNum.split(',');
+                if (parts.length === 2 && parts[1].length === 2 && parts[0].length >= 3) {
+                    val = parseFloat(rawNum.replace(',', '.'));
+                } else if (parts.length > 2) {
+                    val = parseFloat(parts.slice(0, -1).join('') + '.' + parts[parts.length - 1]);
+                } else {
+                    val = parseFloat(rawNum.replace(',', '.'));
+                }
+            } else {
+                val = parseFloat(rawNum);
+            }
+            if (!isNaN(val)) {
+                if (val >= 1000) return val; // Já está em valor nominal completo
+                return val * 1000;
+            }
         }
 
         clean = clean.replace(/\bem\s+\d+(?:\s*(?:x|vezes|parcelas?))?\b/gi, '').trim();
@@ -523,7 +541,11 @@ try {
             lastSofiaMsg.includes("quantas parcelas deseja pagar") ||
             lastSofiaMsg.includes("informe o valor que você gostaria de simular") ||
             lastSofiaMsg.includes("valor que você gostaria de simular") ||
-            lastSofiaMsg.includes("vamos fazer uma nova simulação")
+            lastSofiaMsg.includes("vamos fazer uma nova simulação") ||
+            lastSofiaMsg.includes("qual o valor exato que você deseja solicitar") ||
+            lastSofiaMsg.includes("qual o valor exato") ||
+            lastSofiaMsg.includes("deseja solicitar nessa simulação") ||
+            lastSofiaMsg.includes("deseja solicitar nessa simulacao")
         ) {
             currentStep = 'apresenta_ofertas';
         } else if (
@@ -592,7 +614,7 @@ try {
         semanticAmount = null;
     }
 
-    let extractedAmount = isRestartSimulation ? null : (semanticAmount || findValueForQuestion(history, ["valor de empréstimo", "valor de emprestimo", "deseja simular", "valor aproximado você gostaria de solicitar", "valor aproximado voce gostaria de solicitar", "valor que você gostaria de simular", "valor que voce gostaria de simular"]));
+    let extractedAmount = isRestartSimulation ? null : (semanticAmount || findValueForQuestion(history, ["valor desejado", "solicitar na análise", "solicitar na analise", "valor de empréstimo", "valor de emprestimo", "deseja simular", "valor aproximado você gostaria de solicitar", "valor aproximado voce gostaria de solicitar", "valor que você gostaria de simular", "valor que voce gostaria de simular"]));
     let extractedInstallments = isRestartSimulation ? null : (semanticInstallments || findValueForQuestion(history, ["quantidade de parcelas", "em quantas parcelas", "prazo de pagamento", "quantas parcelas"]));
 
     if (!isRestartSimulation) {
@@ -633,9 +655,14 @@ try {
             revenue = fallbackNumber * 1000; // Ex: "80" -> 80.000
         }
     } else {
-        if (!extractedAmount && fallbackNumber > 100) {
+        const lastSofiaAskedInstallments = /\b(em quantas parcelas|quantas parcelas|qual o prazo|de 6 a \d{1,2} parcelas)\b/i.test(lastSofiaMsg);
+        const lastSofiaAskedAmount = /\b(qual o valor|qual valor|valor exato|valor desejado|deseja solicitar|gostaria de solicitar)\b/i.test(lastSofiaMsg);
+
+        if (lastSofiaAskedInstallments && fallbackNumber >= 6 && fallbackNumber <= 48) {
+            extractedInstallments = fallbackNumber;
+        } else if (!extractedAmount && fallbackNumber > 100) {
             extractedAmount = fallbackNumber;
-        } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) {
+        } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i) && !lastSofiaAskedInstallments) {
             extractedAmount = fallbackNumber * 1000; // Ex: "50" -> 50.000
         }
     }
@@ -651,7 +678,26 @@ try {
     }
 
     if (!extractedInstallments && fallbackNumber > 0 && fallbackNumber <= 48) {
-        extractedInstallments = fallbackNumber;
+        const lastSofiaAskedInstallments = /\b(em quantas parcelas|quantas parcelas|qual o prazo|de 6 a \d{1,2} parcelas)\b/i.test(lastSofiaMsg);
+        if (lastSofiaAskedInstallments || lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) {
+            extractedInstallments = fallbackNumber;
+        }
+    }
+
+    // 🔄 RECUPERAÇÃO BIDIRECIONAL DE HISTÓRICO: Se usuário informou apenas parcelas, resgata o valor mencionado pela Sofia ou histórico recente
+    if (extractedInstallments && !extractedAmount) {
+        const mAmountInSofia = lastSofiaMsg.match(/valor de \*?r\$\s*([\d.,]+)/i) || historyTexts.match(/valor de \*?r\$\s*([\d.,]+)/i);
+        if (mAmountInSofia) {
+            extractedAmount = parseNumber(mAmountInSofia[1].replace(/[.,]+$/, ''));
+        }
+    }
+    // Se usuário informou apenas valor, resgata as parcelas mencionadas na mensagem da Sofia
+    if (extractedAmount && !extractedInstallments) {
+        const mInstInSofia = lastSofiaMsg.match(/\*?(\d{1,2})\s*parcelas?\*?/i) || lastSofiaMsg.match(/prazo [ée] de (\d{1,2})/i);
+        if (mInstInSofia) {
+            const inst = parseInt(mInstInSofia[1], 10);
+            if (inst >= 6 && inst <= 48) extractedInstallments = inst;
+        }
     }
 
     let requested_amount = isRestartSimulation ? null : (extractedAmount || leadInfo.requested_amount);
@@ -1230,10 +1276,12 @@ try {
     }
 
     // 🛡️ BLINDAGEM ANTI-ECO & ANTI-REPETIÇÃO DA CAMPANHA (PRODUÇÃO)
-    const isCampaignEcho = forcedText.includes("capital de giro") || 
-                           forcedText.includes("recebíveis futuros") || 
-                           forcedText.includes("reforçar o caixa") ||
-                           forcedText.includes("taxas a partir de 1,89%");
+    // NUNCA disparar anti-eco em etapas legítimas de reforço de condições, finalização ou ofertas
+    const isLegitimateProductStep = ['reforco_condicoes', 'finalizacao_sucesso', 'apresenta_ofertas', 'solicitar_simulacao'].includes(nextStep);
+    const isCampaignEcho = !isLegitimateProductStep && (currentStep === 'start' || nextStep === 'start') && (
+        forcedText.includes("Já pensou em reforçar o caixa") ||
+        (forcedText.includes("sem burocracia") && forcedText.includes("taxas a partir de 1,89%"))
+    );
 
     // Se o robô já enviou mensagens antes e está tentando reenviar o pitch de abertura:
     if (assistantMessages.length > 0 && isCampaignEcho && !isStrictGreeting) {

@@ -34,6 +34,8 @@ import { cn } from '@/lib/utils';
 import { mockAlerts } from '@/lib/mock-data';
 import { useTenantPresence } from '@/hooks/useTenantPresence';
 import { TenantOnlineUsers } from '@/components/layout/TenantOnlineUsers';
+import { isToday } from 'date-fns';
+import { isExpressHumanRequest } from '@/pages/HandoffHub';
 
 // Navigation items are now handled dynamically inside the component to support real-time badges
 
@@ -72,6 +74,12 @@ export function AppSidebar() {
     ? awaitingReplyCount
     : conversations.filter(c => c.isAwaitingReply).length;
 
+  // Atendimentos que solicitaram intervenção humana no dia de hoje (abertos ou atendidos hoje)
+  const todayHumanHandoffCount = handoffRequests.filter(r => 
+    isExpressHumanRequest(r.initial_message, r.metadata) && 
+    (isToday(new Date(r.requested_at || r.created_at)) || isToday(new Date(r.handled_at || r.created_at)))
+  ).length;
+
   const dynamicMainNavItems = [
     { title: 'Dashboard', url: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
     { title: 'Consumo', url: '/consumption', icon: BarChart3, permission: 'consumption.view' },
@@ -87,9 +95,7 @@ export function AppSidebar() {
       url: '/handoff-hub', 
       icon: Zap, 
       permission: 'handoff.view', 
-      badge: handoffRequests.filter(r => r.status === 'pending').length > 0 
-        ? handoffRequests.filter(r => r.status === 'pending').length 
-        : undefined 
+      badge: todayHumanHandoffCount > 0 ? todayHumanHandoffCount : undefined 
     },
   ];
 

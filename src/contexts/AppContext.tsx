@@ -429,7 +429,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .eq('tenant_id', tenantId)
       .neq('status', 'ignored')
       .order('requested_at', { ascending: false })
-      .limit(200);
+      .limit(2000);
       
     if (error) {
       console.error('❌ [Handoff] Erro na consulta:', error);

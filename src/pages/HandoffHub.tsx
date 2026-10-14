@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useNavigate } from 'react-router-dom';
-import { formatDistanceToNow, isToday } from 'date-fns';
+import { formatDistanceToNow, isToday, isAfter, subDays, format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { formatPhoneBR, formatCNPJ } from '@/services/salesCockpit.service';
 
@@ -50,10 +50,16 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
     text.includes('robô') || text.includes('robo') || text.includes('bot') ||
     text.includes('atendente virtual') || text.includes('assistente virtual') ||
     text.includes('digite apenas o número') || text.includes('digite uma das opções') ||
+    text.includes('digite a palavra') || text.includes('caso queira falar') ||
+    text.includes('fiquei confuso') || text.includes('não entendi') || text.includes('nao entendi') ||
+    text.includes('sendo transferido') || text.includes('teria que te transferir') ||
+    text.includes('nenhum atendente disponível') || text.includes('nenhum atendente disponivel') ||
+    text.includes('o atendente irá te responder') || text.includes('o atendente ira te responder') ||
+    text.includes('em breve o atendente') ||
     text.includes('escolher um item') || text.includes('cardápio') || text.includes('cardapio') ||
     text.includes('fazer pedido') || text.includes('fazer um pedido') ||
     text.includes('resposta automática') || text.includes('mensagem automática') ||
-    text.includes('agradece seu contato') || text.includes('seja bem vindo') ||
+    text.includes('agradece seu contato') || text.includes('agradece sua mensagem') || text.includes('seja bem vindo') ||
     text.includes('horário de atendimento') || text.includes('horario de atendimento') ||
     text.includes('linktr.ee') || text.includes('bit.ly') || text.includes('http://') || text.includes('https://') ||
     text.includes('deliveryapp') || text.includes('neemo') ||
@@ -141,6 +147,8 @@ const HandoffHub: React.FC = () => {
     hasPermission
   } = useApp();
 
+  type PeriodFilter = 'today' | 'week' | 'month' | 'all';
+  const [period, setPeriod] = useState<PeriodFilter>('today');
   const [filter, setFilter] = useState<'pending' | 'history'>('pending');
   const [usersMap, setUsersMap] = useState<Record<string, string>>({});
   const [agents, setAgents] = useState<{ id: string; name: string }[]>([]);
@@ -348,14 +356,52 @@ const HandoffHub: React.FC = () => {
     });
   }, [agentFilteredRequests, searchTerm, leadsMap, conversations, agents]);
 
-  // 7. Separação Fila Atual x Atendidos Hoje
-  const pendingRequests = useMemo(() => {
-    return searchedRequests.filter(r => r.status === 'pending');
-  }, [searchedRequests]);
+  // 7. Helpers de Período e Separação Fila Atual x Atendidos
+  const isWithinPeriod = (dateStr?: string | null, targetPeriod: PeriodFilter = 'today') => {
+    if (!dateStr) return false;
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return false;
+    if (targetPeriod === 'all') return true;
+    if (targetPeriod === 'today') return isToday(date);
+    if (targetPeriod === 'week') return isAfter(date, subDays(new Date(), 7));
+    if (targetPeriod === 'month') return isAfter(date, subDays(new Date(), 30));
+    return true;
+  };
 
-  const handledToday = useMemo(() => {
-    return searchedRequests.filter(r => r.status !== 'pending' && isToday(new Date(r.handled_at || r.created_at)));
-  }, [searchedRequests]);
+  const periodLabels: Record<PeriodFilter, { card: string; tab: string; empty: string }> = {
+    today: {
+      card: 'Atendidos Hoje',
+      tab: 'Atendidos Hoje',
+      empty: 'Nenhum atendimento foi concluído hoje ainda para este filtro.'
+    },
+    week: {
+      card: 'Atendidos na Semana',
+      tab: 'Atendidos na Semana',
+      empty: 'Nenhum atendimento concluído nos últimos 7 dias para este filtro.'
+    },
+    month: {
+      card: 'Atendidos no Mês',
+      tab: 'Atendidos no Mês',
+      empty: 'Nenhum atendimento concluído nos últimos 30 dias para este filtro.'
+    },
+    all: {
+      card: 'Total de Atendidos',
+      tab: 'Todos Atendidos',
+      empty: 'Nenhum atendimento concluído encontrado no histórico para este filtro.'
+    }
+  };
+
+  const pendingRequests = useMemo(() => {
+    return searchedRequests.filter(r => 
+      r.status === 'pending' && (period === 'all' ? true : isWithinPeriod(r.requested_at || r.created_at, period))
+    );
+  }, [searchedRequests, period]);
+
+  const handledRequests = useMemo(() => {
+    return searchedRequests.filter(r => 
+      r.status !== 'pending' && isWithinPeriod(r.handled_at || r.created_at, period)
+    );
+  }, [searchedRequests, period]);
 
   const handleTakeover = async (requestId: string, conversationId: string) => {
     try {
@@ -390,7 +436,7 @@ const HandoffHub: React.FC = () => {
     }
   };
 
-  const currentDisplayList = filter === 'pending' ? pendingRequests : handledToday;
+  const currentDisplayList = filter === 'pending' ? pendingRequests : handledRequests;
 
   // Se o usuário não tiver permissão para ver a fila, exibe aviso amigável
   if (!hasPermission('handoff.view')) {
@@ -466,16 +512,16 @@ const HandoffHub: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Card 3: Atendidos Hoje */}
+          {/* Card 3: Atendidos no Período */}
           <Card className="bg-white border-slate-200 shadow-sm">
             <CardContent className="p-5 flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center text-slate-700 shrink-0">
                 <CheckCircle2 className="h-6 w-6" />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Atendidos Hoje</p>
+                <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">{periodLabels[period].card}</p>
                 <div className="flex items-baseline gap-2 mt-0.5">
-                  <h3 className="text-2xl font-bold text-slate-900">{handledToday.length}</h3>
+                  <h3 className="text-2xl font-bold text-slate-900">{handledRequests.length}</h3>
                   <span className="text-xs text-slate-500">concluídos</span>
                 </div>
               </div>
@@ -484,9 +530,9 @@ const HandoffHub: React.FC = () => {
         </div>
 
         {/* Filters and Search Bar */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           {/* Search Input (Nome, Telefone, CNPJ) */}
-          <div className="relative flex-1 min-w-[260px]">
+          <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input 
               placeholder="Buscar por nome, telefone ou CNPJ..." 
@@ -505,52 +551,77 @@ const HandoffHub: React.FC = () => {
             )}
           </div>
 
-          {/* Seletor de Agente (Padrão: Agente Novo, mas permite selecionar o antigo ou todos) */}
-          <div className="w-full sm:w-[280px]">
-            <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
-              <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200 text-slate-700">
-                <div className="flex items-center gap-2 truncate">
-                  <Bot className="h-4 w-4 text-[#E5003A] shrink-0" />
-                  <SelectValue placeholder="Selecione o agente..." />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">
-                  <span className="font-semibold text-slate-700">Todos os Agentes (Geral)</span>
-                </SelectItem>
-                {agents.map((ag) => (
-                  <SelectItem key={ag.id} value={ag.id}>
-                    <span className="truncate">{ag.name}</span>
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+            {/* Seletor de Agente (Padrão: Agente Novo, mas permite selecionar o antigo ou todos) */}
+            <div className="w-full sm:w-[240px]">
+              <Select value={selectedAgentId} onValueChange={setSelectedAgentId}>
+                <SelectTrigger className="h-9 text-xs bg-slate-50 border-slate-200 text-slate-700">
+                  <div className="flex items-center gap-2 truncate">
+                    <Bot className="h-4 w-4 text-[#E5003A] shrink-0" />
+                    <SelectValue placeholder="Selecione o agente..." />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    <span className="font-semibold text-slate-700">Todos os Agentes (Geral)</span>
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                  {agents.map((ag) => (
+                    <SelectItem key={ag.id} value={ag.id}>
+                      <span className="truncate">{ag.name}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* Abas de Estado */}
-          <div className="flex bg-slate-100 p-1 rounded-lg self-start lg:self-auto shrink-0">
-            <Button 
-              variant={filter === 'pending' ? 'default' : 'ghost'} 
-              size="sm" 
-              onClick={() => setFilter('pending')}
-              className={cn(
-                "text-xs font-semibold shadow-none h-7 px-3", 
-                filter === 'pending' ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              Fila Atual ({pendingRequests.length})
-            </Button>
-            <Button 
-              variant={filter === 'history' ? 'default' : 'ghost'} 
-              size="sm" 
-              onClick={() => setFilter('history')}
-              className={cn(
-                "text-xs font-semibold shadow-none h-7 px-3", 
-                filter === 'history' ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-              )}
-            >
-              Atendidos Hoje ({handledToday.length})
-            </Button>
+            {/* Seletor de Período (Hoje | Semana | Mês | Tudo) */}
+            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200/60 shrink-0">
+              {(['today', 'week', 'month', 'all'] as const).map((p) => {
+                const pNames = { today: 'Hoje', week: 'Semana', month: 'Mês', all: 'Tudo' };
+                const isActive = period === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPeriod(p)}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-md transition-all font-medium",
+                      isActive
+                        ? "bg-white text-slate-900 shadow-sm font-bold"
+                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                    )}
+                  >
+                    {pNames[p]}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Abas de Estado */}
+            <div className="flex bg-slate-100 p-1 rounded-lg shrink-0">
+              <Button 
+                variant={filter === 'pending' ? 'default' : 'ghost'} 
+                size="sm" 
+                onClick={() => setFilter('pending')}
+                className={cn(
+                  "text-xs font-semibold shadow-none h-7 px-3", 
+                  filter === 'pending' ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                Fila Atual ({pendingRequests.length})
+              </Button>
+              <Button 
+                variant={filter === 'history' ? 'default' : 'ghost'} 
+                size="sm" 
+                onClick={() => setFilter('history')}
+                className={cn(
+                  "text-xs font-semibold shadow-none h-7 px-3", 
+                  filter === 'history' ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                )}
+              >
+                {periodLabels[period].tab} ({handledRequests.length})
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -583,7 +654,7 @@ const HandoffHub: React.FC = () => {
                   ? `Não encontramos registros para "${searchTerm}". Experimente buscar por outro nome, telefone ou CNPJ.`
                   : filter === 'pending'
                     ? 'Nenhum cliente solicitou atendimento humano no momento para este filtro.'
-                    : 'Nenhum atendimento foi concluído hoje ainda para este filtro.'}
+                    : periodLabels[period].empty}
               </p>
               {searchTerm && (
                 <Button 
@@ -623,8 +694,13 @@ const HandoffHub: React.FC = () => {
                           <Clock className="h-3 w-3 shrink-0" />
                           <span>
                             {filter === 'pending' 
-                              ? formatDistanceToNow(new Date(request.requested_at), { addSuffix: true, locale: ptBR })
-                              : `Atendido às ${new Date(request.handled_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+                              ? formatDistanceToNow(new Date(request.requested_at || request.created_at), { addSuffix: true, locale: ptBR })
+                              : (() => {
+                                  const date = new Date(request.handled_at || request.created_at);
+                                  return isToday(date)
+                                    ? `Atendido hoje às ${format(date, 'HH:mm')}`
+                                    : `Atendido em ${format(date, "dd/MM/yyyy 'às' HH:mm")}`;
+                                })()
                             }
                           </span>
                         </div>
