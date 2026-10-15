@@ -50,7 +50,8 @@ BEGIN
                     'simular', 'simulação', 'simulacao',
                     'ver quanto posso ter', 'quanto posso ter',
                     'falar com agente (ia)', 'falar com agente', 'dúvidas – falar agente',
-                    '✅ sim, autorizo', 'sim, autorizo', 'autorizo'
+                    '✅ sim, autorizo', 'sim, autorizo', 'autorizo',
+                    '✅ falar especialista', 'falar especialista', 'sim, falar com especialista', 'falar com um especialista'
                 ) 
                 OR (NEW.metadata->>'button_reply') IS NOT NULL 
                 OR (NEW.metadata->>'interactive') IS NOT NULL THEN

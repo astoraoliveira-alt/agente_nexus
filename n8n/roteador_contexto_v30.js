@@ -792,7 +792,7 @@ try {
     }
 
     // --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
-    const isAgentButtonClick = /^(falar com um agente!?|falar com agente \(ia\)|falar com especialista|falar especialista|✅ falar especialista|dúvidas – falar agente)$/i.test(lastUserLower.trim());
+    const isAgentButtonClick = currentStep !== 'confirmacao_cliente' && /^(falar com um agente!?|falar com agente \(ia\)|dúvidas – falar agente)$/i.test(lastUserLower.trim());
 
     const isSelfSimulationRequest =
         /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
@@ -811,7 +811,7 @@ try {
         (currentStep === 'consentimento_optin' || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("autorizo") || currentStep === 'start' || currentStep === 'explicacao_agente' || currentStep === 'coleta_valor')
     ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
 
-    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
+    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
     const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
 
     // Reconhecimento de divergência de CNPJ no input do usuário
@@ -887,7 +887,7 @@ try {
 
     const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0) || (Boolean(extractedInstallments) && extractedInstallments > 0);
 
-    if (isAgentButtonClick) {
+    if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
         nextStep = 'explicacao_agente';
         transitionApplied = true;
     } else if (currentStep === 'start') {
