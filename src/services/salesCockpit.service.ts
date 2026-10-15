@@ -279,8 +279,8 @@ export function isProposalAccepted(mList: any[], enrichedLead?: any): boolean {
         userAccepted = false;
       } else if (
         // Aceite da proposta simulada (NÃO confundir com "SIM, AUTORIZO" da LGPD)
-        /^(✅\s*)?(sim|s|ok|pode ser|pode seguir|quero seguir|confirmo|pode formalizar|vamos em frente|fechou|👍\s*ok,?\s*entendi!?)$/i.test(text) ||
-        /\b(pode formalizar|quero formalizar|pode seguir com a formalização|fechar nesse valor|fechar essa proposta)\b/i.test(text)
+        /^(✅\s*)?(sim|s|ok|pode ser|pode seguir|quero seguir|confirmo|pode formalizar|vamos em frente|fechou|falar especialista|👍\s*ok,?\s*entendi!?)$/i.test(text) ||
+        /\b(pode formalizar|quero formalizar|pode seguir com a formalização|fechar nesse valor|fechar essa proposta|falar especialista)\b/i.test(text)
       ) {
         userAccepted = true;
         userRestartedOrCancelled = false;

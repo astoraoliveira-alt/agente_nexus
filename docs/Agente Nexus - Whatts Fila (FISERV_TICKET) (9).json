@@ -3223,7 +3223,7 @@
             {
               "id": "6fd9f802-7589-4202-98bd-c37050a00f4f",
               "name": "interactive_buttons",
-              "value": "={{ $json.ok === false ? null : { \"tipo\": \"botoes\", \"opcoes\": [\"✅ Sim\", \"🔄 Nova simulação\"], \"pre_message\": null } }}",
+              "value": "={{ $json.ok === false ? null : { \"tipo\": \"botoes\", \"opcoes\": [\"✅ Falar especialista\", \"🔄 Nova simulação\"], \"pre_message\": null } }}",
               "type": "object"
             }
           ]
