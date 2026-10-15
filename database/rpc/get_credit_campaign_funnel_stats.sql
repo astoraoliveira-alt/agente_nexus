@@ -193,20 +193,42 @@ BEGIN
 
       -- 5. Aprovados (Esteira Fiserv)
       COUNT(al.id) FILTER (
-        WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved')
-           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado')
+        WHERE NOT (
+          (al.metadata->>'lost_reason') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
+          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%não conseguimos%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%nao conseguimos%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%reprovad%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
+        )
+        AND (
+          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'comite_approved', 'aprovado', 'pre_approved')
+          OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado')
+          OR (al.metadata->>'fiserv_is_approved')::boolean = true
+          OR (al.metadata->>'fiserv_amount_approved' IS NOT NULL AND al.metadata->>'fiserv_amount_approved' ~ '^[0-9]+(\.[0-9]+)?$' AND (al.metadata->>'fiserv_amount_approved')::numeric > 0)
+        )
       ) AS m_aprovados,
 
       -- 6. Recusados (Esteira Fiserv)
       COUNT(al.id) FILTER (
-        WHERE lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
+        WHERE (al.metadata->>'lost_reason') IS NOT NULL
+           OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
            OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
+           OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%não conseguimos%'
+           OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%nao conseguimos%'
+           OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%reprovad%'
+           OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
       ) AS m_recusados,
 
       -- 7. Simularam (Exige lead NÃO recusado no crédito E com proposta efetivamente calculada com parcelas/juros)
       COUNT(al.id) FILTER (
         WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
+          (al.metadata->>'lost_reason') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
           OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
         )
         AND (
@@ -227,7 +249,9 @@ BEGIN
       -- 8. Ok Agente (Aceite de Proposta Simulada)
       COUNT(al.id) FILTER (
         WHERE NOT (
-          lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled')
+          (al.metadata->>'lost_reason') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
           OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
         )
         AND (

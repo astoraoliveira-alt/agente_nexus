@@ -534,6 +534,12 @@ try {
         historyTexts.includes("valor solicitado: r$") ||
         historyTexts.includes("podemos seguir nessas condições") ||
         historyTexts.includes("podemos seguir nessas condicoes") ||
+        historyTexts.includes("podemos seguir com essa condição") ||
+        historyTexts.includes("podemos seguir com essa condicao") ||
+        historyTexts.includes("já calculamos a sua simulação") ||
+        historyTexts.includes("ja calculamos a sua simulacao") ||
+        historyTexts.includes("já adiantamos e calculamos") ||
+        historyTexts.includes("ja adiantamos e calculamos") ||
         leadInfo.simulation_data || 
         (leadInfo.requested_amount && leadInfo.requested_installments)
     );
@@ -566,8 +572,15 @@ try {
             lastSofiaMsg.includes("podemos seguir com a formalizacao") ||
             lastSofiaMsg.includes("podemos seguir nessas condições") ||
             lastSofiaMsg.includes("podemos seguir nessas condicoes") ||
+            lastSofiaMsg.includes("podemos seguir com essa condição") ||
+            lastSofiaMsg.includes("podemos seguir com essa condicao") ||
             lastSofiaMsg.includes("condições informadas anteriormente") ||
             lastSofiaMsg.includes("condicoes informadas anteriormente") ||
+            lastSofiaMsg.includes("já calculamos a sua simulação") ||
+            lastSofiaMsg.includes("ja calculamos a sua simulacao") ||
+            lastSofiaMsg.includes("já adiantamos e calculamos") ||
+            lastSofiaMsg.includes("ja adiantamos e calculamos") ||
+            lastSofiaMsg.includes("prefere simular em outro prazo") ||
             lastSofiaMsg.includes("seguir com a contratação") ||
             lastSofiaMsg.includes("seguir com a contratacao") ||
             lastSofiaMsg.includes("simulação concluída") ||

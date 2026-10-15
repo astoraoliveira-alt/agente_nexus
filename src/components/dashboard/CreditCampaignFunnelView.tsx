@@ -408,14 +408,28 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
             const isInteragiram = Boolean(hasIdentityConfirmed || (isResponded && !isAutoReply));
 
-            const isAprovado = Boolean(
-              ['approved', 'in_quoting', 'comite_approved'].includes(fiservSt) || 
-              ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
-            );
+            const extSt = String(meta.fiserv_external_status || '').toLowerCase().trim();
+            const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
 
             const isRecusado = Boolean(
-              ['denied', 'fails_to_process', 'lost', 'cancelled'].includes(fiservSt) || 
-              ['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim())
+              hasRefusalReason ||
+              ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
+              ['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
+              ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalSt) ||
+              extSt.includes('reprovad') ||
+              extSt.includes('recusad') ||
+              extSt.includes('não conseguimos') ||
+              extSt.includes('nao conseguimos')
+            );
+
+            const isAprovado = Boolean(
+              !isRecusado && (
+                ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservSt) || 
+                ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
+                meta.fiserv_is_approved === true ||
+                Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0) ||
+                (extSt.includes('aprovado') && !extSt.includes('reprovad'))
+              )
             );
 
             const isSimularam = Boolean(
