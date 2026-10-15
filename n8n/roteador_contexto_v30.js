@@ -1,4 +1,5 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V30.0 (5 PRIORIDADES OFICIAIS DO BENCHMARK TICKET / FISERV CAPITAL) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V30.1 (AJUSTES DEFINITIVOS BENCHMARK TICKET / FISERV CAPITAL) */
+
 /* MUDANÇAS V30.0:
    1. Prioridade 1 - Refinamento de Engajamento e Expurgo de Robôs:
       - Na 1ª mensagem do contato, validação estrita: apenas cliques nos botões ("Quero simular!" / "Falar com um agente!")
@@ -93,7 +94,6 @@ _Ex.: 80 mil_"
    5. Orientação Inteligente de Valores em coleta_valor (ex: se digitar "0 mil", orienta sobre o valor mínimo de R$ 10.000 sem travar).
    6. Preserva 100% dos FAQs completos, regras de estilo, parsing blindado de parcelas e reset de simulação da V26. */
 
-
 // 📄 Configuração do Termo de Autorização - Fiserv (opt-in)
 const FISERV_TERM_PDF_URL = "https://agentes.davosconsulting.com.br/termo-autorizacao-fiserv-v1-2026-06.pdf";
 const FISERV_TERM_VERSION = "v1-2026-06";
@@ -118,6 +118,37 @@ try {
     const agent = ctx.agent || {};
     const blueprint = agent.workflow_blueprint || { steps: {} };
     const history = ctx.messages_history || [];
+
+    // 🛡️ RESGATE AUTOMÁTICO DE LEAD DE CAMPANHA (PROTEÇÃO CONTRA FALHA DE 9º DÍGITO ZENVIA)
+    // Se a busca inicial retornou is_lead = false mas há histórico de disparo de campanha Ticket/Fiserv para este número,
+    // resgata o lead como legítimo para evitar direcionamento indevido para a central 4004.
+    const hasPriorCampaignOutbound = history.some(m => {
+        const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase());
+        const content = String(m.content || m.text || '').toLowerCase();
+        return isBot && (
+            content.includes('ticket') || 
+            content.includes('reforçar o caixa') || 
+            content.includes('reforco de caixa') ||
+            content.includes('capital de giro') || 
+            content.includes('recebíveis futuros') || 
+            content.includes('recebiveis futuros') ||
+            content.includes('500 mil')
+        );
+    });
+
+    if (leadInfo.is_lead === false && hasPriorCampaignOutbound) {
+        leadInfo.is_lead = true;
+        if (!leadInfo.name) {
+            for (const m of history) {
+                const text = String(m.content || m.text || '');
+                const matchName = text.match(/Olá\s+([A-ZÀ-Úa-zà-ú\s]+?)[,!.]?\s+(?:já pensou|tudo bem|bom dia|boa tarde)/i);
+                if (matchName && matchName[1].trim().length > 2) {
+                    leadInfo.name = matchName[1].trim();
+                    break;
+                }
+            }
+        }
+    }
 
     const currentMsg = String(
         $node["Edit Fields"]?.json?.message ??
@@ -182,22 +213,49 @@ try {
     const hasActiveLoan = Boolean((leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) && !isDeniedFiserv);
     const isApprovedFiserv = Boolean((isPreApprovedJourney || leadInfo.fiserv_is_approved || leadInfo.fiserv_status === 'comite_approved' || leadInfo.fiserv_status === 'approved' || leadInfo.fiserv_external_status === 'Pré-aprovado' || leadInfo.fiserv_external_status === 'Aprovado') && !isDeniedFiserv);
 
+    // 💰 LIMITE PRÉ-APROVADO OFICIAL FISERV / TICKET (GOVERNANÇA ANTI-422)
+    const approvedLimit = Number(
+        leadInfo.fiserv_amount_approved ||
+        leadInfo.approved_limit ||
+        leadInfo.max_amount ||
+        leadInfo.credit_limit ||
+        leadInfo.approved_amount ||
+        ctx.approved_limit ||
+        ctx.fiserv_amount_approved ||
+        0
+    );
+
+    function formatPtBrMoney(val) {
+        if (val === null || val === undefined || isNaN(val)) return "0";
+        const num = Number(val);
+        const hasCents = (num % 1) !== 0;
+        return num.toLocaleString('pt-BR', {
+            minimumFractionDigits: hasCents ? 2 : 0,
+            maximumFractionDigits: 2
+        });
+    }
+
     // =========================================================================
     // 🛡️ CIRCUIT BREAKER ANTI-LOOP TRIPLO & DETECTOR DE AUTO-RESPOSTAS (UNIVERSAL)
     // =========================================================================
 
-    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs
-    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|faça seu pedido|faca seu pedido|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|🤖|[rR]ob[oô]|l[ií]v[iI]a|deeliv\.app|anota\.ai|ola\.click|cardapioweb|cardapio\.menu|instadelivery|hubt\.com|goomer)/i;
+    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido com casos do Benchmark)
+    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|deeliv\.app|anota\.ai|ola\.click|cardapioweb|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui)/i;
 
     // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv)
-    const isButtonTemplateClick = [
+    const isExactButtonClick = [
         'quero simular!', 'quero simular', 
         'falar com um agente!', 'falar com um agente', 
         'simular', 'simulação', 'simulacao', 'simulação!', 'simulacao!',
         'quero uma simulação', 'quero uma simulacao', 'quero simulacao', 'quero simulação',
         'falar com especialista', 'falar com um especialista',
         'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente'
-    ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase()) || /\b(simul|simular|simula[çc][ãa]o|proposta|an[áa]lise|empr[eé]stimo|taxa|juros|quero|pode|manda)\b/i.test(lastUserLower);
+    ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase());
+
+    const isExplicitSimulationIntent = /\b(quero simular|fazer simula[çc][ãa]o|ver simula[çc][ãa]o|gostaria de simular|solicitar simula[çc][ãa]o|quanto posso pegar|fazer uma proposta|ver minhas taxas)\b/i.test(lastUserLower);
+
+    // 🛡️ Blindagem estrita: mensagens de auto-resposta (ex: cardápios com "não cobramos taxa") NUNCA são classificadas como clique de botão
+    const isButtonTemplateClick = (isExactButtonClick || isExplicitSimulationIntent) && !regexAutoReply.test(lastUserLower);
 
     // 🙋 P1: Saudações Humanas Curtas Isoladas (<= 15 caracteres)
     const regexStrictGreeting = /^(ol[aá]|oi|oie|opa|bom dia|boa tarde|boa noite)[!.,\s]*$/i;
@@ -544,6 +602,12 @@ try {
             lastSofiaMsg.includes("vamos fazer uma nova simulação") ||
             lastSofiaMsg.includes("qual o valor exato que você deseja solicitar") ||
             lastSofiaMsg.includes("qual o valor exato") ||
+            lastSofiaMsg.includes("qual valor deseja simular") ||
+            lastSofiaMsg.includes("valor que deseja simular") ||
+            lastSofiaMsg.includes("deseja simular o valor") ||
+            lastSofiaMsg.includes("deseja simular") ||
+            lastSofiaMsg.includes("excede o seu limite pré-aprovado") ||
+            lastSofiaMsg.includes("excede o seu limite pre-aprovado") ||
             lastSofiaMsg.includes("deseja solicitar nessa simulação") ||
             lastSofiaMsg.includes("deseja solicitar nessa simulacao")
         ) {
@@ -700,7 +764,11 @@ try {
         }
     }
 
-    let requested_amount = isRestartSimulation ? null : (extractedAmount || leadInfo.requested_amount);
+    if (lastSofiaMsg.includes("excede") && extractedAmount && approvedLimit > 0 && extractedAmount > approvedLimit) {
+        extractedAmount = null;
+    }
+
+    let requested_amount = isRestartSimulation ? null : (extractedAmount || (leadInfo.requested_amount && (!approvedLimit || leadInfo.requested_amount <= approvedLimit) ? leadInfo.requested_amount : null));
     let requested_installments = isRestartSimulation ? null : (extractedInstallments || leadInfo.requested_installments);
     if (requested_installments > 48) {
         requested_installments = null;
@@ -711,14 +779,15 @@ try {
     }
 
     // --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
-    const isAgentButtonClick = /^falar com um agente!?$/i.test(lastUserLower);
+    const isAgentButtonClick = /^(falar com um agente!?|falar com agente \(ia\)|falar com especialista|dúvidas – falar agente)$/i.test(lastUserLower.trim());
 
     const isSelfSimulationRequest =
         /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
         /\b(vc|voc[eê]|tu|pra mim|por mim|para mim|me faz|poderia|consegue|conseguiria|faz(er)? (para |pra |por )?mim|faz (voc[eê]|vc))(?![a-z0-9])/i.test(lastUserLower);
 
     const isLinkRequest = !isSelfSimulationRequest && !isRestartSimulation && (
-        /\b(simular|simula[çc][ãa]o)\b/i.test(lastUserLower) ||
+        /\b(simular|simula[çc][ãa]o|quanto posso ter|quanto posso pegar)\b/i.test(lastUserLower) ||
+        (isButtonTemplateClick && !isAgentButtonClick) ||
         (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) ||
         (/^link$/i.test(lastUserLower)) ||
         semanticIntent === "SIMULATION_REQUEST"
@@ -803,7 +872,7 @@ try {
     let nextStep = currentStep;
     let transitionApplied = false;
 
-    const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0);
+    const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0) || (Boolean(extractedInstallments) && extractedInstallments > 0);
 
     if (isAgentButtonClick) {
         nextStep = 'explicacao_agente';
@@ -929,7 +998,10 @@ try {
             transitionApplied = true;
         }
     } else if (currentStep === 'apresenta_ofertas') {
-        if (requested_installments && requested_amount && !isDoubt) {
+        if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+            nextStep = 'apresenta_ofertas';
+            transitionApplied = true;
+        } else if (requested_installments && requested_amount && !isDoubt) {
             nextStep = 'solicitar_simulacao';
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
@@ -959,7 +1031,10 @@ try {
             }
             transitionApplied = true;
         } else if (hasNewNumbers || asksForSimulation) {
-            if (requested_amount && requested_installments && hasNewNumbers) {
+            if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+                nextStep = 'apresenta_ofertas';
+                transitionApplied = true;
+            } else if (requested_amount && requested_installments && hasNewNumbers) {
                 nextStep = 'solicitar_simulacao';
                 transitionApplied = true;
             } else {
@@ -1054,6 +1129,12 @@ try {
         } else {
             nextStep = 'coleta_valor';
         }
+        transitionApplied = true;
+    }
+
+    // 🛡️ BLINDAGEM 2-B: CONTRA SIMULAÇÃO ACIMA DO LIMITE PRÉ-APROVADO (EVITA HTTP 422 DA FISERV)
+    if (nextStep === 'solicitar_simulacao' && approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+        nextStep = 'apresenta_ofertas';
         transitionApplied = true;
     }
 
@@ -1161,10 +1242,10 @@ try {
         forcedText = `Li e entendi o termo de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'optin_recusado') {
-        forcedText = `Sem problema, *${leadInfo.name || "parceiro"}*. Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
+        forcedText = `Sem problema! Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
         mode = "parrot";
     } else if (nextStep === 'desistencia_cliente') {
-        forcedText = `Sem problemas, *${leadInfo.name || "parceiro"}*! Compreendo perfeitamente. Caso precise de reforço de caixa no futuro ou queira conhecer as condições para sua empresa, estarei por aqui à disposição. Tenha um ótimo dia! 👍`;
+        forcedText = `Sem problemas! Compreendo perfeitamente. Caso precise de reforço de caixa no futuro ou queira conhecer as condições para sua empresa, estarei por aqui à disposição. Tenha um ótimo dia! 👍`;
         mode = "parrot";
     } else if (nextStep === 'aguardando_fiserv') {
         forcedText = `Sua solicitação já está em análise pelo comitê da Fiserv! ⏳\n\nEstamos acompanhando de perto e, assim que tivermos um retorno sobre os valores liberados para o seu CNPJ *${leadInfo.cnpj || ""}*, chamaremos você por aqui mesmo com o resultado.\n\nEnquanto esperamos, posso te ajudar com mais alguma dúvida?`;
@@ -1199,29 +1280,28 @@ try {
     } else if (nextStep === 'criar_lead') {
         forcedText = `Perfeito! Sua solicitação já está em analise.\n\n⏳ Avaliando em ~1 minuto...\nAssim que tivermos o retorno, chamaremos aqui com o resultado!`;
         mode = "parrot";
-    } else if (nextStep === 'apresenta_ofertas' && requested_amount && !requested_installments) {
-        const approvedLimit = leadInfo.approved_limit || leadInfo.max_amount || leadInfo.credit_limit || leadInfo.approved_amount || ctx.approved_limit || 0;
+    } else if (nextStep === 'apresenta_ofertas' && approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
-        if (approvedLimit > 0 && requested_amount > approvedLimit) {
-            forcedText = `O valor de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}* que você solicitou excede o seu limite pré-aprovado de *R$ ${Number(approvedLimit).toLocaleString('pt-BR')}*.\n\nPor favor, informe o valor que deseja solicitar (até *R$ ${Number(approvedLimit).toLocaleString('pt-BR')}*) e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
-        } else {
-            forcedText = `Ótimo, *${leadInfo.name || "parceiro"}*! Entendi que você deseja simular o valor de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}*.\n\nEm quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a ${maxTerm} parcelas).`;
-        }
+        forcedText = `O valor de *R$ ${formatPtBrMoney(requested_amount)}* que você solicitou excede o seu limite pré-aprovado de *R$ ${formatPtBrMoney(approvedLimit)}*.\n\nPor favor, informe o valor que deseja solicitar (até *R$ ${formatPtBrMoney(approvedLimit)}*) e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
+        if (!isDoubt) mode = "parrot";
+    } else if (nextStep === 'apresenta_ofertas' && requested_amount && !requested_installments) {
+        const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
+        forcedText = `Ótimo! Entendi que você deseja simular o valor de *R$ ${formatPtBrMoney(requested_amount)}*.\n\nEm quantas parcelas você gostaria de simular? (Lembrando que o prazo é de 6 a ${maxTerm} parcelas).`;
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && requested_installments) {
-        forcedText = `Certo, você gostaria de simular em *${requested_installments} parcelas*.\n\nPara prosseguirmos, qual o valor exato que você deseja solicitar nessa simulação?`;
+        const limiteTxt = approvedLimit > 0 ? ` (até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
+        forcedText = `Certo, você gostaria de simular em *${requested_installments} parcelas*.\n\nPara prosseguirmos, qual o valor exato que você deseja solicitar nessa simulação${limiteTxt}?`;
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && !requested_installments) {
-        const approvedLimit = leadInfo.approved_limit || leadInfo.max_amount || leadInfo.credit_limit || leadInfo.approved_amount || ctx.approved_limit || 0;
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
-        const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${Number(approvedLimit).toLocaleString('pt-BR')}*)` : '';
-        forcedText = `Perfeito, *${leadInfo.name || "parceiro"}*! Vamos fazer uma nova simulação.\n\nPor favor, informe qual valor deseja simular${limiteTxt} e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
+        const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
+        forcedText = `Perfeito! Vamos fazer uma nova simulação.\n\nPor favor, informe qual valor deseja simular${limiteTxt} e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'reforco_condicoes') {
         forcedText = `Agora que já falamos sobre a cotação, vamos falar de alguns detalhes importantes pra você dominar o produto e ficar tudo bem claro.\n\n*1- O que é esse empréstimo?*\nÉ uma linha de Capital de Giro Digital.\n*2- Qual é a garantia?*\nO gravame dos seus recebíveis futuros de Ticket, cartão de crédito e débito.\n*3- Como eu faço pagamento das parcelas, vocês fazem retenções?*\nNão fazemos retenções, você receberá boletos para pagamentos mensais.\n*4- Meu recebível ficará preso?*\nNÃO, a menos que você não pague as parcelas do empréstimo no vencimento.\n*5- Mas o que acontece se eu atrasar?*\nO sistema bloqueia seu recebível até liquidar a parcela, depois volta a liberar.\n*6- Eu consigo fazer antecipação do meu recebível se eu contratar o Capital de Giro da Ticket?*\nSIM, normalmente.\n\n*Clique no botão abaixo para prosseguir:*`;
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'finalizacao_sucesso') {
-        forcedText = `Maravilha, *${leadInfo.name || "parceiro"}*!\nEstamos quase lá.\n\nAgora um dos nossos especialistas entrará em contato para pegar as últimas informações e liberar o crédito no sistema.\n\nMas se tiver alguma dúvida, estou por aqui!`;
+        forcedText = `Maravilha!\nEstamos quase lá.\n\nAgora um dos nossos especialistas entrará em contato para pegar as últimas informações e liberar o crédito no sistema.\n\nMas se tiver alguma dúvida, estou por aqui!`;
         mode = "parrot";
     }
 
@@ -1271,7 +1351,7 @@ try {
     let loopDetectedHandoff = false;
     if (isLoopDetected && leadInfo.is_lead !== false) {
         loopDetectedHandoff = true;
-        forcedText = `Certo, *${leadInfo.name || "parceiro"}*! Para agilizar seu atendimento e te apoiar diretamente com essa etapa, vou transferir sua conversa para um de nossos especialistas. Um instante, por favor!`;
+        forcedText = `Certo! Para agilizar seu atendimento e te apoiar diretamente com essa etapa, vou transferir sua conversa para um de nossos especialistas. Um instante, por favor!`;
         mode = "parrot";
     }
 

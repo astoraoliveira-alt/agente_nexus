@@ -1169,7 +1169,7 @@ async deleteCampaign(id: string): Promise<void> {
                         delivered = true;
                         read = true;
                     }
-                    const isAutoReply = (r as any).is_auto_reply === true || r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true || r.metadata?.circuit_breaker === true || r.metadata?.stop_flow === true;
+                    const isAutoReply = (r as any).is_auto_reply === true || r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true || r.metadata?.circuit_breaker === true || r.metadata?.stop_flow === true || (r.metadata?.human_interaction === false && r.metadata?.button_clicked === false);
                     if ((r.response_detected || ['respondida', 'interagiu'].includes(st) || (r.metadata?.responded === 'true')) && !isAutoReply) {
                         replied = true;
                     }
@@ -1924,7 +1924,7 @@ async deleteCampaign(id: string): Promise<void> {
                 if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || r.response_detected) m.entregues++;
                 if (['read', 'respondida', 'interagiu'].includes(st)) m.lidas++;
                 
-                const isAutoReply = (r as any).is_auto_reply === true || r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true || r.metadata?.circuit_breaker === true || r.metadata?.stop_flow === true;
+                const isAutoReply = (r as any).is_auto_reply === true || r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true || r.metadata?.circuit_breaker === true || r.metadata?.stop_flow === true || (r.metadata?.human_interaction === false && r.metadata?.button_clicked === false);
                 if ((r.response_detected || ['respondida', 'interagiu'].includes(st)) && !isAutoReply) {
                     m.interagiram++;
                 }

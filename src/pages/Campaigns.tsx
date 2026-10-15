@@ -278,11 +278,12 @@ export default function Campaigns() {
     };
 
     const defaultInitialMessage =
-        "Você pode ter *Capital de Giro* usando seus recebíveis futuros como garantia.\n\n" +
-        "-Taxas competitivas;\n" +
-        "-Valores entre 20 e 500 mil reais;\n" +
-        "-Contratação em 24h.\n\n" +
-        "*Vamos fazer uma simulação sem compromisso?*";
+        "Olá {{NOME}}, já pensou em reforçar o caixa da sua empresa sem burocracia?\n\n" +
+        "Você pode ter de *R$ 10 mil a R$ 500 mil* em Capital de Giro usando seus recebíveis futuros como garantia.\n\n" +
+        "✅ Taxas a partir de *1,89% a.m*;\n" +
+        "✅ Dinheiro na conta em até *24h*;\n" +
+        "✅ Pagamento via boleto, sem travar seu limite bancário.\n\n" +
+        "👉 *Vamos fazer uma simulação sem compromisso?*";
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
