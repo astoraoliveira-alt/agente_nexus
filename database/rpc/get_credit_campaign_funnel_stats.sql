@@ -89,12 +89,14 @@ BEGIN
           COALESCE(oq.response_detected, false) = true
           OR (oq.metadata->>'responded') = 'true'
           OR trim(lower(oq.status)) IN ('respondida', 'interagiu')
+          OR COALESCE((oq.metadata->>'human_interaction')::boolean, false) = true
         )
         -- REGRA DE EXCLUSÃO: Só descarta se explicitamente marcado como robô/auto-resposta
-        -- E com a garantia de que NUNCA descarta se o lead avançou em qualquer etapa
+        -- E com a garantia de que NUNCA descarta se o lead teve interação humana confirmada
         AND NOT (
-          COALESCE((oq.metadata->>'is_auto_reply')::boolean, false) = true
-          OR COALESCE((oq.metadata->>'is_bot')::boolean, false) = true
+          (COALESCE((oq.metadata->>'is_auto_reply')::boolean, false) = true
+           OR COALESCE((oq.metadata->>'is_bot')::boolean, false) = true)
+          AND COALESCE((oq.metadata->>'human_interaction')::boolean, false) = false
         )
       ) AS m_interagiram
     FROM campaigns c
@@ -369,7 +371,7 @@ BEGIN
     COALESCE(oq.m_enviados, 0) AS enviados,
     COALESCE(oq.m_entregues, 0) AS entregues,
     COALESCE(oq.m_lidas, 0) AS lidas,
-    COALESCE(oq.m_interagiram, 0) AS interagiram,
+    GREATEST(COALESCE(oq.m_interagiram, 0), COALESCE(lm.m_confirmaram, 0)) AS interagiram,
     -- Bloco 2
     COALESCE(lm.m_confirmaram, 0) AS confirmaram,
     COALESCE(lm.m_faturamento, 0) AS faturamento,

@@ -2064,7 +2064,9 @@
         1744
       ],
       "id": "ea9a5c5e-1b5c-469e-bcd6-0a23a14c3991",
-      "name": "HTTP Request Criar Mensagem RESET"
+      "name": "HTTP Request Criar Mensagem RESET",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
     },
     {
       "parameters": {
@@ -3156,7 +3158,7 @@
             {
               "id": "f1dfb15b-0243-4121-870c-231d7dbe7a41",
               "name": "loan_request_id",
-              "value": "={{ $('Roteador de Contexto').first().json.lead_info.loan_request_id }}",
+              "value": "={{ $('Roteador de Contexto').first().json.lead_info?.fiserv_loan_request_id || $('Roteador de Contexto').first().json.lead_info?.loan_request_id }}",
               "type": "string"
             },
             {
@@ -3174,7 +3176,7 @@
             {
               "id": "2e9a7fbb-1572-4de0-810d-f81091e210b3",
               "name": "tenant_id",
-              "value": "={{ $('Roteador de Contexto').first().json.tenant_id }}",
+              "value": "={{ $('Roteador de Contexto').first().json.handoff_data?.tenant_id || $('Roteador de Contexto').first().json.lead_info?.tenant_id || $('RPC - Acesso Entrada').first().json.tenant_id }}",
               "type": "string"
             },
             {

@@ -768,9 +768,9 @@ try {
             extractedAmount = parseNumber(mAmountInSofia[1].replace(/[.,]+$/, ''));
         }
     }
-    // Se usuário informou apenas valor, resgata as parcelas mencionadas na mensagem da Sofia
+    // Se usuário informou apenas valor, resgata as parcelas mencionadas na mensagem da Sofia (parcelas ou meses)
     if (extractedAmount && !extractedInstallments) {
-        const mInstInSofia = lastSofiaMsg.match(/\*?(\d{1,2})\s*parcelas?\*?/i) || lastSofiaMsg.match(/prazo [ée] de (\d{1,2})/i);
+        const mInstInSofia = lastSofiaMsg.match(/\*?(\d{1,2})\s*(?:parcelas?|meses)\*?/i) || lastSofiaMsg.match(/prazo (?:[ée]|de) (\d{1,2})/i);
         if (mInstInSofia) {
             const inst = parseInt(mInstInSofia[1], 10);
             if (inst >= 6 && inst <= 48) extractedInstallments = inst;
@@ -799,7 +799,7 @@ try {
         /\b(vc|voc[eê]|tu|pra mim|por mim|para mim|me faz|poderia|consegue|conseguiria|faz(er)? (para |pra |por )?mim|faz (voc[eê]|vc))(?![a-z0-9])/i.test(lastUserLower);
 
     const isLinkRequest = !isSelfSimulationRequest && !isRestartSimulation && (
-        /\b(simular|simula[çc][ãa]o|quanto posso ter|quanto posso pegar)\b/i.test(lastUserLower) ||
+        /\b(simular?|simula[çc][ãa]o|quanto posso ter|quanto posso pegar)\b/i.test(lastUserLower) ||
         (isButtonTemplateClick && !isAgentButtonClick) ||
         (/\b(quero|manda|mande|envia|passa|passe|pode|me d[áa]|mandar)\b/i.test(lastUserLower) && /\b(link|simul|proposta|an[áa]lise)\b/i.test(lastUserLower)) ||
         (/^link$/i.test(lastUserLower)) ||
@@ -1011,6 +1011,13 @@ try {
             transitionApplied = true;
         }
     } else if (currentStep === 'apresenta_ofertas') {
+        // Se usuário informou novo valor ou pediu simulação em apresenta_ofertas sem especificar parcelas, adota 24x padrão
+        if (requested_amount && !requested_installments && (userTypedNewNumbers || /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower))) {
+            requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
+        } else if (!requested_amount && requested_installments) {
+            requested_amount = leadInfo.requested_amount || approvedLimit || 50000;
+        }
+
         if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
@@ -1025,7 +1032,7 @@ try {
         }
     } else if (currentStep === 'solicitar_simulacao' || currentStep === 'confirmacao_cliente') {
         const hasNewNumbers = userTypedNewNumbers;
-        const asksForSimulation = /\b(simular|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
+        const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
 
         if (isRestartSimulation) {
             requested_amount = null;
@@ -1044,10 +1051,17 @@ try {
             }
             transitionApplied = true;
         } else if (hasNewNumbers || asksForSimulation) {
+            // Se informou valor mas não disse parcelas (ou vice-versa), completa com o padrão do produto (24x)
+            if (requested_amount && !requested_installments) {
+                requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
+            } else if (!requested_amount && requested_installments) {
+                requested_amount = leadInfo.requested_amount || approvedLimit || 50000;
+            }
+
             if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
                 nextStep = 'apresenta_ofertas';
                 transitionApplied = true;
-            } else if (requested_amount && requested_installments && hasNewNumbers) {
+            } else if (requested_amount && requested_installments && (hasNewNumbers || asksForSimulation)) {
                 nextStep = 'solicitar_simulacao';
                 transitionApplied = true;
             } else {
@@ -1713,10 +1727,13 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             tenant_id: ctx.tenant_id,
             priority: (isOffensiveOrAggressive || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || isCnpjDivergent) ? 'high' : 'medium'
         },
+        tenant_id: ctx.tenant_id || rpcData.tenant_id || leadInfo.tenant_id,
         identity_confirmed: isIdentityConfirmed,
         cnpj_confirmed: isIdentityConfirmed,
         lead_info: {
             ...leadInfo,
+            loan_request_id: leadInfo.fiserv_loan_request_id || leadInfo.loan_request_id,
+            fiserv_loan_request_id: leadInfo.fiserv_loan_request_id || leadInfo.loan_request_id,
             cnpj: leadInfo.cnpj,
             phone: rpcData.payload?.phone || leadInfo.phone || ctx.payload?.phone,
             name: leadInfo.name,
