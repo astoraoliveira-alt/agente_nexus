@@ -878,10 +878,30 @@ try {
         (currentStep === 'consentimento_optin' || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("autorizo") || currentStep === 'start' || currentStep === 'explicacao_agente' || currentStep === 'coleta_valor')
     ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
 
-    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
+    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
     const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
     const isHesitation = /\b(vou\s+(analisar|pensar|ver|verificar|avaliar|consultar|conversar)|deixa\s+(eu\s+)?ver|vou\s+falar\s+com|vou\s+ver\s+com|dar\s+uma\s+olhada|analisando|pensando)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
     const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
+
+    const isSofiaAtDisposal = Boolean(
+        lastSofiaMsg.includes("disposição") || 
+        lastSofiaMsg.includes("disposicao") || 
+        lastSofiaMsg.includes("é só me avisar") || 
+        lastSofiaMsg.includes("e so me avisar") ||
+        lastSofiaMsg.includes("caso queira simular") ||
+        lastSofiaMsg.includes("surgir alguma dúvida") ||
+        lastSofiaMsg.includes("surgir alguma duvida")
+    );
+
+    const isCourtesyAck = /^(certo|ok|blz|beleza|combinado|t[aá] bom|t[aá] bem|perfeito|obrigad[ao]|valeu|show|entendi|entendido|tranquilo|combinado ent[aã]o|fechado|grato|maravilha)[!.,\s]*$/i.test(lastUserLower.trim());
+
+    const isSofiaAlreadyConcluded = Boolean(
+        lastSofiaMsg.includes("tenha um ótimo dia") || 
+        lastSofiaMsg.includes("tenha um otimo dia") || 
+        lastSofiaMsg.includes("conte comigo quando precisar") ||
+        lastSofiaMsg.includes("fico por aqui à disposição") ||
+        lastSofiaMsg.includes("fico por aqui a disposicao")
+    );
 
     // Reconhecimento de divergência de CNPJ no input do usuário
     const isCnpjDivergent = /\b(n[aã]o [eé] (meu|minha|esse|este)|cnpj (errado|n[aã]o [eé]|outro|diferente|incorreto)|n[aã]o sou|outra empresa|trocou|empresa errada|n[aã]o perten[cç]o)\b/i.test(lastUserLower) || semanticIntent === "CNPJ_BLOCKED";
@@ -967,6 +987,20 @@ try {
     );
 
     const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0) || userTypedInstallmentsInCurrentMsg || userTypedAmountInCurrentMsg;
+
+    const isSofiaAtDisposalAck = isSofiaAtDisposal && (isCourtesyAck || isFarewell) && !asksForSimulation && !userTypedNewNumbers && !isDoubt;
+
+    // 🛡️ BLINDAGEM ANTI-ECO DE CORTESIAS / ENCERRAMENTO JÁ CONCLUÍDO
+    if (isSofiaAlreadyConcluded && (isCourtesyAck || isFarewell) && !isDoubt && !asksForSimulation && !userTypedNewNumbers) {
+        return {
+            currentStep: "stop_flow",
+            stop_flow: true,
+            trigger_handoff: false,
+            reason: "Atendimento já concluído cordialmente. Eco prevenido.",
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+        };
+    }
 
     if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
         nextStep = 'explicacao_agente';
@@ -1092,7 +1126,10 @@ try {
             transitionApplied = true;
         }
     } else if (currentStep === 'apresenta_ofertas') {
-        if (isHesitation) {
+        if (isSofiaAtDisposalAck) {
+            nextStep = 'confirmacao_cliente';
+            transitionApplied = true;
+        } else if (isHesitation) {
             nextStep = hasSimulatedInHistory ? 'confirmacao_cliente' : 'apresenta_ofertas';
             transitionApplied = false;
         } else if (isRestartSimulation) {
@@ -1129,6 +1166,9 @@ try {
             requested_amount = null;
             requested_installments = null;
             nextStep = 'apresenta_ofertas';
+            transitionApplied = true;
+        } else if (isSofiaAtDisposalAck) {
+            nextStep = 'confirmacao_cliente';
             transitionApplied = true;
         } else if (isHesitation && currentStep === 'confirmacao_cliente') {
             nextStep = 'confirmacao_cliente';
@@ -1276,14 +1316,14 @@ try {
     if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint || isDeniedFiserv || isCnpjDivergent) {
         mode = "parrot";
     }
-    if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
+    if ((isDoubt || (isFarewell && !isSofiaAtDisposalAck)) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
         mode = "consultive";
     }
     if (isSelfSimulationRequest && leadInfo.is_lead !== false && !isDeniedFiserv) {
         mode = "consultive";
     }
 
-    if ((nextStep === 'apresenta_ofertas' || nextStep === 'confirmacao_cliente') && mode === 'parrot') {
+    if ((nextStep === 'apresenta_ofertas' || nextStep === 'confirmacao_cliente') && mode === 'parrot' && !isSofiaAtDisposalAck) {
         mode = 'consultive';
     }
 
@@ -1417,7 +1457,9 @@ try {
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
         const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
         forcedText = `Perfeito! Vamos fazer uma nova simulação.\n\nPor favor, informe qual valor deseja simular${limiteTxt} e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
-        if (!isDoubt) mode = "parrot";
+    } else if (nextStep === 'confirmacao_cliente' && isSofiaAtDisposalAck) {
+        forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
+        mode = "parrot";
     } else if (nextStep === 'reforco_condicoes') {
         forcedText = `Agora que já falamos sobre a cotação, vamos falar de alguns detalhes importantes pra você dominar o produto e ficar tudo bem claro.\n\n*1- O que é esse empréstimo?*\nÉ uma linha de Capital de Giro Digital.\n*2- Qual é a garantia?*\nO gravame dos seus recebíveis futuros de Ticket, cartão de crédito e débito.\n*3- Como eu faço pagamento das parcelas, vocês fazem retenções?*\nNão fazemos retenções, você receberá boletos para pagamentos mensais.\n*4- Meu recebível ficará preso?*\nNÃO, a menos que você não pague as parcelas do empréstimo no vencimento.\n*5- Mas o que acontece se eu atrasar?*\nO sistema bloqueia seu recebível até liquidar a parcela, depois volta a liberar.\n*6- Eu consigo fazer antecipação do meu recebível se eu contratar o Capital de Giro da Ticket?*\nSIM, normalmente.\n\n*Clique no botão abaixo para prosseguir:*`;
         if (!isDoubt) mode = "parrot";
@@ -1500,12 +1542,18 @@ try {
                 nextStep = 'coleta_valor';
             } else if (nextStep === 'coleta_faturamento') {
                 forcedText = `Sem problemas! Apenas uma média aproximada do faturamento mensal já é suficiente para avançarmos. Quanto você estima?\n\n_Ex.: 80 mil_`;
+            } else if (isCourtesyAck || isFarewell) {
+                forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
+                mode = "parrot";
+            } else {
+                forcedText = `Certo! Entendido. Fico por aqui à disposição caso precise de algo mais ou queira simular novas condições. 👍`;
+                mode = "parrot";
             }
         }
     }
 
     // 🛡️ TRAVA MESTRA DE MODO CONSULTIVO: Se o cliente tem dúvida ou pergunta qualitativa, NUNCA opera em Parrot Mode!
-    if ((isDoubt || isFarewell) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && !loopDetectedHandoff && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
+    if ((isDoubt || (isFarewell && !isSofiaAtDisposalAck)) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && !loopDetectedHandoff && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
         mode = "consultive";
     }
 
@@ -1733,6 +1781,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 2. CONFORMIDADE REGULATÓRIA: Toda resposta sobre o produto DEVE ser rigorosamente baseada nos textos de <BASE_DE_CONHECIMENTO_FAQ>.
 3. GANCHO DE RETORNO AO FUNIL: Sempre que responder a uma dúvida técnica, responda com precisão, acolhimento e clareza. Em seguida, adicione o gancho convidando o cliente a continuar a etapa atual (${nextStep}). Se a etapa atual for 'apresenta_ofertas', após esclarecer a dúvida, convide o cliente a informar em quantas parcelas (de 6 a 24 parcelas) deseja simular para o valor de crédito desejado (ou se prefere simular outro valor).
 4. HESITAÇÃO OU ANÁLISE NA CONFIRMAÇÃO (ETAPA confirmacao_cliente): Se o cliente já recebeu a simulação e disser que vai analisar, pensar, avaliar ou consultar sócio/esposa (ex: "vou analisar", "vou pensar", "deixa eu ver", "vou ver com meu sócio"): NUNCA repita a simulação estática. Seja acolhedora, respeite o tempo de decisão dele, pergunte gentilmente se ficou alguma dúvida sobre as condições, valores ou parcelas que você possa esclarecer para ajudá-lo a avaliar, e lembre-o de que se preferir simular em outro prazo ou valor, você está à disposição.
+5. REGRA ANTI-REPETIÇÃO ABSOLUTA: É terminantemente proibido enviar a mesma resposta ou mensagem equivalente à que você já enviou imediatamente antes no histórico. Se você já se colocou à disposição ou explicou algo, e o cliente apenas confirmou com palavras de cortesia ou fechamento (ex: "certo", "ok", "combinado", "beleza", "obrigado", "show", "valeu"), NUNCA repita o texto anterior nem ofereça novamente as mesmas opções. Responda apenas confirmando com simpatia (ex: "Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍") e finalize sem perguntas repetitivas.
 </regra_de_ouro>
 
 <proibicoes_estritas>
@@ -1783,7 +1832,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             }
         };
     } else if (nextStep === 'confirmacao_cliente') {
-        interactive_buttons = {
+        interactive_buttons = isSofiaAtDisposalAck ? null : {
             tipo: "botoes",
             opcoes: ["Falar especialista", "Nova simulação"],
             pre_message: null
