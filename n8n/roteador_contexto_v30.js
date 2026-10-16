@@ -158,6 +158,31 @@ try {
         }
     }
 
+    // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
+    const assistantMessages = history.filter(m =>
+        ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
+    );
+    const lastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
+    const secondLastSofiaMsg = String(assistantMessages[assistantMessages.length - 2]?.content || assistantMessages[assistantMessages.length - 2]?.text || "").toLowerCase().replace(/\*/g, '');
+    const historyTexts = history.map(m => String(m.content || m.text || "").toLowerCase().replace(/\*/g, '')).join(" ");
+
+    // 🛡️ Detecção de simulação prévia e confirmação de identidade no histórico
+    const hasSimulatedInHistory = Boolean(
+        historyTexts.includes("simulação concluída") || 
+        historyTexts.includes("simulacao concluida") || 
+        historyTexts.includes("valor solicitado: r$") ||
+        historyTexts.includes("podemos seguir nessas condições") ||
+        historyTexts.includes("podemos seguir nessas condicoes") ||
+        historyTexts.includes("podemos seguir com essa condição") ||
+        historyTexts.includes("podemos seguir com essa condicao") ||
+        historyTexts.includes("já calculamos a sua simulação") ||
+        historyTexts.includes("ja calculamos a sua simulacao") ||
+        historyTexts.includes("já adiantamos e calculamos") ||
+        historyTexts.includes("ja adiantamos e calculamos") ||
+        leadInfo.simulation_data || 
+        (leadInfo.requested_amount && leadInfo.requested_installments)
+    );
+
     const currentMsg = String(
         $node["Edit Fields"]?.json?.message ??
         $node["Edit Fields"]?.first?.()?.json?.message ??
@@ -293,17 +318,25 @@ try {
     const lastBotMsg = botMsgs.length > 0 ? (botMsgs[botMsgs.length - 1]?.content || botMsgs[botMsgs.length - 1]?.text || '') : '';
     const lastBotLower = String(lastBotMsg).toLowerCase();
 
-    // Detecção 3A: Cliente enviou exatamente o mesmo texto consecutivo (ex: 2+ vezes seguidas)
+    // Detecção 3A: Cliente enviou exatamente o mesmo texto consecutivo (ex: 2+ repetições seguidas = 3+ mensagens idênticas)
     if (currentNormalized.length > 5 && userMsgs.length >= 2) {
-        const prevUserNormalized = normalizeForComparison(userMsgs[userMsgs.length - 2]?.content || userMsgs[userMsgs.length - 2]?.text);
-        if (currentNormalized === prevUserNormalized) {
-            repeatCount++;
-            if (userMsgs.length >= 3) {
-                const prev2UserNormalized = normalizeForComparison(userMsgs[userMsgs.length - 3]?.content || userMsgs[userMsgs.length - 3]?.text);
-                if (currentNormalized === prev2UserNormalized) repeatCount++;
+        const lastInHistory = normalizeForComparison(userMsgs[userMsgs.length - 1]?.content || userMsgs[userMsgs.length - 1]?.text);
+        const checkIdx = (currentNormalized === lastInHistory) ? userMsgs.length - 2 : userMsgs.length - 1;
+
+        if (checkIdx >= 0) {
+            const prevUserNormalized = normalizeForComparison(userMsgs[checkIdx]?.content || userMsgs[checkIdx]?.text);
+            if (currentNormalized === prevUserNormalized) {
+                repeatCount++;
+                if (checkIdx - 1 >= 0) {
+                    const prev2UserNormalized = normalizeForComparison(userMsgs[checkIdx - 1]?.content || userMsgs[checkIdx - 1]?.text);
+                    if (currentNormalized === prev2UserNormalized) repeatCount++;
+                }
             }
         }
-        if (repeatCount >= 1) {
+
+        const isLeadActive = hasPriorOptIn || hasSimulatedInHistory || hasActiveLoan;
+        const threshold = isLeadActive ? 3 : 2;
+        if (repeatCount >= threshold) {
             isIdenticalUserRepeated = true;
         }
     }
@@ -317,20 +350,25 @@ try {
         }
     }
 
-    // Detecção 3C: Frequência Acelerada em Janela Curta (Burst de robôs)
+    // Detecção 3C: Frequência Acelerada em Janela Curta (Burst de robôs: >= 4 mensagens em menos de 10 segundos com repetição)
     if (history.length >= 4) {
-        const recentSlice = history.slice(-6);
+        const recentSlice = history.slice(-4);
         const firstTime = new Date(recentSlice[0].created_at || Date.now()).getTime();
         const lastTime = new Date(recentSlice[recentSlice.length - 1].created_at || Date.now()).getTime();
-        const timeDiffSec = (lastTime - firstTime) / 1000;
-        if (timeDiffSec > 0 && timeDiffSec < 180 && (repeatCount > 0 || isEchoPingPong)) {
+        const timeDiffSec = Math.abs(lastTime - firstTime) / 1000;
+        if (timeDiffSec >= 0 && timeDiffSec <= 10 && (repeatCount >= 2 || isEchoPingPong)) {
             isHighFrequencyBurst = true;
         }
     }
 
     // 🛡️ P1: Detecção de Auto-Resposta e Circuit Breaker
     const isAutoReplyDetected = !isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower);
-    const isCircuitBreakerTriggered = !isButtonTemplateClick && (isIdenticalUserRepeated || isEchoPingPong || isHighFrequencyBurst);
+    const isLeadActive = hasPriorOptIn || hasSimulatedInHistory || hasActiveLoan;
+    const isCircuitBreakerTriggered = !isButtonTemplateClick && (
+        isLeadActive 
+            ? (repeatCount >= 3 || (isEchoPingPong && repeatCount >= 2))
+            : (isIdenticalUserRepeated || isEchoPingPong || isHighFrequencyBurst)
+    );
 
     if (isAutoReplyDetected || isCircuitBreakerTriggered) {
         const stopReason = isAutoReplyDetected
@@ -535,33 +573,7 @@ try {
         semanticInstallments = null;
     }
 
-    // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
-    const assistantMessages = history.filter(m =>
-        ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
-    );
-
-    const lastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
-    const secondLastSofiaMsg = String(assistantMessages[assistantMessages.length - 2]?.content || assistantMessages[assistantMessages.length - 2]?.text || "").toLowerCase().replace(/\*/g, '');
-    const historyTexts = history.map(m => String(m.content || m.text || "").toLowerCase().replace(/\*/g, '')).join(" ");
-
     const linkAlreadySent = historyTexts.includes("clicar no link abaixo") || historyTexts.includes("fiservcapital.moneymoneyinvest");
-
-    // 🛡️ Detecção de simulação prévia e confirmação de identidade no histórico
-    const hasSimulatedInHistory = Boolean(
-        historyTexts.includes("simulação concluída") || 
-        historyTexts.includes("simulacao concluida") || 
-        historyTexts.includes("valor solicitado: r$") ||
-        historyTexts.includes("podemos seguir nessas condições") ||
-        historyTexts.includes("podemos seguir nessas condicoes") ||
-        historyTexts.includes("podemos seguir com essa condição") ||
-        historyTexts.includes("podemos seguir com essa condicao") ||
-        historyTexts.includes("já calculamos a sua simulação") ||
-        historyTexts.includes("ja calculamos a sua simulacao") ||
-        historyTexts.includes("já adiantamos e calculamos") ||
-        historyTexts.includes("ja adiantamos e calculamos") ||
-        leadInfo.simulation_data || 
-        (leadInfo.requested_amount && leadInfo.requested_installments)
-    );
 
     const isIdentityConfirmedPrior = Boolean(
         leadInfo.identity_confirmed ||
