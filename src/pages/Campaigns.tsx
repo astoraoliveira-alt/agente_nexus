@@ -297,8 +297,8 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
-        templateId: "7372e865-f647-411c-8d22-e234f4b87ef6",
-        zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin",
+        templateId: "72f33173-79cc-47cc-8a7c-eba3e20df9d3",
+        zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin",
         zenviaCtaLink: "",
         campaignType: "standard" as "standard" | "pre_approved",
         successCriteria: ['LINK_SENT'] as string[],
@@ -319,14 +319,15 @@ export default function Campaigns() {
         details?: any;
     }>({
         isValidating: false,
-        isValid: true, // Default ID 7372e865... starts valid
+        isValid: true, // Default ID 72f33173... starts valid
         status: 'APPROVED',
         details: {
-            name: "Oferta de Crédito - Link v2",
+            name: "Oferta de Crédito v.2",
             category: "MARKETING",
             text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!",
             buttons: [
-                { text: "Quero simular!" }
+                { text: "Quero simular!" },
+                { text: "Falar com um agente!" }
             ]
         }
     });
@@ -734,8 +735,8 @@ export default function Campaigns() {
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
-                templateId: "7372e865-f647-411c-8d22-e234f4b87ef6",
-                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin",
+                templateId: "72f33173-79cc-47cc-8a7c-eba3e20df9d3",
+                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin",
                 zenviaCtaLink: "",
                 campaignType: "standard",
                 successCriteria: ['LINK_SENT'],
