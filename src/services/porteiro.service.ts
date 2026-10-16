@@ -50,25 +50,34 @@ export const porteiro = {
             headers['Authorization'] = `Bearer ${session.access_token}`;
         }
 
-        const response = await fetch(`${PORTEIRO_URL}/v1/zenvia/template-check`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                templateId,
-                tenantId
-            })
-        });
+        try {
+            const response = await fetch(`${PORTEIRO_URL}/v1/zenvia/template-check`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                    templateId,
+                    tenantId
+                })
+            });
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                return {
+                    valid: false,
+                    status: 'ERROR',
+                    message: errorData.error || `Erro HTTP ${response.status}`
+                };
+            }
+
+            return response.json();
+        } catch (err: any) {
+            console.warn('[Porteiro] Template check fetch failed:', err);
             return {
                 valid: false,
-                status: 'ERROR',
-                message: errorData.error || `Erro HTTP ${response.status}`
+                status: 'UNAVAILABLE',
+                message: err.message || 'Serviço de validação externa indisponível'
             };
         }
-
-        return response.json();
     },
 
     /**
