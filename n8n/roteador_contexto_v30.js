@@ -1,5 +1,13 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V30.1 (AJUSTES DEFINITIVOS BENCHMARK TICKET / FISERV CAPITAL) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V30.2 (AJUSTES DEFINITIVOS BENCHMARK TICKET / FISERV CAPITAL) */
 
+/* MUDANÇAS V30.2:
+   1. Correção Crítica de Repetição de Simulação (confirmacao_cliente):
+      - userTypedNewNumbers corrigido para analisar estritamente a mensagem atual do usuário (fallbackNumber e números/parcelas digitados nesta interação), eliminando o falso positivo em que números da mensagem anterior de simulação da Sofia no histórico reativavam o fluxo de simulação.
+      - Extração de parcelas da mensagem atual tem precedência estrita sobre números lidos do histórico.
+      - Objeções e hesitações comerciais ('vou analisar', 'vou pensar', 'deixa eu ver', 'vou falar com meu sócio') mantêm a conversa na etapa confirmacao_cliente em modo consultivo humanizado, sem disparar simulações repetidas.
+   2. Diretriz de Hesitação no Prompt da Sofia:
+      - Regra de ouro explícita orientando acolhimento, respeito ao tempo do cliente e oferta de esclarecimento de dúvidas antes da decisão.
+*/
 /* MUDANÇAS V30.0:
    1. Prioridade 1 - Refinamento de Engajamento e Expurgo de Robôs:
       - Na 1ª mensagem do contato, validação estrita: apenas cliques nos botões ("Quero simular!" / "Falar com um agente!")
@@ -755,13 +763,12 @@ try {
         }
     }
 
-    if (!extractedInstallments) {
-        let match = lastUserLower.match(/(?:em\s+)?(\d{1,2})\s*(?:x|vezes|parcelas)\b/i) || lastUserLower.match(/\bem\s+(\d{1,2})\b/i);
-        if (match) {
-            let inst = parseInt(match[1]);
-            if (inst >= 1 && inst <= 48) {
-                extractedInstallments = inst;
-            }
+    // ⚡ Prioridade da mensagem atual para parcelas digitadas diretamente pelo cliente
+    let matchCurrentInst = lastUserLower.match(/(?:em\s+)?(\d{1,2})\s*(?:x|vezes|parcelas)\b/i) || lastUserLower.match(/\bem\s+(\d{1,2})\b/i);
+    if (matchCurrentInst) {
+        let inst = parseInt(matchCurrentInst[1], 10);
+        if (inst >= 1 && inst <= 48) {
+            extractedInstallments = inst;
         }
     }
 
@@ -892,11 +899,23 @@ try {
         }
     }
 
-    // --- 4) TRANSIÇÕES DE ESTADO (V28: FUSÃO IDENTIDADE -> FATURAMENTO) ---
+    // --- 4) TRANSIÇÕES DE ESTADO (V30.2: DETECÇÃO ESTRITA DE NÚMEROS DA MENSAGEM ATUAL) ---
     let nextStep = currentStep;
     let transitionApplied = false;
 
-    const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0) || (Boolean(extractedInstallments) && extractedInstallments > 0);
+    const userTypedInstallmentsInCurrentMsg = Boolean(
+        lastUserLower.match(/(?:em\s+)?(\d{1,2})\s*(?:x|vezes|parcelas)\b/i) || 
+        lastUserLower.match(/\bem\s+(\d{1,2})\b/i) ||
+        (Boolean(semanticInstallments) && semanticInstallments > 0)
+    );
+
+    const userTypedAmountInCurrentMsg = Boolean(
+        (fallbackNumber !== null && fallbackNumber >= 1000) ||
+        (fallbackNumber !== null && fallbackNumber >= 10 && fallbackNumber <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) ||
+        (Boolean(semanticAmount) && semanticAmount > 0)
+    );
+
+    const userTypedNewNumbers = (fallbackNumber !== null && fallbackNumber > 0) || userTypedInstallmentsInCurrentMsg || userTypedAmountInCurrentMsg;
 
     if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
         nextStep = 'explicacao_agente';
@@ -1044,12 +1063,16 @@ try {
     } else if (currentStep === 'solicitar_simulacao' || currentStep === 'confirmacao_cliente') {
         const hasNewNumbers = userTypedNewNumbers;
         const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
+        const isHesitation = /\b(vou\s+(analisar|pensar|ver|verificar|avaliar|consultar|conversar)|deixa\s+(eu\s+)?ver|vou\s+falar\s+com|vou\s+ver\s+com|dar\s+uma\s+olhada|analisando|pensando)\b/i.test(lastUserLower);
 
         if (isRestartSimulation) {
             requested_amount = null;
             requested_installments = null;
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
+        } else if (isHesitation && currentStep === 'confirmacao_cliente') {
+            nextStep = 'confirmacao_cliente';
+            transitionApplied = false;
         } else if (currentStep === 'confirmacao_cliente' && isAffirmative && !isDoubt && !asksForSimulation && !isRestartSimulation) {
             if (hasSimulatedInHistory || (requested_amount && requested_installments) || leadInfo.simulation_data) {
                 nextStep = 'reforco_condicoes';
@@ -1061,7 +1084,7 @@ try {
                 nextStep = 'coleta_valor';
             }
             transitionApplied = true;
-        } else if (hasNewNumbers || asksForSimulation) {
+        } else if ((hasNewNumbers || asksForSimulation) && !isHesitation) {
             // Se informou valor mas não disse parcelas (ou vice-versa), completa com o padrão do produto (24x)
             if (requested_amount && !requested_installments) {
                 requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
@@ -1200,7 +1223,7 @@ try {
         mode = "consultive";
     }
 
-    if (nextStep === 'apresenta_ofertas' && mode === 'parrot') {
+    if ((nextStep === 'apresenta_ofertas' || nextStep === 'confirmacao_cliente') && mode === 'parrot') {
         mode = 'consultive';
     }
 
@@ -1649,6 +1672,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
 1. CONTEXTO É REI: Antes de responder usando o FAQ genérico, verifique o <CONTEXTO_ATUAL>. Se o Status do Comitê Fiserv indicar "Pré-aprovado", "Proposta" ou "Aprovado", avise ao cliente que a análise JÁ FOI CONCLUÍDA com sucesso e convide para simular.
 2. CONFORMIDADE REGULATÓRIA: Toda resposta sobre o produto DEVE ser rigorosamente baseada nos textos de <BASE_DE_CONHECIMENTO_FAQ>.
 3. GANCHO DE RETORNO AO FUNIL: Sempre que responder a uma dúvida técnica, responda com precisão, acolhimento e clareza. Em seguida, adicione o gancho convidando o cliente a continuar a etapa atual (${nextStep}). Se a etapa atual for 'apresenta_ofertas', após esclarecer a dúvida, convide o cliente a informar em quantas parcelas (de 6 a 24 parcelas) deseja simular para o valor de crédito desejado (ou se prefere simular outro valor).
+4. HESITAÇÃO OU ANÁLISE NA CONFIRMAÇÃO (ETAPA confirmacao_cliente): Se o cliente já recebeu a simulação e disser que vai analisar, pensar, avaliar ou consultar sócio/esposa (ex: "vou analisar", "vou pensar", "deixa eu ver", "vou ver com meu sócio"): NUNCA repita a simulação estática. Seja acolhedora, respeite o tempo de decisão dele, pergunte gentilmente se ficou alguma dúvida sobre as condições, valores ou parcelas que você possa esclarecer para ajudá-lo a avaliar, e lembre-o de que se preferir simular em outro prazo ou valor, você está à disposição.
 </regra_de_ouro>
 
 <proibicoes_estritas>
