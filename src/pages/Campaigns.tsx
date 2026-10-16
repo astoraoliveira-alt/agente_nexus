@@ -297,8 +297,8 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
-        templateId: "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d",
-        zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin",
+        templateId: "7372e865-f647-411c-8d22-e234f4b87ef6",
+        zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin",
         zenviaCtaLink: "",
         campaignType: "standard" as "standard" | "pre_approved",
         successCriteria: ['LINK_SENT'] as string[],
@@ -319,15 +319,14 @@ export default function Campaigns() {
         details?: any;
     }>({
         isValidating: false,
-        isValid: true, // Default ID 4917a3b3... starts valid
+        isValid: true, // Default ID 7372e865... starts valid
         status: 'APPROVED',
         details: {
-            name: "Oferta de Crédito v2",
+            name: "Oferta de Crédito - Link v2",
             category: "MARKETING",
-            text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar.",
+            text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!",
             buttons: [
-                { text: "Quero simular!" },
-                { text: "Falar com um agente!" }
+                { text: "Quero simular!" }
             ]
         }
     });
@@ -735,8 +734,8 @@ export default function Campaigns() {
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
-                templateId: "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d",
-                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin",
+                templateId: "7372e865-f647-411c-8d22-e234f4b87ef6",
+                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin",
                 zenviaCtaLink: "",
                 campaignType: "standard",
                 successCriteria: ['LINK_SENT'],
