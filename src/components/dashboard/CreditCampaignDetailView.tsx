@@ -1027,6 +1027,14 @@ export function CreditCampaignDetailView({
     return masked;
   };
 
+  // Salvaguarda OpenXML/Excel: nenhuma célula pode exceder 32.767 caracteres
+  const safeExcelText = (str?: string | null, maxLen = 32000): string => {
+    if (!str || typeof str !== 'string') return '';
+    if (str.length <= maxLen) return str;
+    return str.slice(0, maxLen - 160) + 
+      '\n\n[... Diálogo truncado por limite técnico de célula do Excel (32.767 caracteres). Veja o histórico completo na aba "Mensagens Linha a Linha" ...]';
+  };
+
   const handleExportConversationsLGPD = async () => {
     if (isExportingConversations) return;
     setIsExportingConversations(true);
@@ -1232,7 +1240,7 @@ export function CreditCampaignDetailView({
           'Última Mensagem': lastMsgDate,
           'Opt-in Aceito': l.optIn ? 'Sim' : 'Não',
           'Valor Solicitado': formattedValue,
-          'Conversa Completa (Mascarada LGPD)': formattedDialogue
+          'Conversa Completa (Mascarada LGPD)': safeExcelText(formattedDialogue)
         });
 
         // Linhas de detalhe mensagem por mensagem (Aba 2)
@@ -1271,7 +1279,7 @@ export function CreditCampaignDetailView({
             'Data e Hora': timeStr,
             'Remetente': senderLabel,
             'Tipo': m.message_type || 'texto',
-            'Mensagem (Mascarada LGPD)': maskSensitiveTextLGPD(cleanContent)
+            'Mensagem (Mascarada LGPD)': safeExcelText(maskSensitiveTextLGPD(cleanContent))
           });
         });
       }
