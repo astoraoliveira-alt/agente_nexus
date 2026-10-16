@@ -580,7 +580,43 @@ try {
     let currentStep = semanticFunnelStep || 'start';
 
     // 🔴 OVERRIDE DEFENSIVO
-    if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
+    const isSofiaAwaitingConfirmation = Boolean(
+        lastSofiaMsg.includes("confirma que deseja prosseguir") || 
+        lastSofiaMsg.includes("formalização") || 
+        lastSofiaMsg.includes("formalizacao") || 
+        lastSofiaMsg.includes("podemos seguir com a formalização") ||
+        lastSofiaMsg.includes("podemos seguir com a formalizacao") ||
+        lastSofiaMsg.includes("podemos seguir nessas condições") ||
+        lastSofiaMsg.includes("podemos seguir nessas condicoes") ||
+        lastSofiaMsg.includes("podemos seguir com essa condição") ||
+        lastSofiaMsg.includes("podemos seguir com essa condicao") ||
+        lastSofiaMsg.includes("condições informadas anteriormente") ||
+        lastSofiaMsg.includes("condicoes informadas anteriormente") ||
+        lastSofiaMsg.includes("já calculamos a sua simulação") ||
+        lastSofiaMsg.includes("ja calculamos a sua simulacao") ||
+        lastSofiaMsg.includes("já adiantamos e calculamos") ||
+        lastSofiaMsg.includes("ja adiantamos e calculamos") ||
+        lastSofiaMsg.includes("prefere simular em outro prazo") ||
+        lastSofiaMsg.includes("seguir com a contratação") ||
+        lastSofiaMsg.includes("seguir com a contratacao") ||
+        lastSofiaMsg.includes("simulação concluída") ||
+        lastSofiaMsg.includes("simulacao concluida") ||
+        (hasSimulatedInHistory && (
+            lastSofiaMsg.includes("podemos seguir com a simulação") ||
+            lastSofiaMsg.includes("podemos seguir com a simulacao") ||
+            lastSofiaMsg.includes("podemos seguir") || 
+            lastSofiaMsg.includes("condições") || 
+            lastSofiaMsg.includes("condicoes") ||
+            lastSofiaMsg.includes("seguir com") ||
+            secondLastSofiaMsg.includes("simulação concluída") ||
+            secondLastSofiaMsg.includes("simulacao concluida") ||
+            secondLastSofiaMsg.includes("podemos seguir")
+        ))
+    );
+
+    if (isSofiaAwaitingConfirmation) {
+        currentStep = 'confirmacao_cliente';
+    } else if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
         if (lastSofiaMsg.includes("digite ok para continuar") || lastSofiaMsg.includes("ok, entendi") || lastSofiaMsg.includes("clique no botão abaixo para prosseguir") || lastSofiaMsg.includes("clique no botao abaixo para prosseguir")) {
             currentStep = 'reforco_condicoes';
         } else if (
@@ -830,7 +866,9 @@ try {
     ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
-    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
+    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
+    const isHesitation = /\b(vou\s+(analisar|pensar|ver|verificar|avaliar|consultar|conversar)|deixa\s+(eu\s+)?ver|vou\s+falar\s+com|vou\s+ver\s+com|dar\s+uma\s+olhada|analisando|pensando)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
+    const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
 
     // Reconhecimento de divergência de CNPJ no input do usuário
     const isCnpjDivergent = /\b(n[aã]o [eé] (meu|minha|esse|este)|cnpj (errado|n[aã]o [eé]|outro|diferente|incorreto)|n[aã]o sou|outra empresa|trocou|empresa errada|n[aã]o perten[cç]o)\b/i.test(lastUserLower) || semanticIntent === "CNPJ_BLOCKED";
@@ -1041,19 +1079,30 @@ try {
             transitionApplied = true;
         }
     } else if (currentStep === 'apresenta_ofertas') {
-        // Se usuário informou novo valor ou pediu simulação em apresenta_ofertas sem especificar parcelas, adota 24x padrão
-        if (requested_amount && !requested_installments && (userTypedNewNumbers || /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower))) {
-            requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
-        } else if (!requested_amount && requested_installments) {
-            requested_amount = leadInfo.requested_amount || approvedLimit || 50000;
-        }
-
-        if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+        if (isHesitation) {
+            nextStep = hasSimulatedInHistory ? 'confirmacao_cliente' : 'apresenta_ofertas';
+            transitionApplied = false;
+        } else if (isRestartSimulation) {
+            requested_amount = null;
+            requested_installments = null;
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
-        } else if (requested_installments && requested_amount && !isDoubt) {
-            nextStep = 'solicitar_simulacao';
-            transitionApplied = true;
+        } else if (userTypedNewNumbers || asksForSimulation || isAffirmative) {
+            if (requested_amount && !requested_installments) {
+                requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
+            } else if (!requested_amount && requested_installments) {
+                requested_amount = leadInfo.requested_amount || approvedLimit || 50000;
+            }
+
+            if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+                nextStep = 'apresenta_ofertas';
+                transitionApplied = true;
+            } else if (requested_installments && requested_amount && !isDoubt) {
+                nextStep = 'solicitar_simulacao';
+                transitionApplied = true;
+            } else {
+                nextStep = 'apresenta_ofertas';
+            }
         } else if (isNegative && !isDoubt) {
             nextStep = 'desistencia_cliente';
             transitionApplied = true;
@@ -1062,8 +1111,6 @@ try {
         }
     } else if (currentStep === 'solicitar_simulacao' || currentStep === 'confirmacao_cliente') {
         const hasNewNumbers = userTypedNewNumbers;
-        const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
-        const isHesitation = /\b(vou\s+(analisar|pensar|ver|verificar|avaliar|consultar|conversar)|deixa\s+(eu\s+)?ver|vou\s+falar\s+com|vou\s+ver\s+com|dar\s+uma\s+olhada|analisando|pensando)\b/i.test(lastUserLower);
 
         if (isRestartSimulation) {
             requested_amount = null;
@@ -1116,7 +1163,7 @@ try {
             }
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
-            nextStep = 'apresenta_ofertas';
+            nextStep = currentStep === 'confirmacao_cliente' ? 'desistencia_cliente' : 'apresenta_ofertas';
             transitionApplied = true;
         } else {
             nextStep = currentStep;
