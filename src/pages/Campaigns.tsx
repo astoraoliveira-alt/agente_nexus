@@ -616,9 +616,9 @@ export default function Campaigns() {
                 initialMessage: normalizeMessagingText(newCampaign.initialMessage),
                 campaignType: newCampaign.campaignType,
                 metadata: {
-                    template_id: newCampaign.templateId || undefined,
-                    zenvia_image_url: newCampaign.zenviaImageUrl || undefined,
-                    zenvia_cta_link: newCampaign.zenviaCtaLink || undefined,
+                    template_id: newCampaign.templateId?.trim() || null,
+                    zenvia_image_url: newCampaign.zenviaImageUrl?.trim() || null,
+                    zenvia_cta_link: newCampaign.zenviaCtaLink?.trim() || null,
                     campaign_type: newCampaign.campaignType
                 },
                 dailyLimit: newCampaign.dailyLimit,
