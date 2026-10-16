@@ -133,14 +133,24 @@ try {
     const hasPriorCampaignOutbound = history.some(m => {
         const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase());
         const content = String(m.content || m.text || '').toLowerCase();
+
+        // ⛔ NUNCA considerar mensagens de recusa / não-credenciamento como disparo de campanha
+        if (content.includes('não possui um credenciamento ativo') || 
+            content.includes('nao possui um credenciamento ativo') || 
+            content.includes('4004-2233') || 
+            content.includes('wa.me/551140042233')) {
+            return false;
+        }
+
         return isBot && (
-            content.includes('ticket') || 
             content.includes('reforçar o caixa') || 
             content.includes('reforco de caixa') ||
             content.includes('capital de giro') || 
             content.includes('recebíveis futuros') || 
             content.includes('recebiveis futuros') ||
-            content.includes('500 mil')
+            content.includes('500 mil') ||
+            content.includes('simulação sem compromisso') ||
+            content.includes('simulacao sem compromisso')
         );
     });
 
@@ -1006,22 +1016,27 @@ try {
         nextStep = 'explicacao_agente';
         transitionApplied = true;
     } else if (currentStep === 'start') {
-        const isPureGreetingWithoutPitch = isGreeting && assistantMessages.length === 0;
-        if (!isNegative && !isDoubt && !isPureGreetingWithoutPitch) {
-            if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
-                nextStep = 'apresenta_ofertas';
-            } else if (hasSimulatedInHistory) {
-                nextStep = 'reforco_condicoes';
-            } else if ((hasActiveLoan || isApprovedFiserv) && leadInfo.pre_approved_amount) {
-                nextStep = 'apresenta_ofertas';
-            } else if (hasPriorOptIn && leadInfo.pre_approved_amount) {
-                nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
-            } else if (requested_amount && requested_amount > 0) {
-                nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
-            } else {
-                nextStep = 'coleta_valor';
-            }
+        if (leadInfo.is_lead === false) {
+            nextStep = 'start';
             transitionApplied = true;
+        } else {
+            const isPureGreetingWithoutPitch = isGreeting && assistantMessages.length === 0;
+            if (!isNegative && !isDoubt && !isPureGreetingWithoutPitch) {
+                if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
+                    nextStep = 'apresenta_ofertas';
+                } else if (hasSimulatedInHistory) {
+                    nextStep = 'reforco_condicoes';
+                } else if ((hasActiveLoan || isApprovedFiserv) && leadInfo.pre_approved_amount) {
+                    nextStep = 'apresenta_ofertas';
+                } else if (hasPriorOptIn && leadInfo.pre_approved_amount) {
+                    nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+                } else if (requested_amount && requested_amount > 0) {
+                    nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
+                } else {
+                    nextStep = 'coleta_valor';
+                }
+                transitionApplied = true;
+            }
         }
     } else if (currentStep === 'explicacao_agente') {
         if (isAffirmative && !isDoubt) {
@@ -1334,7 +1349,23 @@ try {
     let forcedText = String(activeConfig?.rules || "");
 
     if (leadInfo.is_lead === false) {
-        forcedText = `Olá${leadInfo.name ? ', *' + leadInfo.name + '*' : ''}! Tudo bem?\n\nNotei aqui que você ainda não possui um credenciamento ativo ou seus dados não constam na nossa base de ofertas pré-aprovadas no momento.\n\nPara realizar o seu credenciamento e ter acesso às nossas soluções de crédito e benefícios da Ticket, envie uma mensagem pelo WhatsApp para a nossa Central no número *11 4004-2233* ou acesse diretamente o link https://wa.me/551140042233.\n\nAssim que estiver tudo certinho, estarei por aqui!`;
+        const hasPriorUnaccreditedNotice = assistantMessages.some(m => {
+            const text = String(m.content || m.text || '').toLowerCase();
+            return text.includes('não possui um credenciamento ativo') || 
+                   text.includes('nao possui um credenciamento ativo') || 
+                   text.includes('4004-2233');
+        });
+
+        if (hasPriorUnaccreditedNotice) {
+            const isPureAckOrFarewell = isCourtesyAck || isFarewell || /^(s[ií]+m+|ok|beleza|combinado|certo|perfeito|entendi|t[aá] bom|valeu)[!.,\s]*$/i.test(lastUserLower);
+            if (isPureAckOrFarewell) {
+                forcedText = `Combinado! Assim que o seu credenciamento for realizado com a Central da Ticket (*11 4004-2233*), estaremos à total disposição para a sua análise de crédito por aqui. Tenha um ótimo dia! 👍`;
+            } else {
+                forcedText = `Como você ainda não possui credenciamento ativo na Ticket, as adesões e consultas são feitas exclusivamente pela nossa Central de Atendimento no WhatsApp *11 4004-2233* ou pelo link https://wa.me/551140042233. Assim que concluir o credenciamento, me chame aqui!`;
+            }
+        } else {
+            forcedText = `Olá${leadInfo.name ? ', *' + leadInfo.name + '*' : ''}! Tudo bem?\n\nNotei aqui que você ainda não possui um credenciamento ativo ou seus dados não constam na nossa base de ofertas pré-aprovadas no momento.\n\nPara realizar o seu credenciamento e ter acesso às nossas soluções de crédito e benefícios da Ticket, envie uma mensagem pelo WhatsApp para a nossa Central no número *11 4004-2233* ou acesse diretamente o link https://wa.me/551140042233.\n\nAssim que estiver tudo certinho, estarei por aqui!`;
+        }
         mode = "parrot";
         nextStep = "start";
     } else if (isAgentButtonClick) {
