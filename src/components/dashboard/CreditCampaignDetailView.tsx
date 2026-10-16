@@ -27,7 +27,10 @@ import {
   X,
   Target,
   User,
-  MessageSquare
+  MessageSquare,
+  UserCheck,
+  Calculator,
+  DollarSign
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
@@ -126,19 +129,27 @@ export function CreditCampaignDetailView({
       setCampaigns(campaignsList || []);
       setAgents(agentsList || []);
 
-      // 2. Carregar filas enriquecidas e relacionar com agent_leads
-      const [enrichedQueue, agentLeadsRes] = await Promise.all([
+      // 2. Carregar filas enriquecidas e relacionar com agent_leads e handoff_requests
+      const [enrichedQueue, agentLeadsRes, handoffRes] = await Promise.all([
         api.getEnrichedOutboundQueue(currentTenant.id, campaignId as any),
         supabase
           .from('agent_leads')
           .select('id, whatsapp, identifier, name, status, metadata, created_at')
           .eq('tenant_id', currentTenant.id)
-          .eq('campaign_id', campaignId)
+          .eq('campaign_id', campaignId),
+        supabase
+          .from('handoff_requests')
+          .select('id, status, conversation_id, metadata')
+          .eq('tenant_id', currentTenant.id)
+          .in('status', ['pending', 'in_progress'])
       ]);
 
       const agentLeadsData = agentLeadsRes.data || [];
+      const handoffData = handoffRes.data || [];
       const agentLeadByPhone = new Map<string, any>();
       const agentLeadByIdentifier = new Map<string, any>();
+      const handoffByConvId = new Map<string, any>();
+      const handoffByPhone = new Map<string, any>();
 
       const getPhoneVariantsList = (phone?: string | null): string[] => {
         if (!phone) return [];
@@ -177,6 +188,16 @@ export function CreditCampaignDetailView({
         if (metaId) agentLeadByIdentifier.set(metaId, al);
       }
 
+      for (const hr of handoffData) {
+        if (hr.conversation_id) handoffByConvId.set(hr.conversation_id, hr);
+        const hPhone = hr.metadata?.phone || hr.metadata?.whatsapp || hr.metadata?.contact_phone;
+        if (hPhone) {
+          for (const v of getPhoneVariantsList(hPhone)) {
+            handoffByPhone.set(v, hr);
+          }
+        }
+      }
+
       const matchedAgentLeadIds = new Set<string>();
 
       // Mapear Leads combinando status de entrega e funil
@@ -206,46 +227,100 @@ export function CreditCampaignDetailView({
         const fiservSt = String(meta.fiserv_status || matchedLead?.status || '').toLowerCase().trim();
         const formalSt = String(meta.formalization_status || '').toLowerCase().trim();
         const extSt = String(meta.fiserv_external_status || '').toLowerCase().trim();
-        const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
 
-        // Precedência absoluta de Recusa: se foi reprovado no comitê, formalization lost ou tem motivo de perda, É RECUSADO
-        const isRefusedLead = Boolean(
-          hasRefusalReason ||
-          ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
-          ['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
-          ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalSt) ||
-          extSt.includes('reprovad') ||
-          extSt.includes('recusad') ||
-          extSt.includes('não conseguimos') ||
-          extSt.includes('nao conseguimos')
+        // Handoff / Transbordo para especialista (Opção A)
+        const leadConvId = q.conversationId || q.conversation_id || meta.conversation_id;
+        let leadHandoff = leadConvId ? handoffByConvId.get(leadConvId) : null;
+        if (!leadHandoff) {
+          for (const v of qVariants) {
+            if (handoffByPhone.has(v)) {
+              leadHandoff = handoffByPhone.get(v);
+              break;
+            }
+          }
+        }
+        const isHandoffPending = Boolean(
+          leadHandoff?.status === 'pending' ||
+          meta.handoff_requested === true ||
+          meta.handoff_requested === 'true' ||
+          meta.falar_agente === true ||
+          meta.falar_agente === 'true' ||
+          ['waiting_contact', 'aguar_contato'].includes(formalSt)
+        );
+        const isHandoffInProgress = Boolean(
+          leadHandoff?.status === 'in_progress' ||
+          ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalSt)
         );
 
-        // Aprovado só é válido se NÃO for recusado e tiver aprovação real (sem 'in_quoting', que é apenas cotação em andamento)
+        // Aprovado só é válido se tiver aprovação real e não for explicitamente reprovado
         const isApprovedLead = Boolean(
-          !isRefusedLead && (
+          (
             ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservSt) ||
             ['approved', 'aprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
             ['approved', 'aprovado'].includes(qStatus) ||
             meta.fiserv_is_approved === true ||
-            Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0) ||
+            Boolean(meta.fiserv_amount_approved && !isNaN(Number(meta.fiserv_amount_approved)) && Number(meta.fiserv_amount_approved) > 0) ||
             (extSt.includes('aprovado') && !extSt.includes('reprovad'))
+          ) &&
+          !['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) &&
+          !['denied', 'recusado', 'reprovado'].includes(fiservSt) &&
+          !extSt.includes('não conseguimos') &&
+          !extSt.includes('nao conseguimos') &&
+          !extSt.includes('reprovad') &&
+          !meta.lost_reason
+        );
+
+        // Precedência de Recusa Fiserv (crédito não aprovado / reprovado):
+        // Nota: se o lead for aprovado ou pré-aprovado, NÃO é recusa de crédito.
+        const isRefusedLead = Boolean(
+          !isApprovedLead && (
+            meta.lost_reason ||
+            meta.refusal_reason ||
+            ['denied', 'fails_to_process', 'lost', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
+            ['denied', 'recusado', 'reprovado'].includes(String(matchedLead?.status || '').toLowerCase().trim()) ||
+            ['denied', 'recusado', 'reprovado'].includes(qStatus) ||
+            extSt.includes('reprovad') ||
+            extSt.includes('recusad') ||
+            extSt.includes('não conseguimos') ||
+            extSt.includes('nao conseguimos')
           )
         );
 
-        // Determinar status exibido de acordo com a esteira do funil
+        // Determinar status exibido de acordo com a esteira do funil (Opção A)
         let displayStatus = 'Pendente';
         if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
           displayStatus = 'Formalizado';
-        } else if (['in_service', 'em_atendimento', 'in_progress'].includes(formalSt)) {
+        } else if (['lost', 'cancelled', 'declined', 'desistente', 'recusado_cliente'].includes(formalSt) || extSt.includes('desistiu')) {
+          displayStatus = 'Desistência';
+        } else if (isHandoffInProgress) {
           displayStatus = 'Em Atendimento';
-        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt)) {
+        } else if (isHandoffPending) {
           displayStatus = 'Aguardando Contato';
         } else if (isRefusedLead) {
           displayStatus = 'Recusado';
         } else if (isApprovedLead) {
           displayStatus = 'Aprovado';
-        } else if (meta.opt_in === true || meta.optin === true || meta.consent?.opt_in === true || meta.loan_request_id || ['in_quoting', 'in_progress', 'comite'].includes(fiservSt)) {
+        } else if (
+          meta.simulation_data?.installment_value != null ||
+          meta.simulation_data?.installments != null ||
+          meta.simulation_data?.monthly_interest != null ||
+          (meta.simularam === true && String(meta.fiserv_last_status || '').toLowerCase() === 'success')
+        ) {
+          displayStatus = 'Simulou';
+        } else if (
+          meta.opt_in === true || meta.opt_in === 'true' ||
+          meta.optin === true || meta.optin === 'true' ||
+          meta.consent?.opt_in === true ||
+          meta.loan_request_id ||
+          ['in_quoting', 'in_progress', 'comite'].includes(fiservSt)
+        ) {
           displayStatus = 'Opt-in';
+        } else if (meta.revenue || meta.faturamento) {
+          displayStatus = 'Faturamento Informado';
+        } else if (meta.requested_amount || meta.valor_inicial) {
+          displayStatus = 'Valor Informado';
+        } else if (['true', 't', '1', true].includes(meta.identity_confirmed) || ['true', 't', '1', true].includes(meta.cnpj_confirmed)) {
+          displayStatus = 'Confirmou Identidade';
         } else if (q.response_detected || q.responseDetected || ['read', 'lida'].includes(qStatus)) {
           displayStatus = 'Lida';
         } else if (['delivered', 'entregue', 'sent', 'enviada'].includes(qStatus)) {
@@ -294,7 +369,7 @@ export function CreditCampaignDetailView({
           ['Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(displayStatus)
         );
 
-        const hasInteracted = hasAdvancedInFunnel || (isResponded && !isAutoReply);
+        const hasInteracted = !isAutoReply && (hasAdvancedInFunnel || isResponded);
 
         // Etapas estritas do Funil
         const pipelineStage = String(meta.pipeline_stage || '').toLowerCase().trim();
@@ -348,14 +423,14 @@ export function CreditCampaignDetailView({
 
         const hasValorInicial = Boolean(hasValidAmount || hasFaturamento || hasOptIn);
 
-        const hasIdentityConfirmed = Boolean(
+        const hasIdentityConfirmed = !isAutoReply && Boolean(
           ['true', 't', '1', true].includes(meta.identity_confirmed) || 
           ['true', 't', '1', true].includes(meta.cnpj_confirmed) || 
           hasValorInicial ||
           hasFaturamento
         );
 
-        const isInteragiram = Boolean(hasIdentityConfirmed || (isResponded && !isAutoReply));
+        const isInteragiram = !isAutoReply && Boolean(hasIdentityConfirmed || isResponded);
 
         const isRecusado = isRefusedLead;
         const isAprovado = isApprovedLead;
@@ -405,8 +480,8 @@ export function CreditCampaignDetailView({
 
         const isFormalizacaoDesistencia = Boolean(isOkAgente && isFormalizationLost);
         const isFormalizacaoFormalizado = Boolean(isOkAgente && !isFormalizationLost && isFormalizado);
-        const isFormalizacaoEmAtendimento = Boolean(isOkAgente && !isFormalizationLost && !isFormalizado && isEmAtendimento);
-        const isFormalizacaoAguarContato = Boolean(isOkAgente && !isFormalizationLost && !isFormalizado && !isEmAtendimento);
+        const isFormalizacaoEmAtendimento = Boolean((isOkAgente || isHandoffPending || isHandoffInProgress) && !isFormalizationLost && !isFormalizado && isEmAtendimento);
+        const isFormalizacaoAguarContato = Boolean((isOkAgente || isHandoffPending || isHandoffInProgress) && !isFormalizationLost && !isFormalizado && !isEmAtendimento);
 
         return {
           id: q.id,
@@ -467,35 +542,43 @@ export function CreditCampaignDetailView({
         const fiservSt = String(meta.fiserv_status || al.status || '').toLowerCase().trim();
         const formalSt = String(meta.formalization_status || '').toLowerCase().trim();
         const extSt = String(meta.fiserv_external_status || '').toLowerCase().trim();
-        const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
-
-        const isRec = Boolean(
-          hasRefusalReason ||
-          ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
-          ['denied', 'recusado', 'reprovado'].includes(String(al.status || '').toLowerCase().trim()) ||
-          ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalSt) ||
-          extSt.includes('reprovad') ||
-          extSt.includes('recusad') ||
-          extSt.includes('não conseguimos') ||
-          extSt.includes('nao conseguimos')
-        );
-
         const isApp = Boolean(
-          !isRec && (
+          (
             ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservSt) ||
             ['approved', 'aprovado'].includes(String(al.status || '').toLowerCase().trim()) ||
             meta.fiserv_is_approved === true ||
-            Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0) ||
+            Boolean(meta.fiserv_amount_approved && !isNaN(Number(meta.fiserv_amount_approved)) && Number(meta.fiserv_amount_approved) > 0) ||
             (extSt.includes('aprovado') && !extSt.includes('reprovad'))
+          ) &&
+          !['denied', 'recusado', 'reprovado'].includes(String(al.status || '').toLowerCase().trim()) &&
+          !['denied', 'recusado', 'reprovado'].includes(fiservSt) &&
+          !extSt.includes('não conseguimos') &&
+          !extSt.includes('nao conseguimos') &&
+          !extSt.includes('reprovad') &&
+          !meta.lost_reason
+        );
+
+        const isRec = Boolean(
+          !isApp && (
+            meta.lost_reason ||
+            meta.refusal_reason ||
+            ['denied', 'fails_to_process', 'lost', 'recusado', 'reprovado', 'declined'].includes(fiservSt) ||
+            ['denied', 'recusado', 'reprovado'].includes(String(al.status || '').toLowerCase().trim()) ||
+            extSt.includes('reprovad') ||
+            extSt.includes('recusad') ||
+            extSt.includes('não conseguimos') ||
+            extSt.includes('nao conseguimos')
           )
         );
 
         let dispSt = 'Opt-in';
         if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
           dispSt = 'Formalizado';
+        } else if (['lost', 'cancelled', 'declined', 'desistente'].includes(formalSt) || extSt.includes('desistiu')) {
+          dispSt = 'Desistência';
         } else if (['in_service', 'em_atendimento', 'in_progress'].includes(formalSt)) {
           dispSt = 'Em Atendimento';
-        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt)) {
+        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt) || meta.handoff_requested || meta.falar_agente) {
           dispSt = 'Aguardando Contato';
         } else if (isRec) {
           dispSt = 'Recusado';
@@ -539,7 +622,7 @@ export function CreditCampaignDetailView({
             isFormalizacaoAguarContato: dispSt === 'Aguardando Contato',
             isFormalizacaoEmAtendimento: dispSt === 'Em Atendimento',
             isFormalizacaoFormalizado: dispSt === 'Formalizado',
-            isFormalizacaoDesistencia: false
+            isFormalizacaoDesistencia: dispSt === 'Desistência'
           }
         });
       });
@@ -669,14 +752,79 @@ export function CreditCampaignDetailView({
     return agents.find(a => a.id === selectedCampaign.agentId) || null;
   }, [agents, selectedCampaign]);
 
+  const isLeadEntregue = (lead: LeadDetailRow): boolean => {
+    return Boolean(lead.stages?.isEntregue) ||
+           ['Entregue', 'Lida', 'Confirmou Identidade', 'Valor Informado', 'Faturamento Informado', 'Opt-in', 'Simulou', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato', 'Desistência'].includes(lead.status) || 
+           ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(lead.deliveryStatus) ||
+           Boolean(lead.hasInteracted);
+  };
+
+  const matchesStatusFilter = (lead: LeadDetailRow, status: string): boolean => {
+    if (status === 'Conversas Iniciadas') {
+      return Boolean(lead.hasInteracted);
+    }
+    if (status === 'Entregue') {
+      return isLeadEntregue(lead);
+    }
+    if (status === 'Lida') {
+      return Boolean(lead.stages?.isLida) ||
+             ['Lida', 'Confirmou Identidade', 'Valor Informado', 'Faturamento Informado', 'Opt-in', 'Simulou', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato', 'Desistência'].includes(lead.status) || 
+             ['read', 'lida'].includes(lead.deliveryStatus);
+    }
+    if (status === 'Não Entregue') {
+      return !isLeadEntregue(lead);
+    }
+    if (status === 'Confirmou Identidade') {
+      return Boolean(lead.stages?.hasIdentityConfirmed || lead.status === 'Confirmou Identidade');
+    }
+    if (status === 'Valor Informado') {
+      return Boolean(lead.stages?.hasValorInicial || lead.status === 'Valor Informado');
+    }
+    if (status === 'Faturamento Informado') {
+      return Boolean(lead.stages?.hasFaturamento || lead.status === 'Faturamento Informado');
+    }
+    if (status === 'Opt-in') {
+      return Boolean(lead.stages?.hasOptIn || lead.status === 'Opt-in' || lead.optIn);
+    }
+    if (status === 'Simulou') {
+      return Boolean(lead.stages?.isSimularam || lead.status === 'Simulou');
+    }
+    if (status === 'Aprovado') {
+      return Boolean(lead.stages?.isAprovado || lead.status === 'Aprovado');
+    }
+    if (status === 'Recusado') {
+      return Boolean(lead.stages?.isRecusado || lead.status === 'Recusado');
+    }
+    if (status === 'Aguardando Contato') {
+      return Boolean(lead.stages?.isFormalizacaoAguarContato || lead.status === 'Aguardando Contato');
+    }
+    if (status === 'Em Atendimento') {
+      return Boolean(lead.stages?.isFormalizacaoEmAtendimento || lead.status === 'Em Atendimento');
+    }
+    if (status === 'Formalizado') {
+      return Boolean(lead.stages?.isFormalizacaoFormalizado || lead.status === 'Formalizado');
+    }
+    if (status === 'Desistência') {
+      return Boolean(lead.stages?.isFormalizacaoDesistencia || lead.status === 'Desistência');
+    }
+    return lead.status === status;
+  };
+
   // Status dinâmicos para filtro com contagem
   const statusOptions = useMemo(() => {
     const list = ['Entregue', 'Lida', 'Não Entregue'];
     if (leads.some(l => l.hasInteracted)) list.push('Conversas Iniciadas');
+    if (leads.some(l => l.status === 'Confirmou Identidade' || l.stages?.hasIdentityConfirmed)) list.push('Confirmou Identidade');
+    if (leads.some(l => l.status === 'Valor Informado' || l.stages?.hasValorInicial)) list.push('Valor Informado');
+    if (leads.some(l => l.status === 'Faturamento Informado' || l.stages?.hasFaturamento)) list.push('Faturamento Informado');
+    if (leads.some(l => l.status === 'Opt-in' || l.stages?.hasOptIn)) list.push('Opt-in');
+    if (leads.some(l => l.status === 'Simulou' || l.stages?.isSimularam)) list.push('Simulou');
     if (leads.some(l => l.stages?.isAprovado || l.status === 'Aprovado')) list.push('Aprovado');
     if (leads.some(l => l.stages?.isRecusado || l.status === 'Recusado')) list.push('Recusado');
+    if (leads.some(l => l.stages?.isFormalizacaoAguarContato || l.status === 'Aguardando Contato')) list.push('Aguardando Contato');
     if (leads.some(l => l.stages?.isFormalizacaoEmAtendimento || l.status === 'Em Atendimento')) list.push('Em Atendimento');
     if (leads.some(l => l.stages?.isFormalizacaoFormalizado || l.status === 'Formalizado')) list.push('Formalizado');
+    if (leads.some(l => l.stages?.isFormalizacaoDesistencia || l.status === 'Desistência')) list.push('Desistência');
     return list;
   }, [leads]);
 
@@ -684,38 +832,7 @@ export function CreditCampaignDetailView({
     let result = leads;
     if (selectedStatuses.length > 0) {
       result = result.filter(lead => {
-        return selectedStatuses.some(status => {
-          if (status === 'Conversas Iniciadas') {
-            return lead.hasInteracted;
-          }
-          if (status === 'Entregue') {
-            return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(lead.status) || 
-                   ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(lead.deliveryStatus);
-          }
-          if (status === 'Lida') {
-            return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(lead.status) || 
-                   ['read', 'lida'].includes(lead.deliveryStatus);
-          }
-          if (status === 'Não Entregue') {
-            return lead.status === 'Não Entregue' || ['failed', 'erro', 'not_delivered', 'rejected', 'rejeitada'].includes(lead.deliveryStatus);
-          }
-          if (status === 'Aprovado') {
-            return Boolean(lead.stages?.isAprovado || lead.status === 'Aprovado');
-          }
-          if (status === 'Opt-in') {
-            return Boolean(lead.stages?.hasOptIn || lead.status === 'Opt-in' || lead.optIn);
-          }
-          if (status === 'Recusado') {
-            return Boolean(lead.stages?.isRecusado || lead.status === 'Recusado');
-          }
-          if (status === 'Formalizado') {
-            return Boolean(lead.stages?.isFormalizacaoFormalizado || lead.status === 'Formalizado');
-          }
-          if (status === 'Em Atendimento') {
-            return Boolean(lead.stages?.isFormalizacaoEmAtendimento || lead.status === 'Em Atendimento');
-          }
-          return lead.status === status;
-        });
+        return selectedStatuses.some(status => matchesStatusFilter(lead, status));
       });
     }
     if (searchQuery) {
@@ -819,20 +936,6 @@ export function CreditCampaignDetailView({
   };
 
   const renderStatusBadge = (status: string, lead?: LeadDetailRow) => {
-    const isRec = Boolean(
-      status === 'Recusado' || 
-      lead?.stages?.isRecusado
-    );
-
-    if (isRec) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-50 text-rose-700 border border-rose-200">
-          <AlertCircle className="w-3 h-3" />
-          Recusado
-        </span>
-      );
-    }
-
     const isApp = Boolean(
       status === 'Aprovado' || 
       lead?.stages?.isAprovado || 
@@ -842,7 +945,7 @@ export function CreditCampaignDetailView({
     if (isApp && !['Formalizado'].includes(status)) {
       return (
         <div className="inline-flex flex-col items-center gap-1">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200">
             <CheckCircle2 className="w-3 h-3" />
             Aprovado
           </span>
@@ -856,7 +959,28 @@ export function CreditCampaignDetailView({
               Aguard. Contato
             </span>
           )}
+          {status === 'Desistência' && (
+            <span className="text-[8px] font-bold uppercase tracking-wider text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-300">
+              Desistência
+            </span>
+          )}
         </div>
+      );
+    }
+
+    const isRec = Boolean(
+      !isApp && (
+        status === 'Recusado' || 
+        lead?.stages?.isRecusado
+      )
+    );
+
+    if (isRec) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-50 text-rose-700 border border-rose-200">
+          <AlertCircle className="w-3 h-3" />
+          Recusado
+        </span>
       );
     }
 
@@ -882,11 +1006,39 @@ export function CreditCampaignDetailView({
             Não Entregue
           </span>
         );
+      case 'Confirmou Identidade':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-blue-50 text-blue-700 border border-blue-200">
+            <UserCheck className="w-3 h-3" />
+            Confirmou
+          </span>
+        );
+      case 'Valor Informado':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-cyan-50 text-cyan-700 border border-cyan-200">
+            <Hash className="w-3 h-3" />
+            Valor Inicial
+          </span>
+        );
+      case 'Faturamento Informado':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-teal-50 text-teal-700 border border-teal-200">
+            <DollarSign className="w-3 h-3" />
+            Faturamento
+          </span>
+        );
       case 'Opt-in':
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-700 border border-emerald-200">
             <ShieldCheck className="w-3 h-3" />
             Opt-in Aceito
+          </span>
+        );
+      case 'Simulou':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-700 border border-indigo-200">
+            <Calculator className="w-3 h-3" />
+            Simulou
           </span>
         );
       case 'Aprovado':
@@ -901,6 +1053,13 @@ export function CreditCampaignDetailView({
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-rose-50 text-rose-700 border border-rose-200">
             <AlertCircle className="w-3 h-3" />
             Recusado
+          </span>
+        );
+      case 'Desistência':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-slate-100 text-slate-700 border border-slate-300">
+            <AlertCircle className="w-3 h-3 text-slate-500" />
+            Desistência
           </span>
         );
       case 'Formalizado':
@@ -934,29 +1093,40 @@ export function CreditCampaignDetailView({
   };
 
   // Métricas do Card (garantindo consistência absoluta)
-  const stat = currentStat || {
-    campaignId,
-    campaignName: selectedCampaign?.name || 'Campanha',
-    startDate: selectedCampaign?.createdAt ? new Date(selectedCampaign.createdAt) : null,
-    status: selectedCampaign?.status || 'active',
-    carregados: 0,
-    enviados: 0,
-    entregues: 0,
-    lidas: 0,
-    interagiram: 0,
-    confirmaram: 0,
-    faturamento: 0,
-    valorInicial: 0,
-    optIn: 0,
-    aprovados: 0,
-    recusados: 0,
-    simularam: 0,
-    okAgente: 0,
-    aguarContato: 0,
-    emAtendimento: 0,
-    formalizado: 0,
-    desistencia: 0
-  };
+  const stat = useMemo(() => {
+    const base = currentStat || {
+      campaignId,
+      campaignName: selectedCampaign?.name || 'Campanha',
+      startDate: selectedCampaign?.createdAt ? new Date(selectedCampaign.createdAt) : null,
+      status: selectedCampaign?.status || 'active',
+      carregados: 0,
+      enviados: 0,
+      entregues: 0,
+      lidas: 0,
+      interagiram: 0,
+      confirmaram: 0,
+      faturamento: 0,
+      valorInicial: 0,
+      optIn: 0,
+      aprovados: 0,
+      recusados: 0,
+      simularam: 0,
+      okAgente: 0,
+      aguarContato: 0,
+      emAtendimento: 0,
+      formalizado: 0,
+      desistencia: 0
+    };
+
+    if (leads.length === 0) return base;
+
+    const interactedCount = leads.filter(l => matchesStatusFilter(l, 'Conversas Iniciadas')).length;
+
+    return {
+      ...base,
+      interagiram: Math.max(base.interagiram, interactedCount)
+    };
+  }, [currentStat, leads, campaignId, selectedCampaign]);
 
   const deliveryRate = stat.enviados > 0 ? (stat.entregues / stat.enviados) * 100 : 0;
   const readRate = stat.entregues > 0 ? (stat.lidas / stat.entregues) * 100 : 0;
@@ -1128,7 +1298,7 @@ export function CreditCampaignDetailView({
                 percentage={100} 
                 subLabel="Mensagem entregue" 
                 onClick={() => {
-                  setSelectedStatuses(['Entregue', 'Lida', 'Opt-in']);
+                  setSelectedStatuses(['Entregue']);
                   document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
                 }}
               />
@@ -1138,7 +1308,7 @@ export function CreditCampaignDetailView({
                 percentage={readRate} 
                 subLabel="Taxa Leitura" 
                 onClick={() => {
-                  setSelectedStatuses(['Lida', 'Opt-in']);
+                  setSelectedStatuses(['Lida']);
                   document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
                 }}
               />
@@ -1245,38 +1415,7 @@ export function CreditCampaignDetailView({
               </div>
               {statusOptions.map((status) => {
                 const isSelected = selectedStatuses.includes(status);
-                const count = leads.filter(l => {
-                  if (status === 'Conversas Iniciadas') {
-                    return l.hasInteracted;
-                  }
-                  if (status === 'Entregue') {
-                    return ['Entregue', 'Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(l.status) || 
-                           ['delivered', 'entregue', 'sent', 'enviada', 'read', 'lida'].includes(l.deliveryStatus);
-                  }
-                  if (status === 'Lida') {
-                    return ['Lida', 'Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(l.status) || 
-                           ['read', 'lida'].includes(l.deliveryStatus);
-                  }
-                  if (status === 'Não Entregue') {
-                    return l.status === 'Não Entregue' || ['failed', 'erro', 'not_delivered', 'rejected', 'rejeitada'].includes(l.deliveryStatus);
-                  }
-                  if (status === 'Aprovado') {
-                    return Boolean(l.stages?.isAprovado || l.status === 'Aprovado');
-                  }
-                  if (status === 'Opt-in') {
-                    return Boolean(l.stages?.hasOptIn || l.status === 'Opt-in' || l.optIn);
-                  }
-                  if (status === 'Recusado') {
-                    return Boolean(l.stages?.isRecusado || l.status === 'Recusado');
-                  }
-                  if (status === 'Formalizado') {
-                    return Boolean(l.stages?.isFormalizacaoFormalizado || l.status === 'Formalizado');
-                  }
-                  if (status === 'Em Atendimento') {
-                    return Boolean(l.stages?.isFormalizacaoEmAtendimento || l.status === 'Em Atendimento');
-                  }
-                  return l.status === status;
-                }).length;
+                const count = leads.filter(l => matchesStatusFilter(l, status)).length;
 
                 return (
                   <Button

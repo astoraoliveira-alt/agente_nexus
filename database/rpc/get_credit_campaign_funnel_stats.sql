@@ -12,6 +12,10 @@
 --    Confirmaram >= Valor Inicial (Pergunta 1) >= Faturamento (Pergunta 2) >= Opt-in (Pergunta 3) >= (Aprovados + Recusados) >= Simularam >= Ok Agente
 -- 3. 'valor_inicial' contabiliza quem informou valor válido (10k a 500k) OU quem avançou para faturamento, opt-in ou análise de crédito.
 -- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
+-- 5. 'aguar_contato' (Opção A) contabiliza:
+--    a) Leads que deram OK na simulação e aguardam formalização;
+--    b) Leads que solicitaram transbordo / especialista em qualquer etapa (handoff_requests pendente / falar_agente), ainda não atendidos.
+-- 6. 'desistencia' exclusivo para o fim do funil (formalização de quem simulou/aceitou proposta).
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
@@ -81,9 +85,6 @@ BEGIN
            OR trim(lower(oq.status)) = 'converted'
            OR (oq.metadata->>'converted') = 'true'
       ) AS m_lidas,
-      -- ============================================================
-      -- INTERAGIRAM COM EXPURGO DE ROBÔS E GARANTIA DE INTERAÇÃO
-      -- ============================================================
       COUNT(oq.id) FILTER (
         WHERE (
           COALESCE(oq.response_detected, false) = true
@@ -91,8 +92,6 @@ BEGIN
           OR trim(lower(oq.status)) IN ('respondida', 'interagiu')
           OR COALESCE((oq.metadata->>'human_interaction')::boolean, false) = true
         )
-        -- REGRA DE EXCLUSÃO: Só descarta se explicitamente marcado como robô/auto-resposta
-        -- E com a garantia de que NUNCA descarta se o lead teve interação humana confirmada
         AND NOT (
           (COALESCE((oq.metadata->>'is_auto_reply')::boolean, false) = true
            OR COALESCE((oq.metadata->>'is_bot')::boolean, false) = true)
@@ -110,9 +109,9 @@ BEGIN
   lead_metrics AS (
     SELECT
       al.campaign_id AS l_cid,
-      -- Bloco 2: Funil de Venda (Hierarquia Estrita do Funil)
+      -- Bloco 2: Funil de Venda
       
-      -- 1. Confirmaram: Confirmou identidade OU avançou em qualquer etapa posterior
+      -- 1. Confirmaram
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'identity_confirmed') IN ('true', 't', '1')
            OR (al.metadata->>'cnpj_confirmed') IN ('true', 't', '1')
@@ -139,10 +138,9 @@ BEGIN
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_confirmaram,
 
-      -- 2. Valor Inicial (Etapa 1 da Qualificação): Informou valor desejado plausível (10k a 500k) OU avançou para faturamento / opt-in / crédito
+      -- 2. Valor Inicial
       COUNT(al.id) FILTER (
         WHERE (
-          -- Condição A: Informou valor de empréstimo válido (10k a 500k)
           (
             (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
             AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
@@ -155,10 +153,8 @@ BEGIN
           )
           OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
           OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
-          -- Condição B: Avançou para faturamento (pressupõe que já passou por valor inicial no novo fluxo)
           OR (al.metadata->>'revenue') IS NOT NULL 
           OR (al.metadata->>'faturamento') IS NOT NULL
-          -- Condição C: Avançou para opt-in ou análise de crédito
           OR (al.metadata->>'opt_in')::boolean = true
           OR (al.metadata->>'optin')::boolean = true
           OR (al.metadata->'consent'->>'opt_in')::boolean = true
@@ -169,7 +165,7 @@ BEGIN
         )
       ) AS m_valor_inicial,
 
-      -- 3. Faturamento (Etapa 2 da Qualificação): Informou faturamento OU avançou para opt-in / crédito
+      -- 3. Faturamento
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'revenue') IS NOT NULL 
            OR (al.metadata->>'faturamento') IS NOT NULL
@@ -193,7 +189,7 @@ BEGIN
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_opt_in,
 
-      -- 5. Aprovados (Esteira Fiserv)
+      -- 5. Aprovados (Fiserv - Mantém pré-aprovados e aprovados)
       COUNT(al.id) FILTER (
         WHERE NOT (
           (al.metadata->>'lost_reason') IS NOT NULL
@@ -213,7 +209,7 @@ BEGIN
         )
       ) AS m_aprovados,
 
-      -- 6. Recusados (Esteira Fiserv)
+      -- 6. Recusados (Fiserv)
       COUNT(al.id) FILTER (
         WHERE (al.metadata->>'lost_reason') IS NOT NULL
            OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
@@ -225,7 +221,7 @@ BEGIN
            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
       ) AS m_recusados,
 
-      -- 7. Simularam (Exige lead NÃO recusado no crédito E com proposta efetivamente calculada com parcelas/juros)
+      -- 7. Simularam (Com proposta calculada de parcelas/juros)
       COUNT(al.id) FILTER (
         WHERE NOT (
           (al.metadata->>'lost_reason') IS NOT NULL
@@ -248,7 +244,7 @@ BEGIN
         )
       ) AS m_simularam,
 
-      -- 8. Ok Agente (Aceite de Proposta Simulada)
+      -- 8. Ok Agente (Aceite da Proposta Simulada)
       COUNT(al.id) FILTER (
         WHERE NOT (
           (al.metadata->>'lost_reason') IS NOT NULL
@@ -264,13 +260,19 @@ BEGIN
         )
       ) AS m_ok_agente,
 
-      -- Bloco 3: Funil de Formalização (Rigorosamente condicionado a ter dado OK na simulação)
+      -- Bloco 3: Funil de Formalização (Opção A: Inclui Transbordos Iniciais e Solicitações de Especialista)
+      
+      -- 9. Aguardando Contato:
+      -- Aceitou proposta OU solicitou especialista/handoff, ainda não iniciado atendimento humano
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true
           OR (al.metadata->>'ok_agente')::boolean = true
           OR (al.metadata->'accepted_proposal') IS NOT NULL
           OR (al.metadata->>'formalized_at') IS NOT NULL
+          OR (al.metadata->>'handoff_requested')::boolean = true
+          OR (al.metadata->>'falar_agente')::boolean = true
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('waiting_contact', 'aguar_contato')
         )
         AND NOT (
           lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'desistente', 'recusado')
@@ -291,12 +293,18 @@ BEGIN
           OR lower(COALESCE(al.metadata->>'pipeline_stage', '')) IN ('in_contact', 'proposal_sent')
         )
       ) AS m_aguar_contato,
+
+      -- 10. Em Atendimento:
+      -- Aceitou proposta OU solicitou especialista e está ativamente em contato com operador
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true
           OR (al.metadata->>'ok_agente')::boolean = true
           OR (al.metadata->'accepted_proposal') IS NOT NULL
           OR (al.metadata->>'formalized_at') IS NOT NULL
+          OR (al.metadata->>'handoff_requested')::boolean = true
+          OR (al.metadata->>'falar_agente')::boolean = true
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('waiting_contact', 'aguar_contato', 'in_service', 'em_atendimento')
         )
         AND NOT (
           lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'desistente', 'recusado')
@@ -317,6 +325,8 @@ BEGIN
           OR lower(COALESCE(al.metadata->>'pipeline_stage', '')) IN ('in_contact', 'proposal_sent')
         )
       ) AS m_em_atendimento,
+
+      -- 11. Formalizado:
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true
@@ -339,6 +349,8 @@ BEGIN
           OR (al.metadata->>'formalized_at') IS NOT NULL
         )
       ) AS m_formalizado,
+
+      -- 12. Desistência: Exclusivo para o FIM DO FUNIL (formalização)
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true

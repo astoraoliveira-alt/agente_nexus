@@ -1004,21 +1004,31 @@ async deleteCampaign(id: string): Promise<void> {
                         const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
                         const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
 
-                        const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
-                        const isDeclined =
-                            hasRefusalReason ||
-                            ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
-                            ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
-                            ['denied', 'recusado', 'reprovado'].includes(statusStr) ||
-                            String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
-                            String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado');
+                        const isApproved = Boolean(
+                            (
+                                ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservStatus) ||
+                                ['approved', 'aprovado'].includes(statusStr) ||
+                                meta.fiserv_is_approved === true ||
+                                Boolean(meta.fiserv_amount_approved && !isNaN(Number(meta.fiserv_amount_approved)) && Number(meta.fiserv_amount_approved) > 0) ||
+                                (['pré-aprovado', 'pre-aprovado', 'aprovado'].includes(String(meta.fiserv_external_status || '').toLowerCase()) && !String(meta.fiserv_external_status || '').toLowerCase().includes('reprovad'))
+                            ) &&
+                            !['denied', 'recusado', 'reprovado'].includes(statusStr) &&
+                            !['denied', 'recusado', 'reprovado'].includes(fiservStatus) &&
+                            !String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') &&
+                            !String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado') &&
+                            !meta.lost_reason
+                        );
 
-                        const isApproved = !isDeclined && (
-                            ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservStatus) ||
-                            ['approved', 'aprovado'].includes(statusStr) ||
-                            meta.fiserv_is_approved === true ||
-                            Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0) ||
-                            (['pré-aprovado', 'pre-aprovado', 'aprovado'].includes(String(meta.fiserv_external_status || '').toLowerCase()) && !isDeclined)
+                        const isDeclined = Boolean(
+                            !isApproved && (
+                                meta.lost_reason ||
+                                meta.refusal_reason ||
+                                ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
+                                ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                                ['denied', 'recusado', 'reprovado'].includes(statusStr) ||
+                                String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
+                                String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado')
+                            )
                         );
 
                         const isOptIn =
@@ -1701,21 +1711,31 @@ async deleteCampaign(id: string): Promise<void> {
                             Boolean(meta.opt_in) ||
                             Boolean(meta.consent?.opt_in);
 
-                        const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
-                        const isRecusado =
-                            hasRefusalReason ||
-                            ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
-                            ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
-                            ['denied', 'recusado', 'reprovado'].includes(statusStr) ||
-                            String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
-                            String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado');
+                        const isConverted = Boolean(
+                            (
+                                ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservStatus) ||
+                                ['approved', 'aprovado', 'formalized', 'pago'].includes(statusStr) ||
+                                ['approved', 'formalized', 'pago'].includes(String(meta.formalization_status || '').toLowerCase()) ||
+                                meta.fiserv_is_approved === true ||
+                                Boolean(meta.fiserv_amount_approved && !isNaN(Number(meta.fiserv_amount_approved)) && Number(meta.fiserv_amount_approved) > 0)
+                            ) &&
+                            !['denied', 'recusado', 'reprovado'].includes(statusStr) &&
+                            !['denied', 'recusado', 'reprovado'].includes(fiservStatus) &&
+                            !String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') &&
+                            !String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado') &&
+                            !meta.lost_reason
+                        );
 
-                        const isConverted = !isRecusado && (
-                            ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservStatus) ||
-                            ['approved', 'aprovado', 'formalized', 'pago'].includes(statusStr) ||
-                            ['approved', 'formalized', 'pago'].includes(String(meta.formalization_status || '').toLowerCase()) ||
-                            meta.fiserv_is_approved === true ||
-                            Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0)
+                        const isRecusado = Boolean(
+                            !isConverted && (
+                                meta.lost_reason ||
+                                meta.refusal_reason ||
+                                ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
+                                ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                                ['denied', 'recusado', 'reprovado'].includes(statusStr) ||
+                                String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') ||
+                                String(meta.fiserv_external_status || '').toLowerCase().includes('reprovado')
+                            )
                         );
 
                         const isSimularam = Boolean(meta.simulation_requested || meta.simulation_data || meta.simularam);
@@ -2034,22 +2054,29 @@ async deleteCampaign(id: string): Promise<void> {
                     hasFaturamentoLead
                 );
 
-                const hasRefusalReason = Boolean(meta.lost_reason || meta.refusal_reason || meta.fiserv_denied_reason);
-                const isRecusadoLead = Boolean(
-                    hasRefusalReason ||
-                    ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
-                    ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
-                    ['denied', 'recusado', 'reprovado'].includes(leadStatus) ||
-                    String(meta.fiserv_external_status || '').toLowerCase().includes('reprovad') ||
-                    String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos')
-                );
-
                 const isAprovadoLead = Boolean(
-                    !isRecusadoLead && (
+                    (
                         ['approved', 'comite_approved', 'aprovado', 'pre_approved'].includes(fiservStatus) ||
                         ['approved', 'aprovado'].includes(leadStatus) ||
                         meta.fiserv_is_approved === true ||
-                        Boolean(meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0)
+                        Boolean(meta.fiserv_amount_approved && !isNaN(Number(meta.fiserv_amount_approved)) && Number(meta.fiserv_amount_approved) > 0)
+                    ) &&
+                    !['denied', 'recusado', 'reprovado'].includes(leadStatus) &&
+                    !['denied', 'recusado', 'reprovado'].includes(fiservStatus) &&
+                    !String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos') &&
+                    !String(meta.fiserv_external_status || '').toLowerCase().includes('reprovad') &&
+                    !meta.lost_reason
+                );
+
+                const isRecusadoLead = Boolean(
+                    !isAprovadoLead && (
+                        meta.lost_reason ||
+                        meta.refusal_reason ||
+                        ['lost', 'cancelled', 'declined', 'recusado', 'desistente'].includes(formalStatus) ||
+                        ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
+                        ['denied', 'recusado', 'reprovado'].includes(leadStatus) ||
+                        String(meta.fiserv_external_status || '').toLowerCase().includes('reprovad') ||
+                        String(meta.fiserv_external_status || '').toLowerCase().includes('não conseguimos')
                     )
                 );
 
@@ -2063,7 +2090,7 @@ async deleteCampaign(id: string): Promise<void> {
                     lm.okAgente++;
                 }
 
-                // Bloco 3: Funil de Formalização - Exige rigorosamente aceite na simulação (hasOkAgente)
+                // Bloco 3: Funil de Formalização - Exige aceite na simulação (hasOkAgente) OU transbordo solicitado (Opção A)
                 const hasOkAgente = Boolean(
                     meta.simulation_accepted === true ||
                     meta.simulation_accepted === 'true' ||
@@ -2073,8 +2100,16 @@ async deleteCampaign(id: string): Promise<void> {
                     meta.formalized_at != null
                 );
 
-                if (hasOkAgente) {
-                    const isDesistencia = (
+                const hasHandoffRequested = Boolean(
+                    meta.handoff_requested === true ||
+                    meta.handoff_requested === 'true' ||
+                    meta.falar_agente === true ||
+                    meta.falar_agente === 'true' ||
+                    ['waiting_contact', 'aguar_contato'].includes(formalStatus)
+                );
+
+                if (hasOkAgente || hasHandoffRequested) {
+                    const isDesistencia = hasOkAgente && (
                         ['lost', 'cancelled', 'declined', 'desistente', 'recusado'].includes(formalStatus) ||
                         ['declined', 'lost'].includes(pipeStage) ||
                         ['lost', 'cancelled', 'declined'].includes(leadStatus) ||

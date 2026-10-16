@@ -297,8 +297,8 @@ export default function Campaigns() {
         startTime: "09:00",
         endTime: "18:00",
         initialMessage: defaultInitialMessage,
-        templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
-        zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
+        templateId: "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d",
+        zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin",
         zenviaCtaLink: "",
         campaignType: "standard" as "standard" | "pre_approved",
         successCriteria: ['LINK_SENT'] as string[],
@@ -319,11 +319,12 @@ export default function Campaigns() {
         details?: any;
     }>({
         isValidating: false,
-        isValid: true, // Default ID 7376be0b... starts valid
+        isValid: true, // Default ID 4917a3b3... starts valid
         status: 'APPROVED',
         details: {
-            name: "IA de Crédito - mensagem inicial v3",
+            name: "Oferta de Crédito v2",
             category: "MARKETING",
+            text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar.",
             buttons: [
                 { text: "Quero simular!" },
                 { text: "Falar com um agente!" }
@@ -341,7 +342,26 @@ export default function Campaigns() {
             return;
         }
 
-        // Fast-path for the known default official template
+        // Fast-path for known official templates
+        if (cleanId === "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d") {
+            setTemplateValidation({
+                isValidating: false,
+                isValid: true,
+                status: 'APPROVED',
+                message: 'Template homologado na Meta WhatsApp',
+                details: {
+                    name: "Oferta de Crédito v2",
+                    category: "MARKETING",
+                    text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar.",
+                    buttons: [
+                        { text: "Quero simular!" },
+                        { text: "Falar com um agente!" }
+                    ]
+                }
+            });
+            return;
+        }
+
         if (cleanId === "7376be0b-88e1-482b-b017-234aa8992d03") {
             setTemplateValidation({
                 isValidating: false,
@@ -357,6 +377,14 @@ export default function Campaigns() {
                     ]
                 }
             });
+            // O template legado não possui imagem na Zenvia. Se o campo tiver a imagem padrão do v2, limpa para entrada manual.
+            setNewCampaign(prev => {
+                const isDefaultImg = prev.zenviaImageUrl === "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin";
+                return {
+                    ...prev,
+                    zenviaImageUrl: isDefaultImg ? "" : prev.zenviaImageUrl
+                };
+            });
             return;
         }
 
@@ -368,6 +396,7 @@ export default function Campaigns() {
                 const t = res.template;
                 const bodyText = t.components?.body?.text || t.text || "";
                 const buttons = t.components?.buttons?.items || [];
+                const zenviaTemplateImg = t.examples?.imageUrl || t.examples?.header_url || null;
                 
                 setTemplateValidation({
                     isValidating: false,
@@ -382,8 +411,23 @@ export default function Campaigns() {
                     }
                 });
 
+                // Auto-preenchimento sincronizado com o template da Zenvia:
+                // Se a Zenvia trouxer imagem de exemplo configurada no template, atualiza o campo automaticamente.
+                // Se não trouxer nenhuma imagem, deixa o campo aberto para o usuário preencher manualmente (limpando a imagem do template anterior se for o default).
+                if (zenviaTemplateImg) {
+                    setNewCampaign(prev => ({ ...prev, zenviaImageUrl: zenviaTemplateImg }));
+                } else {
+                    setNewCampaign(prev => {
+                        const isDefaultImg = prev.zenviaImageUrl === "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin";
+                        return {
+                            ...prev,
+                            zenviaImageUrl: isDefaultImg ? "" : prev.zenviaImageUrl
+                        };
+                    });
+                }
+
                 // Preenchimento inteligente: se o usuário não mudou a mensagem inicial, sugere o body do template
-                if (bodyText && !newCampaign.initialMessage) {
+                if (bodyText && (!newCampaign.initialMessage || newCampaign.initialMessage === defaultInitialMessage)) {
                     setNewCampaign(prev => ({ ...prev, initialMessage: bodyText }));
                 }
 
@@ -625,8 +669,8 @@ export default function Campaigns() {
                 startTime: "09:00",
                 endTime: "18:00",
                 initialMessage: defaultInitialMessage,
-                templateId: "7376be0b-88e1-482b-b017-234aa8992d03",
-                zenviaImageUrl: "https://agentes.davosconsulting.com.br/assets/campaign-header.png",
+                templateId: "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d",
+                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/3ce89458b7078deec0fc39c26fdc943ddfe6ff4730f3eda6035e5920aa0e87c1.bin",
                 zenviaCtaLink: "",
                 campaignType: "standard",
                 successCriteria: ['LINK_SENT'],
@@ -2025,14 +2069,30 @@ export default function Campaigns() {
                                                             )}
                                                         </div>
                                                         <div className="grid gap-2">
-                                                            <Label htmlFor="zenviaImageUrl" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">URL da Imagem de Capa</Label>
+                                                            <div className="flex items-center justify-between">
+                                                                <Label htmlFor="zenviaImageUrl" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">URL da Imagem de Capa</Label>
+                                                                {newCampaign.zenviaImageUrl ? (
+                                                                    <span className="text-[10px] text-emerald-600 font-medium">
+                                                                        Imagem Definida
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-[10px] text-amber-600 font-medium">
+                                                                        Opcional / Manual
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <Input
                                                                 id="zenviaImageUrl"
-                                                                placeholder="https://images.zenvia.com/banner.png"
+                                                                placeholder="https://images.zenvia.com/banner.png (ou preencha manualmente)"
                                                                 className="h-10 border-slate-200 focus:ring-accent rounded-none text-xs"
                                                                 value={newCampaign.zenviaImageUrl}
                                                                 onChange={(e) => setNewCampaign({ ...newCampaign, zenviaImageUrl: e.target.value })}
                                                             />
+                                                            <p className="text-[10px] text-slate-400">
+                                                                {newCampaign.zenviaImageUrl 
+                                                                    ? "Imagem que será enviada no cabeçalho do template no WhatsApp."
+                                                                    : "Caso o template não possua imagem na Zenvia, informe a URL da imagem manualmente acima."}
+                                                            </p>
                                                         </div>
                                                         <div className="grid gap-2">
                                                             <Label htmlFor="zenviaCtaLink" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">Link do Botão (VariavelLink)</Label>
@@ -2083,9 +2143,7 @@ export default function Campaigns() {
                                                                     <div className="flex items-center gap-2">
                                                                         <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                                                                         <span className="text-[11px] font-bold text-slate-800">
-                                                                            {templateValidation.details?.name || (newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03" 
-                                                                                ? "IA de Crédito - mensagem inicial v3" 
-                                                                                : "Template Vinculado")}
+                                                                            {templateValidation.details?.name || "Oferta de Crédito v2"}
                                                                         </span>
                                                                     </div>
                                                                     <Badge className="bg-emerald-100 text-emerald-800 border-none text-[9px] px-1.5 py-0">
@@ -2113,9 +2171,7 @@ export default function Campaigns() {
                                                                             {renderWhatsAppText(
                                                                                 templateValidation.details?.text ||
                                                                                 newCampaign.initialMessage ||
-                                                                                (newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03"
-                                                                                    ? "Você pode ter *Capital de Giro* usando seus recebíveis futuros como garantia.\n\n-Taxas competitivas;\n-Valores entre 20 e 500 mil reais;\n-Contratação em 24h.\n\n*Vamos fazer uma simulação sem compromisso?*"
-                                                                                    : "")
+                                                                                "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar."
                                                                             )}
                                                                         </p>
 
@@ -2135,7 +2191,12 @@ export default function Campaigns() {
                                                                                 </div>
                                                                             ))}
                                                                         </div>
-                                                                    ) : newCampaign.templateId === "7376be0b-88e1-482b-b017-234aa8992d03" ? (
+                                                                    ) : newCampaign.zenviaCtaLink ? (
+                                                                        <div className="mt-1.5 bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
+                                                                            <ExternalLink className="w-3 h-3 text-blue-500" />
+                                                                            <span className="text-[10px] font-semibold text-blue-600">ACESSAR PROPOSTA</span>
+                                                                        </div>
+                                                                    ) : (
                                                                         <div className="mt-1.5 space-y-1">
                                                                             <div className="bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
                                                                                 <Sparkles className="w-3 h-3 text-emerald-500" />
@@ -2146,12 +2207,7 @@ export default function Campaigns() {
                                                                                 <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Falar com um agente!</span>
                                                                             </div>
                                                                         </div>
-                                                                    ) : newCampaign.zenviaCtaLink ? (
-                                                                        <div className="mt-1.5 bg-white dark:bg-slate-800 p-1.5 rounded-lg shadow-sm border border-slate-100/80 flex items-center justify-center gap-1 text-center">
-                                                                            <ExternalLink className="w-3 h-3 text-blue-500" />
-                                                                            <span className="text-[10px] font-semibold text-blue-600">ACESSAR PROPOSTA</span>
-                                                                        </div>
-                                                                    ) : null}
+                                                                    )}
                                                                 </div>
 
                                                                 <div className="flex items-center gap-2 text-[10px] text-slate-500 bg-white dark:bg-slate-800 p-2 rounded border border-slate-100">

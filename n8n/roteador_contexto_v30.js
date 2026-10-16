@@ -368,6 +368,17 @@ try {
         if (!text) return null;
         let clean = text.toLowerCase().trim().replace(/[.,]+$/, '');
 
+        // 🛡️ Guardrail contra falsos positivos: porcentagens, horários, recusas e denúncias não são valores de empréstimo/faturamento
+        if (/\b(\d+(?:[.,]\d+)?\s*(?:%|por\s*cento|porcento))\b/i.test(clean) && !/\b(mil|k|reais|r\$)\b/i.test(clean)) {
+            return null;
+        }
+        if (/\b(\d{1,2}h\d{0,2})\b/i.test(clean)) {
+            return null; // Horário de funcionamento (ex: "20h30")
+        }
+        if (/\b(n[aã]o\s+quero|n[aã]o\s+tenho\s+interesse|n[aã]o\s+autorizo|sem\s+interesse|fraude|golpe|den[uú]ncia)\b/i.test(clean)) {
+            return null;
+        }
+
         // 🎯 P3: Referência direta ao exemplo fornecido na mensagem anterior
         if (/\b(algo em torno disso|mais ou menos isso|por [aá][ií]|pode ser isso|isso mesmo|em torno do exemplo)\b/i.test(clean)) {
             if (lastBotLower.includes("80 mil")) return 80000;
