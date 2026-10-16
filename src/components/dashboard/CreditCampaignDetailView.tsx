@@ -30,12 +30,14 @@ import {
   MessageSquare,
   UserCheck,
   Calculator,
-  DollarSign
+  DollarSign,
+  Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
 import { CreditCampaignFunnelStat, Agent, Campaign, Message } from '@/lib/types';
@@ -82,11 +84,13 @@ export function CreditCampaignDetailView({
   onBack
 }: CreditCampaignDetailViewProps) {
   const { currentTenant } = useApp();
+  const { toast } = useToast();
   const [currentStat, setCurrentStat] = useState<CreditCampaignFunnelStat | null>(initialStat || null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [leads, setLeads] = useState<LeadDetailRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExportingConversations, setIsExportingConversations] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadDetailRow | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
@@ -935,6 +939,398 @@ export function CreditCampaignDetailView({
     XLSX.writeFile(workbook, fileName);
   };
 
+  // Funções de Sanitização e Mascaramento de Dados Sensíveis (LGPD)
+  const maskPhoneLGPD = (phone?: string | null): string => {
+    if (!phone) return '-';
+    const clean = String(phone).replace(/\D/g, '');
+    if (clean.length < 8) return phone;
+    const ddd = clean.startsWith('55') ? clean.slice(2, 4) : clean.slice(0, 2);
+    const last4 = clean.slice(-4);
+    return `(${ddd}) 9****-${last4}`;
+  };
+
+  const maskCnpjLGPD = (cnpj?: string | null): string => {
+    if (!cnpj) return '-';
+    const clean = String(cnpj).replace(/\D/g, '');
+    if (clean.length === 14) {
+      return `${clean.slice(0, 2)}.***.***/${clean.slice(8, 12)}-**`;
+    }
+    if (clean.length === 11) {
+      return `${clean.slice(0, 3)}.***.***-${clean.slice(-2)}`;
+    }
+    return cnpj;
+  };
+
+  const maskNameLGPD = (name?: string | null): string => {
+    if (!name) return '-';
+    const trimmed = name.trim();
+    // Se contiver números como CNPJ no início (ex: "30.791.595 FERNANDA MARA RIBEIRO")
+    const maskedPrefix = trimmed.replace(/\b\d{2}\.?\d{3}\.?\d{3}\b/g, (match) => {
+      const clean = match.replace(/\D/g, '');
+      return `${clean.slice(0, 2)}.***.***`;
+    });
+    
+    // Se for nome de pessoa física (sem Ltda, Me, Eireli, S/A, etc), abrevia sobrenomes para privacidade
+    const words = maskedPrefix.split(/\s+/);
+    if (words.length > 2 && !/(ltda|sa|s\.a\.|eireli|me|epp|cia|comercio|restaurante|bar|padaria|mercado|drogaria|auto)/i.test(name)) {
+      return words.map((w, idx) => {
+        if (idx === 0) return w;
+        if (w.length <= 2) return w; // de, da, do
+        return `${w[0]}***`;
+      }).join(' ');
+    }
+    return maskedPrefix;
+  };
+
+  const maskSensitiveTextLGPD = (text?: string | null): string => {
+    if (!text || typeof text !== 'string') return '';
+    let masked = text;
+
+    // 1. Cartão de Crédito (13 a 19 dígitos)
+    masked = masked.replace(/\b(?:\d[ -]*?){13,19}\b/g, (match) => {
+      const c = match.replace(/\D/g, '');
+      if (c.length >= 13 && c.length <= 19) {
+        return `****-****-****-${c.slice(-4)}`;
+      }
+      return match;
+    });
+
+    // 2. CPF formatado: 000.000.000-00
+    masked = masked.replace(/\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/g, (cpf) => {
+      const c = cpf.replace(/\D/g, '');
+      return `${c.slice(0, 3)}.***.***-${c.slice(-2)}`;
+    });
+
+    // 3. CNPJ formatado: 00.000.000/0000-00
+    masked = masked.replace(/\b\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}\b/g, (cnpj) => {
+      const c = cnpj.replace(/\D/g, '');
+      return `${c.slice(0, 2)}.***.***/${c.slice(8, 12)}-**`;
+    });
+
+    // 4. Telefones / WhatsApp (ex: +55 11 98888-7777, (11) 98888-7777, 11988887777)
+    masked = masked.replace(/(?:\+?55\s?)?(?:\(?([1-9]{2})\)?\s?)?(?:9\s?)?(\d{4})[-.\s]?(\d{4})/g, (full) => {
+      const clean = full.replace(/\D/g, '');
+      if (clean.length >= 10 && clean.length <= 13) {
+        const area = clean.startsWith('55') ? clean.slice(2, 4) : clean.slice(0, 2);
+        const last4 = clean.slice(-4);
+        return `(${area}) 9****-${last4}`;
+      }
+      return full;
+    });
+
+    // 5. E-mails
+    masked = masked.replace(/\b([a-zA-Z0-9_.+-])[a-zA-Z0-9_.+-]*([a-zA-Z0-9_.+-])@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)\b/g, '$1***$2@$3');
+
+    // 6. Tokens / Parâmetros sensíveis em URLs (?t=..., &token=...)
+    masked = masked.replace(/([?&](?:t|token|key|secret)=)[^&\s]+/gi, '$1***TOKEN_OCULTO***');
+
+    return masked;
+  };
+
+  const handleExportConversationsLGPD = async () => {
+    if (isExportingConversations) return;
+    setIsExportingConversations(true);
+
+    const targetLeads = sortedLeads.length > 0 ? sortedLeads : leads;
+    const campName = currentStat?.campaignName || selectedCampaign?.name || 'campanha';
+
+    if (targetLeads.length === 0) {
+      toast({
+        title: "Nenhum lead encontrado",
+        description: "Não há leads para exportar nesta campanha.",
+        variant: "destructive"
+      });
+      setIsExportingConversations(false);
+      return;
+    }
+
+    toast({
+      title: "Gerando Exportação de Conversas LGPD",
+      description: `Buscando histórico completo de ${targetLeads.length} leads com mascaramento de segurança...`,
+    });
+
+    try {
+      // 1. Mapear telefones limpos e conversation_ids de todos os leads
+      const phoneToLeadMap = new Map<string, LeadDetailRow[]>();
+      const convIdToLeadMap = new Map<string, LeadDetailRow[]>();
+      const allPhonesSet = new Set<string>();
+      const targetConvIds = new Set<string>();
+
+      for (const l of targetLeads) {
+        if (l.conversationId) {
+          targetConvIds.add(l.conversationId);
+          if (!convIdToLeadMap.has(l.conversationId)) {
+            convIdToLeadMap.set(l.conversationId, []);
+          }
+          convIdToLeadMap.get(l.conversationId)!.push(l);
+        }
+
+        const rawPhone = l.whatsapp;
+        if (rawPhone) {
+          const clean = String(rawPhone).replace(/\D/g, '');
+          if (clean) {
+            allPhonesSet.add(clean);
+            const no55 = clean.startsWith('55') ? clean.slice(2) : clean;
+            const with55 = clean.startsWith('55') ? clean : `55${clean}`;
+            allPhonesSet.add(no55);
+            allPhonesSet.add(with55);
+
+            [clean, no55, with55].forEach(p => {
+              if (!phoneToLeadMap.has(p)) {
+                phoneToLeadMap.set(p, []);
+              }
+              phoneToLeadMap.get(p)!.push(l);
+            });
+          }
+        }
+      }
+
+      // 2. Buscar conversas vinculadas por telefone na tabela conversations (em lotes de 150)
+      const phoneArray = Array.from(allPhonesSet);
+      const phoneChunkSize = 150;
+      for (let i = 0; i < phoneArray.length; i += phoneChunkSize) {
+        const chunk = phoneArray.slice(i, i + phoneChunkSize);
+        const { data: convData } = await supabase
+          .from('conversations')
+          .select('id, user_identifier')
+          .in('user_identifier', chunk);
+
+        if (convData && convData.length > 0) {
+          for (const c of convData) {
+            targetConvIds.add(c.id);
+            if (c.user_identifier && phoneToLeadMap.has(c.user_identifier)) {
+              if (!convIdToLeadMap.has(c.id)) {
+                convIdToLeadMap.set(c.id, []);
+              }
+              const matchingLeads = phoneToLeadMap.get(c.user_identifier)!;
+              for (const ml of matchingLeads) {
+                if (!convIdToLeadMap.get(c.id)!.includes(ml)) {
+                  convIdToLeadMap.get(c.id)!.push(ml);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Buscar mensagens de todos os conversation IDs em lotes de 150
+      const convIdArray = Array.from(targetConvIds);
+      const messagesByLeadId = new Map<string, any[]>();
+      const convChunkSize = 150;
+
+      for (let i = 0; i < convIdArray.length; i += convChunkSize) {
+        const chunk = convIdArray.slice(i, i + convChunkSize);
+        const { data: mChunk, error: mErr } = await supabase
+          .from('messages')
+          .select('id, conversation_id, sender_type, content, message_type, created_at, external_order')
+          .in('conversation_id', chunk)
+          .order('created_at', { ascending: true });
+
+        if (mErr) {
+          console.error('[ExportConversationsLGPD] Erro no lote de mensagens:', mErr);
+          continue;
+        }
+
+        if (mChunk && mChunk.length > 0) {
+          for (const msg of mChunk) {
+            const leadsForConv = convIdToLeadMap.get(msg.conversation_id) || [];
+            for (const lead of leadsForConv) {
+              if (!messagesByLeadId.has(lead.id)) {
+                messagesByLeadId.set(lead.id, []);
+              }
+              const leadMsgList = messagesByLeadId.get(lead.id)!;
+              if (!leadMsgList.some(existing => existing.id === msg.id)) {
+                leadMsgList.push(msg);
+              }
+            }
+          }
+        }
+      }
+
+      // 4. Montar os dados das duas abas com Mascaramento LGPD
+      const summaryRows: any[] = [];
+      const detailRows: any[] = [];
+
+      for (const l of targetLeads) {
+        const leadMsgs = messagesByLeadId.get(l.id) || [];
+
+        // Ordenar mensagens estritamente de forma cronológica
+        leadMsgs.sort((a, b) => {
+          const tA = new Date(a.created_at).getTime();
+          const tB = new Date(b.created_at).getTime();
+          if (tA !== tB) return tA - tB;
+          return (a.external_order || 0) - (b.external_order || 0);
+        });
+
+        const maskedCnpj = maskCnpjLGPD(l.cnpj);
+        const maskedPhone = maskPhoneLGPD(l.whatsapp);
+        const maskedName = maskNameLGPD(l.name || l.establishmentName || l.contactName);
+
+        let firstMsgDate = '-';
+        let lastMsgDate = '-';
+        if (leadMsgs.length > 0) {
+          try {
+            const d1 = new Date(leadMsgs[0].created_at);
+            if (!isNaN(d1.getTime())) firstMsgDate = format(d1, 'dd/MM/yyyy HH:mm');
+            const d2 = new Date(leadMsgs[leadMsgs.length - 1].created_at);
+            if (!isNaN(d2.getTime())) lastMsgDate = format(d2, 'dd/MM/yyyy HH:mm');
+          } catch {}
+        } else if (l.sentAt) {
+          try {
+            const d = new Date(l.sentAt);
+            if (!isNaN(d.getTime())) firstMsgDate = format(d, 'dd/MM/yyyy HH:mm');
+          } catch {}
+        }
+
+        // Compilar diálogo completo do lead
+        const formattedDialogue = leadMsgs.length > 0
+          ? leadMsgs.map(m => {
+              let senderLabel = 'Agente';
+              const sType = String(m.sender_type || '').toLowerCase();
+              if (['user', 'lead', 'client', 'customer'].includes(sType)) {
+                senderLabel = 'Cliente';
+              } else if (sType === 'system') {
+                senderLabel = 'Sistema';
+              }
+
+              let timeStr = '-';
+              try {
+                const d = new Date(m.created_at);
+                if (!isNaN(d.getTime())) {
+                  timeStr = format(d, 'dd/MM/yyyy HH:mm:ss');
+                }
+              } catch {}
+
+              let cleanContent = m.content || '';
+              try {
+                if (cleanContent.trim().startsWith('{')) {
+                  const parsed = JSON.parse(cleanContent);
+                  if (parsed.content) cleanContent = parsed.content;
+                  else if (parsed.text) cleanContent = parsed.text;
+                }
+              } catch {}
+
+              const maskedText = maskSensitiveTextLGPD(cleanContent);
+              return `[${timeStr} - ${senderLabel}]:\n${maskedText}`;
+            }).join('\n\n----------------------------------------\n\n')
+          : '[Sem interação registrada]';
+
+        const formattedValue = l.requestedAmount
+          ? `R$ ${Number(l.requestedAmount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+          : '-';
+
+        // Linha do Resumo (Aba 1)
+        summaryRows.push({
+          'Campanha': campName,
+          'CNPJ (LGPD)': maskedCnpj,
+          'WhatsApp (LGPD)': maskedPhone,
+          'Razão Social': maskedName,
+          'Status do Lead': l.status || '-',
+          'Interagiu': l.stages?.isInteragiram ? 'Sim' : 'Não',
+          'Total Mensagens': leadMsgs.length,
+          'Primeira Mensagem': firstMsgDate,
+          'Última Mensagem': lastMsgDate,
+          'Opt-in Aceito': l.optIn ? 'Sim' : 'Não',
+          'Valor Solicitado': formattedValue,
+          'Conversa Completa (Mascarada LGPD)': formattedDialogue
+        });
+
+        // Linhas de detalhe mensagem por mensagem (Aba 2)
+        leadMsgs.forEach((m, idx) => {
+          let senderLabel = 'Agente';
+          const sType = String(m.sender_type || '').toLowerCase();
+          if (['user', 'lead', 'client', 'customer'].includes(sType)) {
+            senderLabel = 'Cliente';
+          } else if (sType === 'system') {
+            senderLabel = 'Sistema';
+          }
+
+          let timeStr = '-';
+          try {
+            const d = new Date(m.created_at);
+            if (!isNaN(d.getTime())) {
+              timeStr = format(d, 'dd/MM/yyyy HH:mm:ss');
+            }
+          } catch {}
+
+          let cleanContent = m.content || '';
+          try {
+            if (cleanContent.trim().startsWith('{')) {
+              const parsed = JSON.parse(cleanContent);
+              if (parsed.content) cleanContent = parsed.content;
+              else if (parsed.text) cleanContent = parsed.text;
+            }
+          } catch {}
+
+          detailRows.push({
+            'Campanha': campName,
+            'CNPJ (LGPD)': maskedCnpj,
+            'WhatsApp (LGPD)': maskedPhone,
+            'Razão Social': maskedName,
+            'Ordem': idx + 1,
+            'Data e Hora': timeStr,
+            'Remetente': senderLabel,
+            'Tipo': m.message_type || 'texto',
+            'Mensagem (Mascarada LGPD)': maskSensitiveTextLGPD(cleanContent)
+          });
+        });
+      }
+
+      // 5. Gerar pasta de trabalho Excel com formatação de colunas
+      const workbook = XLSX.utils.book_new();
+
+      const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
+      wsSummary['!cols'] = [
+        { wch: 28 }, // Campanha
+        { wch: 22 }, // CNPJ (LGPD)
+        { wch: 20 }, // WhatsApp (LGPD)
+        { wch: 38 }, // Razão Social
+        { wch: 18 }, // Status
+        { wch: 12 }, // Interagiu
+        { wch: 16 }, // Total Mensagens
+        { wch: 18 }, // Primeira Mensagem
+        { wch: 18 }, // Última Mensagem
+        { wch: 14 }, // Opt-in
+        { wch: 18 }, // Valor Solicitado
+        { wch: 80 }  // Conversa Completa
+      ];
+      XLSX.utils.book_append_sheet(workbook, wsSummary, 'Resumo Conversas');
+
+      if (detailRows.length > 0) {
+        const wsDetail = XLSX.utils.json_to_sheet(detailRows);
+        wsDetail['!cols'] = [
+          { wch: 28 }, // Campanha
+          { wch: 22 }, // CNPJ (LGPD)
+          { wch: 20 }, // WhatsApp (LGPD)
+          { wch: 38 }, // Razão Social
+          { wch: 8 },  // Ordem
+          { wch: 20 }, // Data e Hora
+          { wch: 14 }, // Remetente
+          { wch: 14 }, // Tipo
+          { wch: 80 }  // Mensagem
+        ];
+        XLSX.utils.book_append_sheet(workbook, wsDetail, 'Mensagens Linha a Linha');
+      }
+
+      const cleanFileName = `conversas_lgpd_${campName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.xlsx`;
+      XLSX.writeFile(workbook, cleanFileName);
+
+      toast({
+        title: "Exportação Concluída com Sucesso!",
+        description: `Arquivo "${cleanFileName}" gerado com dados e conversas 100% mascarados conforme a LGPD.`,
+      });
+    } catch (err: any) {
+      console.error('[ExportConversationsLGPD] Falha:', err);
+      toast({
+        title: "Erro na exportação",
+        description: err.message || "Ocorreu um erro ao gerar o arquivo de conversas.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsExportingConversations(false);
+    }
+  };
+
   const renderStatusBadge = (status: string, lead?: LeadDetailRow) => {
     const isApp = Boolean(
       status === 'Aprovado' || 
@@ -1208,6 +1604,20 @@ export function CreditCampaignDetailView({
                 >
                   <Download className="w-3 h-3" />
                   Exportar Relatório (Excel)
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  onClick={handleExportConversationsLGPD}
+                  disabled={isExportingConversations}
+                  className="h-8 px-4 rounded-lg border border-blue-200 text-blue-700 hover:text-blue-800 hover:bg-blue-50 font-bold uppercase text-[9px] tracking-widest flex items-center gap-2 transition-all shadow-sm disabled:opacity-60"
+                  title="Exportar todas as conversas dos leads mascarando dados sensíveis conforme a LGPD"
+                >
+                  {isExportingConversations ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-blue-600" />
+                  ) : (
+                    <ShieldCheck className="w-3 h-3 text-blue-600" />
+                  )}
+                  {isExportingConversations ? "Exportando..." : "Exportar Conversas (LGPD)"}
                 </Button>
                 <Button 
                   variant="ghost" 
