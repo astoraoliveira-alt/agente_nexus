@@ -281,7 +281,8 @@ try {
         'falar com um agente!', 'falar com um agente', 
         'simular', 'simulação', 'simulacao', 'simulação!', 'simulacao!',
         'quero uma simulação', 'quero uma simulacao', 'quero simulacao', 'quero simulação',
-        'falar com especialista', 'falar com um especialista',
+        'falar com especialista', 'falar com um especialista', 'falar especialista',
+        'nova simulação', 'nova simulacao',
         'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente'
     ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase());
 
@@ -1784,7 +1785,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
     } else if (nextStep === 'confirmacao_cliente') {
         interactive_buttons = {
             tipo: "botoes",
-            opcoes: ["✅ Falar especialista", "🔄 Nova simulação"],
+            opcoes: ["Falar especialista", "Nova simulação"],
             pre_message: null
         };
     } else if (nextStep === 'reforco_condicoes') {
