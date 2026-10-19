@@ -194,12 +194,9 @@ try {
     );
 
     const currentMsg = String(
-        $node["Edit Fields"]?.json?.message ??
-        $node["Edit Fields"]?.first?.()?.json?.message ??
-        $json?.content ??
-        $json?.text ??
-        $json?.message ??
-        $json?.body ??
+        (typeof $node !== 'undefined' && $node["Edit Fields"]?.json?.message) ??
+        (typeof $node !== 'undefined' && $node["Edit Fields"]?.first?.()?.json?.message) ??
+        (typeof $json !== 'undefined' ? ($json?.content ?? $json?.text ?? $json?.message ?? $json?.body) : undefined) ??
         rpcData?.message ??
         rpcData?.payload?.content ??
         ctx?.current_message ??
@@ -282,8 +279,8 @@ try {
     // 🛡️ CIRCUIT BREAKER ANTI-LOOP TRIPLO & DETECTOR DE AUTO-RESPOSTAS (UNIVERSAL)
     // =========================================================================
 
-    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido com casos do Benchmark)
-    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|deeliv\.app|anota\.ai|ola\.click|cardapioweb|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui)/i;
+    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido com casos Bot-to-Bot)
+    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|rob[oô]\s+\w+|rob[oô] l[eé]o|atendente virtual|bot de atendimento|chat errado|chats diferentes|conversa errada|conversas diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|pedir algo pra comer|monto seu pedido|monto tudo pra voc[eê]|t[aá] aberto agora|aberto agora|movorafood|cardapioweb|anota\.ai|ola\.click|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui|(s[oó] vende|vendemos|a gente faz|a gente s[oó] faz|a gente vende)\s+(salgado|pastel|churro|pizza|marmita|lanche|comida|hamburguer))/i;
 
     // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv)
     const isExactButtonClick = [
@@ -372,19 +369,35 @@ try {
         }
     }
 
+    // Detecção 3D: Loop Alternado (Sofia repete prompts de valor ou mensagens de handoff)
+    const botHandoffCount = botMsgs.filter(m => {
+        const c = String(m.content || m.text || '').toLowerCase();
+        return c.includes("vou solicitar para que um assessor") || c.includes("consultores humanos para que ele verifique");
+    }).length;
+
+    const botAmountPromptCount = botMsgs.filter(m => {
+        const c = String(m.content || m.text || '').toLowerCase();
+        return c.includes("qual o valor desejado para solicitar") || c.includes("qual o valor que você gostaria de solicitar");
+    }).length;
+
+    const isAlternatingLoop = (botHandoffCount >= 2 && botAmountPromptCount >= 2) || (botHandoffCount >= 3) || (botAmountPromptCount >= 4 && !hasPriorOptIn && !leadInfo.revenue);
+
+    // Detecção 3E: Hard Message Cap (contato enviou >= 5 mensagens sem opt-in, receita ou clique em botão)
+    const isHardCapReached = userMsgs.length >= 5 && !hasPriorOptIn && !hasSimulatedInHistory && !leadInfo.revenue && !isButtonTemplateClick;
+
     // 🛡️ P1: Detecção de Auto-Resposta e Circuit Breaker
     const isAutoReplyDetected = !isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower);
     const isLeadActive = hasPriorOptIn || hasSimulatedInHistory || hasActiveLoan;
     const isCircuitBreakerTriggered = !isButtonTemplateClick && (
         isLeadActive 
-            ? (repeatCount >= 3 || (isEchoPingPong && repeatCount >= 2))
-            : (isIdenticalUserRepeated || isEchoPingPong || isHighFrequencyBurst)
+            ? (repeatCount >= 3 || (isEchoPingPong && repeatCount >= 2) || isAlternatingLoop)
+            : (isIdenticalUserRepeated || isEchoPingPong || isHighFrequencyBurst || isAlternatingLoop || isHardCapReached)
     );
 
     if (isAutoReplyDetected || isCircuitBreakerTriggered) {
         const stopReason = isAutoReplyDetected
             ? "Auto-resposta detectada: mensagem de ausência, cardápio ou robô do WhatsApp Business recebida. Fluxo pausado aguardando interação humana."
-            : `Circuit Breaker Anti-Loop ativado: padrão repetitivo detectado (repetição: ${repeatCount}, eco: ${isEchoPingPong}, rajada: ${isHighFrequencyBurst}). Fluxo interrompido com segurança.`;
+            : `Circuit Breaker Anti-Loop ativado: padrão repetitivo detectado (repetição: ${repeatCount}, eco: ${isEchoPingPong}, rajada: ${isHighFrequencyBurst}, loop alternado: ${isAlternatingLoop}, teto de mensagens: ${isHardCapReached}). Fluxo interrompido com segurança.`;
 
         return {
             currentStep: "stop_flow",
@@ -1452,6 +1465,10 @@ try {
         const isPhone = /\b(fone|telefone|ligar|ligação)\b/i.test(lastUserLower);
         if (isPhone) {
             forcedText = `Certo, *${leadInfo.name || "parceiro"}*! Para um atendimento mais detalhado e personalizado pelo telefone, recomendo que entre em contato diretamente com a nossa Central de Atendimento através do número *4004-2233*.\n\nEles estarão prontos para ajudar com todas as suas dúvidas sobre o reforço de caixa! 📞`;
+        } else if (isCnpjDivergent || /\b(chat errado|conversa errada|conversas diferentes|chats diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|outra empresa)\b/i.test(lastUserLower)) {
+            forcedText = `Compreendi perfeitamente. Registrei aqui o encerramento do contato para que você não volte a receber novas mensagens desta campanha. Tenha um ótimo dia! 👍`;
+            nextStep = "stop_flow";
+            mode = "parrot";
         } else {
             forcedText = `Claro, entendo.\n\nVou solicitar para que um assessor entre em contato com você pelo WhatsApp em até *2 dias úteis* e siga com o seu atendimento.\n\nEnquanto isso, se quiser tirar alguma dúvida pontual por aqui, estou à disposição.`;
         }
@@ -2022,27 +2039,17 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
     };
 
 } catch (globalError) {
-    // 🛡️ FALLBACK SEGURO PRODUÇÃO: Nunca mais ecoa a mensagem da campanha
-    let fallbackText = "Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_";
-    let fallbackStep = "coleta_valor";
-
+    // 🛡️ FALLBACK SEGURO PRODUÇÃO: Interrompe fluxo para evitar loop infinito
     return {
-        final_system_prompt: `<RULES>
-- VOCÊ ESTÁ EM MODO MÁQUINA DE REPETIÇÃO (PARROT MODE).
-- É ESTRITAMENTE PROIBIDO RESPONDER À MENSAGEM DO USUÁRIO OU ADICIONAR QUALQUER CONTEXTO.
-- SUA ÚNICA E EXCLUSIVA FUNÇÃO É REPETIR O TEXTO EXATO FORNECIDO DENTRO DA TAG <RESPOSTA_OBRIGATORIA>.
-</RULES>
-
-<CONTROLE_DE_FLUXO>
-<RESPOSTA_OBRIGATORIA>
-${fallbackText}
-</RESPOSTA_OBRIGATORIA>
-</CONTROLE_DE_FLUXO>`,
-        p_conversation_id: $node["RPC - Acesso Entrada"]?.json?.conversation?.id || $node["RPC - Acesso Entrada"]?.json?.p_conversation_id,
-        currentStep: fallbackStep,
-        mode: 'parrot',
+        currentStep: "stop_flow",
+        stop_flow: true,
+        is_auto_reply: true,
+        circuit_breaker: true,
+        reason: "Falha de processamento no Roteador: " + (globalError?.message || "Erro desconhecido"),
+        p_conversation_id: (typeof $node !== 'undefined' && $node["RPC - Acesso Entrada"]?.json?.conversation?.id) || (typeof $node !== 'undefined' && $node["RPC - Acesso Entrada"]?.json?.p_conversation_id) || null,
+        conversation_id: (typeof $node !== 'undefined' && $node["RPC - Acesso Entrada"]?.json?.conversation?.id) || (typeof $node !== 'undefined' && $node["RPC - Acesso Entrada"]?.json?.p_conversation_id) || null,
         trigger_handoff: false,
         handoff_data: {},
-        debug: { globalError: globalError.message, stack: globalError.stack }
+        debug: { globalError: globalError?.message, stack: globalError?.stack }
     };
 }
