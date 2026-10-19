@@ -603,7 +603,28 @@ try {
     let currentStep = semanticFunnelStep || 'start';
 
     // 🔴 OVERRIDE DEFENSIVO
-    const isSofiaAwaitingConfirmation = Boolean(
+    const isSofiaAlreadyFinalized = Boolean(
+        lastSofiaMsg.includes("especialistas entrará em contato") ||
+        lastSofiaMsg.includes("especialistas entrara em contato") ||
+        lastSofiaMsg.includes("estamos quase lá") ||
+        lastSofiaMsg.includes("estamos quase la") ||
+        lastSofiaMsg.includes("confirmada com sucesso") ||
+        lastSofiaMsg.includes("assessores humanos")
+    );
+
+    const isSofiaInReforcoCondicoes = !isSofiaAlreadyFinalized && Boolean(
+        lastSofiaMsg.includes("clique no botão abaixo para prosseguir") ||
+        lastSofiaMsg.includes("clique no botao abaixo para prosseguir") ||
+        lastSofiaMsg.includes("ok, entendi") ||
+        lastSofiaMsg.includes("dominar o produto") ||
+        lastSofiaMsg.includes("detalhes importantes pra você dominar") ||
+        lastSofiaMsg.includes("detalhes importantes pra voce dominar") ||
+        lastSofiaMsg.includes("linha de capital de giro digital") ||
+        lastSofiaMsg.includes("gravame dos seus recebíveis") ||
+        lastSofiaMsg.includes("gravame dos seus recebiveis")
+    );
+
+    const isSofiaAwaitingConfirmation = !isSofiaAlreadyFinalized && !isSofiaInReforcoCondicoes && Boolean(
         lastSofiaMsg.includes("confirma que deseja prosseguir") || 
         lastSofiaMsg.includes("formalização") || 
         lastSofiaMsg.includes("formalizacao") || 
@@ -637,10 +658,16 @@ try {
         ))
     );
 
-    if (isSofiaAwaitingConfirmation) {
+    if (isSofiaAlreadyFinalized) {
+        currentStep = 'finalizacao_sucesso';
+    } else if (isSofiaInReforcoCondicoes) {
+        currentStep = 'reforco_condicoes';
+    } else if (isSofiaAwaitingConfirmation) {
         currentStep = 'confirmacao_cliente';
     } else if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
-        if (lastSofiaMsg.includes("digite ok para continuar") || lastSofiaMsg.includes("ok, entendi") || lastSofiaMsg.includes("clique no botão abaixo para prosseguir") || lastSofiaMsg.includes("clique no botao abaixo para prosseguir")) {
+        if (isSofiaAlreadyFinalized) {
+            currentStep = 'finalizacao_sucesso';
+        } else if (isSofiaInReforcoCondicoes || lastSofiaMsg.includes("digite ok para continuar") || lastSofiaMsg.includes("ok, entendi") || lastSofiaMsg.includes("clique no botão abaixo para prosseguir") || lastSofiaMsg.includes("clique no botao abaixo para prosseguir")) {
             currentStep = 'reforco_condicoes';
         } else if (
             lastSofiaMsg.includes("confirma que deseja prosseguir") || 
@@ -676,7 +703,7 @@ try {
             ))
         ) {
             currentStep = 'confirmacao_cliente';
-        } else if (lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
+        } else if (isSofiaAlreadyFinalized || lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
             currentStep = 'finalizacao_sucesso';
         } else if (lastSofiaMsg.includes("não conseguimos liberar") || lastSofiaMsg.includes("oferta pré-aprovada de crédito") || lastSofiaMsg.includes("políticas internas de crédito") || lastSofiaMsg.includes("politicas internas de credito")) {
             currentStep = 'recusa_analise';
@@ -922,7 +949,17 @@ try {
     const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso|transferir|conectar|tem como)\b.*\b(humano|persona|atendente|atensente|vendedor|algu[ée]m|especialista|assessor|operador|consultor|fone|telefone|ligar|ligação|gente|pessoa de verdade|humano de verdade)\b/i.test(lastUserLower) || /^(atendente|atensente|assessor|humano|pessoa|fone|telefone|ligar)$/i.test(lastUserLower.trim());
     const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF" || isCnpjDivergent) && !isAgentButtonClick;
 
-    const isFarewell = /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
+    // 🎯 RECONHECIMENTO DE INTENÇÃO / BOTÃO "FALAR ESPECIALISTA"
+    const regexTalkToSpecialist = /\b(falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?(?:consultor|especialista|assessor|vendedor|atendente)|falar\s+especialista|chamar\s+especialista|quero\s+especialista|atendimento\s+humano)\b/i;
+    const isTalkToSpecialist = (
+        regexTalkToSpecialist.test(lastUserLower) ||
+        /^(falar\s+especialista|falar\s+com\s+especialista|especialista|consultor|atendente|falar com especialista!?)$/i.test(lastUserLower.trim()) ||
+        (isButtonTemplateClick && /especialista/i.test(lastUserLower)) ||
+        lastUserLower.includes("falar especialista") ||
+        lastUserLower.includes("falar com especialista")
+    ) && !isAgentButtonClick;
+
+    const isFarewell = !lastUserLower.includes("ok, entendi") && !lastUserLower.includes("ok entendi") && /\b(obrigado|obrigada|vlw|valeu|entendido|entendi|tchau|at[ée] logo|por enquanto [ée] s[óo]|nada mais|encerrar|show)\b/i.test(lastUserLower);
     const isGreeting = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|oie|opa)$/i.test(lastUserLower);
 
     // 🛡️ DETECÇÃO DE TOM AGRESSIVO, OFENSAS E INSULTOS (PRIORIDADE ALTA NA FILA DE ATENDIMENTO)
@@ -1012,7 +1049,22 @@ try {
         };
     }
 
-    if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
+    // 🎯 PRIORIDADE MÁXIMA: BOTÃO OU INTENÇÃO "FALAR ESPECIALISTA"
+    // Ao clicar em "Falar Especialista" (ou solicitar especialista após ter limite, proposta ou simulação),
+    // transiciona IMEDIATAMENTE para 'finalizacao_sucesso' com trigger_handoff = true para inclusão no Cockpit de Vendas.
+    const hasEligibilityForSpecialist = Boolean(
+        hasSimulatedInHistory || 
+        isApprovedFiserv || 
+        leadInfo.simulation_data || 
+        approvedLimit > 0 || 
+        hasActiveLoan ||
+        ['apresenta_ofertas', 'confirmacao_cliente', 'solicitar_simulacao', 'reforco_condicoes'].includes(currentStep)
+    );
+
+    if (isTalkToSpecialist && hasEligibilityForSpecialist) {
+        nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';
+        transitionApplied = true;
+    } else if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
         nextStep = 'explicacao_agente';
         transitionApplied = true;
     } else if (currentStep === 'start') {
@@ -1141,7 +1193,10 @@ try {
             transitionApplied = true;
         }
     } else if (currentStep === 'apresenta_ofertas') {
-        if (isSofiaAtDisposalAck) {
+        if (isTalkToSpecialist) {
+            nextStep = 'reforco_condicoes';
+            transitionApplied = true;
+        } else if (isSofiaAtDisposalAck) {
             nextStep = 'confirmacao_cliente';
             transitionApplied = true;
         } else if (isHesitation) {
@@ -1177,7 +1232,10 @@ try {
     } else if (currentStep === 'solicitar_simulacao' || currentStep === 'confirmacao_cliente') {
         const hasNewNumbers = userTypedNewNumbers;
 
-        if (isRestartSimulation) {
+        if (isTalkToSpecialist) {
+            nextStep = 'reforco_condicoes';
+            transitionApplied = true;
+        } else if (isRestartSimulation) {
             requested_amount = null;
             requested_installments = null;
             nextStep = 'apresenta_ofertas';
@@ -1237,7 +1295,7 @@ try {
             nextStep = currentStep;
         }
     } else if (currentStep === 'reforco_condicoes') {
-        if (isAffirmative && !isDoubt) {
+        if (isTalkToSpecialist || (isAffirmative && !isDoubt)) {
             if (hasSimulatedInHistory || (requested_amount && requested_installments) || leadInfo.simulation_data) {
                 nextStep = 'finalizacao_sucesso';
             } else if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
@@ -1252,6 +1310,9 @@ try {
             nextStep = 'reforco_condicoes';
             transitionApplied = true;
         }
+    } else if (currentStep === 'finalizacao_sucesso') {
+        nextStep = 'finalizacao_sucesso';
+        transitionApplied = true;
     }
 
     // 🛡️ BLINDAGEM ZERO: NUNCA PEDIR OPT-IN SE O CLIENTE JÁ DEU O ACEITE NOS ÚLTIMOS 30 DIAS
@@ -1328,7 +1389,7 @@ try {
 
     // --- 5) MODO DE RESPOSTA ---
     let mode = "consultive";
-    if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isLinkIssue || effectiveComplaint || isDeniedFiserv || isCnpjDivergent) {
+    if (leadInfo.is_lead === false || (transitionApplied && !isDoubt) || isAgentButtonClick || isHumanRequest || isTalkToSpecialist || nextStep === 'finalizacao_sucesso' || isLinkIssue || effectiveComplaint || isDeniedFiserv || isCnpjDivergent) {
         mode = "parrot";
     }
     if ((isDoubt || (isFarewell && !isSofiaAtDisposalAck)) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
@@ -1584,7 +1645,7 @@ try {
     }
 
     // 🛡️ TRAVA MESTRA DE MODO CONSULTIVO: Se o cliente tem dúvida ou pergunta qualitativa, NUNCA opera em Parrot Mode!
-    if ((isDoubt || (isFarewell && !isSofiaAtDisposalAck)) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && !loopDetectedHandoff && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent) {
+    if ((isDoubt || (isFarewell && !isSofiaAtDisposalAck)) && !isAgentButtonClick && !isHumanRequest && !isLinkIssue && !loopDetectedHandoff && leadInfo.is_lead !== false && !isDeniedFiserv && !isCnpjDivergent && nextStep !== 'finalizacao_sucesso') {
         mode = "consultive";
     }
 
@@ -1876,7 +1937,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         };
     }
 
-    const isHandoff = (isHumanRequest || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || currentStep === 'coleta_cnpj_correto') && !isAgentButtonClick;
+    const isHandoff = (isHumanRequest || isTalkToSpecialist || nextStep === 'reforco_condicoes' || nextStep === 'finalizacao_sucesso' || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || currentStep === 'coleta_cnpj_correto') && !isAgentButtonClick;
 
     const isIdentityConfirmed = Boolean(
         (currentStep === 'verificacao_cnpj' && isAffirmative && !isDoubt) ||
@@ -1917,7 +1978,12 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             journey_type: isPreApprovedJourney ? 'pre_approved' : (leadInfo.journey_type || 'standard'),
             revenue: revenue || leadInfo.revenue,
             requested_amount: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_amount || leadInfo.requested_amount),
-            requested_installments: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_installments || leadInfo.requested_installments)
+            requested_installments: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_installments || leadInfo.requested_installments),
+            simulation_data: leadInfo.simulation_data || ctx.simulation_data || {
+                amount: requested_amount || leadInfo.requested_amount,
+                installments: requested_installments || leadInfo.requested_installments || 24,
+                installment_value: leadInfo.installment_value || ctx.chosen_installment_value || null
+            }
         },
         revenue: revenue,
         requested_amount: requested_amount,

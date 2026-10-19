@@ -2240,19 +2240,19 @@ async deleteCampaign(id: string): Promise<void> {
         // 1. Mapa de Recusas Recentes (CNPJ ou Telefone -> { daysAgo, reason, status })
         const refusalMap = new Map<string, { daysAgo: number; reason: string; status: string }>();
 
-        // 2. Mapa de Histórico de Entregas (Telefone -> { hasSuccess, lastFailureStatus, lastError })
-        const deliveryMap = new Map<string, { hasSuccess: boolean; hasFailure: boolean; lastError?: string }>();
+        // 2. Mapa de Histórico de Entregas (Telefone -> { hasSuccess, lastFailureStatus, lastError, latestStatus, latestDate })
+        const deliveryMap = new Map<string, { hasSuccess: boolean; hasFailure: boolean; lastError?: string; latestStatus?: string; latestDate?: number }>();
 
-        // Busca em lotes de 300 para segurança de rede
-        const chunkSize = 300;
+        // Busca em lotes seguros de 100 para evitar estouro de URL no PostgREST
+        const chunkSize = 100;
 
         // A. Consultar agent_leads para verificar recusas de crédito nos últimos 60 dias
         for (let i = 0; i < cleanIdentifiers.length; i += chunkSize) {
             const idChunk = cleanIdentifiers.slice(i, i + chunkSize);
             try {
-                const { data, error } = await supabaseReader
+                const { data, error } = await supabase
                     .from('agent_leads')
-                    .select('identifier, whatsapp, status, metadata, pipeline_stage, created_at, updated_at')
+                    .select('identifier, whatsapp, status, metadata, created_at')
                     .eq('tenant_id', tenantId)
                     .in('identifier', idChunk);
 
@@ -2261,8 +2261,8 @@ async deleteCampaign(id: string): Promise<void> {
                         const meta = lead.metadata || {};
                         const fiservStatus = String(meta.fiserv_status || lead.status || '').toLowerCase().trim();
                         const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
-                        const pipeStage = String(lead.pipeline_stage || '').toLowerCase().trim();
-                        const lostReason = String(meta.lost_reason || '').toLowerCase().trim();
+                        const pipeStage = String(meta.pipeline_stage || lead.status || '').toLowerCase().trim();
+                        const lostReason = String(meta.lost_reason || meta.refusal_reason || '').toLowerCase().trim();
 
                         const isDeclined =
                             pipeStage === 'declined' ||
@@ -2278,7 +2278,7 @@ async deleteCampaign(id: string): Promise<void> {
                                 meta.lost_at ||
                                 meta.refusal_date ||
                                 meta.fiserv_requested_at ||
-                                lead.updated_at ||
+                                meta.updated_at ||
                                 lead.created_at;
 
                             const deniedDate = new Date(deniedDateRaw);
@@ -2309,9 +2309,9 @@ async deleteCampaign(id: string): Promise<void> {
         for (let i = 0; i < allPhones.length; i += chunkSize) {
             const phoneChunk = allPhones.slice(i, i + chunkSize);
             try {
-                const { data, error } = await supabaseReader
+                const { data, error } = await supabase
                     .from('outbound_queue')
-                    .select('contact_phone, status, error_message, created_at, updated_at')
+                    .select('contact_phone, status, error_message, created_at, last_attempt_at')
                     .eq('tenant_id', tenantId)
                     .in('contact_phone', phoneChunk);
 
@@ -2321,15 +2321,25 @@ async deleteCampaign(id: string): Promise<void> {
                         if (!rawPh) return;
 
                         const st = String(row.status || '').toLowerCase().trim();
-                        const isDelivered = st === 'delivered' || st === 'read' || st === 'sent_success';
-                        const isFailed = st === 'failed' || st === 'undelivered' || st === 'error';
+                        const isDelivered = ['delivered', 'read', 'sent_success', 'lida', 'entregue', 'respondida', 'interagiu'].includes(st);
+                        const isFailed = ['failed', 'undelivered', 'error', 'not_delivered', 'rejected', 'rejeitada', 'falha', 'erro'].includes(st);
+                        const rowDate = new Date(row.last_attempt_at || row.created_at).getTime() || 0;
 
-                        const prev = deliveryMap.get(rawPh) || { hasSuccess: false, hasFailure: false };
-                        if (isDelivered) prev.hasSuccess = true;
-                        if (isFailed) {
-                            prev.hasFailure = true;
-                            if (row.error_message) prev.lastError = row.error_message;
+                        const prev = deliveryMap.get(rawPh) || { hasSuccess: false, hasFailure: false, latestStatus: '', latestDate: 0 };
+                        if (rowDate >= (prev.latestDate || 0)) {
+                            prev.latestDate = rowDate;
+                            prev.latestStatus = st;
+                            if (row.error_message) {
+                                prev.lastError = row.error_message;
+                            } else if (st === 'not_delivered') {
+                                prev.lastError = 'Número sem WhatsApp ativo (Rejeitado pela Meta)';
+                            } else if (st === 'rejected') {
+                                prev.lastError = 'Rejeitado pela operadora/Meta';
+                            }
                         }
+
+                        if (isDelivered) prev.hasSuccess = true;
+                        if (isFailed) prev.hasFailure = true;
 
                         deliveryMap.set(rawPh, prev);
 
@@ -2378,9 +2388,15 @@ async deleteCampaign(id: string): Promise<void> {
             }
 
             // 2. Checagem de Falha de Entrega Prévia
-            const deliveryInfo = rawPh ? deliveryMap.get(rawPh) : undefined;
-            // Se já tentamos antes, teve falha e NUNCA teve uma entrega confirmada posterior
-            if (deliveryInfo && deliveryInfo.hasFailure && !deliveryInfo.hasSuccess) {
+            const deliveryInfo = rawPh 
+                ? (deliveryMap.get(rawPh) || (rawPh.startsWith('55') ? deliveryMap.get(rawPh.slice(2)) : deliveryMap.get(`55${rawPh}`)))
+                : undefined;
+
+            const lastFailed = deliveryInfo && ['failed', 'undelivered', 'error', 'not_delivered', 'rejected', 'rejeitada', 'falha', 'erro'].includes(deliveryInfo.latestStatus || '');
+            const failedWithoutSuccess = deliveryInfo && deliveryInfo.hasFailure && !deliveryInfo.hasSuccess;
+
+            // Se a tentativa mais recente falhou OU se teve falha histórica e nunca teve sucesso
+            if (deliveryInfo && (lastFailed || failedWithoutSuccess)) {
                 return {
                     id: `audit-${contact.rowNumber}-${idx}`,
                     rowNumber: contact.rowNumber,

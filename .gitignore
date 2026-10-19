@@ -10,3 +10,4 @@ porteiro/node_modules/
 database/json n8n/*.json
 .vercel
 scratch/
+benchmark_*.txt
