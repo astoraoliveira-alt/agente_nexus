@@ -278,12 +278,14 @@ export default function Campaigns() {
     };
 
     const defaultInitialMessage =
-        "Olá {{NOME}}, já pensou em reforçar o caixa da sua empresa sem burocracia?\n\n" +
-        "Você pode ter de *R$ 10 mil a R$ 500 mil* em Capital de Giro usando seus recebíveis futuros como garantia.\n\n" +
-        "✅ Taxas a partir de *1,89% a.m*;\n" +
-        "✅ Dinheiro na conta em até *24h*;\n" +
-        "✅ Pagamento via boleto, sem travar seu limite bancário.\n\n" +
-        "👉 *Vamos fazer uma simulação sem compromisso?*";
+        "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\n" +
+        "Tenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n" +
+        "*Vantagens do nosso crédito:*\n" +
+        "✅ Crédito de R$10 mil a R$ 500 mil\n" +
+        "✅ Dinheiro na conta em até 24h\n" +
+        "✅ Taxas que cabem no seu bolso\n\n" +
+        "Com a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\n" +
+        "Faça uma simulação sem compromisso!";
 
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
@@ -344,6 +346,7 @@ export default function Campaigns() {
 
         // Fast-path for known official templates
         if (cleanId === "7372e865-f647-411c-8d22-e234f4b87ef6") {
+            const templateText = "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!";
             setTemplateValidation({
                 isValidating: false,
                 isValid: true,
@@ -352,7 +355,7 @@ export default function Campaigns() {
                 details: {
                     name: "Oferta de Crédito - Link v2",
                     category: "MARKETING",
-                    text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!",
+                    text: templateText,
                     buttons: [
                         { text: "Quero simular!" }
                     ]
@@ -360,12 +363,14 @@ export default function Campaigns() {
             });
             setNewCampaign(prev => ({
                 ...prev,
+                initialMessage: templateText,
                 zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin"
             }));
             return;
         }
 
         if (cleanId === "72f33173-79cc-47cc-8a7c-eba3e20df9d3") {
+            const templateText = "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!";
             setTemplateValidation({
                 isValidating: false,
                 isValid: true,
@@ -374,7 +379,7 @@ export default function Campaigns() {
                 details: {
                     name: "Oferta de Crédito v.2",
                     category: "MARKETING",
-                    text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!",
+                    text: templateText,
                     buttons: [
                         { text: "Quero simular!" },
                         { text: "Falar com um agente!" }
@@ -383,12 +388,14 @@ export default function Campaigns() {
             });
             setNewCampaign(prev => ({
                 ...prev,
+                initialMessage: templateText,
                 zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin"
             }));
             return;
         }
 
         if (cleanId === "4917a3b3-ada0-46e1-b5fa-4f0c8cbb717d") {
+            const templateText = "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar.";
             setTemplateValidation({
                 isValidating: false,
                 isValid: true,
@@ -397,13 +404,17 @@ export default function Campaigns() {
                 details: {
                     name: "Oferta de Crédito v2",
                     category: "MARKETING",
-                    text: "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Com a Fiserv, você conta com:*\n✅ Crédito de R$10 mil a R$ 500 mil \n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso, e descubra como a Fiserv pode te ajudar.",
+                    text: templateText,
                     buttons: [
                         { text: "Quero simular!" },
                         { text: "Falar com um agente!" }
                     ]
                 }
             });
+            setNewCampaign(prev => ({
+                ...prev,
+                initialMessage: templateText
+            }));
             return;
         }
 
@@ -458,7 +469,6 @@ export default function Campaigns() {
 
                 // Auto-preenchimento sincronizado com o template da Zenvia:
                 // Se a Zenvia trouxer imagem de exemplo configurada no template, atualiza o campo automaticamente.
-                // Se não trouxer nenhuma imagem, deixa o campo aberto para o usuário preencher manualmente (limpando a imagem do template anterior se for o default).
                 if (zenviaTemplateImg) {
                     setNewCampaign(prev => ({ ...prev, zenviaImageUrl: zenviaTemplateImg }));
                 } else {
@@ -471,8 +481,8 @@ export default function Campaigns() {
                     });
                 }
 
-                // Preenchimento inteligente: se o usuário não mudou a mensagem inicial, sugere o body do template
-                if (bodyText && (!newCampaign.initialMessage || newCampaign.initialMessage === defaultInitialMessage)) {
+                // Sincroniza a mensagem inicial diretamente com o texto aprovado do template
+                if (bodyText) {
                     setNewCampaign(prev => ({ ...prev, initialMessage: bodyText }));
                 }
 
@@ -670,6 +680,11 @@ export default function Campaigns() {
         }
 
         try {
+            const officialText = templateValidation.details?.text;
+            const messageToSave = (newCampaign.templateId?.trim() && officialText)
+                ? normalizeMessagingText(officialText)
+                : normalizeMessagingText(newCampaign.initialMessage || defaultInitialMessage);
+
             const campaignData = {
                 tenantId: currentTenant.id,
                 agentId: newCampaign.agentId,
@@ -679,7 +694,7 @@ export default function Campaigns() {
                 endDate: newCampaign.endDate ? parseLocalDate(newCampaign.endDate) : undefined,
                 startTime: newCampaign.startTime,
                 endTime: newCampaign.endTime,
-                initialMessage: normalizeMessagingText(newCampaign.initialMessage),
+                initialMessage: messageToSave,
                 campaignType: newCampaign.campaignType,
                 metadata: {
                     template_id: newCampaign.templateId?.trim() || null,
