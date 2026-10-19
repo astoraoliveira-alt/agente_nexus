@@ -1091,7 +1091,8 @@ try {
             }
         }
     } else if (currentStep === 'explicacao_agente') {
-        if (isAffirmative && !isDoubt) {
+        const hasExplicitNumbers = (requested_amount && requested_amount > 0) || userTypedNewNumbers;
+        if ((isAffirmative || hasExplicitNumbers) && !isDoubt) {
             if (isPreApprovedJourney && leadInfo.pre_approved_amount) {
                 nextStep = 'apresenta_ofertas';
             } else if (hasSimulatedInHistory) {
@@ -1342,6 +1343,16 @@ try {
     // 🛡️ BLINDAGEM ZERO-C: SE JORNADA PRÉ-APROVADA, NUNCA REGREDIR PARA ETAPAS CADASTRAIS
     if (isPreApprovedJourney && ['verificacao_cnpj', 'coleta_cnpj_correto', 'coleta_faturamento', 'coleta_valor', 'consentimento_optin'].includes(nextStep)) {
         nextStep = 'apresenta_ofertas';
+        transitionApplied = true;
+    }
+
+    // 🛡️ BLINDAGEM ZERO-D: NENHUM LEAD PODE AVANÇAR PARA FORMALIZAÇÃO OU REFORÇO SEM OPT-IN VÁLIDO
+    if (['finalizacao_sucesso', 'reforco_condicoes', 'confirmacao_cliente'].includes(nextStep) && !isPreApprovedJourney && !hasPriorOptIn && !isOptInAccepted && !hasSimulatedInHistory) {
+        if (requested_amount && requested_amount > 0) {
+            nextStep = (revenue && revenue > 0) ? 'consentimento_optin' : 'coleta_faturamento';
+        } else {
+            nextStep = 'coleta_valor';
+        }
         transitionApplied = true;
     }
 
@@ -1937,7 +1948,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         };
     }
 
-    const isHandoff = (isHumanRequest || isTalkToSpecialist || nextStep === 'reforco_condicoes' || nextStep === 'finalizacao_sucesso' || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || currentStep === 'coleta_cnpj_correto') && !isAgentButtonClick;
+    const isHandoff = (isHumanRequest || isTalkToSpecialist || nextStep === 'finalizacao_sucesso' || effectiveComplaint || loopDetectedHandoff || nextStep === 'coleta_cnpj_correto' || currentStep === 'coleta_cnpj_correto') && !isAgentButtonClick;
 
     const isIdentityConfirmed = Boolean(
         (currentStep === 'verificacao_cnpj' && isAffirmative && !isDoubt) ||

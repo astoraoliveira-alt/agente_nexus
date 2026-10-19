@@ -243,17 +243,13 @@ export function CreditCampaignDetailView({
             }
           }
         }
-        const isHandoffPending = Boolean(
-          leadHandoff?.status === 'pending' ||
-          meta.handoff_requested === true ||
-          meta.handoff_requested === 'true' ||
-          meta.falar_agente === true ||
-          meta.falar_agente === 'true' ||
-          ['waiting_contact', 'aguar_contato'].includes(formalSt)
-        );
-        const isHandoffInProgress = Boolean(
-          leadHandoff?.status === 'in_progress' ||
-          ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalSt)
+        
+        const hasFormalAcceptance = Boolean(
+          meta.ok_agente === true || 
+          meta.ok_agente === 'true' || 
+          meta.simulation_accepted === true || 
+          meta.simulation_accepted === 'true' || 
+          meta.accepted_proposal != null
         );
 
         // Aprovado só é válido se tiver aprovação real e não for explicitamente reprovado
@@ -272,6 +268,25 @@ export function CreditCampaignDetailView({
           !extSt.includes('nao conseguimos') &&
           !extSt.includes('reprovad') &&
           !meta.lost_reason
+        );
+
+        // Handoff pendente de formalização ou solicitação explícita de atendente
+        // Se o lead foi aprovado na simulação pela IA mas ainda NÃO deu aceite formal,
+        // ele pertence à etapa APROVADO (aguardando decisão do cliente), e NÃO à fila humana de formalização.
+        const isHandoffPending = Boolean(
+          (
+            leadHandoff?.status === 'pending' ||
+            meta.handoff_requested === true ||
+            meta.handoff_requested === 'true' ||
+            meta.falar_agente === true ||
+            meta.falar_agente === 'true' ||
+            ['waiting_contact', 'aguar_contato'].includes(formalSt)
+          ) &&
+          (!isApprovedLead || hasFormalAcceptance)
+        );
+        const isHandoffInProgress = Boolean(
+          leadHandoff?.status === 'in_progress' ||
+          ['in_service', 'em_atendimento', 'in_progress', 'formalization'].includes(formalSt)
         );
 
         // Precedência de Recusa Fiserv (crédito não aprovado / reprovado):
