@@ -64,6 +64,15 @@ O serviço Node.js/TypeScript publicado na VPS raiz que guarda a entrada do sist
   - **Debounce de 1.5s**: Agrupa mensagens fragmentadas do usuário para evitar múltiplas respostas da IA.
   - **Scale Guardian**: Limite de 50 jobs simultâneos para evitar colapso de infraestrutura.
 - **Desacoplamento Assíncrono**: Responde rapidamente ao webhook do provedor (HTTP 200) para evitar timeouts (o limite da Zenvia é de 5 segundos), enquanto o processamento real, verificação de fila e disparos pro n8n ocorrem em Background Tasks.
+- **Pipeline Definitivo de Mídias (Zenvia / Meta)**:
+  - Classificação e extração precisa de URLs públicas para mensagens com anexos (áudios, documentos PDF, imagens).
+  - Normalização de MIME types de áudio (audio/ogg, audio/mp4, audio/mpeg), resolvendo problemas históricos de reprodução e tarjas pretas no chat do operador.
+  - Registro atômico no banco via RPC `record_message` preservando `media_url` e metadados de arquivo.
+- **Topologia de Rede Docker (`automacao_app_network`)**:
+  - Unificação de todos os containers de mensageria (Porteiro Gateway, n8n, Evolution API, proxies) na rede externa `automacao_app_network`, garantindo baixa latência e resolução DNS segura intrarrede sem expor portas de serviço na internet pública.
+- **Templates Oficiais WhatsApp Homologados**:
+  - Canal `551151183815`: Template padrão homologado `72f33173`.
+  - Novas Campanhas: Template oficial `7372e865` com suporte a fast-path e resiliência local de variáveis de rastreamento.
 
 
 ### 📡 3.2. Realtime Event Bus (Supabase Channels)
@@ -140,6 +149,96 @@ O Roteador (nó `Router Custom` no n8n) atua como o cérebro que sobrepõe regra
 Devido ao modelo assíncrono de avaliação de crédito da Fiserv, o pipeline opera de forma desanexada para não travar a conversa do usuário:
 - **Webhook de Status (Notificação Passiva)**: Um endpoint n8n específico (`/v1/edenred/status`) recebe de forma proativa as atualizações de status. Protegido por uma camada de White-Label e autenticação Bearer Token no Gateway Hono, o webhook traduz a aprovação do Comitê, estrutura os dados da oferta, registra na tabela `messages` e dispara um push ativo via WhatsApp para o usuário.
 - **Poller de Conciliação (Verificação Ativa)**: Uma rotina de cron varre periodicamente a base de dados em busca de *Leads* que estão em status pendente (`aguardando_fiserv`) por longos períodos. O Poller realiza chamadas à API da Fiserv para checar se houve mudança de estado, mitigando eventuais *timeouts* ou quebras de entrega de webhooks HTTP. Isso garante que nenhum cliente seja esquecido no funil.
+
+### 7.5 Simulação Automática no Poller de Conciliação (Zero-Touch Offer Delivery)
+No modelo de esteira de crédito rápido, o Poller atua com entrega ativa proativa da proposta comercial:
+- **Disparo Direto da Simulação no Comitê Aprovado**: Ao identificar que o status da proposta na Fiserv migrou para `approved`, `pre_approved`, `comite_approved` ou retornou texto aprovativo em `external_status`, o Poller não aguarda novo contato do cliente. Ele invoca imediatamente o endpoint `/simulate` com o limite aprovado (ou o valor desejado informado na conversa se for inferior ao limite), extrai as condições ótimas (`VlrParcela`, `Prazo`, `PercJurosMensal`, `VlrTotalDivida`) e compõe o payload da oferta.
+- **Mensagem Pronta no WhatsApp**: O cliente recebe instantaneamente a proposta formatada com saudação personalizada e cálculo real de parcelas.
+- **Botões Interativos no Limite de 20 Caracteres (Meta WhatsApp)**: Para evitar rejeição nos provedores da Meta, os botões interativos anexados à simulação foram estritamente encurtados para caber no limite físico de 20 caracteres sem quebras:
+  - Botão 1: `Falar especialista` (18 caracteres)
+  - Botão 2: `Nova simulação` (14 caracteres)
+
+### 7.6 Lock Atômico de Concorrência e Blindagens do Poller (V12.0)
+Quando a API de crédito externa apresenta alta latência (~50 segundos por consulta), execuções de cron subsequentes podem sobrepor-se à primeira, processando os mesmos leads e gerando mensagens duplicadas no WhatsApp. Para blindar o sistema com garantia de *exactly-once processing*, foi implementada uma proteção em dupla camada:
+- **Layer 1 — Atomic Lease CTE (`Ler leads pendentes`)**: O nó de busca no banco não faz um simples `SELECT`. Ele executa uma Common Table Expression atômica com `FOR UPDATE SKIP LOCKED`, carimbando imediatamente um lock temporário de 3 minutos no metadata do lead:
+  ```sql
+  WITH locked_leads AS (
+    SELECT id FROM agent_leads
+    WHERE status = 'pending'
+      AND metadata->>'loan_request_id' IS NOT NULL
+      AND (metadata->>'fiserv_offer_sent' IS NULL OR metadata->>'fiserv_offer_sent' != 'true')
+      AND (metadata->>'fiserv_polling_at' IS NULL OR (metadata->>'fiserv_polling_at')::timestamptz < now() - interval '3 minutes')
+    LIMIT 10
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE agent_leads l
+  SET metadata = l.metadata || jsonb_build_object('fiserv_polling_at', now()::text)
+  FROM locked_leads
+  WHERE l.id = locked_leads.id
+  RETURNING l.*;
+  ```
+  Isso garante que mesmo se o tick do cron disparar enquanto uma consulta da Fiserv está em andamento, a segunda execução ignorará sumariamente os registros com lock ativo recente.
+- **Layer 2 — Pre-Dispatch Gatekeeper (`Buscar Conversation`)**: Imediatamente antes do envio ativo para o WhatsApp, o nó valida se nenhuma mensagem foi postada para a conversa nos últimos 60 segundos:
+  `NOT EXISTS (SELECT 1 FROM messages WHERE conversation_id = c.id AND created_at > now() - interval '60 seconds')`.
+- **Blindagem 1 (Cross-Row Check por CNPJ)**: Validação se o lead já possui o carimbo `metadata->>'fiserv_offer_sent' = 'true'`.
+- **Blindagem 2 (Histórico de 24h)**: Checagem de mensagens no histórico das últimas 24h cobrindo tanto ofertas aprovadas (`%Boa notícia%`) quanto negativas (`%não conseguimos liberar%`), impedindo qualquer reenvio indesejado.
+- **Reabertura Condicional de Conversa**: O nó `Reabrir Conversa` só comuta o status para `ai_active` caso o `outcome === 'offer'`. Em caso de recusa formal (`denied`), o chat permanece com status `closed`/`archived`, evitando acúmulo desnecessário na fila de operadores.
+
+### 7.7 Roteador Contextual V30/V30.2 e Circuit Breakers Anti-Loop
+O Roteador n8n (`roteador_contexto_v30.js`) recebeu mecanismos de contenção de loop conversacional e alinhamento de funil:
+- **Inversão da Ordem das Perguntas (V29/V30)**: O motor solicita o **valor desejado de crédito** (`requested_amount`) ANTES de perguntar o **faturamento mensal** (`revenue`). Isso reduz o atrito cognitivo na abertura e aumenta substancialmente a conversão pós-optin.
+- **Circuit Breaker Bot-to-Bot**: Identificação de respostas automáticas de secretárias eletrônicas empresariais (ex: "Sua mensagem foi recebida fora do horário comercial", "Digite 1 para suporte financeiro"), interrompendo o fluxo imediatamente e impedindo que dois robôs conversem em loop infinito.
+- **Guardião de Cortesias e Despedidas 3F**: Quando a Sofia finaliza o atendimento com uma mensagem de despedida, se o cliente responder apenas com cortesias curtas (ex: "ok", "obrigado", "valeu", "bom dia") ou emojis (ex: 👍, 🙏), o roteador seta `stop_flow: true` e silencia a conversa, sem reabrir nem transferir indevidamente para atendimento humano (`human_active`).
+- **Hesitation Guard (`WAIT_AND_RETURN`)**: Caso o cliente apresente hesitação ou dúvida durante a etapa de `confirmacao_cliente` (ex: "deixa eu pensar", "não sei se pego agora"), o roteador intercepta a saída, impede repetições em loop da simulação e comuta o fluxo para o modo `consultive`, permitindo que a IA esclareça dúvidas antes de tentar formalizar.
+- **Parsing Numérico Aprimorado**: Suporte a numerais abreviados (ex: "50k", "50 mil", "50.000") e distinção segura entre parcelas, prazo e faturamento, evitando falsos disparos de regra de valor mínimo.
+
+### 7.8 Gestão de Recusas, Desistência e Silenciamento
+- **Tratamento de Negativas de Crédito**: Quando a Fiserv retorna status de reprovação (`denied`, `fails_to_process`, `lost`, `cancelled`), a notificação amigável de recusa é enviada uma única vez via WhatsApp e o registro é marcado com `fiserv_offer_sent = 'true'` e status `denied`.
+- **Desistência do Cliente**: Se o lead rejeita o opt-in (`optin_recusado`) ou informa desinteresse após a simulação (`desistencia_cliente`), o sistema encerra o atendimento sem transicionar para `human_active`, garantindo que o Handoff Hub permaneça limpo para atendimentos comerciais prioritários.
+
+---
+
+## [V73.0] - Dual-Layer Poller Concurrency Lock, Anti-Loop 3F & Sales Cockpit Integration
+### Blindagem Total de Concorrência, Proteção de Cortesias e Esteira de Vendas
+- **Dual-Layer Poller Lock**: Eliminação de envios duplicados no Poller Fiserv (12) através da combinação de Lease Lock Atômico via CTE (`UPDATE ... FOR UPDATE SKIP LOCKED` com janela de 3 minutos) e Gatekeeper temporal de 60 segundos antes do disparo.
+- **Circuit Breaker 3F & Bot Purge**: Silenciamento determinístico de cortesias pós-encerramento e bloqueio de loops causados por mensagens de auto-resposta no WhatsApp.
+- **Hesitation Interceptor (`WAIT_AND_RETURN`)**: Estabilização do roteador v30.2 prevenindo repetições de simulação quando o cliente expressa incerteza na confirmação da proposta.
+- **Sales Cockpit Integration**: Sincronização completa de leads pré-aprovados (`fiserv_offer_sent = 'true'`) no pipeline de vendas, com bloqueio estrito de leads recusados e histórico acessível.
+
+---
+
+## [V72.5] - Strict Interaction Purge, Button Heuristics & Daily Conversion Percentages
+### Fidelidade Analítica, Respeito ao Limite de Botões e Expurgo de Bots
+- **Expurgo de Robôs e Secretárias Eletrônicas**: Purga de mais de 12 padrões de auto-respostas e respostas de secretárias eletrônicas que contaminavam artificialmente o KPI de "Interagiram" do dashboard executivo.
+- **Botões Interativos WhatsApp (Meta Limit 20 Chars)**: Atualização das opções de botão para `Falar especialista` e `Nova simulação`, eliminando ícones/emojis que causavam estouro de limite na API oficial.
+- **Métricas Diárias de Conversão (% do Opt-in)**: Inclusão da métrica de conversão acumulada sobre opt-ins na tabela de histórico diário, acompanhada de seletores de intervalo rápido (15d, 30d, 60d, 90d, Tudo).
+- **Renomeação de KPIs Executivos**: Reordenação dos cards de topo do funil: o estágio "Formalizados" foi substituído por "Confirmaram", e "Engajamento" foi refinado para "Interagiram" estrito.
+
+---
+
+## [V72.0] - Credit Funnel Inversion (V29/V30), Auto-Simulation on Approval & LGPD Excel Export
+### Inversão Estratégica de Perguntas, Zero-Touch Simulation e Exportação Segura
+- **Inversão da Ordem do Funil de Crédito (V29/V30)**: O fluxo conversacional foi invertido para solicitar o valor pretendido de empréstimo (`requested_amount`) antes do faturamento mensal (`revenue`), gerando maior conexão emocional e reduzindo a taxa de abandono do questionário inicial.
+- **Simulação Automática na Aprovação de Crédito**: O Poller de conciliação executa autonomamente a simulação `/simulate` ao detectar aprovação da Fiserv, entregando a oferta completa calculada na primeira mensagem ao cliente.
+- **Exportação LGPD para Excel (.xlsx)**: Criação de exportador nativo de conversas e leads com ofuscação/mascaramento de dados pessoais sensíveis e mitigação do limite de 32.767 caracteres por célula do formato OpenXML.
+
+---
+
+## [V71.5] - Sales Cockpit Engine, Operator Pipeline & Raio-X Action Controls
+### Console Operacional de Vendas e Gestão Avançada de Operadores
+- **Console Unificado de Vendas (`SalesCockpit`)**: Fila dedicada para operadores humanos com interface condensada, painel Raio-X recolhível com resumo cadastral do CNPJ e histórico financeiro unificado.
+- **Controles de Ação de Atendimento**: Operadores contam com ações padronizadas de `release_to_queue` (devolver lead para a fila de distribuição) e `mark_customer_drop` (registrar desistência formal), blindadas contra uso indevido em leads com contratos já assinados.
+- **Visualizador Integrado de Arquivos de Conversa**: Acesso consolidado a todos os arquivos de mídia (áudios, propostas em PDF e documentos) diretamente no chat do cockpit.
+- **RLS Policy Fix para Operadores**: Ajuste na política de segurança em nível de linha (`messages`) permitindo que atendentes visualizem todas as mensagens de conversas do seu tenant.
+
+---
+
+## [V71.0] - Meta Billing Deliveries, Inbound Media Classification & Docker Network Resilience
+### Faturamento Baseado em Entregas, Resolução de Mídias e Topologia de Rede
+- **Relatório Oficial de Faturamento Meta**: Nova RPC `get_meta_billing_dispatches_report` contabilizando disparos oficiais exclusivamente com base no status de entrega no aparelho do usuário (`DELIVERED`), eliminando cobranças indevidas de mensagens com erro ou não entregues.
+- **Classificação e Resolução Definitiva de Mídias (Porteiro Gateway)**: Mapeamento resiliente de áudios Zenvia, documentos PDF e imagens no Porteiro, garantindo URLs públicas válidas e player nativo de áudio funcional no frontend (resolvendo problemas de tela preta e tipos MIME ausentes).
+- **Padronização de Rede Docker**: Serviços da VPS unificados na rede Docker externa `automacao_app_network`, mitigando falhas de resolução DNS interna entre Porteiro, n8n e gateways locais.
+- **Templates Oficiais WhatsApp Homologados**: Definição do template `72f33173` para o canal de atendimento `551151183815` e homologação do template padrão `7372e865` com caminhos de contingência.
 
 ---
 
@@ -1002,6 +1101,18 @@ Todas as RPCs são funções `SECURITY DEFINER` em PL/pgSQL, chamadas via `supab
 | `mock_validate_identity` | `text, text, text` | O "Validador": autentica o documento e abre a sessão segura da conversa. |
 | `financial_get_customer_summary_safe` | `text, text, text` | Ferramenta Segura: intercepta o CPF do payload N8N mitigando Prompt Injection e lendo apenas o CPF do cofre (Gatekeeper). |
 
+### 6.5 RPCs de Vendas, Funil de Crédito & Faturamento Meta (V71-V73)
+
+| RPC | Parâmetros | Retorno | Papel |
+| :--- | :--- | :--- | :--- |
+| `get_sales_cockpit_leads` | `p_tenant_id, p_operator_id, p_status_filter, p_limit, p_offset` | `SETOF jsonb` | **Console de Vendas:** Retorna leads do pipeline comercial com dados consolidados da conversa, metadados do lead, ofertas enviadas (`fiserv_offer_sent = 'true'`), valor aprovado e parcelas. Bloqueia leads formalmente recusados. |
+| `get_funnel_abandonment_candidates` | `p_campaign_id, p_abandonment_stage, p_batch_size` | `SETOF jsonb` | **Motor de Reengajamento:** Identifica leads que paralisaram em etapas intermediárias do funil (ex: `optin_pending`, `loan_amount_pending`, `revenue_pending`, `offer_pending`) para aquecimento em lote via n8n, filtrando bots e recusas. |
+| `get_credit_funnel_stats` | `p_campaign_id, p_start_date, p_end_date` | `JSONB` | **Funil Executivo de Crédito:** Agregação da cascata analítica estrita (Disparados → Entregues → Lidos → Interagiram → Opt-in → Valor Solicitado → Faturamento → Aprovados → Confirmaram → Formalizados). Aplica purga rigorosa de auto-respostas. |
+| `get_meta_billing_dispatches_report` | `p_tenant_id, p_start_date, p_end_date` | `SETOF jsonb` | **Faturamento Oficial Meta:** Relatório consolidado para cobrança baseado unicamente em mensagens com status `DELIVERED` (entregues no dispositivo do destinatário), expurgando falhas de rede e envios rejeitados. |
+| `conversations_awaiting_reply_counter` | `p_tenant_id` | `INTEGER` | **Contador em Tempo Real:** Consulta otimizada que calcula a quantidade exata de conversas com mensagens de clientes aguardando resposta humana/IA para atualizar a badge da barra lateral. |
+| `fn_log_fiserv_audit` | `p_lead_id, p_action, p_payload, p_status` | `UUID` | **Auditoria Transacional:** Registra de forma indelével toda requisição/resposta trocada com a API Fiserv (`/create_lead`, `/simulate`, `/status`) na tabela `fiserv_audit_logs`. |
+| `get_campaign_reengagement_contacts` | `p_campaign_id, p_status` | `SETOF jsonb` | **Segmentação de Reengajamento:** Extrai contatos com base em status prévios para recarga na `outbound_queue`. |
+
 ---
 
 ## 7. Auth & Governança de Dados (Segurança em Camadas)
@@ -1358,6 +1469,56 @@ O dashboard executivo é estruturado em três colunas de análise progressiva, f
   - Match flexível removendo prefixo `55`
   - Match por `agent_leads.identifier` usando `metadata->>'cnpj'`
 - **Observação de Resiliência**: Mesmo se a RPC falhar por cache/schema, o frontend mantém a tela funcional via fallback para `getOutboundQueue`, perdendo apenas parte do enriquecimento.
+
+### 13.6 Cockpit de Vendas (Sales Pipeline & Atendimento Híbrido)
+
+O **Sales Cockpit** (`SalesCockpit.tsx`) foi projetado para elevar a produtividade dos operadores humanos que realizam a formalização e fechamento dos leads qualificados pela IA.
+
+- **Fila Unificada de Atendimento**: Consome a RPC `get_sales_cockpit_leads` exibindo contatos qualificados, leads que receberam ofertas (`fiserv_offer_sent = 'true'`), leads em formalização e contratos em assinatura, com isolamento estrito de leads recusados (`denied`).
+- **Painel Raio-X Recolhível**: Gaveta lateral condensada com dados cadastrais e financeiros do lead:
+  - Razão Social, CNPJ mascarado com hint LGPD, Operador atribuído e Canal.
+  - Card Unificado de Parcelas: Limite aprovado, valor solicitado, quantidade de parcelas calculadas, taxa de juros mensal e CET.
+- **Controles de Ação com Travas de Segurança**:
+  - `Liberar para Fila`: Devolve o lead para a fila pública de operadores caso o operador atual não consiga atender.
+  - `Registrar Desistência`: Marca desistência do cliente (`desistencia_cliente`), arquivando a conversa sem poluir o Handoff Hub.
+  - **Bloqueio Inquebrável de Leads Formalizados**: Leads com status de contrato assinado (`won`) têm seus botões de liberação, desistência e refinalização permanentemente desativados para preservar a integridade jurídica.
+- **Central de Mídias e Arquivos da Conversa**: Botão de acesso rápido compacto que lista todos os arquivos trocados no atendimento (áudios, termos em PDF, comprovantes e fotos), permitindo download e visualização imediata.
+- **Permissões RLS de Operador**: Políticas de Row-Level Security em `messages` ajustadas para garantir que operadores vejam integralmente as conversas de seus respectivos tenants sem bloqueios de autorização.
+
+### 13.7 Funil Executivo de Crédito & Cascata Analítica
+
+O módulo de crédito da Fiserv conta com um dashboard dedicado de alta resolução (`CreditFunnelView.tsx`), alimentado pela RPC `get_credit_funnel_stats`:
+
+- **Cascata Estrita do Funil Comercial (10 Etapas)**:
+  1. **Disparados**: Total de mensagens enviadas na campanha.
+  2. **Entregues**: Disparos confirmados no dispositivo do destinatário (`DELIVERED`).
+  3. **Lidos**: Mensagens com confirmação de leitura (`READ`).
+  4. **Interagiram (Fidelidade Estrita)**: Leads que clicaram em botões interativos (`Sim, autorizo`, `Falar especialista`, `Nova simulação`) ou enviaram mensagens textuais reais, com **expurgo total de auto-respostas e secretárias eletrônicas**.
+  5. **Opt-in Aceito**: Leads que autorizaram consulta creditícia (`consent = true`).
+  6. **Valor Pretendido**: Leads que informaram o valor de empréstimo desejado (`requested_amount`).
+  7. **Faturamento Informado**: Leads que informaram a receita mensal (`revenue`).
+  8. **Aprovados**: Leads com crédito liberado pela Fiserv (`approved` / `pre_approved`).
+  9. **Confirmaram**: Leads que deram o aceite na simulação comercial calculada.
+  10. **Formalizados**: Leads com contrato final assinado (`won`).
+- **Reordenação de Cards Primários**: O antigo card "Formalizados" deu lugar a **"Confirmaram"**, refletindo com precisão a vitória de negociação da IA antes da assinatura burocrática externa.
+
+### 13.8 Central de Reengajamento Anti-Abandono & Matriz Comparativa
+
+A **Central de Reengajamento** identifica oportunidades perdidas no funil de vendas e automatiza o resgate de leads frios:
+
+- **Matriz Comparativa de Desempenho**: Alinhada ao formato da planilha executiva de vendas, compara métricas de entrega, leitura, interação e conversão entre disparos frios e campanhas de reengajamento.
+- **Filtros Temporais Ágeis**: Seleção rápida de intervalos de análise (Últimos 15 dias, 30 dias, 60 dias, 90 dias ou Período Completo).
+- **Métrica de Conversão Acumulada (% do Opt-in)**: Exibe a taxa real de avanço dos clientes a partir do consentimento inicial, evidenciando gargalos entre a proposta e a formalização.
+- **Motor de Aquecimento em Lote (`get_funnel_abandonment_candidates`)**:
+  - Busca leads paralisados em etapas específicas do funil (ex: parou no valor, parou no faturamento, parou após a proposta).
+  - Executa disparos inteligentes de acompanhamento (follow-up) via n8n com controle estrito de lote (`p_batch_size`), respeitando regras de não perturbação e ignorando clientes que expressaram recusa.
+
+### 13.9 Exportação Consolidada LGPD para Excel (.xlsx)
+
+Para atender a auditorias financeiras e compliance empresarial sem expor dados confidenciais:
+- **Mascaramento Automático de PII**: O exportador do dashboard aplica regras de mascaramento em CNPJ, CPF, Telefone e Nomes próprios, em estrita conformidade com a LGPD.
+- **Resiliência OpenXML (Teto de Célula)**: Mitigação física contra quebras de arquivo Excel, aplicando truncamento inteligente em 32.767 caracteres em colunas de transcrição extensa e metadados JSON brutos.
+- **Enriquecimento Multi-Entidade**: Arquivo consolidado inclui dados da campanha, status de entrega, valores aprovados, parcelas e timestamps auditáveis de cada etapa do funil.
 
 ---
 
@@ -2550,4 +2711,4 @@ Para garantir a limpeza do repositório, os seguintes arquivos foram consolidado
 - `LEGACY_POLLING_DOCS.md`: (Removido em favor da Seção 3.2)
 
 ---
-*Este documento é a única fonte da verdade (SST) para o Davos Nexus v67.3.*
+*Este documento é a única fonte da verdade (SST) para o Davos Nexus v73.0.*

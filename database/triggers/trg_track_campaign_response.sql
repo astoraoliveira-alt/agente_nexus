@@ -43,7 +43,7 @@ BEGIN
             IF v_queue_id IS NOT NULL THEN
                 v_text := COALESCE(NEW.content, '');
                 
-                -- 1. IDENTIFICAÇÃO DE CLIQUES EM BOTÕES (ATUAIS E FIM DE ANO)
+                -- 1. IDENTIFICAÇÃO DE CLIQUES EM BOTÕES (ESTRITAMENTE CLIQUES FACTUAIS NOS BOTÕES)
                 IF lower(trim(v_text)) IN (
                     'quero simular!', 'quero simular', 
                     'falar com um agente!', 'falar com um agente', 'falar com especialista',
@@ -58,47 +58,16 @@ BEGIN
                     v_is_button_click := TRUE;
                     v_is_human_interaction := TRUE;
                     v_is_auto_reply := FALSE;
-                
-                -- 2. IDENTIFICAÇÃO DE MENSAGENS SIMPLES E CLARAS DO LEAD (SAUDAÇÕES CURTAS HUMANAS)
-                ELSIF length(trim(v_text)) <= 30 AND lower(trim(v_text)) ~* '^(oi|ol[aá]|oie|opa|bom dia|boa tarde|boa noite|sim|ok|pode|quero|tenho interesse|gostaria|show|beleza|claro)[!.,\s]*$' THEN
-                    v_is_button_click := FALSE;
-                    v_is_human_interaction := TRUE;
-                    v_is_auto_reply := FALSE;
-
-                -- 3. SALVAGUARDA DE FUNIL: Se o lead já avançou em qualquer etapa anterior no agent_leads
                 ELSE
-                    SELECT EXISTS (
-                        SELECT 1 
-                        FROM agent_leads al
-                        WHERE al.campaign_id = v_campaign_id
-                          AND (
-                            al.whatsapp = v_user_phone
-                            OR regexp_replace(al.whatsapp, '^55', '') = regexp_replace(v_user_phone, '^55', '')
-                          )
-                          AND (
-                            (al.metadata->>'identity_confirmed') IN ('true', 't', '1')
-                            OR (al.metadata->>'cnpj_confirmed') IN ('true', 't', '1')
-                            OR (al.metadata->>'revenue') IS NOT NULL
-                            OR (al.metadata->>'faturamento') IS NOT NULL
-                            OR (al.metadata->>'opt_in')::boolean = true
-                            OR (al.metadata->>'loan_request_id') IS NOT NULL
-                          )
-                    ) INTO v_has_funnel_progress;
-
-                    IF v_has_funnel_progress THEN
-                        v_is_button_click := FALSE;
-                        v_is_human_interaction := TRUE;
-                        v_is_auto_reply := FALSE;
-                    -- 4. Detecção Completa de Auto-Respostas Comerciais e Robôs
-                    ELSIF v_text ~* '(agradece(mos)? (seu contato|sua mensagem|a prefer[eê]ncia)|como podemos ajudar|como posso te ajudar|não est(ou|amos) dispon[ií]ve|não estamos funcionando|não está funcionando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|estará fechad[ao]|não abriremos|estamos de folga|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|para ser mais [aá]gil|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|seja bem-vinda|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|bot d[aeo]|atendente virtual|assistente virtual|sou o bot|atendimento eletr[oô]nico|digite \*?[0-9]\*? (para|e conheça)|ap[oó]s o bip|card[aá]pio|fa[cç]a (já )?(o |seu )?pedido|quer fazer o pedido|pedidos? (apenas|somente) por liga[cç]|cardapioweb|beefood|menudin|beetech|99food|ifood|anota\.ai|est[aá] com fome|marmitex|marmitaria|adiante seu pedido|otimiza[cç][aã]o do tempo|valor da entrega|hor[aá]rio de entrega|facilite a sua compra|bem[- ]vindo ao |que bom te ver por aqui|o que voc[eê] est[aá] procurando|canal voltado apenas para fornecedores|plataformas de pedido|não tenho interesse|nao tenho interesse|sem interesse)' THEN
+                    -- Qualquer texto avulso, saudação, mensagem de cardápio ou resposta livre NÃO conta como interação de campanha
+                    v_is_button_click := FALSE;
+                    v_is_human_interaction := FALSE;
+                    
+                    -- Detecção de auto-resposta apenas para auditoria de metadata na fila
+                    IF v_text ~* '(agradece(mos)? (seu contato|sua mensagem|a prefer[eê]ncia)|como podemos ajudar|como posso te ajudar|não est(ou|amos) dispon[ií]ve|não estamos funcionando|não está funcionando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|estará fechad[ao]|não abriremos|estamos de folga|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|para ser mais [aá]gil|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|seja bem-vindo|seja bem-vinda|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|bot d[aeo]|atendente virtual|assistente virtual|sou o bot|atendimento eletr[oô]nico|digite \*?[0-9]\*? (para|e conheça)|ap[oó]s o bip|card[aá]pio|fa[cç]a (já )?(o |seu )?pedido|quer fazer o pedido|pedidos? (apenas|somente) por liga[cç]|cardapioweb|beefood|menudin|beetech|99food|ifood|anota\.ai|est[aá] com fome|marmitex|marmitaria|adiante seu pedido|otimiza[cç][aã]o do tempo|valor da entrega|hor[aá]rio de entrega|facilite a sua compra|bem[- ]vindo ao |que bom te ver por aqui|o que voc[eê] est[aá] procurando|canal voltado apenas para fornecedores|plataformas de pedido|não tenho interesse|nao tenho interesse|sem interesse)' THEN
                         v_is_auto_reply := TRUE;
-                        v_is_button_click := FALSE;
-                        v_is_human_interaction := FALSE;
                     ELSE
-                        -- Mensagem digitada longa sem padrão reconhecido / Expurgo preventivo de ruído
-                        v_is_auto_reply := TRUE;
-                        v_is_button_click := FALSE;
-                        v_is_human_interaction := FALSE;
+                        v_is_auto_reply := FALSE;
                     END IF;
                 END IF;
 
@@ -117,15 +86,15 @@ BEGIN
                                 to_jsonb(v_is_auto_reply)
                             ),
                             '{human_interaction}',
-                            to_jsonb(v_is_human_interaction)
+                            to_jsonb(v_is_button_click)
                         ),
                         '{button_clicked}',
                         to_jsonb(v_is_button_click)
                     )
                 WHERE id = v_queue_id;
 
-                -- Incrementa o contador da campanha apenas para interações humanas válidas
-                IF v_is_human_interaction THEN
+                -- Incrementa o contador da campanha ESTRITAMENTE para cliques factuais em botões
+                IF v_is_button_click THEN
                     UPDATE campaigns
                     SET response_count = response_count + 1,
                         updated_at = NOW()

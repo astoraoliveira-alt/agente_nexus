@@ -8,6 +8,7 @@
 - NEVER modify the database directly without generating a migration
 - ALWAYS use CREATE OR REPLACE for functions
 - NEVER edit old migrations
+- ALWAYS add explicit GRANTs when creating new tables (`GRANT ... TO authenticated, service_role`), adhering to the Supabase post-October 30, 2026 security policy.
 - Nunca simplifique funções, sempre leve em consideração a ultima versão do código e faça os ajustes baseado nesse código. Assim evitamos perder estruturas que já estão funcionando.
 - Sempre que for necessário criar, alterar, excluir uma tabela, funcao ou trigger em banco de dados atualize o arquivo schema.sql ele deve sempre ser usado como referência para procurar a ultima versão desses objetos no banco de dados. Ele é a nossa fonte da verdade.
 

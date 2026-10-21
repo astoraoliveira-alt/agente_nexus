@@ -411,6 +411,42 @@ try {
         };
     }
 
+    // 🛑 DETECÇÃO 3F: ANTI-LOOP DE CORTESIA / EMOJIS DE ENCERRAMENTO
+    // Se a última mensagem da Sofia já foi uma despedida/encerramento de atendimento,
+    // e o usuário respondeu apenas com emoji ou agradecimento curto (<= 15 caracteres),
+    // NÃO disparar nova mensagem para evitar loop infinito de gentilezas ("Combinado! Tenha um ótimo dia...").
+    const isLastBotFarewell = (
+        lastBotLower.includes("tenha um ótimo dia") ||
+        lastBotLower.includes("tenha um bom dia") ||
+        lastBotLower.includes("fico por aqui à disposição") ||
+        lastBotLower.includes("fico por aqui a disposicao") ||
+        lastBotLower.includes("estou à disposição") ||
+        lastBotLower.includes("estou a disposicao") ||
+        lastBotLower.includes("se precisar de algo") ||
+        lastBotLower.includes("se mudar de ideia") ||
+        lastBotLower.includes("obrigado pela confiança") ||
+        lastBotLower.includes("obrigada pela confiança")
+    );
+
+    const isShortAckOrEmoji = (
+        currentMsg.length <= 15 &&
+        !currentMsg.includes("?") &&
+        /^(👍|🙏|😊|😁|🙌|👏|❤️|🙂|😉|ok|blz|valeu|obrigado|obrigada|show|combinado|tchau|ótimo|otimo|perfeito|grato|grata|certo)$/i.test(currentMsg.trim().toLowerCase())
+    );
+
+    if (isLastBotFarewell && isShortAckOrEmoji) {
+        return {
+            currentStep: "stop_flow",
+            stop_flow: true,
+            is_auto_reply: true,
+            reason: "Encerramento cordial com emoji/agradecimento (anti-loop de despedida)",
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            trigger_handoff: false,
+            handoff_data: {}
+        };
+    }
+
     // 🛡️ SANITIZAÇÃO GLOBAL OBRIGATÓRIA: NUNCA ENVIAR CAMPOS OU DADOS TÉCNICOS AO CLIENTE
     function sanitizeUserFacingMessage(text) {
         if (!text) return "";
@@ -2016,6 +2052,9 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         revenue: revenue,
         requested_amount: requested_amount,
         debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount, hasPriorOptIn, isOptInWithin30Days, isIdentityConfirmed, isPreApprovedJourney, isCnpjDivergent },
+        close_conversation: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
+        is_refused: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
+        conversation_status: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado') ? 'closed' : 'ai_active',
         interactive_buttons: interactive_buttons,
         consent: (isPreApprovedJourney || nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? {
             opt_in: true,

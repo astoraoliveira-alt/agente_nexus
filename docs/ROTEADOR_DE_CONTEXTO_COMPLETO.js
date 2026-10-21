@@ -1,12 +1,17 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V30.2 (AJUSTES DEFINITIVOS BENCHMARK TICKET / FISERV CAPITAL) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V31.0 (JORNADA UNIFICADA ESTILO LP + CAPTURA VALOR & FATURAMENTO EM 1 PASSO) */
 
-/* MUDANÇAS V30.2:
-   1. Correção Crítica de Repetição de Simulação (confirmacao_cliente):
-      - userTypedNewNumbers corrigido para analisar estritamente a mensagem atual do usuário (fallbackNumber e números/parcelas digitados nesta interação), eliminando o falso positivo em que números da mensagem anterior de simulação da Sofia no histórico reativavam o fluxo de simulação.
-      - Extração de parcelas da mensagem atual tem precedência estrita sobre números lidos do histórico.
-      - Objeções e hesitações comerciais ('vou analisar', 'vou pensar', 'deixa eu ver', 'vou falar com meu sócio') mantêm a conversa na etapa confirmacao_cliente em modo consultivo humanizado, sem disparar simulações repetidas.
-   2. Diretriz de Hesitação no Prompt da Sofia:
-      - Regra de ouro explícita orientando acolhimento, respeito ao tempo do cliente e oferta de esclarecimento de dúvidas antes da decisão.
+/* MUDANÇAS V31.0 (BENCHMARK TICKET / FISERV CAPITAL 21/OUT):
+   1. Jornada Unificada Estilo Landing Page (LP):
+      - Unificada a coleta de valor desejado e faturamento médio mensal em UMA ÚNICA pergunta após o clique em "Quero Simular".
+      - Prompt: "Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_"
+   2. Parser Inteligente Multi-Valor com Fallbacks Extensos:
+      - Suporte determinístico a gírias (k, mil, mi, milhões), números abreviados ("50" -> 50.000) e números por extenso ("cinquenta", "cem mil").
+      - Se o cliente informar 2 valores em sequência (ex: "50 e 100", "50k e 80k", "50 80"):
+        1º valor = Valor Solicitado (50 mil) e 2º valor = Faturamento Médio Mensal (100 mil/80 mil).
+      - Se o cliente informar 1 único valor (ex: "50 mil", "50k", "cinquenta", "50"):
+        Fallback inteligente: preenche AMBOS (requested_amount = 50.000 e revenue = 50.000).
+   3. Redução Drástica do Funil (de 3 turnos para 1 único turno de dados):
+      - Ao responder a pergunta unificada, avança IMEDIATAMENTE para consentimento_optin com o PDF e o botão oficial [✅ SIM, AUTORIZO].
 */
 /* MUDANÇAS V30.0:
    1. Prioridade 1 - Refinamento de Engajamento e Expurgo de Robôs:
@@ -411,6 +416,42 @@ try {
         };
     }
 
+    // 🛑 DETECÇÃO 3F: ANTI-LOOP DE CORTESIA / EMOJIS DE ENCERRAMENTO
+    // Se a última mensagem da Sofia já foi uma despedida/encerramento de atendimento,
+    // e o usuário respondeu apenas com emoji ou agradecimento curto (<= 15 caracteres),
+    // NÃO disparar nova mensagem para evitar loop infinito de gentilezas ("Combinado! Tenha um ótimo dia...").
+    const isLastBotFarewell = (
+        lastBotLower.includes("tenha um ótimo dia") ||
+        lastBotLower.includes("tenha um bom dia") ||
+        lastBotLower.includes("fico por aqui à disposição") ||
+        lastBotLower.includes("fico por aqui a disposicao") ||
+        lastBotLower.includes("estou à disposição") ||
+        lastBotLower.includes("estou a disposicao") ||
+        lastBotLower.includes("se precisar de algo") ||
+        lastBotLower.includes("se mudar de ideia") ||
+        lastBotLower.includes("obrigado pela confiança") ||
+        lastBotLower.includes("obrigada pela confiança")
+    );
+
+    const isShortAckOrEmoji = (
+        currentMsg.length <= 15 &&
+        !currentMsg.includes("?") &&
+        /^(👍|🙏|😊|😁|🙌|👏|❤️|🙂|😉|ok|blz|valeu|obrigado|obrigada|show|combinado|tchau|ótimo|otimo|perfeito|grato|grata|certo)$/i.test(currentMsg.trim().toLowerCase())
+    );
+
+    if (isLastBotFarewell && isShortAckOrEmoji) {
+        return {
+            currentStep: "stop_flow",
+            stop_flow: true,
+            is_auto_reply: true,
+            reason: "Encerramento cordial com emoji/agradecimento (anti-loop de despedida)",
+            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+            trigger_handoff: false,
+            handoff_data: {}
+        };
+    }
+
     // 🛡️ SANITIZAÇÃO GLOBAL OBRIGATÓRIA: NUNCA ENVIAR CAMPOS OU DADOS TÉCNICOS AO CLIENTE
     function sanitizeUserFacingMessage(text) {
         if (!text) return "";
@@ -517,6 +558,101 @@ try {
         clean = clean.replace(/[^0-9.]/g, '');
         let parsed = parseFloat(clean);
         return isNaN(parsed) ? null : parsed;
+    }
+
+    // 🎯 V31: EXTRATOR UNIFICADO ESTILO LP (VALOR SOLICITADO + FATURAMENTO COM FALLBACKS)
+    function parseSingleValue(token) {
+        if (!token) return null;
+        let str = String(token).toLowerCase().trim().replace(/^r\$\s*/, '').replace(/[.,]+$/, '');
+        
+        if (/\b(?:mi|milh[aã]o|milh[oõ]es)\b/i.test(str)) {
+            let num = parseFloat(str.replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.'));
+            return isNaN(num) ? null : num * 1000000;
+        }
+
+        const hasMil = /\b(?:mil|k)\b/i.test(str);
+        let numStr = str.replace(/\b(?:mil|k)\b/gi, '').trim();
+
+        if (numStr.includes('.') && numStr.includes(',')) {
+            numStr = numStr.replace(/\./g, '').replace(',', '.');
+        } else if (numStr.includes(',')) {
+            const parts = numStr.split(',');
+            if (parts.length === 2 && parts[1].length === 2) {
+                numStr = parts[0].replace(/\./g, '');
+            } else {
+                numStr = numStr.replace(/,/g, '');
+            }
+        } else if (numStr.includes('.')) {
+            const parts = numStr.split('.');
+            if (parts.length === 2 && parts[1].length === 3) {
+                numStr = numStr.replace(/\./g, '');
+            }
+        }
+
+        let val = parseFloat(numStr.replace(/[^0-9.]/g, ''));
+        if (isNaN(val)) return null;
+
+        if (hasMil) {
+            if (val < 1000) val *= 1000;
+        } else if (val >= 10 && val <= 500) {
+            val *= 1000;
+        }
+
+        return val;
+    }
+
+    function extractLoanAndRevenue(text) {
+        if (!text) return { requestedAmount: null, revenue: null };
+        let clean = String(text).toLowerCase().trim();
+
+        const wordMap = {
+            'cinquenta e cinco': 55, 'cinquenta': 50, 'quarenta e cinco': 45, 'quarenta': 40,
+            'trinta e cinco': 35, 'trinta': 30, 'vinte e cinco': 25, 'vinte': 20, 'quinze': 15, 'dez': 10,
+            'sessenta': 60, 'setenta': 70, 'oitenta': 80, 'noventa': 90, 'cem': 100, 'cento': 100,
+            'duzentos': 200, 'trezentos': 300, 'quatrocentos': 400, 'quinhentos': 500
+        };
+
+        for (const [w, val] of Object.entries(wordMap)) {
+            clean = clean.replace(new RegExp(`\\b${w}\\b`, 'gi'), val);
+        }
+
+        let semanticReq = null;
+        let semanticRev = null;
+
+        const reqPattern = /(?:quero|preciso|solicito|empr[eé]stimo|cr[eé]dito|valor|pegar)\s*(?:de|em torno de|at[eé])?\s*(r?\$?\s*[\d.,]+(?:\s*(?:mil|k))?)/i;
+        const revPattern = /(?:faturamento|faturamos|faturo|vendo|vendas|receita|ganho)\s*(?:de|em torno de|mensal(?:mente)?)?\s*(r?\$?\s*[\d.,]+(?:\s*(?:mil|k))?)/i;
+
+        const matchReq = clean.match(reqPattern);
+        if (matchReq) semanticReq = parseSingleValue(matchReq[1]);
+
+        const matchRev = clean.match(revPattern);
+        if (matchRev) semanticRev = parseSingleValue(matchRev[1]);
+
+        let numClean = clean.replace(/\bem\s+\d+\s*(?:x|vezes|parcelas?)\b/gi, '')
+                            .replace(/\b\d+\s*(?:x|vezes|parcelas?)\b/gi, '');
+
+        const tokenRegex = /(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s*(?:mil|k|milh[oõ]es|milh[aã]o|mi))?/gi;
+        const rawMatches = numClean.match(tokenRegex) || [];
+        const numberTokens = rawMatches.map(parseSingleValue).filter(v => v !== null && v > 0);
+
+        if (semanticReq && semanticRev) {
+            return { requestedAmount: semanticReq, revenue: semanticRev };
+        }
+
+        if (numberTokens.length >= 2) {
+            return {
+                requestedAmount: semanticReq || numberTokens[0],
+                revenue: semanticRev || numberTokens[1]
+            };
+        } else if (numberTokens.length === 1) {
+            const val = numberTokens[0];
+            return {
+                requestedAmount: semanticReq || val,
+                revenue: semanticRev || val
+            };
+        }
+
+        return { requestedAmount: semanticReq, revenue: semanticRev };
     }
 
     function findValueForQuestion(hist, questionSubstrings) {
@@ -744,15 +880,8 @@ try {
         ) {
             currentStep = 'apresenta_ofertas';
         } else if (
-            lastSofiaMsg.includes("faturamento médio mensal atual") || 
-            lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || 
-            lastSofiaMsg.includes("qual o faturamento") ||
-            lastSofiaMsg.includes("qual o faturamento médio mensal") ||
-            lastSofiaMsg.includes("faturamento médio mensal aproximado") ||
-            (lastSofiaMsg.includes("avaliarmos a melhor proposta") && lastSofiaMsg.includes("faturamento"))
-        ) {
-            currentStep = 'coleta_faturamento';
-        } else if (
+            (lastSofiaMsg.includes("valor que deseja solicitar") && lastSofiaMsg.includes("faturamento")) ||
+            lastSofiaMsg.includes("valor que deseja solicitar") ||
             lastSofiaMsg.includes("valor desejado para solicitar") ||
             lastSofiaMsg.includes("valor desejado") ||
             lastSofiaMsg.includes("solicitar na análise") ||
@@ -767,6 +896,15 @@ try {
             lastSofiaMsg.includes("valor máximo disponível")
         ) {
             currentStep = 'coleta_valor';
+        } else if (
+            lastSofiaMsg.includes("faturamento médio mensal atual") || 
+            lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || 
+            lastSofiaMsg.includes("qual o faturamento") ||
+            lastSofiaMsg.includes("qual o faturamento médio mensal") ||
+            lastSofiaMsg.includes("faturamento médio mensal aproximado") ||
+            (lastSofiaMsg.includes("avaliarmos a melhor proposta") && lastSofiaMsg.includes("faturamento"))
+        ) {
+            currentStep = 'coleta_faturamento';
         } else if (
             lastSofiaMsg.includes("autorização à fiserv") ||
             lastSofiaMsg.includes("termo de autorização") ||
@@ -832,17 +970,33 @@ try {
         extractedAmount = null;
     }
 
-    // ⚡ Prioridade da mensagem atual (V29: coleta_valor vem primeiro)
+    // ⚡ Prioridade da mensagem atual (V31: Coleta unificada estilo LP)
+    const unifiedExtraction = extractLoanAndRevenue(lastUserLower);
+    if (unifiedExtraction.requestedAmount) {
+        extractedAmount = unifiedExtraction.requestedAmount;
+    }
+    if (unifiedExtraction.revenue) {
+        revenue = unifiedExtraction.revenue;
+    }
+
     if (currentStep === 'coleta_valor' || currentStep === 'valor_proposta') {
-        if (fallbackNumber !== null && fallbackNumber >= 1000) {
+        if (extractedAmount && !revenue) {
+            revenue = extractedAmount; // Fallback: 1 único valor preenche ambos
+        }
+        if (!extractedAmount && fallbackNumber !== null && fallbackNumber >= 1000) {
             extractedAmount = fallbackNumber;
+            if (!revenue) revenue = extractedAmount;
         } else if (!extractedAmount && fallbackNumber > 100) {
             extractedAmount = fallbackNumber;
+            if (!revenue) revenue = extractedAmount;
         } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500) {
             extractedAmount = fallbackNumber * 1000; // Ex: "50" -> 50.000
+            if (!revenue) revenue = extractedAmount;
         }
     } else if (currentStep === 'coleta_faturamento') {
-        if (fallbackNumber !== null && fallbackNumber >= 1000) {
+        if (!revenue && extractedAmount) {
+            revenue = extractedAmount;
+        } else if (!revenue && fallbackNumber !== null && fallbackNumber >= 1000) {
             revenue = fallbackNumber;
         } else if (!revenue && fallbackNumber > 100) {
             revenue = fallbackNumber;
@@ -1151,7 +1305,12 @@ try {
             nextStep = 'coleta_cnpj_correto';
             transitionApplied = true;
         } else if (requested_amount && requested_amount >= 10000 && requested_amount <= 500000 && !isDoubt) {
-            nextStep = 'coleta_faturamento';
+            // 🎯 V31 Jornada Unificada (LP): Se coletou valor e já tem faturamento (ou preenchido por fallback de 1 valor), avança direto para o opt-in!
+            if (revenue && revenue > 0) {
+                nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
+            } else {
+                nextStep = 'coleta_faturamento';
+            }
             transitionApplied = true;
         } else if (isNegative && !isDoubt) {
             nextStep = 'desistencia_cliente';
@@ -1490,17 +1649,17 @@ try {
                 loanNum = loanNum * 1000;
             }
             if (loanNum !== null && loanNum < 10000) {
-                forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise?\n\n_Ex.: *50 mil*_`;
+                forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise e o seu faturamento médio mensal?\n\n_Ex.: *50 mil e 80 mil*_`;
             } else if (loanNum !== null && loanNum > 500000) {
-                forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar?\n\n_Ex.: *50 mil*_`;
-            } else if (lastSofiaMsg.includes("valor desejado") || lastSofiaMsg.includes("deseja solicitar") || lastSofiaMsg.includes("gostaria de solicitar") || lastSofiaMsg.includes("qual valor")) {
-                forcedText = `Por favor, me informe apenas o valor aproximado que deseja solicitar para a análise de crédito.\n\n_Ex.: *50 mil*_`;
+                forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar e o seu faturamento médio mensal?\n\n_Ex.: *50 mil e 80 mil*_`;
+            } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("valor que deseja solicitar") || lastSofiaMsg.includes("valor desejado")) {
+                forcedText = `Por favor, me informe o valor desejado para a análise de crédito e o faturamento médio mensal da sua empresa.\n\n_Ex.: *50 mil e 80 mil*_`;
             } else {
-                forcedText = `Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_`;
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
             }
         } else {
-            // 🎯 P2 Oficial Ticket: Texto enxuto na abertura da coleta de valor (sem repetição de Razão Social/CNPJ)
-            forcedText = `Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_`;
+            // 🎯 V31 Oficial Ticket: Pergunta Unificada estilo Landing Page (LP)
+            forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
         }
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'coleta_faturamento') {
@@ -1649,7 +1808,7 @@ try {
     // Se o robô já enviou mensagens antes e está tentando reenviar o pitch de abertura:
     if (assistantMessages.length > 0 && isCampaignEcho && !isStrictGreeting) {
         nextStep = 'coleta_valor';
-        forcedText = `Certo! Qual o valor desejado para solicitar na análise?\n\n_Ex.: 50 mil_`;
+        forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
         mode = "parrot";
     }
 
@@ -1658,7 +1817,7 @@ try {
         const lastSentNormalized = normalizeText(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text);
         if (cleanNextText.length > 20 && lastSentNormalized === cleanNextText) {
             if (nextStep === 'coleta_valor' || currentStep === 'start' || currentStep === 'explicacao_agente') {
-                forcedText = `Certo! Qual o valor que você gostaria de solicitar na análise?\n\n_Ex.: 50 mil_`;
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
                 nextStep = 'coleta_valor';
             } else if (nextStep === 'coleta_faturamento') {
                 forcedText = `Sem problemas! Apenas uma média aproximada do faturamento mensal já é suficiente para avançarmos. Quanto você estima?\n\n_Ex.: 80 mil_`;
@@ -2016,6 +2175,9 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         revenue: revenue,
         requested_amount: requested_amount,
         debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount, hasPriorOptIn, isOptInWithin30Days, isIdentityConfirmed, isPreApprovedJourney, isCnpjDivergent },
+        close_conversation: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
+        is_refused: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
+        conversation_status: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado') ? 'closed' : 'ai_active',
         interactive_buttons: interactive_buttons,
         consent: (isPreApprovedJourney || nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? {
             opt_in: true,
