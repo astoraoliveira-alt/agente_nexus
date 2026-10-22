@@ -127,12 +127,13 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
     return true;
   }
 
-  // 6. Regex rigorosa: exige verbo de contato/fala + destino humano OU menção clara a atendente/humano
+  // 6. Regex rigorosa: exige verbo de contato/fala + destino humano OU menção clara a atendente/humano/ligação
   const hasAttendantExplicit = /\b(atendente|atensente|atendimento humano|suporte humano|pessoa real)\b/i.test(text);
   const hasContactHuman = /\b(falar|conversar|passar|transferir|chamar|conectar)\b.*\b(humano|pessoa|algu[ée]m|especialista|especialistas|atendente|atensente|operador|consultor|assessor)\b/i.test(text);
   const hasRequestHuman = /\b(quero|preciso|gostaria|favor|solicito|tem como)\b.*\b(humano|atendente|atensente|especialista|especialistas|pessoa|operador)\b/i.test(text);
+  const hasCallRequest = /\b(me\s+liga|me\s+ligue|pode\s+ligar|ligar\s+para\s+mim|liga\s+pra\s+mim|ligue\s+para\s+mim|me\s+telefona|pode\s+me\s+ligar|favor\s+ligar|preciso\s+que\s+ligue)\b/i.test(text);
 
-  return hasAttendantExplicit || hasContactHuman || hasRequestHuman;
+  return hasAttendantExplicit || hasContactHuman || hasRequestHuman || hasCallRequest;
 }
 
 const HandoffHub: React.FC = () => {

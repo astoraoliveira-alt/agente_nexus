@@ -1,17 +1,18 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V31.0 (JORNADA UNIFICADA ESTILO LP + CAPTURA VALOR & FATURAMENTO EM 1 PASSO) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V31.1 (BLINDAGEM TOTAL: EXPURGO DE AUTO-RESPOSTAS, PARSER MONETÁRIO BR E FIM DO LOOP DE FATURAMENTO) */
 
-/* MUDANÇAS V31.0 (BENCHMARK TICKET / FISERV CAPITAL 21/OUT):
-   1. Jornada Unificada Estilo Landing Page (LP):
-      - Unificada a coleta de valor desejado e faturamento médio mensal em UMA ÚNICA pergunta após o clique em "Quero Simular".
-      - Prompt: "Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_"
-   2. Parser Inteligente Multi-Valor com Fallbacks Extensos:
-      - Suporte determinístico a gírias (k, mil, mi, milhões), números abreviados ("50" -> 50.000) e números por extenso ("cinquenta", "cem mil").
-      - Se o cliente informar 2 valores em sequência (ex: "50 e 100", "50k e 80k", "50 80"):
-        1º valor = Valor Solicitado (50 mil) e 2º valor = Faturamento Médio Mensal (100 mil/80 mil).
-      - Se o cliente informar 1 único valor (ex: "50 mil", "50k", "cinquenta", "50"):
-        Fallback inteligente: preenche AMBOS (requested_amount = 50.000 e revenue = 50.000).
-   3. Redução Drástica do Funil (de 3 turnos para 1 único turno de dados):
-      - Ao responder a pergunta unificada, avança IMEDIATAMENTE para consentimento_optin com o PDF e o botão oficial [✅ SIM, AUTORIZO].
+/* MUDANÇAS V31.1 (22/OUT - CORREÇÕES DE CAMPO):
+   1. Blindagem Rigorosa de Auto-Respostas (Casos 1 e 3):
+      - Inclusão de assinaturas de WhatsApp Business ("nossa equipe irá responder", "agradecemos a preferência", "é um prazer te ter aqui").
+      - Inclusão de plataformas de delivery e catálogos (ifood, pedeagora, cardapioweb, ubereats, 99food, etc.).
+      - Detecção de diretório de lojas (múltiplos telefones com traço + links).
+      - Bloqueio de extração de telefones comerciais como valores de empréstimo ou faturamento (elimina falso opt-in de robôs).
+   2. Parser Monetário Robusto para Formato Brasileiro (Caso 2):
+      - Suporte determinístico a números com dupla vírgula (ex: "15,000,00" -> R$ 15.000,00 e não R$ 1.500.000,00).
+      - Evita estouro do teto de R$ 500k e destrava avanço imediato para opt-in quando valor e faturamento são informados.
+   3. Eliminação do Fallback Artificial de 1 Único Número & Fim do Loop (Casos 4 e 5):
+      - Se o cliente informar apenas 1 valor (ex: "25 mil" ou "40"): Sofia registra o empréstimo e solicita educadamente o faturamento médio mensal, sem assumir falsamente que faturamento = empréstimo.
+      - Se o cliente complementar o faturamento em seguida (ex: "Faturamento 80mil"), Sofia acolhe o faturamento, mantém o empréstimo e reapresenta o botão de opt-in sem regredir ou resetar o fluxo.
+      - Removido "faturamento" isolado de regexDoubt para que respostas com valores de receita não sejam tratadas como dúvidas de LLM.
 */
 /* MUDANÇAS V30.0:
    1. Prioridade 1 - Refinamento de Engajamento e Expurgo de Robôs:
@@ -204,6 +205,7 @@ try {
         (typeof $json !== 'undefined' ? ($json?.content ?? $json?.text ?? $json?.message ?? $json?.body) : undefined) ??
         rpcData?.message ??
         rpcData?.payload?.content ??
+        rpcData?.payload?.message ??
         ctx?.current_message ??
         (history.length > 0 && ['user', 'inbound', 'customer', 'cliente'].includes(String(history[history.length - 1]?.sender_type || history[history.length - 1]?.role || '').toLowerCase()) ? history[history.length - 1]?.content : "") ??
         ""
@@ -284,8 +286,11 @@ try {
     // 🛡️ CIRCUIT BREAKER ANTI-LOOP TRIPLO & DETECTOR DE AUTO-RESPOSTAS (UNIVERSAL)
     // =========================================================================
 
-    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido com casos Bot-to-Bot)
-    const regexAutoReply = /(agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|rob[oô]\s+\w+|rob[oô] l[eé]o|atendente virtual|bot de atendimento|chat errado|chats diferentes|conversa errada|conversas diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|pedir algo pra comer|monto seu pedido|monto tudo pra voc[eê]|t[aá] aberto agora|aberto agora|movorafood|cardapioweb|anota\.ai|ola\.click|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui|(s[oó] vende|vendemos|a gente faz|a gente s[oó] faz|a gente vende)\s+(salgado|pastel|churro|pizza|marmita|lanche|comida|hamburguer))/i;
+    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido V31.1 com WhatsApp Business, delivery e diretório)
+    const regexAutoReply = /(agradece(mos)? (a prefer[eê]ncia|seu contato|sua mensagem)|[eé] um prazer te ter aqui|nossa equipe (ir[aá]|vai) responder|assim que poss[ií]vel (nossa equipe|responderemos|retornaremos)|(nosso )?atendimento (de segunda|das? \d{1,2}|ao?s? domingos?|comercial)|pronta entrega|pedeagora(\.net)?|ifood(\.com\.br)?|ubereats|99food|beefood|menudin|unidades? mais pr[oó]xima|bolos do s[ií]tio|fale em uma das unidades|agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|rob[oô]\s+\w+|rob[oô] l[eé]o|atendente virtual|bot de atendimento|chat errado|chats diferentes|conversa errada|conversas diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|pedir algo pra comer|monto seu pedido|monto tudo pra voc[eê]|t[aá] aberto agora|aberto agora|movorafood|cardapioweb|anota\.ai|ola\.click|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui|(s[oó] vende|vendemos|a gente faz|a gente s[oó] faz|a gente vende)\s+(salgado|pastel|churro|pizza|marmita|lanche|comida|hamburguer))/i;
+
+    // Detecção estrutural de diretórios/catálogos de lojas (múltiplos telefones com hífen + URLs)
+    const isStoreDirectory = (/\b\d{4,5}-\d{4}\b.*\b\d{4,5}-\d{4}\b/s.test(lastUserLower) || /\b\d{4,5}-\d{4}\b/s.test(lastUserLower)) && /https?:\/\//i.test(lastUserLower);
 
     // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv)
     const isExactButtonClick = [
@@ -300,8 +305,8 @@ try {
 
     const isExplicitSimulationIntent = /\b(quero simular|fazer simula[çc][ãa]o|ver simula[çc][ãa]o|gostaria de simular|solicitar simula[çc][ãa]o|quanto posso pegar|fazer uma proposta|ver minhas taxas)\b/i.test(lastUserLower);
 
-    // 🛡️ Blindagem estrita: mensagens de auto-resposta (ex: cardápios com "não cobramos taxa") NUNCA são classificadas como clique de botão
-    const isButtonTemplateClick = (isExactButtonClick || isExplicitSimulationIntent) && !regexAutoReply.test(lastUserLower);
+    // 🛡️ Blindagem estrita: mensagens de auto-resposta (ex: cardápios com "não cobramos taxa" ou diretórios de lojas) NUNCA são classificadas como clique de botão
+    const isButtonTemplateClick = (isExactButtonClick || isExplicitSimulationIntent) && !regexAutoReply.test(lastUserLower) && !isStoreDirectory;
 
     // 🙋 P1: Saudações Humanas Curtas Isoladas (<= 15 caracteres)
     const regexStrictGreeting = /^(ol[aá]|oi|oie|opa|bom dia|boa tarde|boa noite)[!.,\s]*$/i;
@@ -391,7 +396,7 @@ try {
     const isHardCapReached = userMsgs.length >= 5 && !hasPriorOptIn && !hasSimulatedInHistory && !leadInfo.revenue && !isButtonTemplateClick;
 
     // 🛡️ P1: Detecção de Auto-Resposta e Circuit Breaker
-    const isAutoReplyDetected = !isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && !leadInfo.revenue && !leadInfo.faturamento && regexAutoReply.test(lastUserLower);
+    const isAutoReplyDetected = !isButtonTemplateClick && !hasPriorOptIn && !hasActiveLoan && (regexAutoReply.test(lastUserLower) || isStoreDirectory);
     const isLeadActive = hasPriorOptIn || hasSimulatedInHistory || hasActiveLoan;
     const isCircuitBreakerTriggered = !isButtonTemplateClick && (
         isLeadActive 
@@ -541,18 +546,26 @@ try {
         clean = clean.replace(/\b\d+\s*(?:x|vezes|parcelas?)\b/gi, '').trim();
 
         if (clean.includes('.') && clean.includes(',')) {
-            clean = clean.replace(/\./g, '').replace(',', '.');
+            if (clean.lastIndexOf(',') > clean.lastIndexOf('.')) {
+                const parts = clean.split(',');
+                clean = parts.slice(0, -1).join('').replace(/\./g, '') + '.' + parts[parts.length - 1];
+            } else {
+                const parts = clean.split('.');
+                clean = parts.slice(0, -1).join('').replace(/,/g, '') + '.' + parts[parts.length - 1];
+            }
         } else if (clean.includes(',')) {
             const parts = clean.split(',');
-            if (parts.length === 2 && parts[1].length <= 2) {
-                clean = parts[0].replace(/\./g, '') + '.' + parts[1];
+            if (parts.length >= 2 && parts[parts.length - 1].length <= 2) {
+                clean = parts.slice(0, -1).join('').replace(/\./g, '') + '.' + parts[parts.length - 1];
+            } else if (parts.length === 2 && parts[1].length === 3) {
+                clean = parts.join('');
             } else {
                 clean = clean.replace(/,/g, '');
             }
         } else if (clean.includes('.')) {
             const parts = clean.split('.');
-            if (parts.length === 2 && parts[1].length === 3) {
-                clean = clean.replace(/\./g, '');
+            if (parts.length >= 2 && parts[parts.length - 1].length === 3) {
+                clean = parts.join('');
             }
         }
         clean = clean.replace(/[^0-9.]/g, '');
@@ -560,7 +573,7 @@ try {
         return isNaN(parsed) ? null : parsed;
     }
 
-    // 🎯 V31: EXTRATOR UNIFICADO ESTILO LP (VALOR SOLICITADO + FATURAMENTO COM FALLBACKS)
+    // 🎯 V31.1: EXTRATOR UNIFICADO ESTILO LP (VALOR SOLICITADO + FATURAMENTO COM PARSER BR BLINDADO)
     function parseSingleValue(token) {
         if (!token) return null;
         let str = String(token).toLowerCase().trim().replace(/^r\$\s*/, '').replace(/[.,]+$/, '');
@@ -574,17 +587,32 @@ try {
         let numStr = str.replace(/\b(?:mil|k)\b/gi, '').trim();
 
         if (numStr.includes('.') && numStr.includes(',')) {
-            numStr = numStr.replace(/\./g, '').replace(',', '.');
+            if (numStr.lastIndexOf(',') > numStr.lastIndexOf('.')) {
+                // Padrão BR: 15.000,00 -> 15000
+                const parts = numStr.split(',');
+                numStr = parts[0].replace(/\./g, '');
+            } else {
+                // Padrão US: 15,000.00 -> 15000
+                const parts = numStr.split('.');
+                numStr = parts[0].replace(/,/g, '');
+            }
         } else if (numStr.includes(',')) {
             const parts = numStr.split(',');
-            if (parts.length === 2 && parts[1].length === 2) {
-                numStr = parts[0].replace(/\./g, '');
+            // Suporte a dupla vírgula (ex: "15,000,00") ou centavos simples ("15,00")
+            if (parts[parts.length - 1].length === 2 && parts.length >= 2) {
+                numStr = parts.slice(0, -1).join('');
+            } else if (parts.length === 2 && parts[1].length === 3) {
+                numStr = parts.join('');
             } else {
                 numStr = numStr.replace(/,/g, '');
             }
         } else if (numStr.includes('.')) {
             const parts = numStr.split('.');
-            if (parts.length === 2 && parts[1].length === 3) {
+            if (parts.length === 2 && parts[1].length === 2) {
+                numStr = parts[0];
+            } else if (parts.length >= 2 && parts[parts.length - 1].length === 3) {
+                numStr = parts.join('');
+            } else {
                 numStr = numStr.replace(/\./g, '');
             }
         }
@@ -604,6 +632,14 @@ try {
     function extractLoanAndRevenue(text) {
         if (!text) return { requestedAmount: null, revenue: null };
         let clean = String(text).toLowerCase().trim();
+
+        // 🛡️ Blindagem V31.1: Se o texto for auto-resposta ou diretório de lojas, não extrai valores
+        if (regexAutoReply.test(clean) || (/\b\d{4,5}-\d{4}\b/s.test(clean) && /https?:\/\//i.test(clean))) {
+            return { requestedAmount: null, revenue: null };
+        }
+
+        // Remove telefones com traço (ex: 4101-0596, 99259-5887) para não extrair pedaços como empréstimo/faturamento
+        clean = clean.replace(/\b\d{4,5}-\d{4}\b/g, '');
 
         const wordMap = {
             'cinquenta e cinco': 55, 'cinquenta': 50, 'quarenta e cinco': 45, 'quarenta': 40,
@@ -646,10 +682,15 @@ try {
             };
         } else if (numberTokens.length === 1) {
             const val = numberTokens[0];
-            return {
-                requestedAmount: semanticReq || val,
-                revenue: semanticRev || val
-            };
+            // 🎯 V31.1: Sem duplicação artificial! Se o usuário digitou 1 número, classifica corretamente
+            if (semanticRev && !semanticReq) {
+                return { requestedAmount: null, revenue: semanticRev || val };
+            } else if (semanticReq && !semanticRev) {
+                return { requestedAmount: semanticReq || val, revenue: null };
+            } else {
+                // Sem indicação semântica explícita: o valor refere-se ao empréstimo solicitado (1º item perguntado)
+                return { requestedAmount: val, revenue: null };
+            }
         }
 
         return { requestedAmount: semanticReq, revenue: semanticRev };
@@ -979,19 +1020,17 @@ try {
         revenue = unifiedExtraction.revenue;
     }
 
+    if (!revenue && leadInfo.revenue) {
+        revenue = leadInfo.revenue;
+    }
+
     if (currentStep === 'coleta_valor' || currentStep === 'valor_proposta') {
-        if (extractedAmount && !revenue) {
-            revenue = extractedAmount; // Fallback: 1 único valor preenche ambos
-        }
         if (!extractedAmount && fallbackNumber !== null && fallbackNumber >= 1000) {
             extractedAmount = fallbackNumber;
-            if (!revenue) revenue = extractedAmount;
         } else if (!extractedAmount && fallbackNumber > 100) {
             extractedAmount = fallbackNumber;
-            if (!revenue) revenue = extractedAmount;
         } else if (!extractedAmount && fallbackNumber >= 10 && fallbackNumber <= 500) {
             extractedAmount = fallbackNumber * 1000; // Ex: "50" -> 50.000
-            if (!revenue) revenue = extractedAmount;
         }
     } else if (currentStep === 'coleta_faturamento') {
         if (!revenue && extractedAmount) {
@@ -1002,6 +1041,11 @@ try {
             revenue = fallbackNumber;
         } else if (!revenue && fallbackNumber >= 5 && fallbackNumber <= 500) {
             revenue = fallbackNumber * 1000; // Ex: "80" -> 80.000
+        }
+
+        // 🛡️ V31.1: Na etapa de faturamento, preserva o valor de empréstimo já coletado anteriormente
+        if (!/(?:quero|preciso|solicito|empr[eé]stimo|cr[eé]dito)\s*(?:de)?/i.test(lastUserLower)) {
+            extractedAmount = leadInfo.requested_amount || findValueForQuestion(history, ["valor desejado", "solicitar na análise", "solicitar na analise", "valor de empréstimo", "valor de emprestimo", "deseja simular"]);
         }
     } else {
         const lastSofiaAskedInstallments = /\b(em quantas parcelas|quantas parcelas|qual o prazo|de 6 a \d{1,2} parcelas)\b/i.test(lastSofiaMsg);
@@ -1110,10 +1154,22 @@ try {
     // Reconhecimento de divergência de CNPJ no input do usuário
     const isCnpjDivergent = /\b(n[aã]o [eé] (meu|minha|esse|este)|cnpj (errado|n[aã]o [eé]|outro|diferente|incorreto)|n[aã]o sou|outra empresa|trocou|empresa errada|n[aã]o perten[cç]o)\b/i.test(lastUserLower) || semanticIntent === "CNPJ_BLOCKED";
 
-    const regexDoubt = /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|cartão|cartao|cartões|cartoes|faturamento|só no cartão|so no cartao|crédito|credito|débito|debito|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower) || /^cart[aã]o\??$/i.test(lastUserLower.trim());
-    const isDoubt = regexDoubt || ["EXACT_FAQ", "DYNAMIC_FAQ", "INSTITUTIONAL_FAQ", "DOUBT"].includes(semanticIntent);
+    // 🎯 V31.1: Identifica se o usuário está enviando um valor numérico de faturamento ou empréstimo (NÃO é dúvida)
+    const isFaturamentoAnswer = Boolean(unifiedExtraction.revenue || /\bfaturamento\s*(?:de|é|e|em torno de)?\s*r?\$?\s*\d+/i.test(lastUserLower));
+    const isAmountAnswer = Boolean(unifiedExtraction.requestedAmount || (extractedAmount && extractedAmount > 0) || /^(?:r\$\s*)?\d+(?:[.,]\d+)*(?:\s*(?:mil|k))?$/i.test(lastUserLower.trim()));
+    const isNumericAnswer = isFaturamentoAnswer || isAmountAnswer;
 
-    const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso|transferir|conectar|tem como)\b.*\b(humano|persona|atendente|atensente|vendedor|algu[ée]m|especialista|assessor|operador|consultor|fone|telefone|ligar|ligação|gente|pessoa de verdade|humano de verdade)\b/i.test(lastUserLower) || /^(atendente|atensente|assessor|humano|pessoa|fone|telefone|ligar)$/i.test(lastUserLower.trim());
+    const regexDoubt = (
+        /\b(dúvida|duvida|como|como assim|como funciona|saber mais|explica|entender|oque é|o que é|golpe|seguro|fraude|confiável|taxa|juros|bmp|banco|garantia|prazo|boleto|cartão|cartao|cartões|cartoes|só no cartão|so no cartao|crédito|credito|débito|debito|falar com um agente|porque|objetivo|garantias|quem é você|quem e voce|você é bot|voce e bot|é um robô|e um robo|portal|senha|login|cadastrais|cadastro|maquininha|filiação|filiaca|endereço|endereco|cnae|pat|dirf|rendimentos|assistência|assistencia|chaveiro|eletricista|encanador|reembolso|corte|antecipação|antecipacao|contrato|anuidade|tarifa|adesão|adesao|mensalidade)\b/i.test(lastUserLower) ||
+        /\b(o que é|como funciona|como comprovar|precisa comprovar)\s+faturamento\b/i.test(lastUserLower) ||
+        /^cart[aã]o\??$/i.test(lastUserLower.trim())
+    ) && !isNumericAnswer;
+
+    const isDoubt = (regexDoubt || ["EXACT_FAQ", "DYNAMIC_FAQ", "INSTITUTIONAL_FAQ", "DOUBT"].includes(semanticIntent)) && !isNumericAnswer;
+
+    const regexHuman = /\b(atendimento|falar com|conversar com|passar para|chamar|quero|preciso|transferir|conectar|tem como)\b.*\b(humano|persona|atendente|atensente|vendedor|algu[ée]m|especialista|assessor|operador|consultor|fone|telefone|ligar|ligação|gente|pessoa de verdade|humano de verdade)\b/i.test(lastUserLower) || 
+        /\b(me\s+liga|me\s+ligue|pode\s+ligar|liga\s+pra\s+mim|me\s+telefona|pode\s+me\s+ligar|favor\s+ligar)\b/i.test(lastUserLower) ||
+        /^(atendente|atensente|assessor|humano|pessoa|fone|telefone|ligar)$/i.test(lastUserLower.trim());
     const isHumanRequest = (regexHuman || semanticIntent === "HUMAN_HANDOFF" || isCnpjDivergent) && !isAgentButtonClick;
 
     // 🎯 RECONHECIMENTO DE INTENÇÃO / BOTÃO "FALAR ESPECIALISTA"
@@ -1654,12 +1710,20 @@ try {
                 forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar e o seu faturamento médio mensal?\n\n_Ex.: *50 mil e 80 mil*_`;
             } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("valor que deseja solicitar") || lastSofiaMsg.includes("valor desejado")) {
                 forcedText = `Por favor, me informe o valor desejado para a análise de crédito e o faturamento médio mensal da sua empresa.\n\n_Ex.: *50 mil e 80 mil*_`;
+            } else if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
+                const revFmt = Number(revenue).toLocaleString('pt-BR');
+                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor que deseja solicitar* de empréstimo (de R$ 10 mil a R$ 500 mil).\n\n_Exemplo: 50 mil_`;
             } else {
                 forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
             }
         } else {
-            // 🎯 V31 Oficial Ticket: Pergunta Unificada estilo Landing Page (LP)
-            forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+            if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
+                const revFmt = Number(revenue).toLocaleString('pt-BR');
+                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor que deseja solicitar* de empréstimo (de R$ 10 mil a R$ 500 mil).\n\n_Exemplo: 50 mil_`;
+            } else {
+                // 🎯 V31 Oficial Ticket: Pergunta Unificada estilo Landing Page (LP)
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+            }
         }
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'coleta_faturamento') {
@@ -1673,14 +1737,25 @@ try {
             forcedText = `Sem problemas! Não precisa ser exato, apenas uma média aproximada mensal para avaliarmos as melhores condições para sua empresa. Quanto você estima?\n\n_Ex.: *80 mil*_`;
         } else if (alreadyAskedFaturamento) {
             forcedText = `Para avançarmos com a simulação sem compromisso, preciso apenas de um valor médio aproximado do faturamento mensal da sua empresa em reais.\n\n_Ex.: *80 mil*_`;
+        } else if (requested_amount && requested_amount > 0) {
+            const reqFmt = Number(requested_amount).toLocaleString('pt-BR');
+            forcedText = `Perfeito! Registrei o valor de *R$ ${reqFmt}* para a sua análise.\n\nAgora, por favor, me informe o *faturamento médio mensal* da sua empresa para prosseguirmos com a simulação.\n\n_Ex.: *80 mil*_`;
         } else {
             // 🎯 P2 Oficial Ticket: Texto enxuto na coleta de faturamento (sem Razão Social)
             forcedText = `Ok! Para avaliarmos a melhor condição disponível para sua empresa, poderia nos informar o faturamento médio mensal atual?\n\n_Ex.: 80 mil_`;
         }
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'consentimento_optin') {
-        forcedText = `Li e entendi o termo de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
-        if (!isDoubt) mode = "parrot";
+        const hasFaturamentoInCurrent = Boolean(unifiedExtraction.revenue || /\bfaturamento\b/i.test(lastUserLower) || (currentStep === 'coleta_faturamento' && revenue && revenue > 0));
+        if (hasFaturamentoInCurrent && revenue && revenue > 0) {
+            const revFmt = Number(revenue).toLocaleString('pt-BR');
+            const reqFmt = requested_amount ? ` e o crédito solicitado de *R$ ${Number(requested_amount).toLocaleString('pt-BR')}*` : '';
+            forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}*${reqFmt} da sua empresa.\n\nPara avançarmos com a análise do crédito, basta confirmar a autorização clicando no botão *[✅ SIM, AUTORIZO]* abaixo:`;
+            mode = "parrot";
+        } else {
+            forcedText = `Li e entendi o termo de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
+            if (!isDoubt) mode = "parrot";
+        }
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema! Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
         mode = "parrot";
