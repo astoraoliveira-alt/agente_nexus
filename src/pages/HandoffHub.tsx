@@ -393,9 +393,14 @@ const HandoffHub: React.FC = () => {
   };
 
   const pendingRequests = useMemo(() => {
-    return searchedRequests.filter(r => 
-      r.status === 'pending' && (period === 'all' ? true : isWithinPeriod(r.requested_at || r.created_at, period))
-    );
+    return searchedRequests.filter(r => {
+      if (r.status !== 'pending') return false;
+      // Chamados pendentes em aberto não devem sumir da fila de atendimento só porque foram criados em dias anteriores
+      if (period === 'today') {
+        return isWithinPeriod(r.requested_at || r.created_at, 'month') || isWithinPeriod(r.requested_at || r.created_at, 'week');
+      }
+      return period === 'all' ? true : isWithinPeriod(r.requested_at || r.created_at, period);
+    });
   }, [searchedRequests, period]);
 
   const handledRequests = useMemo(() => {

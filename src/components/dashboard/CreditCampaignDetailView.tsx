@@ -309,8 +309,6 @@ export function CreditCampaignDetailView({
         let displayStatus = 'Pendente';
         if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
           displayStatus = 'Formalizado';
-        } else if (['lost', 'cancelled', 'declined', 'desistente', 'recusado_cliente'].includes(formalSt) || extSt.includes('desistiu')) {
-          displayStatus = 'Desistência';
         } else if (isHandoffInProgress) {
           displayStatus = 'Em Atendimento';
         } else if (isHandoffPending) {
@@ -319,6 +317,8 @@ export function CreditCampaignDetailView({
           displayStatus = 'Recusado';
         } else if (isApprovedLead) {
           displayStatus = 'Aprovado';
+        } else if (['lost', 'cancelled', 'declined', 'desistente', 'recusado_cliente'].includes(formalSt) || extSt.includes('desistiu')) {
+          displayStatus = 'Desistência';
         } else if (
           meta.simulation_data?.installment_value != null ||
           meta.simulation_data?.installments != null ||
@@ -593,16 +593,16 @@ export function CreditCampaignDetailView({
         let dispSt = 'Opt-in';
         if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
           dispSt = 'Formalizado';
-        } else if (['lost', 'cancelled', 'declined', 'desistente'].includes(formalSt) || extSt.includes('desistiu')) {
-          dispSt = 'Desistência';
-        } else if (['in_service', 'em_atendimento', 'in_progress'].includes(formalSt)) {
-          dispSt = 'Em Atendimento';
-        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt) || meta.handoff_requested || meta.falar_agente) {
-          dispSt = 'Aguardando Contato';
         } else if (isRec) {
           dispSt = 'Recusado';
         } else if (isApp) {
           dispSt = 'Aprovado';
+        } else if (['in_service', 'em_atendimento', 'in_progress'].includes(formalSt)) {
+          dispSt = 'Em Atendimento';
+        } else if (['waiting_contact', 'aguar_contato', 'pending_docs'].includes(formalSt) || meta.handoff_requested || meta.falar_agente) {
+          dispSt = 'Aguardando Contato';
+        } else if (['lost', 'cancelled', 'declined', 'desistente'].includes(formalSt) || extSt.includes('desistiu')) {
+          dispSt = 'Desistência';
         }
 
         mappedLeads.push({
@@ -794,37 +794,37 @@ export function CreditCampaignDetailView({
       return !isLeadEntregue(lead);
     }
     if (status === 'Confirmou Identidade') {
-      return Boolean(lead.stages?.hasIdentityConfirmed || lead.status === 'Confirmou Identidade');
+      return lead.status === 'Confirmou Identidade';
     }
     if (status === 'Valor Informado') {
-      return Boolean(lead.stages?.hasValorInicial || lead.status === 'Valor Informado');
+      return lead.status === 'Valor Informado';
     }
     if (status === 'Faturamento Informado') {
-      return Boolean(lead.stages?.hasFaturamento || lead.status === 'Faturamento Informado');
+      return lead.status === 'Faturamento Informado';
     }
     if (status === 'Opt-in') {
-      return Boolean(lead.stages?.hasOptIn || lead.status === 'Opt-in' || lead.optIn);
+      return lead.status === 'Opt-in';
     }
     if (status === 'Simulou') {
-      return Boolean(lead.stages?.isSimularam || lead.status === 'Simulou');
+      return lead.status === 'Simulou';
     }
     if (status === 'Aprovado') {
-      return Boolean(lead.stages?.isAprovado || lead.status === 'Aprovado');
+      return lead.status === 'Aprovado';
     }
     if (status === 'Recusado') {
-      return Boolean(lead.stages?.isRecusado || lead.status === 'Recusado');
+      return lead.status === 'Recusado';
     }
     if (status === 'Aguardando Contato') {
-      return Boolean(lead.stages?.isFormalizacaoAguarContato || lead.status === 'Aguardando Contato');
+      return lead.status === 'Aguardando Contato';
     }
     if (status === 'Em Atendimento') {
-      return Boolean(lead.stages?.isFormalizacaoEmAtendimento || lead.status === 'Em Atendimento');
+      return lead.status === 'Em Atendimento';
     }
     if (status === 'Formalizado') {
-      return Boolean(lead.stages?.isFormalizacaoFormalizado || lead.status === 'Formalizado');
+      return lead.status === 'Formalizado';
     }
     if (status === 'Desistência') {
-      return Boolean(lead.stages?.isFormalizacaoDesistencia || lead.status === 'Desistência');
+      return lead.status === 'Desistência';
     }
     return lead.status === status;
   };
@@ -833,17 +833,17 @@ export function CreditCampaignDetailView({
   const statusOptions = useMemo(() => {
     const list = ['Entregue', 'Lida', 'Não Entregue'];
     if (leads.some(l => l.hasInteracted)) list.push('Conversas Iniciadas');
-    if (leads.some(l => l.status === 'Confirmou Identidade' || l.stages?.hasIdentityConfirmed)) list.push('Confirmou Identidade');
-    if (leads.some(l => l.status === 'Valor Informado' || l.stages?.hasValorInicial)) list.push('Valor Informado');
-    if (leads.some(l => l.status === 'Faturamento Informado' || l.stages?.hasFaturamento)) list.push('Faturamento Informado');
-    if (leads.some(l => l.status === 'Opt-in' || l.stages?.hasOptIn)) list.push('Opt-in');
-    if (leads.some(l => l.status === 'Simulou' || l.stages?.isSimularam)) list.push('Simulou');
-    if (leads.some(l => l.stages?.isAprovado || l.status === 'Aprovado')) list.push('Aprovado');
-    if (leads.some(l => l.stages?.isRecusado || l.status === 'Recusado')) list.push('Recusado');
-    if (leads.some(l => l.stages?.isFormalizacaoAguarContato || l.status === 'Aguardando Contato')) list.push('Aguardando Contato');
-    if (leads.some(l => l.stages?.isFormalizacaoEmAtendimento || l.status === 'Em Atendimento')) list.push('Em Atendimento');
-    if (leads.some(l => l.stages?.isFormalizacaoFormalizado || l.status === 'Formalizado')) list.push('Formalizado');
-    if (leads.some(l => l.stages?.isFormalizacaoDesistencia || l.status === 'Desistência')) list.push('Desistência');
+    if (leads.some(l => l.status === 'Confirmou Identidade')) list.push('Confirmou Identidade');
+    if (leads.some(l => l.status === 'Valor Informado')) list.push('Valor Informado');
+    if (leads.some(l => l.status === 'Faturamento Informado')) list.push('Faturamento Informado');
+    if (leads.some(l => l.status === 'Opt-in')) list.push('Opt-in');
+    if (leads.some(l => l.status === 'Simulou')) list.push('Simulou');
+    if (leads.some(l => l.status === 'Aprovado')) list.push('Aprovado');
+    if (leads.some(l => l.status === 'Recusado')) list.push('Recusado');
+    if (leads.some(l => l.status === 'Aguardando Contato')) list.push('Aguardando Contato');
+    if (leads.some(l => l.status === 'Em Atendimento')) list.push('Em Atendimento');
+    if (leads.some(l => l.status === 'Formalizado')) list.push('Formalizado');
+    if (leads.some(l => l.status === 'Desistência')) list.push('Desistência');
     return list;
   }, [leads]);
 

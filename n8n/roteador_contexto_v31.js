@@ -202,8 +202,8 @@ try {
     const currentMsg = String(
         (typeof $node !== 'undefined' && $node["Edit Fields"]?.json?.message) ??
         (typeof $node !== 'undefined' && $node["Edit Fields"]?.first?.()?.json?.message) ??
-        (typeof $json !== 'undefined' ? ($json?.content ?? $json?.text ?? $json?.message ?? $json?.body) : undefined) ??
-        rpcData?.message ??
+        (typeof $json !== 'undefined' ? ($json?.content ?? $json?.text ?? (typeof $json?.message === 'string' ? $json?.message : $json?.message?.content) ?? $json?.body) : undefined) ??
+        (typeof rpcData?.message === 'string' ? rpcData?.message : rpcData?.message?.content) ??
         rpcData?.payload?.content ??
         rpcData?.payload?.message ??
         ctx?.current_message ??
