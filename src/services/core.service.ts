@@ -718,7 +718,17 @@ export const coreService = {
             const [convResult, leadsResult] = await Promise.all([convQuery, leadsQuery]);
 
             if (convResult.error) {
-                console.warn('searchConversations (convQuery) error:', convResult.error.message);
+                const isAbort = convResult.error.message?.includes('aborted') || (convResult.error as any).name === 'AbortError';
+                if (!isAbort) {
+                    console.warn('searchConversations (convQuery) error:', convResult.error.message);
+                }
+            }
+
+            if (leadsResult.error) {
+                const isAbort = leadsResult.error.message?.includes('aborted') || (leadsResult.error as any).name === 'AbortError';
+                if (!isAbort) {
+                    console.warn('searchConversations (leadsQuery) error:', leadsResult.error.message);
+                }
             }
 
             const convs = convResult.data || [];

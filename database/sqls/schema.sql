@@ -313,3 +313,41 @@ CREATE TABLE audit_logs (
 );
 
 CREATE INDEX idx_audit_tenant ON audit_logs(tenant_id);
+
+-- =============================================
+-- 9. AGENT LEADS & OUTBOUND QUEUE PERFORMANCE
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS public.agent_leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES public.companies(id),
+    campaign_id UUID REFERENCES public.campaigns(id) ON DELETE CASCADE,
+    identifier VARCHAR(50) NOT NULL,
+    identifier_type VARCHAR(20) DEFAULT 'cnpj',
+    name TEXT,
+    whatsapp VARCHAR(20),
+    cta_link TEXT,
+    status VARCHAR(20) DEFAULT 'pending',
+    metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    CONSTRAINT agent_leads_tenant_id_identifier_campaign_id_key UNIQUE (tenant_id, identifier, campaign_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant ON public.agent_leads(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_campaign ON public.agent_leads(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant_campaign ON public.agent_leads(tenant_id, campaign_id);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant_name ON public.agent_leads(tenant_id, name);
+CREATE INDEX IF NOT EXISTS idx_agent_leads_tenant_whatsapp ON public.agent_leads(tenant_id, whatsapp);
+
+-- RLS: agent_leads (InitPlan caching O(1))
+-- ALTER TABLE public.agent_leads ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "tenant_manage_agent_leads" ON public.agent_leads FOR ALL TO authenticated
+-- USING (tenant_id = (SELECT public.get_auth_tenant_id()) OR (SELECT public.is_super_admin()))
+-- WITH CHECK (tenant_id = (SELECT public.get_auth_tenant_id()) OR (SELECT public.is_super_admin()));
+
+-- RLS: outbound_queue (InitPlan caching O(1))
+-- ALTER TABLE public.outbound_queue ENABLE ROW LEVEL SECURITY;
+-- CREATE POLICY "tenant_manage_outbound_queue" ON public.outbound_queue FOR ALL TO authenticated
+-- USING (tenant_id = (SELECT public.get_auth_tenant_id()) OR (SELECT public.is_super_admin()))
+-- WITH CHECK (tenant_id = (SELECT public.get_auth_tenant_id()) OR (SELECT public.is_super_admin()));
+

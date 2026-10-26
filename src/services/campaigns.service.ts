@@ -1895,8 +1895,11 @@ async deleteCampaign(id: string): Promise<void> {
                     desistencia: Number(row.desistencia || 0)
                 }));
             }
+            if (error) {
+                console.warn('RPC get_credit_campaign_funnel_stats error, falling back:', error.message || error);
+            }
         } catch (rpcErr) {
-            console.warn('RPC get_credit_campaign_funnel_stats fallback:', rpcErr);
+            console.warn('RPC get_credit_campaign_funnel_stats fallback exception:', rpcErr);
         }
 
         // 2. Fallback resiliente: agrega combinando campaigns, outbound_queue e agent_leads
