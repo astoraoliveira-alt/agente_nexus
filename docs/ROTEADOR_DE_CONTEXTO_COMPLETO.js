@@ -974,6 +974,11 @@ try {
         ) {
             currentStep = 'coleta_faturamento';
         } else if (
+            lastSofiaMsg.includes("confirmar a autorização") ||
+            lastSofiaMsg.includes("confirmar a autorizacao") ||
+            lastSofiaMsg.includes("sim, autorizo") ||
+            lastSofiaMsg.includes("basta confirmar a autorização") ||
+            lastSofiaMsg.includes("basta confirmar a autorizacao") ||
             lastSofiaMsg.includes("autorização à fiserv") ||
             lastSofiaMsg.includes("termo de autorização") ||
             lastSofiaMsg.includes("termos de autorização") ||
@@ -1804,16 +1809,8 @@ try {
         }
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'consentimento_optin') {
-        const hasFaturamentoInCurrent = Boolean(unifiedExtraction.revenue || /\bfaturamento\b/i.test(lastUserLower) || (currentStep === 'coleta_faturamento' && revenue && revenue > 0));
-        if (hasFaturamentoInCurrent && revenue && revenue > 0 && requested_amount && requested_amount > 0) {
-            const revFmt = Number(revenue).toLocaleString('pt-BR');
-            const reqFmt = Number(requested_amount).toLocaleString('pt-BR');
-            forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* e o crédito solicitado de *R$ ${reqFmt}* da sua empresa.\n\nPara avançarmos com a análise do crédito, basta confirmar a autorização clicando no botão *[✅ SIM, AUTORIZO]* abaixo:`;
-            mode = "parrot";
-        } else {
-            forcedText = `Li e entendi o termo de autorização e autorizo o tratamento de meus dados, inclusive para consulta ao SCR/Bacen e Entidades registradoras.`;
-            if (!isDoubt) mode = "parrot";
-        }
+        forcedText = `Para avançarmos com a análise do crédito, basta confirmar a autorização clicando no botão *[✅ SIM, AUTORIZO]* abaixo:`;
+        mode = "parrot";
     } else if (nextStep === 'optin_recusado') {
         forcedText = `Sem problema! Gostaríamos de reforçar que só podemos seguir com a análise de crédito se você aceitar a pesquisa pela Fiserv. Se mudar de ideia, é só me chamar aqui que retomamos. 👍`;
         mode = "parrot";
@@ -1910,7 +1907,7 @@ try {
         let pastStep = null;
         if ((pastMsg.includes("faturamento") || pastMsg.includes("faturamento médio") || pastMsg.includes("avaliarmos a melhor proposta")) && !pastMsg.includes("valor desejado")) pastStep = 'coleta_faturamento';
         else if (pastMsg.includes("valor desejado") || pastMsg.includes("solicitar na análise") || pastMsg.includes("valor aproximado") || pastMsg.includes("solicitar nessa análise") || pastMsg.includes("valor mínimo para solicitação") || pastMsg.includes("valor máximo disponível") || pastMsg.includes("deseja solicitar")) pastStep = 'coleta_valor';
-        else if (pastMsg.includes("autorização à fiserv") || pastMsg.includes("termo de autorização") || pastMsg.includes("termos de autorização") || pastMsg.includes("li e entendi") || pastMsg.includes("autoriza a realização")) pastStep = 'consentimento_optin';
+        else if (pastMsg.includes("confirmar a autorização") || pastMsg.includes("sim, autorizo") || pastMsg.includes("autorização à fiserv") || pastMsg.includes("termo de autorização") || pastMsg.includes("termos de autorização") || pastMsg.includes("li e entendi") || pastMsg.includes("autoriza a realização")) pastStep = 'consentimento_optin';
         else if (pastMsg.includes("cnpj") && pastMsg.includes("responsável")) pastStep = 'verificacao_cnpj';
 
         if (pastStep === nextStep) {
