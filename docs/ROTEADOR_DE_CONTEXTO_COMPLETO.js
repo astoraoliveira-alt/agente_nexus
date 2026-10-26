@@ -310,7 +310,9 @@ try {
         'quero uma simulação', 'quero uma simulacao', 'quero simulacao', 'quero simulação',
         'falar com especialista', 'falar com um especialista', 'falar especialista',
         'nova simulação', 'nova simulacao',
-        'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente'
+        'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente',
+        '✅ sim, autorizo', '✅ sim autorizo', 'sim, autorizo', 'sim autorizo', 'autorizo',
+        'optin_sim', 'btn_optin', 'sim_autorizo'
     ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase());
 
     const isExplicitSimulationIntent = /\b(quero simular|fazer simula[çc][ãa]o|ver simula[çc][ãa]o|gostaria de simular|solicitar simula[çc][ãa]o|quanto posso pegar|fazer uma proposta|ver minhas taxas)\b/i.test(lastUserLower);
@@ -1163,9 +1165,17 @@ try {
     );
 
     const isOptInAccepted = (
-        (/\b(autorizo|sim,?\s*autorizo|sim|concordo|aceito|de acordo|ok)\b/i.test(lastUserLower) && !/\b(n[ãa]o)\b/i.test(lastUserLower)) &&
-        (currentStep === 'consentimento_optin' || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("autorizo") || currentStep === 'start' || currentStep === 'explicacao_agente' || currentStep === 'coleta_valor')
-    ) || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("sim, autorizo") || lastUserLower.includes("sim autorizo") || lastUserLower.includes("optin_sim") || (currentStep === 'consentimento_optin' && /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito)$/i.test(lastUserLower.trim()));
+        (/\b(autorizo|sim,?\s*autorizo|sim|concordo|aceito|de acordo|ok|positivo)\b/i.test(lastUserLower) && !/\b(n[ãa]o)\b/i.test(lastUserLower)) &&
+        (currentStep === 'consentimento_optin' || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("autorizo") || currentStep === 'start' || currentStep === 'explicacao_agente' || currentStep === 'coleta_valor' || currentStep === 'coleta_faturamento')
+    ) || 
+    semanticIntent === "OPTIN_ACCEPTED" || 
+    lastUserLower.includes("sim, autorizo") || 
+    lastUserLower.includes("sim autorizo") || 
+    lastUserLower.includes("optin_sim") || 
+    lastUserLower.includes("btn_optin") || 
+    lastUserLower.includes("sim_autorizo") || 
+    (lastUserLower.includes("✅") && lastUserLower.includes("autorizo")) ||
+    (currentStep === 'consentimento_optin' && (isAffirmative || /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito|claro|pode ser|bora|sim por favor)$/i.test(lastUserLower.trim())) && !isNegative);
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
     const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
