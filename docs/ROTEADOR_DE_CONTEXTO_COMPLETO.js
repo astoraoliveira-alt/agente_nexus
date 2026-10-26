@@ -1,5 +1,15 @@
-/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V31.1 (BLINDAGEM TOTAL: EXPURGO DE AUTO-RESPOSTAS, PARSER MONETÁRIO BR E FIM DO LOOP DE FATURAMENTO) */
+/* 🧭 ROTEADOR DE CONTEXTO - JORNADA NATIVA FISERV V31.2 (JORNADA EM 2 PERGUNTAS SEPARADAS: VALOR DESEJADO E FATURAMENTO MÉDIO MENSAL) */
 
+/* MUDANÇAS V31.2 (26/OUT):
+   1. Separação Estrita em 2 Perguntas Sequenciais:
+      - Pergunta 1 (coleta_valor): "Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*"
+      - Pergunta 2 (coleta_faturamento): "E o seu *faturamento médio mensal*?"
+   2. Detecção Aprimorada de currentStep em coleta_faturamento:
+      - Reconhece "faturamento médio mensal" e variações sem necessidade de termos adicionais.
+   3. Preservação Total da Inteligência:
+      - Caso o cliente envie ambos na mesma mensagem (ex: "50 mil e 80 mil"), avança direto para opt-in.
+      - Caso envie apenas um, coleta o faltante na ordem solicitada.
+*/
 /* MUDANÇAS V31.1 (22/OUT - CORREÇÕES DE CAMPO):
    1. Blindagem Rigorosa de Auto-Respostas (Casos 1 e 3):
       - Inclusão de assinaturas de WhatsApp Business ("nossa equipe irá responder", "agradecemos a preferência", "é um prazer te ter aqui").
@@ -951,6 +961,10 @@ try {
         ) {
             currentStep = 'coleta_valor';
         } else if (
+            lastSofiaMsg.includes("faturamento médio mensal") ||
+            lastSofiaMsg.includes("faturamento medio mensal") ||
+            lastSofiaMsg.includes("faturamento médio") ||
+            lastSofiaMsg.includes("faturamento medio") ||
             lastSofiaMsg.includes("faturamento médio mensal atual") || 
             lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || 
             lastSofiaMsg.includes("qual o faturamento") ||
@@ -1752,24 +1766,24 @@ try {
                 loanNum = loanNum * 1000;
             }
             if (loanNum !== null && loanNum < 10000) {
-                forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise e o seu faturamento médio mensal?\n\n_Ex.: *50 mil e 80 mil*_`;
+                forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise?`;
             } else if (loanNum !== null && loanNum > 500000) {
-                forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar e o seu faturamento médio mensal?\n\n_Ex.: *50 mil e 80 mil*_`;
+                forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar?`;
             } else if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
-                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor que deseja solicitar* de empréstimo (de R$ 10 mil a R$ 500 mil).\n\n_Exemplo: 50 mil_`;
+                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
             } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("valor que deseja solicitar") || lastSofiaMsg.includes("valor desejado")) {
-                forcedText = `Por favor, me informe o valor desejado para a análise de crédito e o faturamento médio mensal da sua empresa.\n\n_Ex.: *50 mil e 80 mil*_`;
+                forcedText = `Por favor, me informe o *valor desejado?*`;
             } else {
-                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
             }
         } else {
             if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
-                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor que deseja solicitar* de empréstimo (de R$ 10 mil a R$ 500 mil).\n\n_Exemplo: 50 mil_`;
+                forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
             } else {
-                // 🎯 V31 Oficial Ticket: Pergunta Unificada estilo Landing Page (LP)
-                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+                // 🎯 V31.2 Oficial Ticket: Pergunta 1 da jornada
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
             }
         }
         if (!isDoubt) mode = "parrot";
@@ -1779,17 +1793,14 @@ try {
         const alreadyAskedFaturamento = lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento aproximado") || lastSofiaMsg.includes("qual o faturamento");
 
         if (isCartaoQuestion) {
-            forcedText = `Pode ser o *faturamento total* da sua empresa (incluindo vendas no cartão, Pix, boletos, etc.). Uma média aproximada já é suficiente para a nossa simulação!\n\nLembrando que o pagamento do empréstimo é feito mensalmente via *Boleto Bancário*, sem desconto direto das suas vendas diárias de cartão.\n\nQual seria o faturamento médio mensal aproximado para seguirmos?\n\n_Ex.: *80 mil*_`;
+            forcedText = `Pode ser o *faturamento total* da sua empresa (incluindo vendas no cartão, Pix, boletos, etc.). Uma média aproximada já é suficiente para a nossa simulação!\n\nLembrando que o pagamento do empréstimo é feito mensalmente via *Boleto Bancário*, sem desconto direto das suas vendas diárias de cartão.\n\nE o seu *faturamento médio mensal*?`;
         } else if (isMuchMore) {
-            forcedText = `Sem problemas! Não precisa ser exato, apenas uma média aproximada mensal para avaliarmos as melhores condições para sua empresa. Quanto você estima?\n\n_Ex.: *80 mil*_`;
+            forcedText = `Sem problemas! Não precisa ser exato, apenas uma média aproximada mensal para avaliarmos as melhores condições para sua empresa.\n\nE o seu *faturamento médio mensal*?`;
         } else if (alreadyAskedFaturamento) {
-            forcedText = `Para avançarmos com a simulação sem compromisso, preciso apenas de um valor médio aproximado do faturamento mensal da sua empresa em reais.\n\n_Ex.: *80 mil*_`;
-        } else if (requested_amount && requested_amount > 0) {
-            const reqFmt = Number(requested_amount).toLocaleString('pt-BR');
-            forcedText = `Perfeito! Registrei o valor de *R$ ${reqFmt}* para a sua análise.\n\nAgora, por favor, me informe o *faturamento médio mensal* da sua empresa para prosseguirmos com a simulação.\n\n_Ex.: *80 mil*_`;
+            forcedText = `Para avançarmos com a simulação sem compromisso, me informe o seu *faturamento médio mensal* em reais.`;
         } else {
-            // 🎯 P2 Oficial Ticket: Texto enxuto na coleta de faturamento (sem Razão Social)
-            forcedText = `Ok! Para avaliarmos a melhor condição disponível para sua empresa, poderia nos informar o faturamento médio mensal atual?\n\n_Ex.: 80 mil_`;
+            // 🎯 V31.2 Oficial Ticket: Pergunta 2 da jornada
+            forcedText = `E o seu *faturamento médio mensal*?`;
         }
         if (!isDoubt) mode = "parrot";
     } else if (nextStep === 'consentimento_optin') {
@@ -1897,7 +1908,7 @@ try {
     for (let i = assistantMessages.length - 1; i >= 0; i--) {
         const pastMsg = String(assistantMessages[i]?.content || assistantMessages[i]?.text || "").toLowerCase();
         let pastStep = null;
-        if (pastMsg.includes("faturamento") || pastMsg.includes("faturamento médio") || pastMsg.includes("avaliarmos a melhor proposta")) pastStep = 'coleta_faturamento';
+        if ((pastMsg.includes("faturamento") || pastMsg.includes("faturamento médio") || pastMsg.includes("avaliarmos a melhor proposta")) && !pastMsg.includes("valor desejado")) pastStep = 'coleta_faturamento';
         else if (pastMsg.includes("valor desejado") || pastMsg.includes("solicitar na análise") || pastMsg.includes("valor aproximado") || pastMsg.includes("solicitar nessa análise") || pastMsg.includes("valor mínimo para solicitação") || pastMsg.includes("valor máximo disponível") || pastMsg.includes("deseja solicitar")) pastStep = 'coleta_valor';
         else if (pastMsg.includes("autorização à fiserv") || pastMsg.includes("termo de autorização") || pastMsg.includes("termos de autorização") || pastMsg.includes("li e entendi") || pastMsg.includes("autoriza a realização")) pastStep = 'consentimento_optin';
         else if (pastMsg.includes("cnpj") && pastMsg.includes("responsável")) pastStep = 'verificacao_cnpj';
@@ -1930,7 +1941,7 @@ try {
     // Se o robô já enviou mensagens antes e está tentando reenviar o pitch de abertura:
     if (assistantMessages.length > 0 && isCampaignEcho && !isStrictGreeting) {
         nextStep = 'coleta_valor';
-        forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+        forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
         mode = "parrot";
     }
 
@@ -1939,10 +1950,10 @@ try {
         const lastSentNormalized = normalizeText(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text);
         if (cleanNextText.length > 20 && lastSentNormalized === cleanNextText) {
             if (nextStep === 'coleta_valor' || currentStep === 'start' || currentStep === 'explicacao_agente') {
-                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe por favor o *valor que deseja solicitar* e o seu *faturamento médio mensal*.\n\n_Exemplo: 50 mil e 80 mil_`;
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
                 nextStep = 'coleta_valor';
             } else if (nextStep === 'coleta_faturamento') {
-                forcedText = `Sem problemas! Apenas uma média aproximada do faturamento mensal já é suficiente para avançarmos. Quanto você estima?\n\n_Ex.: 80 mil_`;
+                forcedText = `E o seu *faturamento médio mensal*?`;
             } else if (isCourtesyAck || isFarewell) {
                 forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
                 mode = "parrot";
