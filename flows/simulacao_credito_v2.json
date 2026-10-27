@@ -1,0 +1,105 @@
+{
+  "version": "6.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "SIMULACAO_SCREEN": []
+  },
+  "screens": [
+    {
+      "id": "SIMULACAO_SCREEN",
+      "title": "Simulação de crédito",
+      "terminal": true,
+      "success": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_simulacao",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Reforço de Caixa Ticket"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Informe os valores abaixo para consultarmos as melhores taxas e limites pré-aprovados para sua empresa."
+              },
+              {
+                "type": "TextInput",
+                "name": "valor_simulacao",
+                "label": "Valor desejado (R$)",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Digite só números. Ex.: 50000"
+              },
+              {
+                "type": "Dropdown",
+                "name": "faturamento_medio",
+                "label": "Faturamento médio mensal",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "10000",
+                    "title": "Até R$ 10 mil"
+                  },
+                  {
+                    "id": "30000",
+                    "title": "R$ 10 mil a R$ 30 mil"
+                  },
+                  {
+                    "id": "50000",
+                    "title": "R$ 30 mil a R$ 50 mil"
+                  },
+                  {
+                    "id": "100000",
+                    "title": "R$ 50 mil a R$ 100 mil"
+                  },
+                  {
+                    "id": "250000",
+                    "title": "R$ 100 mil a R$ 250 mil"
+                  },
+                  {
+                    "id": "500000",
+                    "title": "R$ 250 mil a R$ 500 mil"
+                  },
+                  {
+                    "id": "1000000",
+                    "title": "R$ 500 mil a R$ 1 milhão"
+                  }
+                ]
+              },
+              {
+                "type": "OptIn",
+                "name": "consentimento",
+                "label": "Autorizo a consulta dos meus dados para análise de crédito (SCR/Bacen e registradoras).",
+                "required": true
+              },
+              {
+                "type": "EmbeddedLink",
+                "text": "Ler o termo completo (PDF oficial)",
+                "on-click-action": {
+                  "name": "open_url",
+                  "url": "https://agentes.davosconsulting.com.br/termo-autorizacao-fiserv-v1-2026-06.pdf"
+                }
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Enviar Simulação",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "valor_simulacao": "${form.valor_simulacao}",
+                "faturamento_medio": "${form.faturamento_medio}",
+                "consentimento": "${form.consentimento}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -24,12 +24,14 @@ Hoje, para que o lead chegue até a análise de crédito da Fiserv, a Sofia e o 
 
 ---
 
-## 2. Arquitetura do Flow (2 Telas Nativas)
+## 2. Arquitetura do Flow & Versionamento
 
-O arquivo oficial com a especificação técnica completa já foi gerado e validado em:  
-👉 [`flows/simulacao_credito.json`](file:///Users/user/SaaS%20-%20Davos%20Nexus/agent-nexus-hub/flows/simulacao_credito.json) *(Versão Meta Flow JSON 6.0)*.
+Os arquivos com a especificação técnica completa estão versionados no diretório [`flows/`](file:///Users/user/SaaS%20-%20Davos%20Nexus/agent-nexus-hub/flows/):
+* 👉 [`flows/simulacao_credito_v2.json`](file:///Users/user/SaaS%20-%20Davos%20Nexus/agent-nexus-hub/flows/simulacao_credito_v2.json) — **Versão 2.0 (Recomendada / Padrão Oficial Meta):** Tela única de alta conversão, com abertura direta do PDF oficial do termo via `open_url` e binding correto `${form.<campo>}`.
+* 👉 [`flows/simulacao_credito_v2_duas_telas.json`](file:///Users/user/SaaS%20-%20Davos%20Nexus/agent-nexus-hub/flows/simulacao_credito_v2_duas_telas.json) — **Versão 2.0 (Duas Telas / Wizard):** Roteamento progressivo estrito para frente (`SIMULACAO_SCREEN -> TERMOS_SCREEN`), com os termos e o checkbox de autorização na segunda tela.
+* 👉 [`flows/simulacao_credito_v1.json`](file:///Users/user/SaaS%20-%20Davos%20Nexus/agent-nexus-hub/flows/simulacao_credito_v1.json) — Arquivo histórico legado da v1.
 
-### Tela 1: `SIMULACAO_SCREEN` ("Simulação de crédito")
+### Tela Principal: `SIMULACAO_SCREEN` ("Simulação de crédito")
 * **Título:** Simulação de crédito
 * **Cabeçalho:** *Reforço de Caixa Ticket*
 * **Subcabeçalho:** *Informe os valores abaixo para consultarmos as melhores taxas e limites pré-aprovados para sua empresa.*
@@ -57,15 +59,15 @@ O arquivo oficial com a especificação técnica completa já foi gerado e valid
   * Componente: `OptIn`
   * Rótulo: *"Autorizo a consulta dos meus dados para análise de crédito (SCR/Bacen e registradoras)."*
   * Obrigatório: `true` (O cliente marca a caixa ativamente para poder enviar o formulário, em conformidade com as diretrizes da Meta/LGPD).
-  * Link: Componente `EmbeddedLink` com texto *"Ler o termo completo"*, que executa `navigate` para a **Tela 2**.
+  * Link: Componente `EmbeddedLink` com texto *"Ler o termo completo (PDF oficial)"*, que executa `open_url` diretamente para o arquivo oficial.
 * **Footer (Rodapé):**
   * Botão: **`[ Enviar Simulação ]`**
-  * Ação: `complete`, retornando o payload:
+  * Ação: `complete`, retornando o payload padronizado:
     ```json
     {
-      "valor_simulacao": "${form.form_simulacao.valor_simulacao}",
-      "faturamento_medio": "${form.form_simulacao.faturamento_medio}",
-      "consentimento": "${form.form_simulacao.consentimento}"
+      "valor_simulacao": "${form.valor_simulacao}",
+      "faturamento_medio": "${form.faturamento_medio}",
+      "consentimento": "${form.consentimento}"
     }
     ```
 
