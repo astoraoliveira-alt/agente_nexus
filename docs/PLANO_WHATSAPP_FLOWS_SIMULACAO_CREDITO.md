@@ -56,8 +56,7 @@ O arquivo oficial com a especificação técnica completa já foi gerado e valid
 * **Campo 3 — Termo e Consentimento (Opt-in Digital):**
   * Componente: `OptIn`
   * Rótulo: *"Autorizo a consulta dos meus dados para análise de crédito (SCR/Bacen e registradoras)."*
-  * **`init-value: true`**: Checkbox já vem pré-marcado em verde.
-  * Obrigatório: `true`
+  * Obrigatório: `true` (O cliente marca a caixa ativamente para poder enviar o formulário, em conformidade com as diretrizes da Meta/LGPD).
   * Link: Componente `EmbeddedLink` com texto *"Ler o termo completo"*, que executa `navigate` para a **Tela 2**.
 * **Footer (Rodapé):**
   * Botão: **`[ Enviar Simulação ]`**

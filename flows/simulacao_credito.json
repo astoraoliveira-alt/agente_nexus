@@ -74,7 +74,6 @@
                 "type": "OptIn",
                 "name": "consentimento",
                 "label": "Autorizo a consulta dos meus dados para análise de crédito (SCR/Bacen e registradoras).",
-                "init-value": true,
                 "required": true
               },
               {
