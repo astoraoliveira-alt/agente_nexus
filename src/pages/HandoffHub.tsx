@@ -45,7 +45,28 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
   const text = message.trim().toLowerCase();
   if (!text) return false;
 
-  // 1. Rejeita bots, menus automáticos, IVRs de clientes e links
+  // 0. BLOQUEIO ESTRITO: Botões padrão de contratação/jornada da IA Ticket/Fiserv
+  // Expressamente NÃO podem enviar o lead para a tela de Fila de Atendimento
+  const isJourneyButtonOrCta = /^(falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?(?:atendente|especialista|agente|consultor)s?!?|falar\s+atendente!?|falar\s+especialista!?|falar\s+agente!?|falar\s+com\s+agente\s*\(ia\)|d[uú]vidas\s*[-–—]\s*falar\s*agente|quero\s+simular!?|simular|ver\s+quanto\s+posso\s+ter)$/i.test(text);
+  if (
+    isJourneyButtonOrCta ||
+    text === 'falar atendente' ||
+    text === 'falar com atendente' ||
+    text === 'falar com um atendente' ||
+    text === 'falar com atendente!' ||
+    text === 'falar especialista' ||
+    text === 'falar com especialista' ||
+    text === 'falar com um especialista' ||
+    text === 'falar com especialista!' ||
+    text === 'falar com um agente' ||
+    text === 'falar com um agente!' ||
+    text === 'falar com atendentes' ||
+    text === 'falar com especialistas'
+  ) {
+    return false;
+  }
+
+  // 1. Rejeita bots, menus automáticos, IVRs de clientes, links e mensagens automáticas corporativas de parceiros
   if (
     text.includes('robô') || text.includes('robo') || text.includes('bot') ||
     text.includes('atendente virtual') || text.includes('assistente virtual') ||
@@ -59,10 +80,20 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
     text.includes('escolher um item') || text.includes('cardápio') || text.includes('cardapio') ||
     text.includes('fazer pedido') || text.includes('fazer um pedido') ||
     text.includes('resposta automática') || text.includes('mensagem automática') ||
+    text.includes('resposta automatica') || text.includes('mensagem automatica') ||
+    text.includes('atendimento automático') || text.includes('atendimento automatico') ||
+    text.includes('atendimento eletrônico') || text.includes('atendimento eletronico') ||
+    text.includes('não consigo avaliar parcerias') || text.includes('nao consigo avaliar parcerias') ||
+    text.includes('outro atendente da') || text.includes('outro atendente do') ||
+    text.includes('falar com outro atendente') ||
+    text.includes('obrigado pela proposta') || text.includes('obrigada pela proposta') ||
+    text.includes('retornaremos assim que') || text.includes('responderemos assim que') ||
+    text.includes('assim que possível retorn') || text.includes('assim que possivel retorn') ||
+    text.includes('deixe seu recado') || text.includes('deixe sua mensagem') ||
     text.includes('agradece seu contato') || text.includes('agradece sua mensagem') || text.includes('seja bem vindo') ||
     text.includes('horário de atendimento') || text.includes('horario de atendimento') ||
     text.includes('linktr.ee') || text.includes('bit.ly') || text.includes('http://') || text.includes('https://') ||
-    text.includes('deliveryapp') || text.includes('neemo') ||
+    text.includes('deliveryapp') || text.includes('neemo') || text.includes('anota aí') || text.includes('anota ai') ||
     text.includes('assim q possível retorno') || text.includes('no momento não posso atender') ||
     text.includes('em breve devem te chamar') || text.includes('aproveite e clique abaixo') ||
     /(\*?[1-9]\.?\*?\s*[-–—]|\b[1-9]️⃣)/.test(text)
@@ -94,13 +125,8 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
     return false;
   }
 
-  // 5. Termos diretos isolados ou frases padrão de atendimento humano
+  // 5. Termos diretos isolados ou frases onde o cliente pede EXPRESSAMENTE uma pessoa humana / real
   const directTerms = [
-    'atendente',
-    'atensente',
-    'falar com atendente',
-    'falar com um atendente',
-    'falar com atendentes',
     'falar com humano',
     'falar com um humano',
     'humano',
@@ -108,29 +134,22 @@ export function isExpressHumanRequest(message?: string | null, metadata?: any): 
     'falar com pessoa',
     'falar com alguem',
     'falar com alguém',
-    'falar com especialista',
-    'falar com especialistas',
-    'falar com operador',
-    'falar com consultor',
-    'falar com assessor',
-    'quero atendente',
-    'quero um atendente',
-    'preciso de atendente',
-    'chamar atendente',
-    'passar para atendente',
-    'transferir para atendente',
     'suporte humano',
-    'pessoa real'
+    'pessoa real',
+    'pessoa de verdade',
+    'humano de verdade',
+    'quero humano',
+    'preciso de humano'
   ];
 
   if (directTerms.includes(text)) {
     return true;
   }
 
-  // 6. Regex rigorosa: exige verbo de contato/fala + destino humano OU menção clara a atendente/humano/ligação
-  const hasAttendantExplicit = /\b(atendente|atensente|atendimento humano|suporte humano|pessoa real)\b/i.test(text);
-  const hasContactHuman = /\b(falar|conversar|passar|transferir|chamar|conectar)\b.*\b(humano|pessoa|algu[ée]m|especialista|especialistas|atendente|atensente|operador|consultor|assessor)\b/i.test(text);
-  const hasRequestHuman = /\b(quero|preciso|gostaria|favor|solicito|tem como)\b.*\b(humano|atendente|atensente|especialista|especialistas|pessoa|operador)\b/i.test(text);
+  // 6. Regex rigorosa: exige verbo de contato/fala + destino humano EXPLÍCITO OU menção clara a humano de verdade/ligação
+  const hasAttendantExplicit = /\b(atendimento humano|suporte humano|pessoa real|pessoa de verdade|humano de verdade)\b/i.test(text);
+  const hasContactHuman = /\b(falar|conversar|passar|transferir|chamar|conectar)\b.*\b(humano|pessoa real|pessoa de verdade|humano de verdade|algu[ée]m de verdade)\b/i.test(text);
+  const hasRequestHuman = /\b(quero|preciso|gostaria|favor|solicito|tem como)\b.*\b(humano|pessoa real|pessoa de verdade|atendimento humano)\b/i.test(text);
   const hasCallRequest = /\b(me\s+liga|me\s+ligue|pode\s+ligar|ligar\s+para\s+mim|liga\s+pra\s+mim|ligue\s+para\s+mim|me\s+telefona|pode\s+me\s+ligar|favor\s+ligar|preciso\s+que\s+ligue)\b/i.test(text);
 
   return hasAttendantExplicit || hasContactHuman || hasRequestHuman || hasCallRequest;

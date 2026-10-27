@@ -1150,7 +1150,23 @@ try {
     }
 
     // --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
-    const isAgentButtonClick = currentStep !== 'confirmacao_cliente' && /^(falar com um agente!?|falar com agente \(ia\)|dúvidas – falar agente)$/i.test(lastUserLower.trim());
+    // 🎯 IDENTIFICAÇÃO DE CLIQUE NO BOTÃO PADRÃO DE JORNADA / CONTRATAÇÃO ("FALAR ATENDENTE", "FALAR ESPECIALISTA", "FALAR AGENTE")
+    // Se o cliente clicar no botão rápido do template ("Falar com atendente!", "Falar especialista", "Falar com um agente!", "Dúvidas – falar agente")
+    // NÃO deve acionar transbordo para humano nem enviar para Fila de Atendimento. A Sofia deve assumir como especialista da Ticket e conduzir a contratação!
+    const isAgentButtonClick = currentStep !== 'confirmacao_cliente' && (
+        /^(falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?(?:atendente|especialista|agente|consultor)s?!?|falar\s+atendente!?|falar\s+especialista!?|falar\s+agente!?|falar\s+com\s+agente\s*\(ia\)|d[uú]vidas\s*[-–—]\s*falar\s*agente)$/i.test(lastUserLower.trim()) ||
+        (isButtonTemplateClick && /^(falar|especialista|atendente|agente)/i.test(lastUserLower.trim())) ||
+        lastUserLower.trim() === 'falar atendente' ||
+        lastUserLower.trim() === 'falar com atendente' ||
+        lastUserLower.trim() === 'falar com atendente!' ||
+        lastUserLower.trim() === 'falar com um atendente' ||
+        lastUserLower.trim() === 'falar especialista' ||
+        lastUserLower.trim() === 'falar com especialista' ||
+        lastUserLower.trim() === 'falar com especialista!' ||
+        lastUserLower.trim() === 'falar com um especialista' ||
+        lastUserLower.trim() === 'falar com um agente' ||
+        lastUserLower.trim() === 'falar com um agente!'
+    );
 
     const isSelfSimulationRequest =
         /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
@@ -1745,7 +1761,9 @@ try {
         mode = "parrot";
         nextStep = "start";
     } else if (isAgentButtonClick) {
-        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
+        nextStep = 'coleta_valor';
+        mode = "parrot";
     } else if (isLinkIssue && forcedIncidentText) {
         forcedText = forcedIncidentText;
     } else if (nextStep === 'coleta_cnpj_correto' || isCnpjDivergent) {
@@ -1773,7 +1791,9 @@ try {
             forcedText = `Já pensou em reforçar o caixa sem burocracia?\n\nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Gostaria de fazer uma simulação sem compromisso aqui mesmo pelo WhatsApp ou ficou com alguma dúvida?`;
         }
     } else if (nextStep === 'explicacao_agente') {
-        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
+        nextStep = 'coleta_valor';
+        mode = "parrot";
     } else if (nextStep === 'coleta_valor') {
         if (currentStep === 'coleta_valor') {
             let loanNum = parseNumber(lastUserLower);

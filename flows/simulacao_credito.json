@@ -1,0 +1,175 @@
+{
+  "version": "6.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "SIMULACAO_SCREEN": ["TERMOS_SCREEN"],
+    "TERMOS_SCREEN": ["SIMULACAO_SCREEN"]
+  },
+  "screens": [
+    {
+      "id": "SIMULACAO_SCREEN",
+      "title": "Simulação de crédito",
+      "terminal": true,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "Form",
+            "name": "form_simulacao",
+            "children": [
+              {
+                "type": "TextHeading",
+                "text": "Reforço de Caixa Ticket"
+              },
+              {
+                "type": "TextSubheading",
+                "text": "Informe os valores abaixo para consultarmos as melhores taxas e limites pré-aprovados para sua empresa."
+              },
+              {
+                "type": "TextInput",
+                "name": "valor_simulacao",
+                "label": "Valor desejado (R$)",
+                "input-type": "number",
+                "required": true,
+                "helper-text": "Digite só números. Ex.: 50000"
+              },
+              {
+                "type": "Dropdown",
+                "name": "faturamento_medio",
+                "label": "Faturamento médio mensal",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "10000",
+                    "title": "Até R$ 10 mil"
+                  },
+                  {
+                    "id": "30000",
+                    "title": "R$ 10 mil a R$ 30 mil"
+                  },
+                  {
+                    "id": "50000",
+                    "title": "R$ 30 mil a R$ 50 mil"
+                  },
+                  {
+                    "id": "100000",
+                    "title": "R$ 50 mil a R$ 100 mil"
+                  },
+                  {
+                    "id": "250000",
+                    "title": "R$ 100 mil a R$ 250 mil"
+                  },
+                  {
+                    "id": "500000",
+                    "title": "R$ 250 mil a R$ 500 mil"
+                  },
+                  {
+                    "id": "1000000",
+                    "title": "R$ 500 mil a R$ 1 milhão"
+                  }
+                ]
+              },
+              {
+                "type": "OptIn",
+                "name": "consentimento",
+                "label": "Autorizo a consulta dos meus dados para análise de crédito (SCR/Bacen e registradoras).",
+                "init-value": true,
+                "required": true
+              },
+              {
+                "type": "EmbeddedLink",
+                "text": "Ler o termo completo",
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "TERMOS_SCREEN"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Enviar Simulação",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "valor_simulacao": "${form.form_simulacao.valor_simulacao}",
+                "faturamento_medio": "${form.form_simulacao.faturamento_medio}",
+                "consentimento": "${form.form_simulacao.consentimento}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "TERMOS_SCREEN",
+      "title": "Termo de Consentimento",
+      "terminal": false,
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Autorização de Consulta"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Fiserv Sociedade de Crédito Direto S.A. & Ticket"
+          },
+          {
+            "type": "TextBody",
+            "text": "Este documento formaliza a autorização concedida pelo Cliente para que a Fiserv Sociedade de Crédito Direto S.A. (CNPJ nº 50.053.267/0001-15), parceira da Ticket / Edenred, realize as consultas necessárias à análise de crédito solicitada através do canal digital de atendimento (WhatsApp)."
+          },
+          {
+            "type": "TextHeading",
+            "text": "1. Objeto da Autorização"
+          },
+          {
+            "type": "TextBody",
+            "text": "O Cliente outorga à Fiserv SCD autorização irrevogável e irretratável para:\n\na) Acessar sua Agenda de Recebíveis perante Entidades Registradoras, a fim de identificar Unidades de Recebíveis para fins de gravame;\n\nb) Consultar o SCR/Bacen, sistemas equivalentes e bureaus de crédito, para análise e eventual oferta de crédito;\n\nc) Compartilhar informações obtidas via SCR com sociedades do grupo econômico da Fiserv SCD e com o Parceiro (Ticket), nos termos da LC nº 105/2001;\n\nd) Tratar dados pessoais e financeiros conforme a LGPD, exclusivamente para as finalidades autorizadas."
+          },
+          {
+            "type": "TextHeading",
+            "text": "2. Declaração do Cliente"
+          },
+          {
+            "type": "TextBody",
+            "text": "O Cliente declara que a autorização foi concedida por representante legal habilitado e assume responsabilidade civil por eventual ausência ou insuficiência de poderes para tanto."
+          },
+          {
+            "type": "TextHeading",
+            "text": "3. Registro do Consentimento"
+          },
+          {
+            "type": "TextBody",
+            "text": "O consentimento digital (data, hora, canal e signatário) é registrado e armazenado de forma segura para fins de comprovação e auditoria regulatória."
+          },
+          {
+            "type": "EmbeddedLink",
+            "text": "Baixar cópia do PDF",
+            "on-click-action": {
+              "name": "open_url",
+              "url": "https://agentes.davosconsulting.com.br/termo-autorizacao-fiserv-v1-2026-06.pdf"
+            }
+          },
+          {
+            "type": "Footer",
+            "label": "Voltar para a Simulação",
+            "on-click-action": {
+              "name": "navigate",
+              "next": {
+                "type": "screen",
+                "name": "SIMULACAO_SCREEN"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

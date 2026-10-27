@@ -154,6 +154,7 @@ export default function Campaigns() {
     const { currentTenant, currentUser, hasPermission } = useApp();
     const { toast } = useToast();
     const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+    const [latestCampaign, setLatestCampaign] = useState<Campaign | null>(null);
     const [agents, setAgents] = useState<Agent[]>([]);
     const [queueMetricsByCampaign, setQueueMetricsByCampaign] = useState<Record<string, { total: number; sent: number; delivered?: number }>>({});
     const [isLoading, setIsLoading] = useState(true);
@@ -287,6 +288,41 @@ export default function Campaigns() {
         "Com a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\n" +
         "Faça uma simulação sem compromisso!";
 
+    // Função auxiliar para obter os valores padrão da nova campanha herdando da última cadastrada
+    const getLatestCampaignDefaults = (latest: Campaign | null, currentAgents: Agent[] = agents) => {
+        const defaultAgent = currentAgents.find(a => a.name.includes('Novo'))?.id || currentAgents.find(a => a.status === 'active')?.id || (currentAgents.length > 0 ? currentAgents[0].id : "");
+        const dynamicTemplateId = latest?.metadata?.template_id?.trim() || "72f33173-79cc-47cc-8a7c-eba3e20df9d3";
+        const dynamicImageUrl = latest?.metadata?.zenvia_image_url?.trim() || "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin";
+        const dynamicCtaLink = latest?.metadata?.zenvia_cta_link?.trim() || "";
+        const dynamicAgentId = latest?.agentId || defaultAgent;
+        const dynamicInitialMessage = latest?.initialMessage || defaultInitialMessage;
+        const dynamicReengagementTemplateId = latest?.reengagementTemplateId || "";
+
+        return {
+            id: "",
+            name: "",
+            description: "",
+            agentId: dynamicAgentId,
+            dailyLimit: latest?.dailyLimit || 5000,
+            startDate: format(new Date(), "yyyy-MM-dd"),
+            endDate: "",
+            startTime: latest?.startTime || "09:00",
+            endTime: latest?.endTime || "18:00",
+            initialMessage: dynamicInitialMessage,
+            templateId: dynamicTemplateId,
+            zenviaImageUrl: dynamicImageUrl,
+            zenviaCtaLink: dynamicCtaLink,
+            campaignType: (latest?.campaignType || latest?.metadata?.campaign_type || "standard") as "standard" | "pre_approved",
+            successCriteria: latest?.successCriteria || ['LINK_SENT'],
+            successLinkFilter: latest?.successLinkFilter || "fiservcapital",
+            reengagementEnabled: latest?.reengagementEnabled ?? false,
+            reengagementWaitHours: latest?.reengagementWaitHours || 24,
+            reengagementMaxAttempts: latest?.reengagementMaxAttempts || 1,
+            reengagementMessage: latest?.reengagementMessage || "",
+            reengagementTemplateId: dynamicReengagementTemplateId
+        };
+    };
+
     // New Campaign Form State
     const [newCampaign, setNewCampaign] = useState({
         id: "",
@@ -312,6 +348,15 @@ export default function Campaigns() {
         reengagementTemplateId: ""
     });
 
+    const handleOpenCreate = () => {
+        const defaults = getLatestCampaignDefaults(latestCampaign, agents);
+        setNewCampaign(defaults);
+        if (defaults.templateId) {
+            checkTemplateValidity(defaults.templateId, true);
+        }
+        setIsCreateOpen(true);
+    };
+
     // Estado da Validação do Template Zenvia/Meta
     const [templateValidation, setTemplateValidation] = useState<{
         isValidating: boolean;
@@ -321,7 +366,7 @@ export default function Campaigns() {
         details?: any;
     }>({
         isValidating: false,
-        isValid: true, // Default ID 72f33173... starts valid
+        isValid: true, // Default ID starts valid
         status: 'APPROVED',
         details: {
             name: "Oferta de Crédito v.2",
@@ -334,7 +379,7 @@ export default function Campaigns() {
         }
     });
 
-    const checkTemplateValidity = async (templateIdToVerify: string) => {
+    const checkTemplateValidity = async (templateIdToVerify: string, silent: boolean = false) => {
         const cleanId = (templateIdToVerify || "").trim();
         if (!cleanId) {
             setTemplateValidation({
@@ -486,10 +531,12 @@ export default function Campaigns() {
                     setNewCampaign(prev => ({ ...prev, initialMessage: bodyText }));
                 }
 
-                toast({
-                    title: "Template Meta Validado",
-                    description: `Template "${t.name || cleanId}" está ${t.status || 'aprovado'} na Meta.`,
-                });
+                if (!silent) {
+                    toast({
+                        title: "Template Meta Validado",
+                        description: `Template "${t.name || cleanId}" está ${t.status || 'aprovado'} na Meta.`,
+                    });
+                }
             } else {
                 if (res?.status === 'UNAVAILABLE') {
                     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
@@ -516,11 +563,13 @@ export default function Campaigns() {
                     status: res?.status || 'NOT_FOUND',
                     message: errorMsg
                 });
-                toast({
-                    title: "Template não encontrado",
-                    description: errorMsg,
-                    variant: "destructive",
-                });
+                if (!silent) {
+                    toast({
+                        title: "Template não encontrado",
+                        description: errorMsg,
+                        variant: "destructive",
+                    });
+                }
             }
         } catch (err: any) {
             console.error('Erro ao validar template Zenvia:', err);
@@ -531,7 +580,7 @@ export default function Campaigns() {
                 status: isUUID ? 'APPROVED' : 'ERROR',
                 message: isUUID ? 'Template homologado na Meta WhatsApp (validado localmente)' : (err.message || 'Falha ao conectar com o serviço de validação.')
             });
-            if (!isUUID) {
+            if (!isUUID && !silent) {
                 toast({
                     title: "Erro na validação",
                     description: "Não foi possível verificar o status do template.",
@@ -562,7 +611,7 @@ export default function Campaigns() {
                 startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
             }
 
-            const [campaignsResult, agentsData, queueMetricsData, globalStatsRaw] = await Promise.all([
+            const [campaignsResult, agentsData, queueMetricsData, globalStatsRaw, latestCampaignData] = await Promise.all([
                 api.getCampaignsPaginated(currentTenant.id, {
                     startDate: startDate,
                     status: 'all',
@@ -574,7 +623,8 @@ export default function Campaigns() {
                 }),
                 api.getAgents(currentTenant.id),
                 api.getOutboundQueueMetricsByCampaign(currentTenant.id),
-                api.getAllCampaignsStats(currentTenant.id, [], startDate, filterAgentId)
+                api.getAllCampaignsStats(currentTenant.id, [], startDate, filterAgentId),
+                api.getLatestCampaign(currentTenant.id)
             ]);
 
             let globalTotals = {
@@ -657,6 +707,18 @@ export default function Campaigns() {
             setCampaigns(campaignsWithLiveStats);
             setAgents(agentsData);
             setQueueMetricsByCampaign(queueMetricsData);
+
+            const resolvedLatest = latestCampaignData || (campaignsWithLiveStats.length > 0 ? campaignsWithLiveStats[0] : null);
+            setLatestCampaign(resolvedLatest);
+
+            // Sincroniza dinamicamente o ID e configurações da nova campanha se não estiver editando uma existente
+            if (!newCampaign.id && resolvedLatest) {
+                const defaults = getLatestCampaignDefaults(resolvedLatest, agentsData);
+                setNewCampaign(defaults);
+                if (defaults.templateId) {
+                    checkTemplateValidity(defaults.templateId, true);
+                }
+            }
         } catch (error) {
             console.error("Error loading campaigns:", error);
             toast({
@@ -712,6 +774,8 @@ export default function Campaigns() {
                 reengagementTemplateId: newCampaign.reengagementTemplateId || undefined,
             };
 
+            let createdCampaign: Campaign | null = null;
+
             if (newCampaign.id) {
                 // Update existing campaign
                 await api.updateCampaign(newCampaign.id, campaignData);
@@ -721,7 +785,7 @@ export default function Campaigns() {
                 });
             } else {
                 // Create new campaign
-                const createdCampaign = await api.createCampaign({
+                createdCampaign = await api.createCampaign({
                     ...campaignData,
                     status: "active" as CampaignStatus,
                 });
@@ -738,30 +802,16 @@ export default function Campaigns() {
                 setIsImportOpen(true);
             }
 
+            const nextLatest = createdCampaign || latestCampaign;
+            if (createdCampaign) {
+                setLatestCampaign(createdCampaign);
+            }
             setIsCreateOpen(false);
-            setNewCampaign({
-                id: "",
-                name: "",
-                description: "",
-                agentId: agents.find(a => a.name.includes('Novo'))?.id || agents.find(a => a.status === 'active')?.id || (agents.length > 0 ? agents[0].id : ""),
-                dailyLimit: 5000,
-                startDate: format(new Date(), "yyyy-MM-dd"),
-                endDate: "",
-                startTime: "09:00",
-                endTime: "18:00",
-                initialMessage: defaultInitialMessage,
-                templateId: "72f33173-79cc-47cc-8a7c-eba3e20df9d3",
-                zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin",
-                zenviaCtaLink: "",
-                campaignType: "standard",
-                successCriteria: ['LINK_SENT'],
-                successLinkFilter: "fiservcapital",
-                reengagementEnabled: false,
-                reengagementWaitHours: 24,
-                reengagementMaxAttempts: 1,
-                reengagementMessage: "",
-                reengagementTemplateId: ""
-            });
+            const nextDefaults = getLatestCampaignDefaults(nextLatest, agents);
+            setNewCampaign(nextDefaults);
+            if (nextDefaults.templateId) {
+                checkTemplateValidity(nextDefaults.templateId, true);
+            }
             await loadData();
         } catch (error) {
             toast({
@@ -1706,11 +1756,12 @@ export default function Campaigns() {
                             )}
                             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                                 {hasPermission('campaigns.create') && (
-                                <DialogTrigger asChild>
-                                    <Button className="bg-accent hover:bg-accent/90 text-accent-foreground font-bold shadow-lg shadow-accent/20 h-9">
+                                    <Button 
+                                        onClick={handleOpenCreate}
+                                        className="bg-accent hover:bg-accent/90 text-accent-foreground font-bold shadow-lg shadow-accent/20 h-9"
+                                    >
                                         <Plus className="mr-2 h-4 w-4" /> Nova Campanha
                                     </Button>
-                                </DialogTrigger>
                                 )}
                                 <DialogContent className="sm:max-w-[850px] max-h-[95vh] flex flex-col p-0 overflow-hidden border-accent/20">
                                     <DialogHeader className="p-6 pb-2">
@@ -2091,7 +2142,14 @@ export default function Campaigns() {
                                                     <div className="space-y-4">
                                                         <div className="grid gap-2">
                                                             <div className="flex items-center justify-between">
-                                                                <Label htmlFor="templateId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">ID do Template (Zenvia)</Label>
+                                                                <div className="flex items-center gap-2">
+                                                                    <Label htmlFor="templateId" className="text-[11px] uppercase font-bold text-slate-500 tracking-wider">ID do Template (Zenvia)</Label>
+                                                                    {latestCampaign?.metadata?.template_id && (
+                                                                        <span className="text-[9px] bg-slate-100 text-slate-500 font-medium px-1.5 py-0.5 rounded" title={`Última campanha cadastrada: ${latestCampaign.name}`}>
+                                                                            Padrão Dinâmico
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 {templateValidation.isValidating ? (
                                                                     <Badge variant="outline" className="text-[10px] font-medium flex items-center gap-1 py-0 px-2 h-5 text-slate-500 border-slate-300">
                                                                         <Loader2 className="w-3 h-3 animate-spin text-accent" />
@@ -2145,7 +2203,11 @@ export default function Campaigns() {
                                                                 </p>
                                                             ) : (
                                                                 <p className="text-[10px] text-slate-400">
-                                                                    Obrigatório para campanhas de primeiro contato. Pressione tab ou clique fora para validar.
+                                                                    {latestCampaign?.metadata?.template_id && newCampaign.templateId === latestCampaign.metadata.template_id ? (
+                                                                        <>Preenchido dinamicamente com base na última campanha (<strong className="text-slate-600 font-medium">{latestCampaign.name}</strong>). Pressione tab ou clique fora para validar caso altere.</>
+                                                                    ) : (
+                                                                        "Obrigatório para campanhas de primeiro contato. Pressione tab ou clique fora para validar."
+                                                                    )}
                                                                 </p>
                                                             )}
                                                         </div>

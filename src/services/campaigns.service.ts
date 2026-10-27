@@ -589,6 +589,56 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
         }));
     },
 
+    async getLatestCampaign(tenantId: string): Promise<import('@/lib/types').Campaign | null> {
+        const { data, error } = await supabase
+            .from('campaigns')
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error || !data) {
+            return null;
+        }
+
+        return {
+            id: data.id,
+            tenantId: data.tenant_id,
+            agentId: data.agent_id,
+            name: data.name,
+            description: data.description,
+            status: data.status,
+            startDate: parseLocalDate(data.start_date) || new Date(),
+            endDate: data.end_date ? parseLocalDate(data.end_date) : undefined,
+            startTime: data.start_time,
+            endTime: data.end_time,
+            initialMessage: data.initial_message,
+            dailyLimit: data.daily_limit,
+            totalContacts: data.total_contacts,
+            sentCount: data.sent_count,
+            deliveredCount: data.delivered_count || 0,
+            readCount: data.read_count || 0,
+            failedCount: data.failed_count,
+            responseCount: data.response_count,
+            totalMessages: data.total_messages || 0,
+            conversionCount: data.conversion_count || 0,
+            conversionRate: data.delivered_count > 0 ? Number(((data.conversion_count || 0) / data.delivered_count * 100).toFixed(1)) : 0,
+            importErrorCount: data.import_error_count,
+            successCriteria: data.success_criteria,
+            successLinkFilter: data.success_link_filter,
+            campaignType: (data.metadata?.campaign_type as any) || 'standard',
+            metadata: data.metadata,
+            reengagementEnabled: data.reengagement_enabled,
+            reengagementWaitHours: data.reengagement_wait_hours,
+            reengagementMaxAttempts: data.reengagement_max_attempts,
+            reengagementMessage: data.reengagement_message,
+            reengagementTemplateId: data.reengagement_template_id,
+            createdAt: new Date(data.created_at),
+            updatedAt: new Date(data.updated_at)
+        };
+    },
+
 async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise<import('@/lib/types').Campaign> {
         const dbPayload = {
             tenant_id: campaign.tenantId,
