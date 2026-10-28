@@ -123,21 +123,40 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 });
             }
 
-            // 2. Reengajamento: consultas focadas na outbound_queue dentro da faixa de datas
-            let reengQuery = supabaseReader
-                .from('outbound_queue')
-                .select('reengagement_last_sent_at, status')
-                .eq('tenant_id', tenantId)
-                .gt('reengagement_attempt_count', 0)
-                .gte('reengagement_last_sent_at', `${startStr}T00:00:00Z`)
-                .lte('reengagement_last_sent_at', `${endStr}T23:59:59Z`)
-                .limit(10000);
+            // 2. Reengajamento: consultas paginadas na outbound_queue dentro da faixa de datas ordenando por data decrescente
+            const reengRows: any[] = [];
+            let reengPage = 0;
+            const reengPageSize = 5000;
+            let hasMoreReeng = true;
 
-            if (campaignId) {
-                reengQuery = reengQuery.eq('campaign_id', campaignId);
+            while (hasMoreReeng) {
+                let reengQuery = supabaseReader
+                    .from('outbound_queue')
+                    .select('reengagement_last_sent_at, status')
+                    .eq('tenant_id', tenantId)
+                    .gt('reengagement_attempt_count', 0)
+                    .gte('reengagement_last_sent_at', `${startStr}T00:00:00Z`)
+                    .lte('reengagement_last_sent_at', `${endStr}T23:59:59Z`)
+                    .order('reengagement_last_sent_at', { ascending: false })
+                    .range(reengPage * reengPageSize, (reengPage + 1) * reengPageSize - 1);
+
+                if (campaignId) {
+                    reengQuery = reengQuery.eq('campaign_id', campaignId);
+                }
+
+                const { data: pageData, error: pageErr } = await reengQuery;
+                if (pageErr || !pageData || pageData.length === 0) {
+                    hasMoreReeng = false;
+                } else {
+                    reengRows.push(...pageData);
+                    if (pageData.length < reengPageSize || reengRows.length >= 30000) {
+                        hasMoreReeng = false;
+                    } else {
+                        reengPage++;
+                    }
+                }
             }
 
-            const { data: reengRows } = await reengQuery;
             (reengRows || []).forEach((r: any) => {
                 if (!r.reengagement_last_sent_at) return;
                 const d = new Date(r.reengagement_last_sent_at);
@@ -168,22 +187,38 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
             });
 
             // 3. Aquecimento / Anti-Abandono de Funil
-            let followupQuery = supabaseReader
-                .from('outbound_queue')
-                .select('created_at, sent_at, status')
-                .eq('tenant_id', tenantId)
-                .filter('metadata->>is_funnel_followup', 'eq', 'true')
-                .gte('created_at', `${startStr}T00:00:00Z`)
-                .lte('created_at', `${endStr}T23:59:59Z`)
-                .limit(10000);
+            const followupRows: any[] = [];
+            let fupPage = 0;
+            const fupPageSize = 5000;
+            let hasMoreFup = true;
 
-            if (campaignId) {
-                followupQuery = followupQuery.eq('campaign_id', campaignId);
+            while (hasMoreFup) {
+                let followupQuery = supabaseReader
+                    .from('outbound_queue')
+                    .select('created_at, sent_at, status, metadata')
+                    .eq('tenant_id', tenantId)
+                    .filter('metadata->>is_funnel_followup', 'eq', 'true')
+                    .range(fupPage * fupPageSize, (fupPage + 1) * fupPageSize - 1);
+
+                if (campaignId) {
+                    followupQuery = followupQuery.eq('campaign_id', campaignId);
+                }
+
+                const { data: pageData, error: pageErr } = await followupQuery;
+                if (pageErr || !pageData || pageData.length === 0) {
+                    hasMoreFup = false;
+                } else {
+                    followupRows.push(...pageData);
+                    if (pageData.length < fupPageSize || followupRows.length >= 20000) {
+                        hasMoreFup = false;
+                    } else {
+                        fupPage++;
+                    }
+                }
             }
 
-            const { data: followupRows } = await followupQuery;
             (followupRows || []).forEach((r: any) => {
-                const rawDate = r.sent_at || r.created_at;
+                const rawDate = r.metadata?.funnel_followup_last_sent_at || r.sent_at || r.created_at;
                 if (!rawDate) return;
                 const d = new Date(rawDate);
                 const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
