@@ -2296,10 +2296,13 @@ async deleteCampaign(id: string): Promise<void> {
         // 2. Mapa de Histórico de Entregas (Telefone -> { hasSuccess, lastFailureStatus, lastError, latestStatus, latestDate })
         const deliveryMap = new Map<string, { hasSuccess: boolean; hasFailure: boolean; lastError?: string; latestStatus?: string; latestDate?: number }>();
 
+        // 3. Mapa de Robôs Comerciais e Auto-Replies Detectados (CNPJ ou Telefone -> { reason, detectedAt })
+        const botMap = new Map<string, { reason: string; detectedAt?: string }>();
+
         // Busca em lotes seguros de 100 para evitar estouro de URL no PostgREST
         const chunkSize = 100;
 
-        // A. Consultar agent_leads para verificar recusas de crédito nos últimos 60 dias
+        // A. Consultar agent_leads para verificar recusas de crédito nos últimos 60 dias e robôs por CNPJ
         for (let i = 0; i < cleanIdentifiers.length; i += chunkSize) {
             const idChunk = cleanIdentifiers.slice(i, i + chunkSize);
             try {
@@ -2316,6 +2319,21 @@ async deleteCampaign(id: string): Promise<void> {
                         const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
                         const pipeStage = String(meta.pipeline_stage || lead.status || '').toLowerCase().trim();
                         const lostReason = String(meta.lost_reason || meta.refusal_reason || '').toLowerCase().trim();
+
+                        // Identificação de Robô por CNPJ
+                        const isBotLead = meta.is_bot === true || meta.is_auto_reply === true || lead.status === 'bot_detected';
+                        if (isBotLead) {
+                            const reason = meta.bot_reason || meta.bot_last_sample || 'Robô comercial identificado em campanha anterior (Cardápio digital / Auto-reply)';
+                            const cleanId = String(lead.identifier || '').replace(/\D/g, '').padStart(14, '0');
+                            if (cleanId) botMap.set(cleanId, { reason, detectedAt: meta.bot_detected_at });
+
+                            const cleanPh = String(lead.whatsapp || '').replace(/\D/g, '');
+                            if (cleanPh) {
+                                botMap.set(cleanPh, { reason, detectedAt: meta.bot_detected_at });
+                                if (cleanPh.startsWith('55') && cleanPh.length > 11) botMap.set(cleanPh.slice(2), { reason });
+                                else if (!cleanPh.startsWith('55')) botMap.set(`55${cleanPh}`, { reason });
+                            }
+                        }
 
                         const isDeclined =
                             pipeStage === 'declined' ||
@@ -2358,13 +2376,45 @@ async deleteCampaign(id: string): Promise<void> {
             }
         }
 
-        // B. Consultar outbound_queue para verificar histórico de entrega de mensagens
+        // B. Consultar agent_leads por telefone para checar robôs associados ao número
+        for (let i = 0; i < allPhones.length; i += chunkSize) {
+            const phoneChunk = allPhones.slice(i, i + chunkSize);
+            try {
+                const { data: botLeads, error: botErr } = await supabase
+                    .from('agent_leads')
+                    .select('whatsapp, identifier, status, metadata')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', phoneChunk);
+
+                if (!botErr && botLeads) {
+                    botLeads.forEach((lead: any) => {
+                        const meta = lead.metadata || {};
+                        const isBot = meta.is_bot === true || meta.is_auto_reply === true || lead.status === 'bot_detected';
+                        if (isBot) {
+                            const reason = meta.bot_reason || meta.bot_last_sample || 'Robô comercial identificado em campanha anterior (Cardápio digital / Auto-reply)';
+                            const rawPh = String(lead.whatsapp || '').replace(/\D/g, '');
+                            if (rawPh) {
+                                botMap.set(rawPh, { reason, detectedAt: meta.bot_detected_at });
+                                if (rawPh.startsWith('55') && rawPh.length > 11) botMap.set(rawPh.slice(2), { reason });
+                                else if (!rawPh.startsWith('55')) botMap.set(`55${rawPh}`, { reason });
+                            }
+                            const cleanId = String(lead.identifier || '').replace(/\D/g, '').padStart(14, '0');
+                            if (cleanId && cleanId.length === 14) botMap.set(cleanId, { reason });
+                        }
+                    });
+                }
+            } catch (err) {
+                console.warn('Erro ao consultar agent_leads por telefone para auditoria de robôs:', err);
+            }
+        }
+
+        // C. Consultar outbound_queue para verificar histórico de entrega de mensagens e flags de bot
         for (let i = 0; i < allPhones.length; i += chunkSize) {
             const phoneChunk = allPhones.slice(i, i + chunkSize);
             try {
                 const { data, error } = await supabase
                     .from('outbound_queue')
-                    .select('contact_phone, status, error_message, created_at, last_attempt_at')
+                    .select('contact_phone, status, error_message, metadata, created_at, last_attempt_at')
                     .eq('tenant_id', tenantId)
                     .in('contact_phone', phoneChunk);
 
@@ -2372,6 +2422,14 @@ async deleteCampaign(id: string): Promise<void> {
                     data.forEach((row: any) => {
                         const rawPh = String(row.contact_phone || '').replace(/\D/g, '');
                         if (!rawPh) return;
+
+                        // Se outbound_queue marcou como bot
+                        if (row.metadata?.is_bot === true || row.metadata?.is_auto_reply === true) {
+                            const bReason = 'Robô comercial identificado em campanha anterior (Cardápio / Auto-reply)';
+                            botMap.set(rawPh, { reason: bReason });
+                            if (rawPh.startsWith('55') && rawPh.length > 11) botMap.set(rawPh.slice(2), { reason: bReason });
+                            else if (!rawPh.startsWith('55')) botMap.set(`55${rawPh}`, { reason: bReason });
+                        }
 
                         const st = String(row.status || '').toLowerCase().trim();
                         const isDelivered = ['delivered', 'read', 'sent_success', 'lida', 'entregue', 'respondida', 'interagiu'].includes(st);
@@ -2409,7 +2467,7 @@ async deleteCampaign(id: string): Promise<void> {
             }
         }
 
-        // C. Classificação de cada contato da planilha
+        // D. Classificação de cada contato da planilha
         return rawContacts.map((contact, idx) => {
             const rawId = String(contact.identifier || '').replace(/\D/g, '');
             const cleanId = rawId.length > 0 && rawId.length < 14 ? rawId.padStart(14, '0') : rawId;
@@ -2440,7 +2498,32 @@ async deleteCampaign(id: string): Promise<void> {
                 };
             }
 
-            // 2. Checagem de Falha de Entrega Prévia
+            // 2. Checagem de Robô Comercial / Auto-Reply Detectado
+            const botByCnpj = cleanId ? botMap.get(cleanId) : undefined;
+            const botByPhone = rawPh 
+                ? (botMap.get(rawPh) || (rawPh.startsWith('55') ? botMap.get(rawPh.slice(2)) : botMap.get(`55${rawPh}`)))
+                : undefined;
+            const bot = botByCnpj || botByPhone;
+
+            if (bot) {
+                return {
+                    id: `audit-${contact.rowNumber}-${idx}`,
+                    rowNumber: contact.rowNumber,
+                    name: contact.name,
+                    phone: contact.phone,
+                    identifier: cleanId,
+                    ctaLink: contact.ctaLink,
+                    category: 'bot_detected' as const,
+                    selected: false, // Desmarcado por padrão!
+                    reason: bot.reason || 'Robô comercial detectado em campanha anterior (Cardápio digital / Auto-reply)',
+                    refusalDaysAgo: null,
+                    requestedAmount,
+                    revenue,
+                    rawData: contact.rawData
+                };
+            }
+
+            // 3. Checagem de Falha de Entrega Prévia
             const deliveryInfo = rawPh 
                 ? (deliveryMap.get(rawPh) || (rawPh.startsWith('55') ? deliveryMap.get(rawPh.slice(2)) : deliveryMap.get(`55${rawPh}`)))
                 : undefined;
@@ -2469,8 +2552,8 @@ async deleteCampaign(id: string): Promise<void> {
                 };
             }
 
-            // 3. Contato Válido / Pronto para Envio
-            // (Nunca tentado OU já tentado com entrega de mensagem confirmada, sem recusa recente)
+            // 4. Contato Válido / Pronto para Envio
+            // (Nunca tentado OU já tentado com entrega de mensagem confirmada, sem recusa recente e sem robô)
             return {
                 id: `audit-${contact.rowNumber}-${idx}`,
                 rowNumber: contact.rowNumber,

@@ -1088,9 +1088,11 @@ export default function Campaigns() {
                 validTotal: allAuditedLeads.filter(l => l.category === 'valid').length,
                 undeliveredTotal: allAuditedLeads.filter(l => l.category === 'undelivered').length,
                 refused60dTotal: allAuditedLeads.filter(l => l.category === 'refused_60d').length,
+                botDetectedTotal: allAuditedLeads.filter(l => l.category === 'bot_detected').length,
                 selectedValid: selectedLeads.filter(l => l.category === 'valid').length,
                 selectedUndelivered: selectedLeads.filter(l => l.category === 'undelivered').length,
-                selectedRefused: selectedLeads.filter(l => l.category === 'refused_60d').length
+                selectedRefused: selectedLeads.filter(l => l.category === 'refused_60d').length,
+                selectedBotDetected: selectedLeads.filter(l => l.category === 'bot_detected').length
             };
 
             await api.recordCampaignDispatchAudit({

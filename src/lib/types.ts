@@ -1021,7 +1021,7 @@ export interface CampaignImportLog {
   createdAt: Date;
 }
 
-export type AuditedLeadCategory = 'valid' | 'undelivered' | 'refused_60d';
+export type AuditedLeadCategory = 'valid' | 'undelivered' | 'refused_60d' | 'bot_detected';
 
 export interface AuditedLeadItem {
   id: string;
@@ -1052,9 +1052,11 @@ export interface CampaignDispatchAudit {
     validTotal: number;
     undeliveredTotal: number;
     refused60dTotal: number;
+    botDetectedTotal?: number;
     selectedValid: number;
     selectedUndelivered: number;
     selectedRefused: number;
+    selectedBotDetected?: number;
   };
   records: Array<{
     name: string;

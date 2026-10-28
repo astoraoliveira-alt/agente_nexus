@@ -33,7 +33,8 @@ import {
     Trash2,
     ArrowRight,
     ShieldAlert,
-    RefreshCw
+    RefreshCw,
+    Bot
 } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { Campaign, AuditedLeadItem, AuditedLeadCategory } from '@/lib/types';
@@ -137,6 +138,8 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
     const [auditedLeads, setAuditedLeads] = useState<AuditedLeadItem[]>([]);
     const [activeTab, setActiveTab] = useState<AuditedLeadCategory>('valid');
     const [searchTerm, setSearchTerm] = useState<string>('');
+    const [botToConfirm, setBotToConfirm] = useState<AuditedLeadItem | null>(null);
+    const [confirmAllBots, setConfirmAllBots] = useState<boolean>(false);
 
     // Reseta estado ao fechar
     const handleClose = (newOpen: boolean) => {
@@ -324,14 +327,16 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
     // Métricas calculadas
     const stats = useMemo(() => {
         const validList = auditedLeads.filter(l => l.category === 'valid');
+        const botList = auditedLeads.filter(l => l.category === 'bot_detected');
         const undeliveredList = auditedLeads.filter(l => l.category === 'undelivered');
         const refusedList = auditedLeads.filter(l => l.category === 'refused_60d');
 
         const selectedValid = validList.filter(l => l.selected).length;
+        const selectedBot = botList.filter(l => l.selected).length;
         const selectedUndelivered = undeliveredList.filter(l => l.selected).length;
         const selectedRefused = refusedList.filter(l => l.selected).length;
 
-        const totalSelected = selectedValid + selectedUndelivered + selectedRefused;
+        const totalSelected = selectedValid + selectedBot + selectedUndelivered + selectedRefused;
 
         return {
             totalUploaded: auditedLeads.length,
@@ -339,6 +344,10 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
             valid: {
                 total: validList.length,
                 selected: selectedValid
+            },
+            botDetected: {
+                total: botList.length,
+                selected: selectedBot
             },
             undelivered: {
                 total: undeliveredList.length,
@@ -351,18 +360,55 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
         };
     }, [auditedLeads]);
 
-    // Alternar seleção individual
+    // Alternar seleção individual com proteção para robôs
     const toggleLeadSelection = (id: string) => {
+        const target = auditedLeads.find(l => l.id === id);
+        if (!target) return;
+
+        // Se for bot e estiver sendo marcado, exige confirmação prévia
+        if (!target.selected && target.category === 'bot_detected') {
+            setBotToConfirm(target);
+            return;
+        }
+
         setAuditedLeads(prev =>
             prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item)
         );
     };
 
-    // Marcar/Desmarcar todos da categoria atual
+    const handleConfirmBotSelection = () => {
+        if (!botToConfirm) return;
+        setAuditedLeads(prev =>
+            prev.map(item => item.id === botToConfirm.id ? { ...item, selected: true } : item)
+        );
+        toast({
+            title: 'Robô incluído no disparo',
+            description: `${botToConfirm.name} foi marcado manualmente para envio.`
+        });
+        setBotToConfirm(null);
+    };
+
+    // Marcar/Desmarcar todos da categoria atual com confirmação para robôs
     const toggleSelectAllCategory = (category: AuditedLeadCategory, select: boolean) => {
+        if (category === 'bot_detected' && select) {
+            setConfirmAllBots(true);
+            return;
+        }
+
         setAuditedLeads(prev =>
             prev.map(item => item.category === category ? { ...item, selected: select } : item)
         );
+    };
+
+    const handleConfirmAllBotsSelection = () => {
+        setAuditedLeads(prev =>
+            prev.map(item => item.category === 'bot_detected' ? { ...item, selected: true } : item)
+        );
+        setConfirmAllBots(false);
+        toast({
+            title: 'Robôs marcados para envio',
+            description: `${stats.botDetected.total} contato(s) com robôs comerciais foram marcados para o disparo.`
+        });
     };
 
     // Filtro da aba ativa
@@ -388,8 +434,9 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
             return;
         }
 
-        const categoryNames = {
+        const categoryNames: Record<AuditedLeadCategory, string> = {
             valid: 'aptos_envio',
+            bot_detected: 'robos_comerciais_detectados',
             undelivered: 'falha_entrega_previa',
             refused_60d: 'recusados_ultimos_60dias'
         };
@@ -424,6 +471,7 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
 
         const categoryLabels: Record<AuditedLeadCategory, string> = {
             valid: 'Pronto p/ Envio (Válido)',
+            bot_detected: 'Robô Comercial Detectado',
             undelivered: 'Tentado sem Entrega',
             refused_60d: 'Recusado (<60 dias)'
         };
@@ -476,7 +524,8 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
     }, [auditedLeads, activeTab]);
 
     return (
-        <Dialog open={open} onOpenChange={handleClose}>
+        <>
+            <Dialog open={open} onOpenChange={handleClose}>
             <DialogContent className="sm:max-w-[950px] w-[95vw] max-h-[92vh] flex flex-col p-0 overflow-hidden border-accent/20 bg-background shadow-2xl">
                 {/* Header */}
                 <DialogHeader className="p-6 pb-4 border-b border-border/50 bg-slate-50/50">
@@ -564,7 +613,7 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                     {auditedLeads.length > 0 && !isAuditing && !isParsing && (
                         <div className="space-y-5 animate-in fade-in duration-200">
                             {/* Cards de Métricas Rápidas */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
                                 {/* Total Carga */}
                                 <div className="p-3 bg-slate-50 border border-border/50 rounded-xl">
                                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Total Carregado</p>
@@ -599,7 +648,30 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                                     </div>
                                 </div>
 
-                                {/* Aba 2: Falha de Entrega */}
+                                {/* Aba 2: Robôs Comerciais Detectados */}
+                                <div 
+                                    onClick={() => setActiveTab('bot_detected')}
+                                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                        activeTab === 'bot_detected' 
+                                            ? 'bg-sky-500/15 border-sky-500/50 ring-2 ring-sky-500/30 shadow-sm' 
+                                            : 'bg-sky-500/5 border-sky-500/20 hover:bg-sky-500/10'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between text-sky-600">
+                                        <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                                            <Bot className="h-3.5 w-3.5" />
+                                            Robôs Detectados
+                                        </span>
+                                    </div>
+                                    <div className="flex items-baseline justify-between mt-1.5">
+                                        <span className="text-2xl font-black text-sky-700">{stats.botDetected.total}</span>
+                                        <span className="text-[10px] font-bold text-sky-600">
+                                            {stats.botDetected.selected} de {stats.botDetected.total} marcados
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Aba 3: Falha de Entrega */}
                                 <div 
                                     onClick={() => setActiveTab('undelivered')}
                                     className={`p-3 rounded-xl border cursor-pointer transition-all ${
@@ -622,7 +694,7 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                                     </div>
                                 </div>
 
-                                {/* Aba 3: Recusados <60d */}
+                                {/* Aba 4: Recusados <60d */}
                                 <div 
                                     onClick={() => setActiveTab('refused_60d')}
                                     className={`p-3 rounded-xl border cursor-pointer transition-all ${
@@ -646,6 +718,16 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                                 </div>
                             </div>
 
+                            {/* Alerta de Robôs Detectados Marcados */}
+                            {stats.botDetected.selected > 0 && (
+                                <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 flex items-center gap-2 animate-in fade-in">
+                                    <Bot className="h-4 w-4 shrink-0 text-sky-600" />
+                                    <span>
+                                        <strong>Atenção:</strong> Você marcou <strong>{stats.botDetected.selected} contato(s)</strong> identificado(s) como robôs ou respostas automáticas. Eles serão incluídos no disparo conforme sua autorização manual.
+                                    </span>
+                                </div>
+                            )}
+
                             {/* Alerta de Contatos Recusados Marcados */}
                             {stats.refused60d.selected > 0 && (
                                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-center gap-2 animate-in fade-in">
@@ -667,6 +749,15 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                                                 <span className="text-xs font-bold text-foreground">Visualizando: Prontos para Envio</span>
                                                 <Badge variant="outline" className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border-emerald-200">
                                                     {stats.valid.selected} de {stats.valid.total} marcados
+                                                </Badge>
+                                            </>
+                                        )}
+                                        {activeTab === 'bot_detected' && (
+                                            <>
+                                                <div className="h-2.5 w-2.5 rounded-full bg-sky-500" />
+                                                <span className="text-xs font-bold text-foreground">Visualizando: Robôs Comerciais Detectados</span>
+                                                <Badge variant="outline" className="text-[10px] font-semibold text-sky-700 bg-sky-50 border-sky-200">
+                                                    {stats.botDetected.selected} de {stats.botDetected.total} marcados
                                                 </Badge>
                                             </>
                                         )}
@@ -784,6 +875,17 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                                                                         {item.reason}
                                                                     </Badge>
                                                                 )}
+                                                                {item.category === 'bot_detected' && (
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <Badge className="bg-sky-500/15 text-sky-700 hover:bg-sky-500/20 border-sky-500/30 text-[10px] font-bold gap-1">
+                                                                            <Bot className="h-3 w-3" />
+                                                                            Robô Comercial
+                                                                        </Badge>
+                                                                        <span className="text-[10px] text-muted-foreground truncate max-w-[180px]" title={item.reason}>
+                                                                            {item.reason}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
                                                                 {item.category === 'undelivered' && (
                                                                     <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/20 border-amber-500/30 text-[10px] font-medium gap-1">
                                                                         <AlertTriangle className="h-3 w-3" />
@@ -884,5 +986,88 @@ export const CampaignLeadAuditDialog: React.FC<CampaignLeadAuditDialogProps> = (
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+
+        {/* Modal de Confirmação Individual para Inclusão de Robô */}
+        <Dialog open={!!botToConfirm} onOpenChange={(isOpen) => !isOpen && setBotToConfirm(null)}>
+            <DialogContent className="max-w-md bg-background border-border/80 shadow-xl">
+                <DialogHeader>
+                    <div className="flex items-center gap-2 text-sky-600">
+                        <div className="p-2 bg-sky-500/10 rounded-full">
+                            <Bot className="h-5 w-5" />
+                        </div>
+                        <DialogTitle className="text-base font-bold text-foreground">Confirmar Envio para Robô?</DialogTitle>
+                    </div>
+                    <DialogDescription className="text-xs text-muted-foreground pt-1.5 leading-relaxed">
+                        Este número foi identificado pelo sistema como um bot ou resposta automática comercial (cardápios digitais, pesquisas de satisfação ou mensagem de horário).
+                    </DialogDescription>
+                </DialogHeader>
+
+                {botToConfirm && (
+                    <div className="p-3 bg-sky-50/60 border border-sky-200/60 rounded-xl space-y-1.5 text-xs">
+                        <p className="font-bold text-foreground">{botToConfirm.name}</p>
+                        <p className="font-mono text-muted-foreground text-[11px]">{formatPhoneMask(botToConfirm.phone)}</p>
+                        <p className="text-[11px] text-sky-800 font-medium">{botToConfirm.reason}</p>
+                    </div>
+                )}
+
+                <DialogFooter className="gap-2 sm:gap-0 mt-3">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setBotToConfirm(null)}
+                        className="text-xs text-slate-600 hover:text-slate-900"
+                    >
+                        Cancelar (Manter Desmarcado)
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleConfirmBotSelection}
+                        className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shadow-sm"
+                    >
+                        Sim, Quero Enviar Mesmo Assim
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Modal de Confirmação em Massa para Inclusão de Robôs */}
+        <Dialog open={confirmAllBots} onOpenChange={(isOpen) => !isOpen && setConfirmAllBots(false)}>
+            <DialogContent className="max-w-md bg-background border-border/80 shadow-xl">
+                <DialogHeader>
+                    <div className="flex items-center gap-2 text-sky-600">
+                        <div className="p-2 bg-sky-500/10 rounded-full">
+                            <Bot className="h-5 w-5" />
+                        </div>
+                        <DialogTitle className="text-base font-bold text-foreground">Marcar Todos os {stats.botDetected.total} Robôs?</DialogTitle>
+                    </div>
+                    <DialogDescription className="text-xs text-muted-foreground pt-1.5 leading-relaxed">
+                        Você está prestes a marcar <strong>{stats.botDetected.total} contato(s)</strong> identificados como respostas automáticas ou robôs comerciais. Esses envios podem consumir créditos de disparo sem gerar conversão humana real.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <DialogFooter className="gap-2 sm:gap-0 mt-3">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setConfirmAllBots(false)}
+                        className="text-xs text-slate-600 hover:text-slate-900"
+                    >
+                        Cancelar
+                    </Button>
+                    <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleConfirmAllBotsSelection}
+                        className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shadow-sm"
+                    >
+                        Confirmar Marcação de Todos
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    </>
     );
 };
