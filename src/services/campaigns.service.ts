@@ -1033,6 +1033,7 @@ async deleteCampaign(id: string): Promise<void> {
                 isOptIn: boolean;
                 inFormalization: boolean;
                 isBlocked: boolean;
+                isBot: boolean;
                 hasValorInicial: boolean;
                 hasFaturamento: boolean;
                 hasConfirmed: boolean;
@@ -1053,6 +1054,12 @@ async deleteCampaign(id: string): Promise<void> {
                         const statusStr = String(lead.status || '').toLowerCase().trim();
                         const formalStatus = String(meta.formalization_status || '').toLowerCase().trim();
                         const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
+
+                        const isBot = Boolean(
+                            meta.is_bot === true ||
+                            meta.is_auto_reply === true ||
+                            statusStr === 'bot_detected'
+                        );
 
                         const isApproved = Boolean(
                             (
@@ -1107,7 +1114,7 @@ async deleteCampaign(id: string): Promise<void> {
                         const hasValidAmount = numAmount >= 10000 && numAmount <= 500000;
 
                         const hasValorInicial = Boolean(
-                            !isBlocked && (
+                            !isBlocked && !isBot && (
                                 hasValidAmount ||
                                 meta.requested_amount ||
                                 meta.valor_inicial ||
@@ -1117,14 +1124,14 @@ async deleteCampaign(id: string): Promise<void> {
                         );
 
                         const hasFaturamento = Boolean(
-                            !isBlocked && (
+                            !isBlocked && !isBot && (
                                 meta.revenue ||
                                 meta.faturamento
                             )
                         );
 
                         const hasConfirmed = Boolean(
-                            !isBlocked && (
+                            !isBlocked && !isBot && (
                                 hasValorInicial ||
                                 hasFaturamento ||
                                 meta.identity_confirmed === true ||
@@ -1160,6 +1167,7 @@ async deleteCampaign(id: string): Promise<void> {
                             isOptIn,
                             inFormalization,
                             isBlocked,
+                            isBot,
                             hasValorInicial,
                             hasFaturamento,
                             hasConfirmed,
@@ -1729,8 +1737,9 @@ async deleteCampaign(id: string): Promise<void> {
                         const pipeStage = String(meta.pipeline_stage || '').toLowerCase().trim();
                         const extStatus = String(meta.fiserv_external_status || '').toLowerCase().trim();
                         const statusStr = String(l.status || '').toLowerCase().trim();
+                        const isBot = Boolean(meta.is_bot === true || meta.is_auto_reply === true || statusStr === 'bot_detected');
 
-                        const isConfirmed = Boolean(
+                        const isConfirmed = !isBot && Boolean(
                             meta.identity_confirmed === true ||
                             meta.identity_confirmed === 'true' ||
                             meta.cnpj_confirmed === true ||
@@ -1752,8 +1761,8 @@ async deleteCampaign(id: string): Promise<void> {
                             meta.ok_agente === true ||
                             meta.ok_agente === 'true'
                         );
-                        const isRevenue = Boolean(meta.revenue || meta.faturamento);
-                        const isValorInicial = Boolean(meta.requested_amount || meta.valor_inicial || meta.simulation_data?.amount || meta.fiserv_amount_approved);
+                        const isRevenue = !isBot && Boolean(meta.revenue || meta.faturamento);
+                        const isValorInicial = !isBot && Boolean(meta.requested_amount || meta.valor_inicial || meta.simulation_data?.amount || meta.fiserv_amount_approved);
                         const isOptIn = fiservStatus === 'opt_in_registered' ||
                             statusStr === 'opt_in' ||
                             statusStr === 'optin' ||
@@ -2057,8 +2066,10 @@ async deleteCampaign(id: string): Promise<void> {
                 const extStatus = String(meta.fiserv_external_status || '').toLowerCase().trim();
                 const leadStatus = String(l.status || '').toLowerCase().trim();
 
+                const isBot = Boolean(meta.is_bot === true || meta.is_auto_reply === true || leadStatus === 'bot_detected');
+
                 // Identidade Confirmada (explícita ou implícita por avançar de fase)
-                const isConfirmed = Boolean(
+                const isConfirmed = !isBot && Boolean(
                     meta.identity_confirmed === true ||
                     meta.identity_confirmed === 'true' ||
                     meta.cnpj_confirmed === true ||
@@ -2082,7 +2093,7 @@ async deleteCampaign(id: string): Promise<void> {
                 );
                 if (isConfirmed) lm.confirmaram++;
 
-                const hasOptInLead = Boolean(
+                const hasOptInLead = !isBot && Boolean(
                     meta.opt_in === true || 
                     meta.optin === true || 
                     meta.consent?.opt_in === true ||
@@ -2093,13 +2104,13 @@ async deleteCampaign(id: string): Promise<void> {
                     ['approved', 'aprovado', 'denied', 'recusado', 'reprovado'].includes(leadStatus)
                 );
 
-                const hasFaturamentoLead = Boolean(
+                const hasFaturamentoLead = !isBot && Boolean(
                     meta.revenue || 
                     meta.faturamento || 
                     hasOptInLead
                 );
 
-                const hasValorInicialLead = Boolean(
+                const hasValorInicialLead = !isBot && Boolean(
                     meta.requested_amount || 
                     meta.valor_inicial || 
                     meta.simulation_data?.amount || 
