@@ -124,24 +124,78 @@ const FISERV_TERM_VERSION = "v1-2026-06";
 const FISERV_TERM_HASH = "b919e74d1075bbd1c44fcef663f7e691932d5eb1fe1e54f8b30a3032c2b30d8b";
 
 try {
-    const rpcData = $node["RPC - Acesso Entrada"].json;
-    const ctx = rpcData.context || {};
+    const rpcData = (typeof $node !== 'undefined' && $node["RPC - Acesso Entrada"]?.json)
+        ? $node["RPC - Acesso Entrada"].json
+        : ((typeof $ === 'function' ? $('RPC - Acesso Entrada')?.first()?.json : null) || (typeof $json !== 'undefined' ? $json : {}) || {});
+    const ctx = (rpcData && typeof rpcData.context === 'object' && rpcData.context !== null) ? rpcData.context : (rpcData || {});
 
     // 🛡️ PROTEÇÃO DE HANDOFF (HITL)
-    if (ctx.status === 'human_active') {
+    if (ctx.status === 'human_active' || rpcData.conversation?.status === 'human_active') {
         return {
             currentStep: "stop_flow",
             stop_flow: true,
             reason: "Handoff Ativo: Operador humano está no controle.",
-            conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
-            p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            conversation_id: rpcData.conversation?.id || ctx.conversation?.id || rpcData.p_conversation_id || null,
+            p_conversation_id: rpcData.conversation?.id || ctx.conversation?.id || rpcData.p_conversation_id || null
         };
     }
 
-    const leadInfo = ctx.lead_info || {};
-    const agent = ctx.agent || {};
-    const blueprint = agent.workflow_blueprint || { steps: {} };
-    const history = ctx.messages_history || [];
+    const leadInfo = (ctx && typeof ctx.lead_info === 'object' && ctx.lead_info !== null)
+        ? { ...ctx.lead_info }
+        : ((rpcData && typeof rpcData.lead_info === 'object' && rpcData.lead_info !== null) ? { ...rpcData.lead_info } : {});
+    const agent = (ctx && typeof ctx.agent === 'object' && ctx.agent !== null)
+        ? ctx.agent
+        : ((rpcData && typeof rpcData.agent === 'object' && rpcData.agent !== null) ? rpcData.agent : {});
+    const blueprint = (agent && typeof agent.workflow_blueprint === 'object' && agent.workflow_blueprint !== null)
+        ? agent.workflow_blueprint
+        : { steps: {} };
+    if (!blueprint.steps || typeof blueprint.steps !== 'object') {
+        blueprint.steps = {};
+    }
+    const history = Array.isArray(ctx.messages_history)
+        ? ctx.messages_history
+        : (Array.isArray(rpcData.messages_history) ? rpcData.messages_history : []);
+
+    // 🛡️ FALLBACK DE ESTADO PERSISTIDO NA CONVERSA (context_state / metadata)
+    const persistedContextState = (ctx?.conversation?.context_state && typeof ctx.conversation.context_state === 'object')
+        ? ctx.conversation.context_state
+        : ((rpcData?.conversation?.context_state && typeof rpcData.conversation.context_state === 'object')
+            ? rpcData.conversation.context_state
+            : ((ctx?.context_state && typeof ctx.context_state === 'object') ? ctx.context_state : {}));
+    const persistedMetadata = (persistedContextState?.metadata && typeof persistedContextState.metadata === 'object')
+        ? persistedContextState.metadata
+        : {};
+    const persistedFunnelStep = typeof persistedContextState?.current_step === 'string' && persistedContextState.current_step !== 'stop_flow'
+        ? persistedContextState.current_step
+        : null;
+
+    if (!leadInfo.requested_amount && persistedMetadata.requested_amount && Number(persistedMetadata.requested_amount) > 0) {
+        leadInfo.requested_amount = Number(persistedMetadata.requested_amount);
+    }
+    if (!leadInfo.revenue && persistedMetadata.revenue && Number(persistedMetadata.revenue) > 0) {
+        leadInfo.revenue = Number(persistedMetadata.revenue);
+    }
+    if (!leadInfo.opt_in && (persistedMetadata.opt_in === true || persistedMetadata.consent?.opt_in === true)) {
+        leadInfo.opt_in = true;
+    }
+    if (!leadInfo.consent && persistedMetadata.consent && typeof persistedMetadata.consent === 'object') {
+        leadInfo.consent = persistedMetadata.consent;
+    }
+
+    // 📋 CONFIGURAÇÃO DINÂMICA DO WHATSAPP FLOW (V32 - Default: false / chaveamento sem deploy)
+    const wfFlowConfig = (blueprint && typeof blueprint.whatsapp_flow === 'object' && blueprint.whatsapp_flow !== null)
+        ? blueprint.whatsapp_flow
+        : {};
+    const whatsappFlowId = String(wfFlowConfig.flow_id || '').trim();
+    const isWhatsappFlowEnabled = Boolean(
+        wfFlowConfig.enabled === true &&
+        whatsappFlowId.length > 0
+    );
+    const whatsappFlowMode = wfFlowConfig.flow_mode === 'published' ? 'published' : 'draft';
+    const whatsappFlowScreen = String(wfFlowConfig.screen_id || 'SIMULACAO_SCREEN').trim() || 'SIMULACAO_SCREEN';
+    const whatsappFlowCta = String(wfFlowConfig.cta_text || 'Simular Crédito').trim().slice(0, 20) || 'Simular Crédito';
+    const whatsappFlowHeader = String(wfFlowConfig.header || 'Reforço de Caixa Ticket').trim();
+    const whatsappFlowFooter = String(wfFlowConfig.footer || 'Parceria Ticket & Fiserv').trim();
 
     // 🛡️ RESGATE AUTOMÁTICO DE LEAD DE CAMPANHA (PROTEÇÃO CONTRA FALHA DE 9º DÍGITO ZENVIA)
     // Se a busca inicial retornou is_lead = false mas há histórico de disparo de campanha Ticket/Fiserv para este número,
@@ -166,7 +220,9 @@ try {
             content.includes('recebiveis futuros') ||
             content.includes('500 mil') ||
             content.includes('simulação sem compromisso') ||
-            content.includes('simulacao sem compromisso')
+            content.includes('simulacao sem compromisso') ||
+            content.includes('negócio merece crescer') ||
+            content.includes('negocio merece crescer')
         );
     });
 
@@ -184,12 +240,64 @@ try {
         }
     }
 
-    // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO ---
+    // --- 1) HISTÓRICO E DETECÇÃO DE ESTADO (BLINDADO CONTRA PERDA DE CONTEXTO EM FOLLOW-UP / REAQUECIMENTO) ---
     const assistantMessages = history.filter(m =>
-        ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction).toLowerCase())
+        ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase())
     );
-    const lastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
-    const secondLastSofiaMsg = String(assistantMessages[assistantMessages.length - 2]?.content || assistantMessages[assistantMessages.length - 2]?.text || "").toLowerCase().replace(/\*/g, '');
+    const rawLastSofiaMsg = String(assistantMessages[assistantMessages.length - 1]?.content || assistantMessages[assistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '');
+    const rawSecondLastSofiaMsg = String(assistantMessages[assistantMessages.length - 2]?.content || assistantMessages[assistantMessages.length - 2]?.text || "").toLowerCase().replace(/\*/g, '');
+
+    // 🛡️ Identifica mensagens genéricas de follow-up de inatividade ou disparos de reaquecimento em massa
+    // que NÃO devem apagar a memória da pergunta específica do funil (ex: valor desejado, faturamento, opt-in)
+    function isGenericFollowUpOrRewarmMessage(msgLower) {
+        if (!msgLower) return false;
+        const text = String(msgLower).toLowerCase().replace(/\*/g, '');
+        // Se a própria mensagem faz uma pergunta direta de etapa do funil, NÃO é genérica
+        const hasSpecificFunnelQuestion = (
+            text.includes("valor desejado") ||
+            text.includes("faturamento médio mensal") ||
+            text.includes("faturamento medio mensal") ||
+            text.includes("sim, autorizo") ||
+            text.includes("termos de autorização") ||
+            text.includes("termo de autorização") ||
+            text.includes("em quantas parcelas") ||
+            text.includes("quantas parcelas gostaria") ||
+            text.includes("podemos seguir nessas condições") ||
+            text.includes("podemos seguir com a formalização") ||
+            text.includes("clique no botão abaixo para prosseguir")
+        );
+        if (hasSpecificFunnelQuestion) return false;
+
+        return (
+            text.includes("posso ajudar com alguma dúvida sobre o crédito") ||
+            text.includes("posso ajudar com alguma duvida sobre o credito") ||
+            text.includes("estou à disposição para continuar sua solicitação") ||
+            text.includes("estou a disposicao para continuar sua solicitacao") ||
+            text.includes("vi que não conseguimos concluir") ||
+            text.includes("vi que nao conseguimos concluir") ||
+            text.includes("ainda tem interesse em simular") ||
+            text.includes("a gente sabe como o seu negócio merece crescer") ||
+            text.includes("a gente sabe como o seu negocio merece crescer") ||
+            text.includes("parceria ticket & fiserv para dar o próximo passo") ||
+            text.includes("vantagens do nosso crédito") ||
+            text.includes("vantagens do nosso credito") ||
+            (text.includes("faça uma simulação sem compromisso") && text.includes("recebíveis da ticket como garantia"))
+        );
+    }
+
+    const funnelAssistantMessages = assistantMessages.filter(m => {
+        const txt = String(m.content || m.text || "").toLowerCase().replace(/\*/g, '');
+        return !isGenericFollowUpOrRewarmMessage(txt);
+    });
+
+    // Se a última mensagem da Sofia foi apenas um follow-up/reaquecimento genérico, mas já havia uma pergunta ativa do funil antes,
+    // preserva a última pergunta real do funil para não perder o passo da conversa!
+    const lastSofiaMsg = (isGenericFollowUpOrRewarmMessage(rawLastSofiaMsg) && funnelAssistantMessages.length > 0)
+        ? String(funnelAssistantMessages[funnelAssistantMessages.length - 1]?.content || funnelAssistantMessages[funnelAssistantMessages.length - 1]?.text || "").toLowerCase().replace(/\*/g, '')
+        : rawLastSofiaMsg;
+    const secondLastSofiaMsg = (isGenericFollowUpOrRewarmMessage(rawLastSofiaMsg) && funnelAssistantMessages.length >= 2)
+        ? String(funnelAssistantMessages[funnelAssistantMessages.length - 2]?.content || funnelAssistantMessages[funnelAssistantMessages.length - 2]?.text || "").toLowerCase().replace(/\*/g, '')
+        : rawSecondLastSofiaMsg;
     const historyTexts = history.map(m => String(m.content || m.text || "").toLowerCase().replace(/\*/g, '')).join(" ");
 
     // 🛡️ Detecção de simulação prévia e confirmação de identidade no histórico
@@ -222,18 +330,46 @@ try {
     ).trim();
     const lastUserLower = currentMsg.toLowerCase();
 
+    // 🛡️ RESGATE DE OPT-IN DADO NO HISTÓRICO DA CONVERSA ATUAL (Ex: Cliente clicou "✅ SIM, AUTORIZO" antes de informar o faturamento)
+    const userOptInMsgInHistory = history.find(m => {
+        const isUsr = ['user', 'inbound', 'customer', 'cliente'].includes(String(m.sender_type || m.role || m.sender || m.direction || '').toLowerCase());
+        if (!isUsr) return false;
+        const txt = String(m.content || m.text || '').toLowerCase().trim();
+        return (
+            txt.includes('sim, autorizo') ||
+            txt.includes('sim autorizo') ||
+            txt.includes('optin_sim') ||
+            txt.includes('btn_optin') ||
+            txt.includes('sim_autorizo') ||
+            (txt.includes('✅') && txt.includes('autorizo')) ||
+            /^(sim,?\s*autorizo|autorizo)$/i.test(txt)
+        );
+    });
+    const hasOptInInConversationHistory = Boolean(userOptInMsgInHistory);
+    if (hasOptInInConversationHistory && !leadInfo.opt_in) {
+        leadInfo.opt_in = true;
+        if (!leadInfo.consent || typeof leadInfo.consent !== 'object') {
+            leadInfo.consent = {
+                opt_in: true,
+                opt_in_timestamp: userOptInMsgInHistory?.created_at || new Date().toISOString(),
+                timestamp: userOptInMsgInHistory?.created_at || new Date().toISOString(),
+                confirmation_message: String(userOptInMsgInHistory?.content || userOptInMsgInHistory?.text || '✅ SIM, AUTORIZO')
+            };
+        }
+    }
+
     // 🕒 REGRA DE AUDITORIA: VALIDAÇÃO DE OPT-IN PRÉVIO DENTRO DA JANELA DE 30 DIAS
     const consentTimestamp = leadInfo.consent?.opt_in_timestamp || leadInfo.consent?.timestamp || leadInfo.fiserv_requested_at || leadInfo.opt_in_timestamp;
     let isOptInWithin30Days = false;
 
-    if (leadInfo.opt_in === true || leadInfo.optin === true || leadInfo.consent?.opt_in === true || leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) {
+    if (leadInfo.opt_in === true || leadInfo.optin === true || leadInfo.consent?.opt_in === true || hasOptInInConversationHistory || leadInfo.loan_request_id || leadInfo.fiserv_loan_request_id) {
         if (consentTimestamp) {
             const consentAgeMs = Date.now() - new Date(consentTimestamp).getTime();
             const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
             isOptInWithin30Days = !isNaN(consentAgeMs) && consentAgeMs >= 0 && consentAgeMs <= thirtyDaysMs;
         } else {
             // Se possui opt-in ou ID registrado no banco mas o timestamp estava nulo, considera válido por segurança
-            isOptInWithin30Days = Boolean(leadInfo.opt_in || leadInfo.consent?.opt_in || leadInfo.loan_request_id);
+            isOptInWithin30Days = Boolean(leadInfo.opt_in || leadInfo.consent?.opt_in || hasOptInInConversationHistory || leadInfo.loan_request_id);
         }
     }
 
@@ -296,13 +432,23 @@ try {
     // 🛡️ CIRCUIT BREAKER ANTI-LOOP TRIPLO & DETECTOR DE AUTO-RESPOSTAS (UNIVERSAL)
     // =========================================================================
 
-    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido V31.2 com WhatsApp Business, ausência, horários e diretório)
-    const regexAutoReply = /(agradece(mos)? (a prefer[eê]ncia|seu contato|sua mensagem)|[eé] um prazer te ter aqui|nossa equipe (ir[aá]|vai) responder|assim que poss[ií]vel (nossa equipe|responderemos|retornaremos)|(nosso )?atendimento (de segunda|das? \d{1,2}|ao?s? domingos?|comercial)|pronta entrega|pedeagora(\.net)?|ifood(\.com\.br)?|ubereats|99food|beefood|menudin|unidades? mais pr[oó]xima|bolos do s[ií]tio|fale em uma das unidades|agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|rob[oô]\s+\w+|rob[oô] l[eé]o|atendente virtual|bot de atendimento|chat errado|chats diferentes|conversa errada|conversas diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|pedir algo pra comer|monto seu pedido|monto tudo pra voc[eê]|t[aá] aberto agora|aberto agora|movorafood|cardapioweb|anota\.ai|ola\.click|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui|(s[oó] vende|vendemos|a gente faz|a gente s[oó] faz|a gente vende)\s+(salgado|pastel|churro|pizza|marmita|lanche|comida|hamburguer)|estarei ausente|estou ausente|retornando [aà]s? minhas atividades|retorno [aà]s? atividades|acesso limitado|para assuntos urgentes|em caso de urg[eê]ncia|est[aá] fechad[ao]|estamos fechad[ao]s?|reabre hoje|reabre [aà]s|reabrimos|entre no nosso grupo|grupo de avisos|card[aá]pio todos os dias|card[aá]pio di[aá]rio|⏰|das?\s*\d{1,2}[:h]\d{0,2}\s*(?:[aà]s?|at[eé])\s*\d{1,2}[:h])/i;
+    // 1. Assinaturas Semânticas de Auto-Respostas, Cardápios, Horários e Robôs (Expandido V32.1 com WhatsApp Business, ausência, horários, diretórios, pizzarias/restaurantes e triagem obrigatória de nome)
+    const regexAutoReply = /(agradece(mos)? (a prefer[eê]ncia|seu contato|sua mensagem)|[eé] um prazer te ter aqui|nossa equipe (ir[aá]|vai) responder|assim que poss[ií]vel (nossa equipe|responderemos|retornaremos)|(nosso )?atendimento (de segunda|das? \d{1,2}|ao?s? domingos?|comercial)|pronta entrega|pedeagora(\.net)?|ifood(\.com\.br)?|ubereats|99food|beefood|menudin|unidades? mais pr[oó]xima|bolos do s[ií]tio|fale em uma das unidades|agradece seu contato|como podemos ajudar|como posso te ajudar|como posso ajudar voc[eê]|qual o motivo da sua mensagem|escolha uma das op[çc][õo]es|digite o n[uú]mero|digite a op[çc][aã]o|não est(ou|amos) (dispon[ií]ve|atendendo)|não estamos funcionando|não está funcionando|não est(ou|amos) operando|funcionamos de .* [aà]s?|fora de hor[aá]rio|hor[aá]rio de atendimento|horário de funcionamento|hor[aá]rio comercial|estamos fechados|fechado no momento|estamos abertos|aberto de|faça seu pedido|faca seu pedido|fazer pedido|fazer pedidos|nosso card[aá]pio|card[aá]pio digital|acesse nosso cat[aá]logo|atendente foi solicitado|atendimento feito por pessoas|responderemos assim que poss[ií]vel|em breve retornaremos|retornaremos em breve|retornaremos assim que|retornaremos o contato|expediente foi encerrado|hora marcada|pedidos pelo whatsapp|para realizar seu pedido|para agilizar (o|seu) atendimento|agilizar o seu atendimento|endere[cç]o de entrega|AutoResponder|prezado(a)? cliente|voc[eê] est[aá] n[ao]|voc[eê] talvez busque|ordem de chegada|cobramos taxa|taxa de entrega|taxa de servi[cç]o|seja bem-vindo|bem-vindo(a)? [aà]|obrigad[ao] pelo contato|obrigad[ao] pela compreens[aã]o|conheça nossas m[ií]dias|mensagem autom[aá]tica|resposta autom[aá]tica|atendimento autom[aá]tico|este canal [eé] exclusivo|este n[uú]mero (não recebe|não aceita) ligaç|marmita|marmitas|marmitex|almo[cç]o de hoje|prato do dia|🤖|[rR]ob[oô]|l[ií]v[iI]a|rob[oô]\s+\w+|rob[oô] l[eé]o|atendente virtual|assistente virtual|bot de atendimento|chat errado|chats diferentes|conversa errada|conversas diferentes|papos diferentes|lugar errado|n[uú]mero errado|numero errado|pedir algo pra comer|monto seu pedido|monto tudo pra voc[eê]|t[aá] aberto agora|aberto agora|movorafood|cardapioweb|anota\.ai|ola\.click|cardapio\.menu|instadelivery|hubt\.com|goomer|saipos|pediraqui|(s[oó] vende|vendemos|a gente faz|a gente s[oó] faz|a gente vende)\s+(salgado|pastel|churro|pizza|marmita|lanche|comida|hamburguer)|estarei ausente|estou ausente|retornando [aà]s? minhas atividades|retorno [aà]s? atividades|acesso limitado|para assuntos urgentes|em caso de urg[eê]ncia|est[aá] fechad[ao]|estamos fechad[ao]s?|reabre hoje|reabre [aà]s|reabrimos|entre no nosso grupo|grupo de avisos|card[aá]pio todos os dias|card[aá]pio di[aá]rio|⏰|das?\s*\d{1,2}[:h]\d{0,2}\s*(?:[aà]s?|at[eé])\s*\d{1,2}[:h]|preciso do seu nome|nome [eé] obrigat[oó]rio|encaminhar sua solicita[cç][aã]o|solicita[cç][aã]o [aà] nossa equipe|informe seu nome completo|eu sou o .* da .* e consigo ajudar|consigo ajudar com (reservas|pedidos|valores|hor[aá]rios|delivery)|informa[cç][oõ]es da nossa (pizzaria|loja|hamburgueria|lanchonete|restaurante|padaria|empresa)|nossa pizzaria|nosso restaurante|nossa lanchonete|nossa hamburgueria|cia do sabor|reservas, valores, hor[aá]rios|seja bem-vindo ao setor|setor de relacionamento)/i;
 
     // Detecção estrutural de diretórios/catálogos de lojas (múltiplos telefones com hífen + URLs)
     const isStoreDirectory = /https?:\/\/(?:chat\.whatsapp\.com|www\.ifood\.com\.br|\S*pedeagora|\S*anota\.ai|\S*cardapio)/i.test(lastUserLower) || ((/\b\d{4,5}-\d{4}\b.*\b\d{4,5}-\d{4}\b/s.test(lastUserLower) || /\b\d{4,5}-\d{4}\b/s.test(lastUserLower)) && /https?:\/\//i.test(lastUserLower));
 
-    // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv)
+    // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv) & Submissão de WhatsApp Flow
+    const isFlowSubmissionEarly = Boolean(
+        rpcData?.payload?.flow_response ||
+        ctx?.raw_payload?.flow_response ||
+        rpcData?.payload?.raw_content?.type === 'flow_response' ||
+        ctx?.raw_payload?.raw_content?.type === 'flow_response' ||
+        rpcData?.message?.interactive?.type === 'nfm_reply' ||
+        lastUserLower.includes('[whatsapp_flow]') ||
+        (lastUserLower.includes('valor_simulacao') && lastUserLower.includes('faturamento_medio'))
+    );
+
     const isExactButtonClick = [
         'quero simular!', 'quero simular', 
         'falar com um agente!', 'falar com um agente', 
@@ -312,13 +458,14 @@ try {
         'nova simulação', 'nova simulacao',
         'ver quanto posso ter', 'falar com agente (ia)', 'dúvidas – falar agente',
         '✅ sim, autorizo', '✅ sim autorizo', 'sim, autorizo', 'sim autorizo', 'autorizo',
-        'optin_sim', 'btn_optin', 'sim_autorizo'
-    ].includes(lastUserLower) || ['button_reply', 'interactive'].includes(String(rpcData.message?.type || '').toLowerCase());
+        'optin_sim', 'btn_optin', 'sim_autorizo',
+        'enviar simulação', 'enviar simulacao', 'simular crédito', 'simular credito'
+    ].includes(lastUserLower) || ['button_reply', 'interactive', 'flow_response'].includes(String(rpcData.message?.type || '').toLowerCase()) || isFlowSubmissionEarly;
 
     const isExplicitSimulationIntent = /\b(quero simular|fazer simula[çc][ãa]o|ver simula[çc][ãa]o|gostaria de simular|solicitar simula[çc][ãa]o|quanto posso pegar|fazer uma proposta|ver minhas taxas)\b/i.test(lastUserLower);
 
     // 🛡️ Blindagem estrita: mensagens de auto-resposta (ex: cardápios com "não cobramos taxa" ou diretórios de lojas) NUNCA são classificadas como clique de botão
-    const isButtonTemplateClick = (isExactButtonClick || isExplicitSimulationIntent) && !regexAutoReply.test(lastUserLower) && !isStoreDirectory;
+    const isButtonTemplateClick = isFlowSubmissionEarly || ((isExactButtonClick || isExplicitSimulationIntent) && !regexAutoReply.test(lastUserLower) && !isStoreDirectory);
 
     // 🙋 P1: Saudações Humanas Curtas Isoladas (<= 15 caracteres)
     const regexStrictGreeting = /^(ol[aá]|oi|oie|opa|bom dia|boa tarde|boa noite)[!.,\s]*$/i;
@@ -348,10 +495,21 @@ try {
     const lastBotMsg = botMsgs.length > 0 ? (botMsgs[botMsgs.length - 1]?.content || botMsgs[botMsgs.length - 1]?.text || '') : '';
     const lastBotLower = String(lastBotMsg).toLowerCase();
 
-    // Detecção 3A: Cliente enviou exatamente o mesmo texto consecutivo (ex: 2+ repetições seguidas = 3+ mensagens idênticas)
-    if (currentNormalized.length > 5 && userMsgs.length >= 2) {
+    // Detecção 3A: Cliente enviou exatamente o mesmo texto consecutivo
+    // 🛡️ Correção V32.1: Como RPC - Acesso Entrada roda ANTES de record_message, a mensagem atual NÃO está no histórico se a última mensagem do histórico for do bot!
+    if (currentNormalized.length > 5 && userMsgs.length >= 1) {
+        const veryLastInHistory = history.length > 0 ? history[history.length - 1] : null;
+        const isVeryLastFromUser = veryLastInHistory && ['user', 'inbound', 'customer', 'cliente'].includes(String(veryLastInHistory.sender_type || veryLastInHistory.role || veryLastInHistory.sender || veryLastInHistory.direction || '').toLowerCase());
         const lastInHistory = normalizeForComparison(userMsgs[userMsgs.length - 1]?.content || userMsgs[userMsgs.length - 1]?.text);
-        const checkIdx = (currentNormalized === lastInHistory) ? userMsgs.length - 2 : userMsgs.length - 1;
+        const lastUserTimeMs = userMsgs[userMsgs.length - 1]?.created_at ? new Date(userMsgs[userMsgs.length - 1].created_at).getTime() : 0;
+        const isCurrentMsgAlreadyInHistory = Boolean(
+            isVeryLastFromUser &&
+            currentNormalized === lastInHistory &&
+            lastUserTimeMs > 0 &&
+            Math.abs(Date.now() - lastUserTimeMs) < 5000
+        );
+
+        const checkIdx = isCurrentMsgAlreadyInHistory ? userMsgs.length - 2 : userMsgs.length - 1;
 
         if (checkIdx >= 0) {
             const prevUserNormalized = normalizeForComparison(userMsgs[checkIdx]?.content || userMsgs[checkIdx]?.text);
@@ -365,7 +523,9 @@ try {
         }
 
         const isLeadActive = hasPriorOptIn || hasSimulatedInHistory || hasActiveLoan;
-        const threshold = isLeadActive ? 3 : 2;
+        const hasAnyFinancialInput = Boolean(leadInfo.requested_amount || leadInfo.revenue || /\d{2,}/.test(currentMsg));
+        // Se o contato não deu opt-in, não enviou números e repetiu exatamente a mesma frase longa (>15 chars) 2 vezes seguidas (repeatCount >= 1), bloqueia como bot!
+        const threshold = isLeadActive ? 3 : ((hasAnyFinancialInput || currentNormalized.length <= 15) ? 2 : 1);
         if (repeatCount >= threshold) {
             isIdenticalUserRepeated = true;
         }
@@ -576,7 +736,9 @@ try {
             }
         } else if (clean.includes('.')) {
             const parts = clean.split('.');
-            if (parts.length >= 2 && parts[parts.length - 1].length === 3) {
+            if (parts.length >= 2 && parts[parts.length - 1].length <= 2) {
+                clean = parts.slice(0, -1).join('') + '.' + parts[parts.length - 1];
+            } else if (parts.length >= 2 && parts[parts.length - 1].length === 3) {
                 clean = parts.join('');
             }
         }
@@ -620,8 +782,8 @@ try {
             }
         } else if (numStr.includes('.')) {
             const parts = numStr.split('.');
-            if (parts.length === 2 && parts[1].length === 2) {
-                numStr = parts[0];
+            if (parts.length >= 2 && parts[parts.length - 1].length === 2) {
+                numStr = parts.slice(0, -1).join('');
             } else if (parts.length >= 2 && parts[parts.length - 1].length === 3) {
                 numStr = parts.join('');
             } else {
@@ -650,8 +812,9 @@ try {
             return { requestedAmount: null, revenue: null, isAutoReply: true };
         }
 
-        // 1. Limpar URLs
+        // 1. Limpar URLs e CNPJs formatados (ex: 73.540.106/0001-51) para não confundir com valores monetários
         clean = clean.replace(/https?:\/\/\S+/gi, '');
+        clean = clean.replace(/\b\d{2}\.?\d{3}\.?\d{3}\/\d{4}-?\d{2}\b/g, '');
 
         // 2. Limpar datas (ex: 19/10, 25/10/2026)
         clean = clean.replace(/\b\d{1,2}[\/\.-]\d{1,2}(?:[\/\.-]\d{2,4})?\b/g, '');
@@ -697,44 +860,54 @@ try {
         const numberTokens = rawMatches.map(parseSingleValue).filter(v => v !== null && v > 0);
 
         if (semanticReq && semanticRev) {
-            return { requestedAmount: semanticReq, revenue: semanticRev };
+            return { requestedAmount: semanticReq, revenue: semanticRev, hasExplicitLoanKeyword: true, hasExplicitRevKeyword: true };
         }
 
         if (numberTokens.length >= 2) {
             return {
                 requestedAmount: semanticReq || numberTokens[0],
-                revenue: semanticRev || numberTokens[1]
+                revenue: semanticRev || numberTokens[1],
+                hasExplicitLoanKeyword: Boolean(semanticReq),
+                hasExplicitRevKeyword: Boolean(semanticRev)
             };
         } else if (numberTokens.length === 1) {
             const val = numberTokens[0];
             // 🎯 V31.1: Sem duplicação artificial! Se o usuário digitou 1 número, classifica corretamente
             if (semanticRev && !semanticReq) {
-                return { requestedAmount: null, revenue: semanticRev || val };
+                return { requestedAmount: null, revenue: semanticRev || val, hasExplicitLoanKeyword: false, hasExplicitRevKeyword: true };
             } else if (semanticReq && !semanticRev) {
-                return { requestedAmount: semanticReq || val, revenue: null };
+                return { requestedAmount: semanticReq || val, revenue: null, hasExplicitLoanKeyword: true, hasExplicitRevKeyword: false };
             } else {
-                // Sem indicação semântica explícita: o valor refere-se ao empréstimo solicitado (1º item perguntado)
-                return { requestedAmount: val, revenue: null };
+                // Sem indicação semântica explícita: o valor refere-se ao empréstimo solicitado (ou à etapa atual do funil)
+                return { requestedAmount: val, revenue: null, hasExplicitLoanKeyword: false, hasExplicitRevKeyword: false };
             }
         }
 
-        return { requestedAmount: semanticReq, revenue: semanticRev };
+        return { requestedAmount: semanticReq, revenue: semanticRev, hasExplicitLoanKeyword: Boolean(semanticReq), hasExplicitRevKeyword: Boolean(semanticRev) };
     }
 
     function findValueForQuestion(hist, questionSubstrings) {
+        const isInstallmentLookup = questionSubstrings.some(s => s.includes("parcela") || s.includes("prazo"));
         for (let i = hist.length - 2; i >= 0; i--) {
             const msg = hist[i];
-            const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(msg.sender_type || msg.role || msg.sender || msg.direction).toLowerCase());
+            const isBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(msg.sender_type || msg.role || msg.sender || msg.direction || '').toLowerCase());
             if (isBot) {
                 const content = String(msg.content || msg.text || "").toLowerCase();
                 const matchesQuestion = questionSubstrings.some(sub => content.includes(sub));
                 if (matchesQuestion) {
                     for (let j = i + 1; j < hist.length; j++) {
                         const userMsg = hist[j];
-                        const nextIsBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(userMsg.sender_type || userMsg.role || userMsg.sender || userMsg.direction).toLowerCase());
+                        const nextIsBot = ['assistant', 'bot', 'agent', 'ai', 'outbound'].includes(String(userMsg.sender_type || userMsg.role || userMsg.sender || userMsg.direction || '').toLowerCase());
                         if (nextIsBot) break;
-                        const parsed = parseNumber(userMsg.content || userMsg.text || "");
-                        if (parsed !== null && parsed > 0) return parsed;
+                        const userText = String(userMsg.content || userMsg.text || "");
+                        if (!isInstallmentLookup && /\b\d{1,2}\s*(?:x|vezes|parcelas?)\b/i.test(userText) && !/(?:r\$|\bmil\b|\bk\b|\d{4,})/i.test(userText)) {
+                            continue;
+                        }
+                        const parsed = isInstallmentLookup ? parseNumber(userText) : (parseSingleValue(userText) || parseNumber(userText));
+                        if (parsed !== null && parsed > 0) {
+                            if (!isInstallmentLookup && parsed < 100 && !/\b(?:mil|k)\b/i.test(userText)) continue;
+                            return parsed;
+                        }
                     }
                 }
             }
@@ -815,9 +988,24 @@ try {
         hasSimulatedInHistory
     );
 
-    let currentStep = semanticFunnelStep || 'start';
+    // 🛡️ Blindagem contra alucinação da LLM prévia pós-follow-up / reaquecimento:
+    // Um lead sem loan_request_id ativo e sem pré-aprovação NUNCA pode estar em aguardando_fiserv, apresenta_ofertas ou confirmacao_cliente!
+    if (
+        ['aguardando_fiserv', 'apresenta_ofertas', 'solicitar_simulacao', 'confirmacao_cliente', 'reforco_condicoes'].includes(semanticFunnelStep) &&
+        !hasActiveLoan &&
+        !isPreApprovedJourney &&
+        !hasSimulatedInHistory &&
+        !isApprovedFiserv &&
+        approvedLimit <= 0 &&
+        !historyTexts.includes("avaliando em ~1 minuto") &&
+        !historyTexts.includes("enviei suas informações para a fiserv")
+    ) {
+        semanticFunnelStep = null;
+    }
 
-    // 🔴 OVERRIDE DEFENSIVO
+    let currentStep = semanticFunnelStep || persistedFunnelStep || 'start';
+
+    // 🔴 OVERRIDE DEFENSIVO BASEADO NA ÚLTIMA PERGUNTA REAL DO FUNIL (lastSofiaMsg já ignora follow-ups genéricos!)
     const isSofiaAlreadyFinalized = Boolean(
         lastSofiaMsg.includes("especialistas entrará em contato") ||
         lastSofiaMsg.includes("especialistas entrara em contato") ||
@@ -873,50 +1061,82 @@ try {
         ))
     );
 
+    const isSofiaAskingFaturamento = Boolean(
+        lastSofiaMsg.includes("faturamento médio mensal") ||
+        lastSofiaMsg.includes("faturamento medio mensal") ||
+        lastSofiaMsg.includes("faturamento médio") ||
+        lastSofiaMsg.includes("faturamento medio") ||
+        lastSofiaMsg.includes("faturamento médio mensal atual") || 
+        lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || 
+        lastSofiaMsg.includes("qual o faturamento") ||
+        lastSofiaMsg.includes("qual o faturamento médio mensal") ||
+        lastSofiaMsg.includes("faturamento médio mensal aproximado") ||
+        (lastSofiaMsg.includes("avaliarmos a melhor proposta") && lastSofiaMsg.includes("faturamento"))
+    );
+
+    const isSofiaAskingValor = !isSofiaAskingFaturamento && Boolean(
+        (lastSofiaMsg.includes("valor que deseja solicitar") && lastSofiaMsg.includes("faturamento")) ||
+        lastSofiaMsg.includes("valor que deseja solicitar") ||
+        lastSofiaMsg.includes("valor desejado para solicitar") ||
+        lastSofiaMsg.includes("valor desejado") ||
+        lastSofiaMsg.includes("solicitar na análise") ||
+        lastSofiaMsg.includes("solicitar na analise") ||
+        lastSofiaMsg.includes("valor aproximado você gostaria de solicitar") || 
+        lastSofiaMsg.includes("valor aproximado voce gostaria de solicitar") || 
+        lastSofiaMsg.includes("qual valor você tem em mente") || 
+        lastSofiaMsg.includes("qual valor voce tem em mente") || 
+        lastSofiaMsg.includes("valor você tem em mente") || 
+        lastSofiaMsg.includes("valor de empréstimo") || 
+        lastSofiaMsg.includes("valor mínimo para solicitação") || 
+        lastSofiaMsg.includes("valor máximo disponível") ||
+        lastSofiaMsg.includes("preencha os dados da sua simulação") ||
+        lastSofiaMsg.includes("preencha os dados da simulacao") ||
+        lastSofiaMsg.includes("preencha rapidamente os dados da simulação") ||
+        lastSofiaMsg.includes("preencher novamente")
+    );
+
+    const isSofiaAskingOptIn = Boolean(
+        lastSofiaMsg.includes("confirmar a autorização") ||
+        lastSofiaMsg.includes("confirmar a autorizacao") ||
+        lastSofiaMsg.includes("sim, autorizo") ||
+        lastSofiaMsg.includes("basta confirmar a autorização") ||
+        lastSofiaMsg.includes("basta confirmar a autorizacao") ||
+        lastSofiaMsg.includes("autorização à fiserv") ||
+        lastSofiaMsg.includes("termo de autorização") ||
+        lastSofiaMsg.includes("termos de autorização") ||
+        lastSofiaMsg.includes("li e entendi") ||
+        lastSofiaMsg.includes("autorizo o tratamento de meus dados") ||
+        lastSofiaMsg.includes("scr/bacen") ||
+        lastSofiaMsg.includes("entidades registradoras") ||
+        secondLastSofiaMsg.includes("li e entendi") ||
+        secondLastSofiaMsg.includes("termos de autorização") ||
+        secondLastSofiaMsg.includes("termo de autorização") ||
+        lastSofiaMsg.includes("autoriza a realização das consultas") ||
+        lastSofiaMsg.includes("autoriza a realização dessas consultas") ||
+        lastSofiaMsg.includes("autoriza a realização") ||
+        lastSofiaMsg.includes("conforme a lgpd") ||
+        lastSofiaMsg.includes("consultar seus recebíveis e informações de crédito") ||
+        lastSofiaMsg.includes("contamos com a fiserv, nossa parceira")
+    );
+
     if (isSofiaAlreadyFinalized) {
         currentStep = 'finalizacao_sucesso';
     } else if (isSofiaInReforcoCondicoes) {
         currentStep = 'reforco_condicoes';
     } else if (isSofiaAwaitingConfirmation) {
         currentStep = 'confirmacao_cliente';
+    } else if (isSofiaAskingOptIn) {
+        currentStep = 'consentimento_optin';
+    } else if (isSofiaAskingFaturamento) {
+        currentStep = 'coleta_faturamento';
+    } else if (isSofiaAskingValor) {
+        currentStep = 'coleta_valor';
     } else if (!semanticFunnelStep || semanticFunnelStep === 'start' || semanticFunnelStep === 'explicacao_agente') {
         if (isSofiaAlreadyFinalized) {
             currentStep = 'finalizacao_sucesso';
         } else if (isSofiaInReforcoCondicoes || lastSofiaMsg.includes("digite ok para continuar") || lastSofiaMsg.includes("ok, entendi") || lastSofiaMsg.includes("clique no botão abaixo para prosseguir") || lastSofiaMsg.includes("clique no botao abaixo para prosseguir")) {
             currentStep = 'reforco_condicoes';
-        } else if (
-            lastSofiaMsg.includes("confirma que deseja prosseguir") || 
-            lastSofiaMsg.includes("formalização") || 
-            lastSofiaMsg.includes("formalizacao") || 
-            lastSofiaMsg.includes("podemos seguir com a formalização") ||
-            lastSofiaMsg.includes("podemos seguir com a formalizacao") ||
-            lastSofiaMsg.includes("podemos seguir nessas condições") ||
-            lastSofiaMsg.includes("podemos seguir nessas condicoes") ||
-            lastSofiaMsg.includes("podemos seguir com essa condição") ||
-            lastSofiaMsg.includes("podemos seguir com essa condicao") ||
-            lastSofiaMsg.includes("condições informadas anteriormente") ||
-            lastSofiaMsg.includes("condicoes informadas anteriormente") ||
-            lastSofiaMsg.includes("já calculamos a sua simulação") ||
-            lastSofiaMsg.includes("ja calculamos a sua simulacao") ||
-            lastSofiaMsg.includes("já adiantamos e calculamos") ||
-            lastSofiaMsg.includes("ja adiantamos e calculamos") ||
-            lastSofiaMsg.includes("prefere simular em outro prazo") ||
-            lastSofiaMsg.includes("seguir com a contratação") ||
-            lastSofiaMsg.includes("seguir com a contratacao") ||
-            lastSofiaMsg.includes("simulação concluída") ||
-            lastSofiaMsg.includes("simulacao concluida") ||
-            (hasSimulatedInHistory && (
-                lastSofiaMsg.includes("podemos seguir com a simulação") ||
-                lastSofiaMsg.includes("podemos seguir com a simulacao") ||
-                lastSofiaMsg.includes("podemos seguir") || 
-                lastSofiaMsg.includes("condições") || 
-                lastSofiaMsg.includes("condicoes") ||
-                lastSofiaMsg.includes("seguir com") ||
-                secondLastSofiaMsg.includes("simulação concluída") ||
-                secondLastSofiaMsg.includes("simulacao concluida") ||
-                secondLastSofiaMsg.includes("podemos seguir")
-            ))
-        ) {
+        } else if (isSofiaAwaitingConfirmation) {
             currentStep = 'confirmacao_cliente';
         } else if (isSofiaAlreadyFinalized || lastSofiaMsg.includes("confirmada com sucesso") || lastSofiaMsg.includes("assessores humanos")) {
             currentStep = 'finalizacao_sucesso';
@@ -945,59 +1165,11 @@ try {
             lastSofiaMsg.includes("deseja solicitar nessa simulacao")
         ) {
             currentStep = 'apresenta_ofertas';
-        } else if (
-            (lastSofiaMsg.includes("valor que deseja solicitar") && lastSofiaMsg.includes("faturamento")) ||
-            lastSofiaMsg.includes("valor que deseja solicitar") ||
-            lastSofiaMsg.includes("valor desejado para solicitar") ||
-            lastSofiaMsg.includes("valor desejado") ||
-            lastSofiaMsg.includes("solicitar na análise") ||
-            lastSofiaMsg.includes("solicitar na analise") ||
-            lastSofiaMsg.includes("valor aproximado você gostaria de solicitar") || 
-            lastSofiaMsg.includes("valor aproximado voce gostaria de solicitar") || 
-            lastSofiaMsg.includes("qual valor você tem em mente") || 
-            lastSofiaMsg.includes("qual valor voce tem em mente") || 
-            lastSofiaMsg.includes("valor você tem em mente") || 
-            lastSofiaMsg.includes("valor de empréstimo") || 
-            lastSofiaMsg.includes("valor mínimo para solicitação") || 
-            lastSofiaMsg.includes("valor máximo disponível")
-        ) {
+        } else if (isSofiaAskingValor) {
             currentStep = 'coleta_valor';
-        } else if (
-            lastSofiaMsg.includes("faturamento médio mensal") ||
-            lastSofiaMsg.includes("faturamento medio mensal") ||
-            lastSofiaMsg.includes("faturamento médio") ||
-            lastSofiaMsg.includes("faturamento medio") ||
-            lastSofiaMsg.includes("faturamento médio mensal atual") || 
-            lastSofiaMsg.includes("faturamento médio mensal da sua empresa") || 
-            lastSofiaMsg.includes("qual o faturamento") ||
-            lastSofiaMsg.includes("qual o faturamento médio mensal") ||
-            lastSofiaMsg.includes("faturamento médio mensal aproximado") ||
-            (lastSofiaMsg.includes("avaliarmos a melhor proposta") && lastSofiaMsg.includes("faturamento"))
-        ) {
+        } else if (isSofiaAskingFaturamento) {
             currentStep = 'coleta_faturamento';
-        } else if (
-            lastSofiaMsg.includes("confirmar a autorização") ||
-            lastSofiaMsg.includes("confirmar a autorizacao") ||
-            lastSofiaMsg.includes("sim, autorizo") ||
-            lastSofiaMsg.includes("basta confirmar a autorização") ||
-            lastSofiaMsg.includes("basta confirmar a autorizacao") ||
-            lastSofiaMsg.includes("autorização à fiserv") ||
-            lastSofiaMsg.includes("termo de autorização") ||
-            lastSofiaMsg.includes("termos de autorização") ||
-            lastSofiaMsg.includes("li e entendi") ||
-            lastSofiaMsg.includes("autorizo o tratamento de meus dados") ||
-            lastSofiaMsg.includes("scr/bacen") ||
-            lastSofiaMsg.includes("entidades registradoras") ||
-            secondLastSofiaMsg.includes("li e entendi") ||
-            secondLastSofiaMsg.includes("termos de autorização") ||
-            secondLastSofiaMsg.includes("termo de autorização") ||
-            lastSofiaMsg.includes("autoriza a realização das consultas") ||
-            lastSofiaMsg.includes("autoriza a realização dessas consultas") ||
-            lastSofiaMsg.includes("autoriza a realização") ||
-            lastSofiaMsg.includes("conforme a lgpd") ||
-            lastSofiaMsg.includes("consultar seus recebíveis e informações de crédito") ||
-            lastSofiaMsg.includes("contamos com a fiserv, nossa parceira")
-        ) {
+        } else if (isSofiaAskingOptIn) {
             currentStep = 'consentimento_optin';
         } else if (lastSofiaMsg.includes("cnpj") && (lastSofiaMsg.includes("responsavel") || lastSofiaMsg.includes("responsável") || lastSofiaMsg.includes("confirmar") || lastSofiaMsg.includes("informacao") || lastSofiaMsg.includes("informação")) && !lastSofiaMsg.includes("faturamento")) {
             currentStep = 'verificacao_cnpj';
@@ -1005,8 +1177,15 @@ try {
             currentStep = 'coleta_cnpj_correto';
         } else if (lastSofiaMsg.includes("nome do estabelecimento")) {
             currentStep = 'coleta_nome_estabelecimento';
+        } else if (persistedFunnelStep) {
+            currentStep = persistedFunnelStep;
         } else if (!semanticFunnelStep && assistantMessages.length > 0) {
-            currentStep = 'explicacao_agente';
+            // 🛡️ Se já tem valor solicitado mas ainda não tem faturamento, mantém em coleta_faturamento mesmo após mensagens de reaquecimento
+            if (leadInfo.requested_amount && leadInfo.requested_amount >= 10000 && (!leadInfo.revenue || leadInfo.revenue <= 0) && !hasActiveLoan) {
+                currentStep = 'coleta_faturamento';
+            } else {
+                currentStep = 'explicacao_agente';
+            }
         }
     }
 
@@ -1045,12 +1224,97 @@ try {
         extractedAmount = null;
     }
 
-    // ⚡ Prioridade da mensagem atual (V31: Coleta unificada estilo LP)
+    // ⚡ Prioridade da mensagem atual (V31: Coleta unificada estilo LP + V32: WhatsApp Flow v2)
+    let flowSubmissionData = { isFlow: false, amount: null, revenue: null, consent: false };
+    try {
+        let rawFlowObj =
+            rpcData?.payload?.flow_response ||
+            ctx?.raw_payload?.flow_response ||
+            rpcData?.payload?.raw_content?.data ||
+            ctx?.raw_payload?.raw_content?.data ||
+            rpcData?.message?.interactive?.nfm_reply?.response_json ||
+            ctx?.raw_payload?.interactive?.nfm_reply?.response_json ||
+            null;
+
+        if (!rawFlowObj && (currentMsg.includes('valor_simulacao') || currentMsg.includes('faturamento_medio'))) {
+            const firstBrace = currentMsg.indexOf('{');
+            const lastBrace = currentMsg.lastIndexOf('}');
+            if (firstBrace >= 0 && lastBrace > firstBrace) {
+                try {
+                    rawFlowObj = JSON.parse(currentMsg.substring(firstBrace, lastBrace + 1));
+                } catch (e) {}
+            }
+        }
+
+        if (typeof rawFlowObj === 'string') {
+            try {
+                rawFlowObj = JSON.parse(rawFlowObj);
+            } catch (e) {
+                rawFlowObj = null;
+            }
+        }
+
+        if (rawFlowObj && typeof rawFlowObj === 'object') {
+            const rawVal = rawFlowObj.valor_simulacao ?? rawFlowObj.requested_amount ?? rawFlowObj.valor ?? null;
+            const rawRev = rawFlowObj.faturamento_medio ?? rawFlowObj.revenue ?? rawFlowObj.faturamento ?? null;
+            const rawConsent = rawFlowObj.consentimento ?? rawFlowObj.opt_in ?? rawFlowObj.optin ?? false;
+
+            const parsedFlowVal = rawVal !== null && rawVal !== undefined && String(rawVal).trim() !== ''
+                ? (parseSingleValue(String(rawVal)) || parseNumber(String(rawVal)))
+                : null;
+            let parsedFlowRev = null;
+            if (rawRev !== null && rawRev !== undefined && String(rawRev).trim() !== '') {
+                const strRev = String(rawRev).trim();
+                const mRange = strRev.match(/r?\$?\s*([\d.,]+)\s*(?:mil|k)?\s*a\s*r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i);
+                if (mRange) {
+                    const minV = parseSingleValue(mRange[1]) || parseNumber(mRange[1]);
+                    const maxV = parseSingleValue(mRange[2]) || parseNumber(mRange[2]);
+                    if (minV && maxV) parsedFlowRev = Math.round((minV + maxV) / 2);
+                    else parsedFlowRev = maxV || minV || null;
+                } else {
+                    parsedFlowRev = parseSingleValue(strRev) || parseNumber(strRev);
+                }
+            }
+            const parsedFlowConsent = Boolean(
+                rawConsent === true ||
+                (Array.isArray(rawConsent) && (rawConsent.includes(true) || rawConsent.includes('true') || rawConsent.length > 0)) ||
+                String(rawConsent).toLowerCase().trim() === 'true' ||
+                String(rawConsent).toLowerCase().trim() === 'sim' ||
+                String(rawConsent).toLowerCase().trim() === '1'
+            );
+
+            if (parsedFlowVal !== null || parsedFlowRev !== null || parsedFlowConsent) {
+                flowSubmissionData = {
+                    isFlow: true,
+                    amount: parsedFlowVal,
+                    revenue: parsedFlowRev,
+                    consent: parsedFlowConsent
+                };
+            }
+        } else if (lastUserLower.includes('[whatsapp_flow]')) {
+            const mVal = currentMsg.match(/solicito\s*r\$\s*([\d.,]+)/i);
+            const mRev = currentMsg.match(/faturamento\s*r\$\s*([\d.,]+)/i);
+            const hasFlowConsent = /sim,\s*autorizo|autorizo/i.test(currentMsg);
+            flowSubmissionData = {
+                isFlow: true,
+                amount: mVal ? (parseSingleValue(mVal[1]) || parseNumber(mVal[1])) : null,
+                revenue: mRev ? (parseSingleValue(mRev[1]) || parseNumber(mRev[1])) : null,
+                consent: hasFlowConsent
+            };
+        }
+    } catch (flowErr) {
+        // Fallback silencioso para extração por texto caso o payload do Flow venha em formato inesperado
+    }
+
     const unifiedExtraction = extractLoanAndRevenue(lastUserLower);
-    if (unifiedExtraction.requestedAmount) {
+    if (flowSubmissionData.isFlow && flowSubmissionData.amount !== null && flowSubmissionData.amount > 0) {
+        extractedAmount = flowSubmissionData.amount;
+    } else if (unifiedExtraction.requestedAmount) {
         extractedAmount = unifiedExtraction.requestedAmount;
     }
-    if (unifiedExtraction.revenue) {
+    if (flowSubmissionData.isFlow && flowSubmissionData.revenue !== null && flowSubmissionData.revenue > 0) {
+        revenue = flowSubmissionData.revenue;
+    } else if (unifiedExtraction.revenue) {
         revenue = unifiedExtraction.revenue;
     }
 
@@ -1058,8 +1322,9 @@ try {
         revenue = leadInfo.revenue;
     }
 
-    const isUserMentioningRevenueOnly = Boolean(unifiedExtraction.revenue && !unifiedExtraction.requestedAmount);
-    const isUserMentioningLoanOnly = Boolean(unifiedExtraction.requestedAmount && !unifiedExtraction.revenue);
+    const isUserMentioningRevenueOnly = Boolean(unifiedExtraction.hasExplicitRevKeyword && !unifiedExtraction.hasExplicitLoanKeyword);
+    const isUserMentioningLoanOnly = Boolean(unifiedExtraction.hasExplicitLoanKeyword && !unifiedExtraction.hasExplicitRevKeyword);
+    const currentMsgExtractedNumber = unifiedExtraction.revenue || unifiedExtraction.requestedAmount || null;
 
     if (currentStep === 'coleta_valor' || currentStep === 'valor_proposta') {
         if (!isUserMentioningRevenueOnly) {
@@ -1073,8 +1338,8 @@ try {
         }
     } else if (currentStep === 'coleta_faturamento') {
         if (!isUserMentioningLoanOnly) {
-            if (!revenue && extractedAmount) {
-                revenue = extractedAmount;
+            if (!revenue && currentMsgExtractedNumber) {
+                revenue = currentMsgExtractedNumber;
             } else if (!revenue && fallbackNumber !== null && fallbackNumber >= 1000) {
                 revenue = fallbackNumber;
             } else if (!revenue && fallbackNumber > 100) {
@@ -1085,7 +1350,7 @@ try {
         }
 
         // 🛡️ V31.1: Na etapa de faturamento, preserva o valor de empréstimo já coletado anteriormente
-        if (!/(?:quero|preciso|solicito|empr[eé]stimo|cr[eé]dito)\s*(?:de)?/i.test(lastUserLower)) {
+        if (!unifiedExtraction.hasExplicitLoanKeyword) {
             extractedAmount = leadInfo.requested_amount || findValueForQuestion(history, ["valor desejado", "solicitar na análise", "solicitar na analise", "valor de empréstimo", "valor de emprestimo", "deseja simular"]);
         }
     } else {
@@ -1150,23 +1415,7 @@ try {
     }
 
     // --- 2) INTENÇÕES (REGEX + SEMÂNTICA HÍBRIDA) ---
-    // 🎯 IDENTIFICAÇÃO DE CLIQUE NO BOTÃO PADRÃO DE JORNADA / CONTRATAÇÃO ("FALAR ATENDENTE", "FALAR ESPECIALISTA", "FALAR AGENTE")
-    // Se o cliente clicar no botão rápido do template ("Falar com atendente!", "Falar especialista", "Falar com um agente!", "Dúvidas – falar agente")
-    // NÃO deve acionar transbordo para humano nem enviar para Fila de Atendimento. A Sofia deve assumir como especialista da Ticket e conduzir a contratação!
-    const isAgentButtonClick = currentStep !== 'confirmacao_cliente' && (
-        /^(falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?(?:atendente|especialista|agente|consultor)s?!?|falar\s+atendente!?|falar\s+especialista!?|falar\s+agente!?|falar\s+com\s+agente\s*\(ia\)|d[uú]vidas\s*[-–—]\s*falar\s*agente)$/i.test(lastUserLower.trim()) ||
-        (isButtonTemplateClick && /^(falar|especialista|atendente|agente)/i.test(lastUserLower.trim())) ||
-        lastUserLower.trim() === 'falar atendente' ||
-        lastUserLower.trim() === 'falar com atendente' ||
-        lastUserLower.trim() === 'falar com atendente!' ||
-        lastUserLower.trim() === 'falar com um atendente' ||
-        lastUserLower.trim() === 'falar especialista' ||
-        lastUserLower.trim() === 'falar com especialista' ||
-        lastUserLower.trim() === 'falar com especialista!' ||
-        lastUserLower.trim() === 'falar com um especialista' ||
-        lastUserLower.trim() === 'falar com um agente' ||
-        lastUserLower.trim() === 'falar com um agente!'
-    );
+    const isAgentButtonClick = currentStep !== 'confirmacao_cliente' && /^(falar com um agente!?|falar com agente \(ia\)|dúvidas – falar agente)$/i.test(lastUserLower.trim());
 
     const isSelfSimulationRequest =
         /\b(simular?|simula[çc][ãa]o)\b/i.test(lastUserLower) &&
@@ -1180,9 +1429,13 @@ try {
         semanticIntent === "SIMULATION_REQUEST"
     );
 
+    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
+    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
+
     // 🛡️ CORREÇÃO DEFINITIVA DE OPT-IN: O aceite legal do SCR/Fiserv só pode ser reconhecido se:
     // 1. O usuário estiver explicitamente no passo de consentimento (consentimento_optin); OU
-    // 2. O usuário enviou termo explícito de autorização ("autorizo", "sim, autorizo", "btn_optin", "optin_sim").
+    // 2. Houve submissão de consentimento via WhatsApp Flow v2; OU
+    // 3. O usuário enviou termo explícito de autorização ("autorizo", "sim, autorizo", "btn_optin", "optin_sim").
     // ⛔ NUNCA aceitar "sim", "ok" ou afirmativos durante coleta_valor, coleta_faturamento ou saudação inicial como Opt-In.
     const isExplicitOptInText = Boolean(
         lastUserLower.includes("autorizo") ||
@@ -1196,6 +1449,7 @@ try {
     );
 
     const isOptInAccepted = (
+        (flowSubmissionData.isFlow && flowSubmissionData.consent) ||
         isExplicitOptInText ||
         (
             currentStep === 'consentimento_optin' &&
@@ -1208,12 +1462,10 @@ try {
         )
     );
 
-    const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
-    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
     const isHesitation = /\b(vou\s+(analisar|pensar|ver|verificar|avaliar|consultar|conversar)|deixa\s+(eu\s+)?ver|vou\s+falar\s+com|vou\s+ver\s+com|dar\s+uma\s+olhada|analisando|pensando)\b/i.test(lastUserLower) || semanticIntent === "WAIT_AND_RETURN";
     const asksForSimulation = /\b(simular?|simula[çc][ãa]o|outr[oa]|mudar|alterar|recalcular|novamente|vezes|parcelas?)\b/i.test(lastUserLower);
 
-    const isSofiaAtDisposal = Boolean(
+    const isSofiaAtDisposal = !['coleta_valor', 'coleta_faturamento', 'consentimento_optin'].includes(currentStep) && Boolean(
         lastSofiaMsg.includes("disposição") || 
         lastSofiaMsg.includes("disposicao") || 
         lastSofiaMsg.includes("é só me avisar") || 
@@ -1366,7 +1618,11 @@ try {
         ['apresenta_ofertas', 'confirmacao_cliente', 'solicitar_simulacao', 'reforco_condicoes'].includes(currentStep)
     );
 
-    if (isTalkToSpecialist && hasEligibilityForSpecialist) {
+    // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv)
+    if (flowSubmissionData.isFlow && (flowSubmissionData.consent || isOptInAccepted)) {
+        nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+        transitionApplied = true;
+    } else if (isTalkToSpecialist && hasEligibilityForSpecialist) {
         nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';
         transitionApplied = true;
     } else if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {
@@ -1388,7 +1644,7 @@ try {
                 } else if (hasPriorOptIn && leadInfo.pre_approved_amount) {
                     nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
                 } else if (requested_amount && requested_amount > 0) {
-                    nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
+                    nextStep = (revenue && revenue > 0) ? ((hasPriorOptIn || isOptInAccepted) ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
                 } else {
                     nextStep = 'coleta_valor';
                 }
@@ -1407,7 +1663,7 @@ try {
             } else if (hasPriorOptIn && leadInfo.pre_approved_amount) {
                 nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
             } else if (requested_amount && requested_amount > 0) {
-                nextStep = (revenue && revenue > 0) ? (hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
+                nextStep = (revenue && revenue > 0) ? ((hasPriorOptIn || isOptInAccepted) ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin') : 'coleta_faturamento';
             } else {
                 nextStep = 'coleta_valor';
             }
@@ -1443,9 +1699,9 @@ try {
             nextStep = 'coleta_cnpj_correto';
             transitionApplied = true;
         } else if (requested_amount && requested_amount >= 10000 && requested_amount <= 500000 && !isDoubt) {
-            // 🎯 V31 Jornada Unificada (LP): Se coletou valor e já tem faturamento, avança direto para o opt-in!
+            // 🎯 V31 Jornada Unificada (LP) / V32 WhatsApp Flow: Se coletou valor e já tem faturamento, avança direto para o opt-in ou criar_lead!
             if (revenue && revenue > 0) {
-                nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
+                nextStep = (hasPriorOptIn || isOptInAccepted) ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
             } else {
                 nextStep = 'coleta_faturamento';
             }
@@ -1468,7 +1724,7 @@ try {
         } else if (revenue && revenue > 0 && !isDoubt) {
             // 🎯 V31.2: Se já possui valor de empréstimo válido, avança para opt-in. Se NÃO possui, precisa coletar o valor do empréstimo!
             if (requested_amount && requested_amount >= 10000 && requested_amount <= 500000) {
-                nextStep = hasPriorOptIn ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
+                nextStep = (hasPriorOptIn || isOptInAccepted) ? (hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead') : 'consentimento_optin';
             } else {
                 nextStep = 'coleta_valor';
             }
@@ -1703,14 +1959,18 @@ try {
         }
     }
 
-    // 🛡️ BLINDAGEM 2: CONTRA SIMULAÇÃO SEM LEAD CRIADO (EVITA 404 NOT FOUND NA FISERV)
+    // 🛡️ BLINDAGEM 2: CONTRA SIMULAÇÃO SEM LEAD CRIADO (EVITA 404 NOT FOUND NA FISERV E GARANTE FATURAMENTO ANTES DO OPT-IN)
     if (nextStep === 'solicitar_simulacao' && !hasActiveLoan) {
-        if (isOptInAccepted || hasPriorOptIn || nextStep === 'criar_lead') {
-            nextStep = 'criar_lead';
-        } else if (requested_amount && requested_amount >= 10000) {
-            nextStep = 'consentimento_optin';
-        } else {
+        const hasValidLoan = requested_amount && requested_amount >= 10000 && requested_amount <= 500000;
+        const hasValidRevenue = revenue && revenue > 0;
+        if (!hasValidLoan) {
             nextStep = 'coleta_valor';
+        } else if (!hasValidRevenue) {
+            nextStep = 'coleta_faturamento';
+        } else if (isOptInAccepted || hasPriorOptIn || nextStep === 'criar_lead') {
+            nextStep = 'criar_lead';
+        } else {
+            nextStep = 'consentimento_optin';
         }
         transitionApplied = true;
     }
@@ -1723,8 +1983,29 @@ try {
 
     // 🛡️ BLINDAGEM 3: SE FOI DADO OPT-IN E NÃO TEM LEAD ATIVO, NUNCA PERMITIR APRESENTA_OFERTAS ANTES DE CRIAR LEAD (EXCETO SE PRÉ-APROVADO EXTERNO)
     if (!isPreApprovedJourney && nextStep === 'apresenta_ofertas' && !hasActiveLoan && (isOptInAccepted || hasPriorOptIn || lastUserLower.includes("autorizo"))) {
-        nextStep = 'criar_lead';
+        const hasValidLoan = requested_amount && requested_amount >= 10000 && requested_amount <= 500000;
+        const hasValidRevenue = revenue && revenue > 0;
+        if (!hasValidLoan) {
+            nextStep = 'coleta_valor';
+        } else if (!hasValidRevenue) {
+            nextStep = 'coleta_faturamento';
+        } else {
+            nextStep = 'criar_lead';
+        }
         transitionApplied = true;
+    }
+
+    // 🛡️ BLINDAGEM ZERO-E FINAL (PÓS-BLINDAGENS 2 E 3): Garante que nenhuma regra posterior pule coleta_valor ou coleta_faturamento
+    if (!isPreApprovedJourney && (nextStep === 'consentimento_optin' || nextStep === 'criar_lead')) {
+        const hasValidLoan = requested_amount && requested_amount >= 10000 && requested_amount <= 500000;
+        const hasValidRevenue = revenue && revenue > 0;
+        if (!hasValidLoan) {
+            nextStep = 'coleta_valor';
+            transitionApplied = true;
+        } else if (!hasValidRevenue) {
+            nextStep = 'coleta_faturamento';
+            transitionApplied = true;
+        }
     }
 
     // 🛡️ BLINDAGEM 4: CLIENTE RECUSADO NO CRÉDITO NUNCA MAIS AVANÇA PARA SIMULAÇÃO OU APRESENTAÇÃO DE OFERTAS
@@ -1776,9 +2057,7 @@ try {
         mode = "parrot";
         nextStep = "start";
     } else if (isAgentButtonClick) {
-        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
-        nextStep = 'coleta_valor';
-        mode = "parrot";
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
     } else if (isLinkIssue && forcedIncidentText) {
         forcedText = forcedIncidentText;
     } else if (nextStep === 'coleta_cnpj_correto' || isCnpjDivergent) {
@@ -1806,12 +2085,12 @@ try {
             forcedText = `Já pensou em reforçar o caixa sem burocracia?\n\nVocê pode ter até *R$ 500 mil* disponíveis, usando apenas seus recebíveis Ticket como garantia. A consulta é rápida e sem compromisso.\n\n✅ Taxas a partir de *1,89% a.m*;\n✅ Crédito disponível entre *10 mil a 500 mil reais*;\n✅ Recebimento do dinheiro em até *24h*;\n\n👉 Gostaria de fazer uma simulação sem compromisso aqui mesmo pelo WhatsApp ou ficou com alguma dúvida?`;
         }
     } else if (nextStep === 'explicacao_agente') {
-        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
-        nextStep = 'coleta_valor';
-        mode = "parrot";
+        forcedText = `Olá! Sou a Sofia, especialista da *Ticket*. Que bom que você quer saber mais!\n\nExplicando rapidamente: este é um reforço de caixa exclusivo para parceiros Ticket. Você pode ter de *R$ 10 mil a R$ 500 mil* com taxas a partir de *1,89% a.m.* O dinheiro cai na sua conta em até *24h* e o pagamento é feito via boleto bancário, sem comprometer seu limite de crédito.\n\n👉 Gostaria de fazer uma simulação do valor exato aqui mesmo pelo WhatsApp agora ou prefere tirar alguma dúvida antes? 📈`;
     } else if (nextStep === 'coleta_valor') {
         if (currentStep === 'coleta_valor') {
-            let loanNum = parseNumber(lastUserLower);
+            let loanNum = flowSubmissionData.isFlow && flowSubmissionData.amount !== null
+                ? flowSubmissionData.amount
+                : parseNumber(lastUserLower);
             if (loanNum !== null && loanNum >= 10 && loanNum <= 500 && !lastUserLower.match(/(?:x|vezes|parcelas)\b/i)) {
                 loanNum = loanNum * 1000;
             }
@@ -1822,6 +2101,8 @@ try {
             } else if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
                 forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
+            } else if (isWhatsappFlowEnabled) {
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
             } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("valor que deseja solicitar") || lastSofiaMsg.includes("valor desejado")) {
                 forcedText = `Por favor, me informe o *valor desejado?*`;
             } else {
@@ -1831,6 +2112,8 @@ try {
             if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
                 forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
+            } else if (isWhatsappFlowEnabled) {
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
             } else {
                 // 🎯 V31.2 Oficial Ticket: Pergunta 1 da jornada
                 forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
@@ -1840,10 +2123,13 @@ try {
     } else if (nextStep === 'coleta_faturamento') {
         const isCartaoQuestion = /\b(cart[aã]o|cart[oõ]es|s[oó] no cart[aã]o|maquininha|total|geral)\b/i.test(lastUserLower) || /^cart[aã]o\??$/i.test(lastUserLower.trim());
         const isMuchMore = /\b(muito mais|bem mais|bastante|muito acima|alto|mais que isso|acima de|mais de|depende|n[aã]o sei exato|varia|n[aã]o sei)\b/i.test(lastUserLower);
+        const isSentAttachmentOrFile = /\b(enviei|mandei|anexo|anexei|documento|pdf|arquivo|comprovante|extrato|planilha|foto|imagem)\b/i.test(lastUserLower);
         const alreadyAskedFaturamento = lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("faturamento aproximado") || lastSofiaMsg.includes("qual o faturamento");
 
         if (isCartaoQuestion) {
             forcedText = `Pode ser o *faturamento total* da sua empresa (incluindo vendas no cartão, Pix, boletos, etc.). Uma média aproximada já é suficiente para a nossa simulação!\n\nLembrando que o pagamento do empréstimo é feito mensalmente via *Boleto Bancário*, sem desconto direto das suas vendas diárias de cartão.\n\nE o seu *faturamento médio mensal*?`;
+        } else if (isSentAttachmentOrFile) {
+            forcedText = `Por aqui não consigo abrir arquivos em anexo (como PDF), mas uma média aproximada digitada em texto já é suficiente!\n\nQual é o valor aproximado do seu *faturamento médio mensal* em reais?`;
         } else if (isMuchMore) {
             forcedText = `Sem problemas! Não precisa ser exato, apenas uma média aproximada mensal para avaliarmos as melhores condições para sua empresa.\n\nE o seu *faturamento médio mensal*?`;
         } else if (alreadyAskedFaturamento) {
@@ -1967,6 +2253,21 @@ try {
 
     let loopDetectedHandoff = false;
     if (isLoopDetected && leadInfo.is_lead !== false) {
+        // 🛡️ Blindagem V32.1 Anti-Bot Handoff (Caso Casa Ferreira):
+        // Se o loop ocorreu na 1ª pergunta (coleta_valor) sem nenhum valor informado e com repetição de texto pelo contato (ou sem clique em botão),
+        // interrompe com stop_flow (Circuit Breaker) em vez de enviar robô para "Aguardando Contato"!
+        if (!requested_amount && !revenue && !hasPriorOptIn && !hasActiveLoan && (repeatCount >= 1 || !isButtonTemplateClick)) {
+            return {
+                currentStep: "stop_flow",
+                stop_flow: true,
+                is_auto_reply: true,
+                circuit_breaker: true,
+                trigger_handoff: false,
+                reason: "Loop de respostas não-numéricas detectado em coleta_valor sem engajamento válido (proteção contra robôs em Aguardando Contato).",
+                conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
+                p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id
+            };
+        }
         loopDetectedHandoff = true;
         forcedText = `Certo! Para agilizar seu atendimento e te apoiar diretamente com essa etapa, vou transferir sua conversa para um de nossos especialistas. Um instante, por favor!`;
         mode = "parrot";
@@ -2274,6 +2575,18 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             opcoes: ["Sim", "Não"],
             pre_message: null
         };
+    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt && (!revenue || revenue <= 0)) {
+        interactive_buttons = {
+            tipo: "flow",
+            flow_id: whatsappFlowId,
+            flow_mode: whatsappFlowMode,
+            screen_id: whatsappFlowScreen,
+            button_text: whatsappFlowCta,
+            header: whatsappFlowHeader,
+            footer: whatsappFlowFooter,
+            flow_token: `fiserv_${leadInfo.id || rpcData.conversation?.id || rpcData.p_conversation_id || Date.now()}`,
+            pre_message: null
+        };
     } else if (nextStep === 'consentimento_optin') {
         interactive_buttons = {
             tipo: "botoes",
@@ -2310,8 +2623,33 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         ['coleta_faturamento', 'coleta_valor', 'consentimento_optin', 'criar_lead', 'apresenta_ofertas', 'solicitar_simulacao', 'confirmacao_cliente', 'reforco_condicoes', 'finalizacao_sucesso', 'simulacao'].includes(currentStep)
     );
 
+    const isConsentActiveNow = Boolean(
+        isPreApprovedJourney ||
+        nextStep === 'criar_lead' ||
+        isOptInAccepted ||
+        hasPriorOptIn ||
+        hasOptInInConversationHistory ||
+        (currentStep === 'consentimento_optin' && isOptInAccepted)
+    );
+
+    const consentObject = isConsentActiveNow ? {
+        opt_in: true,
+        opt_in_timestamp: (hasPriorOptIn && (leadInfo.consent?.opt_in_timestamp || leadInfo.consent?.timestamp)) ? (leadInfo.consent.opt_in_timestamp || leadInfo.consent.timestamp) : new Date().toISOString(),
+        opt_in_ip: leadInfo.consent?.opt_in_ip || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
+        opt_in_ip_address: leadInfo.consent?.opt_in_ip_address || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
+        opt_in_signer_name: leadInfo.consent?.opt_in_signer_name || leadInfo.consent?.signer_name || leadInfo.name || "Cliente",
+        consent_channel: isPreApprovedJourney ? "external_platform" : (flowSubmissionData.isFlow ? "whatsapp_flow" : "whatsapp"),
+        consent_phone: leadInfo.consent?.consent_phone || leadInfo.consent?.phone || leadInfo.phone || leadInfo.whatsapp || rpcData.phone || rpcData.user_identifier || "Não informado",
+        consent_text_version: leadInfo.consent?.consent_text_version || leadInfo.consent?.text_version || FISERV_TERM_VERSION,
+        consent_text_hash: leadInfo.consent?.consent_text_hash || leadInfo.consent?.text_hash || FISERV_TERM_HASH,
+        consent_document_url: leadInfo.consent?.consent_document_url || FISERV_TERM_PDF_URL,
+        confirmation_message: (hasPriorOptIn && !isOptInAccepted && leadInfo.consent?.confirmation_message) ? leadInfo.consent.confirmation_message : (isPreApprovedJourney ? "OPTIN_EXTERNO_PREVIAMENTE_APROVADO" : (flowSubmissionData.isFlow ? `WHATSAPP_FLOW_V2_OPTIN_ACEITO (valor=${requested_amount || flowSubmissionData.amount || 0}, faturamento=${revenue || flowSubmissionData.revenue || 0})` : lastUserLower)),
+        confirmation_message_id: (hasPriorOptIn && !isOptInAccepted && (leadInfo.consent?.confirmation_message_id || leadInfo.consent?.opt_in_message_id)) ? (leadInfo.consent.confirmation_message_id || leadInfo.consent.opt_in_message_id) : (rpcData.message_id || rpcData.wamid || "")
+    } : null;
+
     return {
         final_system_prompt: finalPrompt,
+        forced_text: forcedText,
         p_conversation_id: rpcData.conversation?.id || rpcData.p_conversation_id,
         currentStep: nextStep,
         mode: mode,
@@ -2337,6 +2675,8 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             name: leadInfo.name,
             identity_confirmed: isIdentityConfirmed,
             cnpj_confirmed: isIdentityConfirmed,
+            opt_in: isConsentActiveNow ? true : Boolean(leadInfo.opt_in),
+            consent: consentObject || leadInfo.consent || null,
             journey_type: isPreApprovedJourney ? 'pre_approved' : (leadInfo.journey_type || 'standard'),
             revenue: revenue || leadInfo.revenue,
             requested_amount: (isRestartSimulation && !userTypedNewNumbers) ? null : (requested_amount || leadInfo.requested_amount),
@@ -2349,27 +2689,14 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
         },
         revenue: revenue,
         requested_amount: requested_amount,
-        debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount, hasPriorOptIn, isOptInWithin30Days, isIdentityConfirmed, isPreApprovedJourney, isCnpjDivergent },
+        debug: { nextStep, mode, isLinkIssue, isSelfSimulationRequest, currentCampaignId, loopDetected: isLoopDetected, semanticIntent, isComplaint, isFirstComplaint, effectiveComplaint, parsedRevenue: revenue, parsedAmount: requested_amount, hasPriorOptIn, hasOptInInConversationHistory, isOptInWithin30Days, isIdentityConfirmed, isPreApprovedJourney, isCnpjDivergent, isWhatsappFlowEnabled, isFlowSubmission: flowSubmissionData.isFlow },
         close_conversation: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
         is_refused: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado'),
         conversation_status: (nextStep === 'desistencia_cliente' || nextStep === 'optin_recusado') ? 'closed' : 'ai_active',
         interactive_buttons: interactive_buttons,
-        consent: (isPreApprovedJourney || nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? {
-            opt_in: true,
-            opt_in_timestamp: (hasPriorOptIn && (leadInfo.consent?.opt_in_timestamp || leadInfo.consent?.timestamp)) ? (leadInfo.consent.opt_in_timestamp || leadInfo.consent.timestamp) : new Date().toISOString(),
-            opt_in_ip: leadInfo.consent?.opt_in_ip || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
-            opt_in_ip_address: leadInfo.consent?.opt_in_ip_address || leadInfo.consent?.ip || rpcData.ip || rpcData.headers?.['x-forwarded-for'] || rpcData.headers?.['x-real-ip'] || rpcData.p_metadata?.ip || ctx.ip || "0.0.0.0",
-            opt_in_signer_name: leadInfo.consent?.opt_in_signer_name || leadInfo.consent?.signer_name || leadInfo.name || "Cliente",
-            consent_channel: isPreApprovedJourney ? "external_platform" : "whatsapp",
-            consent_phone: leadInfo.consent?.consent_phone || leadInfo.consent?.phone || leadInfo.phone || leadInfo.whatsapp || rpcData.phone || rpcData.user_identifier || "Não informado",
-            consent_text_version: leadInfo.consent?.consent_text_version || leadInfo.consent?.text_version || FISERV_TERM_VERSION,
-            consent_text_hash: leadInfo.consent?.consent_text_hash || leadInfo.consent?.text_hash || FISERV_TERM_HASH,
-            consent_document_url: leadInfo.consent?.consent_document_url || FISERV_TERM_PDF_URL,
-            confirmation_message: (hasPriorOptIn && !isOptInAccepted && leadInfo.consent?.confirmation_message) ? leadInfo.consent.confirmation_message : (isPreApprovedJourney ? "OPTIN_EXTERNO_PREVIAMENTE_APROVADO" : lastUserLower),
-            confirmation_message_id: (hasPriorOptIn && !isOptInAccepted && (leadInfo.consent?.confirmation_message_id || leadInfo.consent?.opt_in_message_id)) ? (leadInfo.consent.confirmation_message_id || leadInfo.consent.opt_in_message_id) : (rpcData.message_id || rpcData.wamid || "")
-        } : null,
+        consent: consentObject,
         fiserv_funnel: {
-            step1_optin: (isPreApprovedJourney || nextStep === 'criar_lead' || isOptInAccepted || (currentStep === 'consentimento_optin' && isOptInAccepted)) ? (leadInfo.opt_in_completed_at || new Date().toISOString()) : null,
+            step1_optin: isConsentActiveNow ? (leadInfo.opt_in_completed_at || new Date().toISOString()) : null,
             step3_simulation: (requested_amount && requested_amount > 0) ? new Date().toISOString() : null,
             step4_confirmed: isHandoff ? new Date().toISOString() : null
         }

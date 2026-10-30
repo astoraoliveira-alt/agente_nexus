@@ -1262,11 +1262,22 @@ try {
             const parsedFlowVal = rawVal !== null && rawVal !== undefined && String(rawVal).trim() !== ''
                 ? (parseSingleValue(String(rawVal)) || parseNumber(String(rawVal)))
                 : null;
-            const parsedFlowRev = rawRev !== null && rawRev !== undefined && String(rawRev).trim() !== ''
-                ? (parseSingleValue(String(rawRev)) || parseNumber(String(rawRev)))
-                : null;
+            let parsedFlowRev = null;
+            if (rawRev !== null && rawRev !== undefined && String(rawRev).trim() !== '') {
+                const strRev = String(rawRev).trim();
+                const mRange = strRev.match(/r?\$?\s*([\d.,]+)\s*(?:mil|k)?\s*a\s*r?\$?\s*([\d.,]+)\s*(?:mil|k)?/i);
+                if (mRange) {
+                    const minV = parseSingleValue(mRange[1]) || parseNumber(mRange[1]);
+                    const maxV = parseSingleValue(mRange[2]) || parseNumber(mRange[2]);
+                    if (minV && maxV) parsedFlowRev = Math.round((minV + maxV) / 2);
+                    else parsedFlowRev = maxV || minV || null;
+                } else {
+                    parsedFlowRev = parseSingleValue(strRev) || parseNumber(strRev);
+                }
+            }
             const parsedFlowConsent = Boolean(
                 rawConsent === true ||
+                (Array.isArray(rawConsent) && (rawConsent.includes(true) || rawConsent.includes('true') || rawConsent.length > 0)) ||
                 String(rawConsent).toLowerCase().trim() === 'true' ||
                 String(rawConsent).toLowerCase().trim() === 'sim' ||
                 String(rawConsent).toLowerCase().trim() === '1'
@@ -1607,7 +1618,11 @@ try {
         ['apresenta_ofertas', 'confirmacao_cliente', 'solicitar_simulacao', 'reforco_condicoes'].includes(currentStep)
     );
 
-    if (isTalkToSpecialist && hasEligibilityForSpecialist) {
+    // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv)
+    if (flowSubmissionData.isFlow && (flowSubmissionData.consent || isOptInAccepted)) {
+        nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+        transitionApplied = true;
+    } else if (isTalkToSpecialist && hasEligibilityForSpecialist) {
         nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';
         transitionApplied = true;
     } else if (isAgentButtonClick && currentStep !== 'confirmacao_cliente') {

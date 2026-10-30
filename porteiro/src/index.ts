@@ -1333,7 +1333,13 @@ app.post('/v1/zenvia/webhook', async (c) => {
                         type = content?.type === 'file' ? 'document' : (content?.type === 'audio' ? 'audio' : 'text');
                     }
 
-                    const text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? (fileName ? `Documento: ${fileName}` : '[Documento recebido]') : (type === 'image' ? '[Imagem recebida]' : '')));
+                    // Suporte a WhatsApp Flow Response (Zenvia type: "flow_response" com content.data)
+                    let text = content?.text || content?.fileCaption || (type === 'audio' ? '[Áudio recebido]' : (type === 'document' ? (fileName ? `Documento: ${fileName}` : '[Documento recebido]') : (type === 'image' ? '[Imagem recebida]' : '')));
+                    const isFlowResponse = content?.type === 'flow_response' || !!content?.data || !!content?.responseJson;
+                    if (isFlowResponse) {
+                        const flowPayload = content?.data || content?.responseJson || {};
+                        text = JSON.stringify(flowPayload);
+                    }
                     
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;
 
@@ -1352,7 +1358,10 @@ app.post('/v1/zenvia/webhook', async (c) => {
                             mediaUrl: content?.fileUrl,
                             messageType: type,
                             fileName: fileName || null,
-                            fileMimeType: content?.fileMimeType || null
+                            fileMimeType: content?.fileMimeType || null,
+                            flow_token: content?.token || null,
+                            flow_data: content?.data || null,
+                            is_flow_response: isFlowResponse
                         },
                         p_trace_id: trace,
                         p_message_type: type === 'text' ? 'conversation' : type,
