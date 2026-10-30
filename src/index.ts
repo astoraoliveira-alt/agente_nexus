@@ -1166,9 +1166,16 @@ app.post('/v1/zenvia/webhook', async (c) => {
                                 const fConsent = (parsedFlow.consentimento === true || String(parsedFlow.consentimento).toLowerCase() === 'true' || parsedFlow.opt_in === true);
 
                                 if (fVal !== '' || fRev !== '') {
-                                    flowFormattedText = `[WHATSAPP_FLOW] Solicito R$ ${fVal} | Faturamento R$ ${fRev}${fConsent ? ' | SIM, AUTORIZO' : ''}`;
+                                    const valFmt = fVal ? `R$ ${Number(fVal).toLocaleString('pt-BR')}` : null;
+                                    const revFmt = fRev ? `R$ ${Number(fRev).toLocaleString('pt-BR')}` : null;
+                                    const lines = [
+                                        valFmt ? `• Valor desejado: ${valFmt}` : null,
+                                        revFmt ? `• Faturamento médio: ${revFmt}` : null,
+                                        fConsent ? `• Termo Bacen: Autorizado` : null
+                                    ].filter(Boolean);
+                                    flowFormattedText = `📋 Formulário de Simulação:\n${lines.join('\n')}`;
                                 } else {
-                                    flowFormattedText = `[WHATSAPP_FLOW] ${JSON.stringify(parsedFlow)}`;
+                                    flowFormattedText = `📋 Formulário de Simulação preenchido`;
                                 }
                             }
                         }

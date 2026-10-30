@@ -220,6 +220,20 @@ const parseMessageContent = (rawText: string): string => {
       if (parsed && typeof parsed.content === 'string') return parsed.content;
       if (parsed && typeof parsed.output === 'string') return parsed.output;
       if (parsed && typeof parsed.text === 'string') return parsed.text;
+
+      // Formatação amigável de respostas do WhatsApp Flow
+      if (parsed && typeof parsed === 'object' && (parsed.valor_simulacao || parsed.faturamento_medio || parsed.quantidade_parcelas)) {
+        const val = parsed.valor_simulacao ? `R$ ${Number(parsed.valor_simulacao).toLocaleString('pt-BR')}` : null;
+        const rev = parsed.faturamento_medio ? `R$ ${Number(parsed.faturamento_medio).toLocaleString('pt-BR')}` : null;
+        const inst = parsed.quantidade_parcelas ? `${parsed.quantidade_parcelas} parcelas` : null;
+        const lines = [
+          val ? `• Valor desejado: ${val}` : null,
+          rev ? `• Faturamento médio: ${rev}` : null,
+          inst ? `• Prazo: ${inst}` : null,
+          parsed.consentimento ? `• Termo Bacen: Autorizado` : null
+        ].filter(Boolean);
+        return `📋 Formulário de Simulação:\n${lines.join('\n')}`;
+      }
     } catch {
       // ignore, fall through
     }

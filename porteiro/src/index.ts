@@ -1338,7 +1338,18 @@ app.post('/v1/zenvia/webhook', async (c) => {
                     const isFlowResponse = content?.type === 'flow_response' || !!content?.data || !!content?.responseJson;
                     if (isFlowResponse) {
                         const flowPayload = content?.data || content?.responseJson || {};
-                        text = JSON.stringify(flowPayload);
+                        const val = flowPayload.valor_simulacao ? `R$ ${Number(flowPayload.valor_simulacao).toLocaleString('pt-BR')}` : null;
+                        const rev = flowPayload.faturamento_medio ? `R$ ${Number(flowPayload.faturamento_medio).toLocaleString('pt-BR')}` : null;
+                        const inst = flowPayload.quantidade_parcelas ? `${flowPayload.quantidade_parcelas} parcelas` : null;
+                        const lines = [
+                            val ? `• Valor desejado: ${val}` : null,
+                            rev ? `• Faturamento médio: ${rev}` : null,
+                            inst ? `• Prazo: ${inst}` : null,
+                            flowPayload.consentimento ? `• Termo Bacen: Autorizado` : null
+                        ].filter(Boolean);
+                        text = lines.length > 0 
+                            ? `📋 Formulário de Simulação:\n${lines.join('\n')}` 
+                            : JSON.stringify(flowPayload);
                     }
                     
                     const trace = `ZNV-${Math.random().toString(36).substring(7).toUpperCase()}`;

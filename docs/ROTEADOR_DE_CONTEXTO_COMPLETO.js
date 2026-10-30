@@ -187,9 +187,14 @@ try {
         ? blueprint.whatsapp_flow
         : {};
     const whatsappFlowId = String(wfFlowConfig.flow_id || '').trim();
+    const contactPhoneDigits = String(rpcData.payload?.phone || leadInfo.phone || ctx.payload?.phone || rpcData.user_identifier || '').replace(/\D/g, '');
+    const isPhoneAllowedForFlow = Array.isArray(wfFlowConfig.allowed_phones) && wfFlowConfig.allowed_phones.length > 0
+        ? wfFlowConfig.allowed_phones.some(p => String(p).replace(/\D/g, '') === contactPhoneDigits)
+        : true;
     const isWhatsappFlowEnabled = Boolean(
         wfFlowConfig.enabled === true &&
-        whatsappFlowId.length > 0
+        whatsappFlowId.length > 0 &&
+        isPhoneAllowedForFlow
     );
     const whatsappFlowMode = wfFlowConfig.flow_mode === 'published' ? 'published' : 'draft';
     const whatsappFlowScreen = String(wfFlowConfig.screen_id || 'SIMULACAO_SCREEN').trim() || 'SIMULACAO_SCREEN';
