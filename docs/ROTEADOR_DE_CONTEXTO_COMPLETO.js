@@ -1620,7 +1620,7 @@ try {
 
     // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv)
     if (flowSubmissionData.isFlow && (flowSubmissionData.consent || isOptInAccepted)) {
-        nextStep = hasActiveLoan ? 'apresenta_ofertas' : 'criar_lead';
+        nextStep = (hasActiveLoan && isApprovedFiserv) ? 'apresenta_ofertas' : 'criar_lead';
         transitionApplied = true;
     } else if (isTalkToSpecialist && hasEligibilityForSpecialist) {
         nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';
@@ -2009,7 +2009,8 @@ try {
     }
 
     // 🛡️ BLINDAGEM 4: CLIENTE RECUSADO NO CRÉDITO NUNCA MAIS AVANÇA PARA SIMULAÇÃO OU APRESENTAÇÃO DE OFERTAS
-    if (isDeniedFiserv) {
+    // Exceto se for uma nova submissão via WhatsApp Flow (permitindo reanálise com novos valores)
+    if (isDeniedFiserv && !flowSubmissionData.isFlow) {
         nextStep = 'recusa_analise';
         transitionApplied = true;
     }
