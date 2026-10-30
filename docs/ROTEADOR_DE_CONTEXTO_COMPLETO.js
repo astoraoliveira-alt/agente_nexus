@@ -1320,7 +1320,6 @@ try {
     const unifiedExtraction = extractLoanAndRevenue(lastUserLower);
     if (flowSubmissionData.isFlow && flowSubmissionData.amount !== null && flowSubmissionData.amount > 0) {
         extractedAmount = flowSubmissionData.amount;
-        requested_amount = flowSubmissionData.amount;
     } else if (unifiedExtraction.requestedAmount) {
         extractedAmount = unifiedExtraction.requestedAmount;
     }
@@ -1331,7 +1330,6 @@ try {
     }
     if (flowSubmissionData.isFlow && flowSubmissionData.installments !== null && flowSubmissionData.installments > 0) {
         extractedInstallments = flowSubmissionData.installments;
-        requested_installments = flowSubmissionData.installments;
     }
 
     if (!revenue && leadInfo.revenue) {
@@ -1420,8 +1418,8 @@ try {
         extractedAmount = null;
     }
 
-    let requested_amount = isRestartSimulation ? null : (extractedAmount || (leadInfo.requested_amount && (!approvedLimit || leadInfo.requested_amount <= approvedLimit) ? leadInfo.requested_amount : null));
-    let requested_installments = isRestartSimulation ? null : (extractedInstallments || leadInfo.requested_installments);
+    let requested_amount = (isRestartSimulation && !flowSubmissionData.isFlow) ? null : (extractedAmount || (leadInfo.requested_amount && (!approvedLimit || leadInfo.requested_amount <= approvedLimit) ? leadInfo.requested_amount : null));
+    let requested_installments = (isRestartSimulation && !flowSubmissionData.isFlow) ? null : (extractedInstallments || leadInfo.requested_installments);
     if (requested_installments > 48) {
         requested_installments = null;
     }
@@ -1799,7 +1797,7 @@ try {
             requested_installments = null;
             nextStep = 'apresenta_ofertas';
             transitionApplied = true;
-        } else if (userTypedNewNumbers || asksForSimulation || isAffirmative) {
+        } else if (userTypedNewNumbers || asksForSimulation || isAffirmative || flowSubmissionData.isFlow) {
             if (requested_amount && !requested_installments) {
                 requested_installments = leadInfo.installments || leadInfo.max_installments || leadInfo.approved_installments || leadInfo.pre_approved_term || 24;
             } else if (!requested_amount && requested_installments) {
