@@ -1944,6 +1944,7 @@ async deleteCampaign(id: string): Promise<void> {
                     faturamento: Number(row.faturamento || 0),
                     valorInicial: Number(row.valor_inicial || 0),
                     optIn: Number(row.opt_in || 0),
+                    emAnalise: Number(row.em_analise ?? (row.opt_in ? Math.max(0, Number(row.opt_in || 0) - Number(row.aprovados || 0) - Number(row.recusados || 0)) : 0)),
                     aprovados: Number(row.aprovados || 0),
                     recusados: Number(row.recusados || 0),
                     simularam: Number(row.simularam || 0),
@@ -2048,6 +2049,7 @@ async deleteCampaign(id: string): Promise<void> {
                         faturamento: 0,
                         valorInicial: 0,
                         optIn: 0,
+                        emAnalise: 0,
                         aprovados: 0,
                         recusados: 0,
                         simularam: 0,
@@ -2148,7 +2150,8 @@ async deleteCampaign(id: string): Promise<void> {
                 if (hasFaturamentoLead) lm.faturamento++;
                 if (hasOptInLead) lm.optIn++;
                 if (isAprovadoLead) lm.aprovados++;
-                if (isRecusadoLead) lm.recusados++;
+                else if (isRecusadoLead) lm.recusados++;
+                else if (hasOptInLead) lm.emAnalise++;
                 if (meta.simulation_requested || meta.simulation_data || meta.simularam) lm.simularam++;
                 if (meta.simulation_accepted === true || meta.simulation_accepted === 'true' || meta.ok_agente === true || meta.ok_agente === 'true') {
                     lm.okAgente++;
@@ -2240,6 +2243,7 @@ async deleteCampaign(id: string): Promise<void> {
                     faturamento: lm.faturamento,
                     valorInicial: lm.valorInicial,
                     optIn: lm.optIn,
+                    emAnalise: lm.emAnalise ?? Math.max(0, lm.optIn - lm.aprovados - lm.recusados),
                     aprovados: lm.aprovados,
                     recusados: lm.recusados,
                     simularam: lm.simularam,

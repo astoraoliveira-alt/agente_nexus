@@ -73,9 +73,22 @@ BEGIN
       -- 🛡️ EXCLUSÃO ESTRITA DE LEADS REPROVADOS / NEGADOS PELO COMITÊ FISERV:
       -- Leads recusados por política de crédito ou mesa Fiserv não devem ir para a fila de fechamento comercial
       AND COALESCE(al.metadata->>'fiserv_status', '') NOT IN ('denied', 'lost', 'cancelled', 'fails_to_process', 'rejected')
-      AND COALESCE((al.metadata->>'fiserv_is_approved')::boolean, true) IS NOT FALSE
+      AND (
+          COALESCE(al.metadata->>'fiserv_status', '') IN ('comite_approved', 'approved', 'pre_approved', 'in_quoting')
+          OR (
+            (al.metadata->>'fiserv_amount_approved') IS NOT NULL 
+            AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$' 
+            AND (al.metadata->>'fiserv_amount_approved')::numeric > 0
+          )
+          OR COALESCE(al.metadata->>'fiserv_external_status', '') ILIKE '%aprovado%'
+          OR COALESCE((al.metadata->>'fiserv_is_approved')::boolean, true) IS NOT FALSE
+      )
       AND al.metadata->>'lost_reason' IS NULL
+      AND al.metadata->>'refusal_reason' IS NULL
       AND COALESCE(al.metadata->>'formalization_status', '') != 'lost'
+      AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%não conseguimos%'
+      AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%nao conseguimos%'
+      AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%reprovad%'
       -- Validações de integridade da campanha
       AND camp.tenant_id = p_tenant_id
       AND camp.status IN ('active', 'completed')

@@ -327,13 +327,18 @@ export function CreditCampaignDetailView({
         ) {
           displayStatus = 'Simulou';
         } else if (
-          meta.opt_in === true || meta.opt_in === 'true' ||
-          meta.optin === true || meta.optin === 'true' ||
-          meta.consent?.opt_in === true ||
-          meta.loan_request_id ||
-          ['in_quoting', 'in_progress', 'comite'].includes(fiservSt)
+          // Lead com opt-in ou em análise na Fiserv sem desfecho ainda
+          (
+            meta.opt_in === true || meta.opt_in === 'true' ||
+            meta.optin === true || meta.optin === 'true' ||
+            meta.consent?.opt_in === true ||
+            meta.loan_request_id ||
+            ['in_quoting', 'in_progress', 'comite'].includes(fiservSt)
+          ) &&
+          !isApprovedLead &&
+          !isRefusedLead
         ) {
-          displayStatus = 'Opt-in';
+          displayStatus = 'Em Análise';
         } else if (meta.revenue || meta.faturamento) {
           displayStatus = 'Faturamento Informado';
         } else if (meta.requested_amount || meta.valor_inicial) {
@@ -531,6 +536,7 @@ export function CreditCampaignDetailView({
             hasFaturamento,
             hasValorInicial,
             hasOptIn,
+            isEmAnalise: Boolean(hasOptIn && !isAprovado && !isRecusado),
             isAprovado,
             isRecusado,
             isSimularam,
@@ -590,7 +596,7 @@ export function CreditCampaignDetailView({
           )
         );
 
-        let dispSt = 'Opt-in';
+        let dispSt = (!isApp && !isRec) ? 'Em Análise' : 'Opt-in';
         if (['formalized', 'formalizado', 'won', 'concluido'].includes(formalSt) || fiservSt === 'won' || meta.formalized_at) {
           dispSt = 'Formalizado';
         } else if (isRec) {
@@ -634,6 +640,7 @@ export function CreditCampaignDetailView({
             hasFaturamento: true,
             hasValorInicial: true,
             hasOptIn: true,
+            isEmAnalise: Boolean(!isApp && !isRec),
             isAprovado: isApp,
             isRecusado: isRec,
             isSimularam: false,
@@ -803,7 +810,10 @@ export function CreditCampaignDetailView({
       return lead.status === 'Faturamento Informado';
     }
     if (status === 'Opt-in') {
-      return lead.status === 'Opt-in';
+      return lead.status === 'Opt-in' || lead.status === 'Em Análise' || Boolean(lead.stages?.hasOptIn) || Boolean(lead.optIn);
+    }
+    if (status === 'Em Análise') {
+      return lead.status === 'Em Análise' || Boolean(lead.stages?.isEmAnalise);
     }
     if (status === 'Simulou') {
       return lead.status === 'Simulou';
@@ -836,7 +846,8 @@ export function CreditCampaignDetailView({
     if (leads.some(l => l.status === 'Confirmou Identidade')) list.push('Confirmou Identidade');
     if (leads.some(l => l.status === 'Valor Informado')) list.push('Valor Informado');
     if (leads.some(l => l.status === 'Faturamento Informado')) list.push('Faturamento Informado');
-    if (leads.some(l => l.status === 'Opt-in')) list.push('Opt-in');
+    if (leads.some(l => l.status === 'Opt-in' || l.stages?.hasOptIn)) list.push('Opt-in');
+    if (leads.some(l => l.status === 'Em Análise' || l.stages?.isEmAnalise)) list.push('Em Análise');
     if (leads.some(l => l.status === 'Simulou')) list.push('Simulou');
     if (leads.some(l => l.status === 'Aprovado')) list.push('Aprovado');
     if (leads.some(l => l.status === 'Recusado')) list.push('Recusado');
@@ -933,6 +944,7 @@ export function CreditCampaignDetailView({
         'Valor Inicial': st?.hasValorInicial ? 'Sim' : 'Não',
         'Valor Solicitado': l.requestedAmount || '-',
         'Opt-in': st?.hasOptIn ? 'Sim' : 'Não',
+        'Em Análise': st?.isEmAnalise ? 'Sim' : 'Não',
         'Aprovados': st?.isAprovado ? 'Sim' : 'Não',
         'Recusados': st?.isRecusado ? 'Sim' : 'Não',
         'Simularam': st?.isSimularam ? 'Sim' : 'Não',
@@ -1403,6 +1415,24 @@ export function CreditCampaignDetailView({
       );
     }
 
+    const isEmAnalise = Boolean(
+      !isApp && !isRec && (
+        status === 'Em Análise' || 
+        status === 'Análise' ||
+        lead?.stages?.isEmAnalise || 
+        lead?.status === 'Em Análise'
+      )
+    );
+
+    if (isEmAnalise) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-amber-50 text-amber-700 border border-amber-200">
+          <Clock className="w-3 h-3 text-amber-600" />
+          Em Análise
+        </span>
+      );
+    }
+
     switch (status) {
       case 'Lida':
         return (
@@ -1527,6 +1557,7 @@ export function CreditCampaignDetailView({
       faturamento: 0,
       valorInicial: 0,
       optIn: 0,
+      emAnalise: 0,
       aprovados: 0,
       recusados: 0,
       simularam: 0,
@@ -1543,6 +1574,7 @@ export function CreditCampaignDetailView({
 
     return {
       ...base,
+      emAnalise: base.emAnalise ?? Math.max(0, (base.optIn || 0) - (base.aprovados || 0) - (base.recusados || 0)),
       interagiram: Math.max(base.interagiram, interactedCount)
     };
   }, [currentStat, leads, campaignId, selectedCampaign]);
@@ -1773,9 +1805,23 @@ export function CreditCampaignDetailView({
                   document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
                 }}
               >
-                <div className="mt-3 grid grid-cols-3 gap-2 border-t border-slate-100/50 pt-3">
+                <div className="mt-3 grid grid-cols-4 gap-1.5 border-t border-slate-100/50 pt-3">
                   <div 
-                    className="flex flex-col gap-1 cursor-pointer hover:bg-emerald-50/80 p-1 rounded transition-all group"
+                    className="flex flex-col gap-1 cursor-pointer hover:bg-amber-50/80 p-1 rounded transition-all group"
+                    title="Clique para filtrar apenas os leads Em Análise"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStatuses(['Em Análise']);
+                      document.getElementById('monitor-credit-table')?.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                  >
+                    <span className="text-[9px] font-black uppercase text-amber-700 tracking-widest group-hover:text-amber-800">Em Análise</span>
+                    <span className="text-sm font-black text-amber-700 group-hover:underline">
+                      {stat.emAnalise ?? Math.max(0, stat.optIn - stat.aprovados - stat.recusados)}
+                    </span>
+                  </div>
+                  <div 
+                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-1.5 cursor-pointer hover:bg-emerald-50/80 p-1 rounded transition-all group"
                     title="Clique para filtrar apenas os Aprovados"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1787,7 +1833,7 @@ export function CreditCampaignDetailView({
                     <span className="text-sm font-black text-emerald-700 group-hover:underline">{stat.aprovados}</span>
                   </div>
                   <div 
-                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-2 cursor-pointer hover:bg-rose-50/80 p-1 rounded transition-all group"
+                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-1.5 cursor-pointer hover:bg-rose-50/80 p-1 rounded transition-all group"
                     title="Clique para filtrar apenas os Recusados"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1799,7 +1845,7 @@ export function CreditCampaignDetailView({
                     <span className="text-sm font-black text-rose-600 group-hover:underline">{stat.recusados}</span>
                   </div>
                   <div 
-                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-2 cursor-pointer hover:bg-indigo-50/80 p-1 rounded transition-all group"
+                    className="flex flex-col gap-1 border-l border-slate-100/50 pl-1.5 cursor-pointer hover:bg-indigo-50/80 p-1 rounded transition-all group"
                     title="Clique para filtrar apenas os Formalizados"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -1994,7 +2040,10 @@ export function CreditCampaignDetailView({
                       <h4 className="text-lg font-black text-slate-900">
                         {selectedLead.name}
                       </h4>
-                      <p className="text-xs text-slate-500">{selectedLead.whatsapp}</p>
+                      <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                        <p className="text-xs text-slate-500 font-mono">{selectedLead.whatsapp}</p>
+                        {renderStatusBadge(selectedLead.status, selectedLead)}
+                      </div>
                     </div>
                     <Button
                       variant="ghost"

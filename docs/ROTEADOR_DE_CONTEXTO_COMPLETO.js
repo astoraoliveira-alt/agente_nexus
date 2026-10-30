@@ -1180,18 +1180,33 @@ try {
         semanticIntent === "SIMULATION_REQUEST"
     );
 
+    // 🛡️ CORREÇÃO DEFINITIVA DE OPT-IN: O aceite legal do SCR/Fiserv só pode ser reconhecido se:
+    // 1. O usuário estiver explicitamente no passo de consentimento (consentimento_optin); OU
+    // 2. O usuário enviou termo explícito de autorização ("autorizo", "sim, autorizo", "btn_optin", "optin_sim").
+    // ⛔ NUNCA aceitar "sim", "ok" ou afirmativos durante coleta_valor, coleta_faturamento ou saudação inicial como Opt-In.
+    const isExplicitOptInText = Boolean(
+        lastUserLower.includes("autorizo") ||
+        lastUserLower.includes("sim, autorizo") ||
+        lastUserLower.includes("sim autorizo") ||
+        lastUserLower.includes("sim_autorizo") ||
+        lastUserLower.includes("optin_sim") ||
+        lastUserLower.includes("btn_optin") ||
+        (lastUserLower.includes("✅") && lastUserLower.includes("autorizo")) ||
+        semanticIntent === "OPTIN_ACCEPTED"
+    );
+
     const isOptInAccepted = (
-        (/\b(autorizo|sim,?\s*autorizo|sim|concordo|aceito|de acordo|ok|positivo)\b/i.test(lastUserLower) && !/\b(n[ãa]o)\b/i.test(lastUserLower)) &&
-        (currentStep === 'consentimento_optin' || semanticIntent === "OPTIN_ACCEPTED" || lastUserLower.includes("autorizo") || currentStep === 'start' || currentStep === 'explicacao_agente' || currentStep === 'coleta_valor' || currentStep === 'coleta_faturamento')
-    ) || 
-    semanticIntent === "OPTIN_ACCEPTED" || 
-    lastUserLower.includes("sim, autorizo") || 
-    lastUserLower.includes("sim autorizo") || 
-    lastUserLower.includes("optin_sim") || 
-    lastUserLower.includes("btn_optin") || 
-    lastUserLower.includes("sim_autorizo") || 
-    (lastUserLower.includes("✅") && lastUserLower.includes("autorizo")) ||
-    (currentStep === 'consentimento_optin' && (isAffirmative || /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito|claro|pode ser|bora|sim por favor)$/i.test(lastUserLower.trim())) && !isNegative);
+        isExplicitOptInText ||
+        (
+            currentStep === 'consentimento_optin' &&
+            !isNegative &&
+            (
+                isAffirmative ||
+                /\b(autorizo|sim,?\s*autorizo|sim|concordo|aceito|de acordo|ok|positivo|pode ser|claro)\b/i.test(lastUserLower) ||
+                /^(ok|sim|autorizo|positivo|de acordo|concordo|aceito|claro|pode ser|bora|sim por favor)$/i.test(lastUserLower.trim())
+            )
+        )
+    );
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
     const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);

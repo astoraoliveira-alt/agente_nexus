@@ -42,6 +42,7 @@ interface DailyAggregateRow {
   faturamento: number;
   valorInicial: number;
   optIn: number;
+  emAnalise: number;
   aprovados: number;
   recusados: number;
   simularam: number;
@@ -197,6 +198,7 @@ export function DailyFunnelStatusView() {
           faturamento: 0,
           valorInicial: 0,
           optIn: 0,
+          emAnalise: 0,
           aprovados: 0,
           recusados: 0,
           simularam: 0,
@@ -220,6 +222,7 @@ export function DailyFunnelStatusView() {
       row.faturamento += item.faturamento || 0;
       row.valorInicial += item.valorInicial || 0;
       row.optIn += item.optIn || 0;
+      row.emAnalise += item.emAnalise || 0;
       row.aprovados += item.aprovados || 0;
       row.recusados += item.recusados || 0;
       row.simularam += item.simularam || 0;

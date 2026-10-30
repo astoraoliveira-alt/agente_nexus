@@ -200,6 +200,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         faturamento: acc.faturamento + item.faturamento,
         valorInicial: acc.valorInicial + item.valorInicial,
         optIn: acc.optIn + item.optIn,
+        emAnalise: acc.emAnalise + (item.emAnalise || 0),
         aprovados: acc.aprovados + item.aprovados,
         recusados: acc.recusados + item.recusados,
         simularam: acc.simularam + item.simularam,
@@ -219,6 +220,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
         faturamento: 0,
         valorInicial: 0,
         optIn: 0,
+        emAnalise: 0,
         aprovados: 0,
         recusados: 0,
         simularam: 0,
@@ -254,6 +256,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
       'Venda - Valor Inicial': d.valorInicial,
       'Venda - Faturamento': d.faturamento,
       'Venda - Opt-in': d.optIn,
+      'Venda - Análise': d.emAnalise || 0,
       'Venda - Aprovados': d.aprovados,
       'Venda - Recusados': d.recusados,
       'Venda - Simularam': d.simularam,
@@ -547,6 +550,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
               'Faturamento': hasFaturamento ? 'Sim' : 'Não',
               'Valor Faturamento': rawRev || '-',
               'Opt-in': hasOptIn ? 'Sim' : 'Não',
+              'Análise': (hasOptIn && !isAprovado && !isRecusado) ? 'Sim' : 'Não',
               'Aprovados': isAprovado ? 'Sim' : 'Não',
               'Recusados': isRecusado ? 'Sim' : 'Não',
               'Simularam': isSimularam ? 'Sim' : 'Não',
@@ -841,7 +845,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 <th colSpan={5} className="px-4 py-3 bg-blue-50/80 text-blue-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-blue-100">
                   Envio da Campanha
                 </th>
-                <th colSpan={8} className="px-4 py-3 bg-emerald-50/80 text-emerald-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-emerald-100">
+                <th colSpan={9} className="px-4 py-3 bg-emerald-50/80 text-emerald-900 font-bold uppercase tracking-wider text-[11px] text-center border-r border-emerald-100">
                   Funil de Venda
                 </th>
                 <th colSpan={4} className="px-4 py-3 bg-purple-50/80 text-purple-900 font-bold uppercase tracking-wider text-[11px] text-center">
@@ -866,6 +870,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Valor Inicial</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Faturamento</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Opt-in</th>
+                <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Analise</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Aprovados</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Recusados</th>
                 <th className="px-2.5 py-2.5 text-right font-semibold text-emerald-950">Simularam</th>
@@ -882,13 +887,13 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={19} className="px-6 py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={20} className="px-6 py-12 text-center text-slate-400 text-xs">
                     Carregando métricas consolidadas do funil...
                   </td>
                 </tr>
               ) : filteredData.length === 0 ? (
                 <tr>
-                  <td colSpan={19} className="px-6 py-12 text-center text-slate-400 text-xs">
+                  <td colSpan={20} className="px-6 py-12 text-center text-slate-400 text-xs">
                     Nenhuma campanha encontrada para os filtros selecionados.
                   </td>
                 </tr>
@@ -946,6 +951,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.valorInicial.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.faturamento.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.optIn.toLocaleString('pt-BR')}</td>
+                      <td className="px-2.5 py-3 text-right font-mono font-medium text-amber-700 bg-emerald-50/20">{(row.emAnalise || 0).toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono font-bold text-emerald-700 bg-emerald-50/30">{row.aprovados.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-rose-600 bg-emerald-50/20">{row.recusados.toLocaleString('pt-BR')}</td>
                       <td className="px-2.5 py-3 text-right font-mono text-slate-700 bg-emerald-50/20">{row.simularam.toLocaleString('pt-BR')}</td>
@@ -991,6 +997,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.valorInicial.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.faturamento.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.optIn.toLocaleString('pt-BR')}</td>
+                  <td className="px-2.5 py-3 text-right font-mono font-bold text-amber-800 bg-emerald-100/40">{totals.emAnalise.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono font-black text-emerald-800 bg-emerald-100/60">{totals.aprovados.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono text-rose-700 bg-emerald-100/40">{totals.recusados.toLocaleString('pt-BR')}</td>
                   <td className="px-2.5 py-3 text-right font-mono bg-emerald-100/40">{totals.simularam.toLocaleString('pt-BR')}</td>

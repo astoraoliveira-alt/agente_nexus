@@ -3,19 +3,21 @@
 -- Descrição:
 -- Retorna as métricas consolidadas dos 3 blocos do funil de crédito:
 --   Bloco 1: Envio da Campanha (outbound_queue)
---   Bloco 2: Funil de Venda (agent_leads - confirmaram, valor_inicial, faturamento, opt-in, aprovados, recusados, simularam, ok_agente)
+--   Bloco 2: Funil de Venda (agent_leads - confirmaram, valor_inicial, faturamento, opt-in, em_analise, aprovados, recusados, simularam, ok_agente)
 --   Bloco 3: Funil de Formalização (agent_leads - aguardando contato, em atendimento, formalizado, desistência)
 --
 -- Regras Fundamentais:
 -- 1. Contabilização baseada estritamente nas etapas formais e metadados estruturados de auditoria do funil.
 -- 2. Hierarquia estrita do Funil com a ordem atualizada de perguntas:
---    Confirmaram >= Valor Inicial (Pergunta 1) >= Faturamento (Pergunta 2) >= Opt-in (Pergunta 3) >= (Aprovados + Recusados) >= Simularam >= Ok Agente
--- 3. 'valor_inicial' contabiliza quem informou valor válido (10k a 500k) OU quem avançou para faturamento, opt-in ou análise de crédito.
--- 4. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
--- 5. 'aguar_contato' (Opção A) contabiliza:
+--    Confirmaram >= Valor Inicial (Pergunta 1) >= Faturamento (Pergunta 2) >= Opt-in (Pergunta 3)
+--    Invariante Matemática estrita: Opt-in = Em Análise + Aprovados + Recusados
+-- 3. 'em_analise' contabiliza quem possui Opt-in/loan_request_id mas cujo parecer Fiserv ainda não foi Aprovado nem Recusado.
+-- 4. 'valor_inicial' contabiliza quem informou valor válido (10k a 500k) OU quem avançou para faturamento, opt-in ou análise de crédito.
+-- 5. 'simularam' e 'ok_agente' exigem que o lead NÃO tenha sido reprovado no risco e possua parcelas calculadas.
+-- 6. 'aguar_contato' (Opção A) contabiliza:
 --    a) Leads que deram OK na simulação e aguardam formalização;
 --    b) Leads que solicitaram transbordo / especialista em qualquer etapa (handoff_requests pendente / falar_agente), ainda não atendidos.
--- 6. 'desistencia' exclusivo para o fim do funil (formalização de quem simulou/aceitou proposta).
+-- 7. 'desistencia' exclusivo para o fim do funil (formalização de quem simulou/aceitou proposta).
 -- ============================================================
 
 DROP FUNCTION IF EXISTS get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID);
@@ -42,6 +44,7 @@ RETURNS TABLE (
   faturamento BIGINT,
   valor_inicial BIGINT,
   opt_in BIGINT,
+  em_analise BIGINT,
   aprovados BIGINT,
   recusados BIGINT,
   simularam BIGINT,
@@ -221,7 +224,51 @@ BEGIN
            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
       ) AS m_recusados,
 
-      -- 7. Simularam (Com proposta calculada de parcelas/juros)
+      -- 7. Em Análise:
+      -- Leads com Opt-in que ainda NÃO possuem desfecho de Aprovado nem Recusado
+      COUNT(al.id) FILTER (
+        WHERE (
+          (al.metadata->>'opt_in')::boolean = true
+          OR (al.metadata->>'optin')::boolean = true
+          OR (al.metadata->'consent'->>'opt_in')::boolean = true
+          OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
+          OR (al.metadata->>'loan_request_id') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
+          OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
+        )
+        -- NÃO é Aprovado
+        AND NOT (
+          NOT (
+            (al.metadata->>'lost_reason') IS NOT NULL
+            OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+            OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
+            OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
+            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%não conseguimos%'
+            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%nao conseguimos%'
+            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%reprovad%'
+            OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
+          )
+          AND (
+            lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'comite_approved', 'aprovado', 'pre_approved')
+            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado')
+            OR (al.metadata->>'fiserv_is_approved')::boolean = true
+            OR (al.metadata->>'fiserv_amount_approved' IS NOT NULL AND al.metadata->>'fiserv_amount_approved' ~ '^[0-9]+(\.[0-9]+)?$' AND (al.metadata->>'fiserv_amount_approved')::numeric > 0)
+          )
+        )
+        -- NÃO é Recusado
+        AND NOT (
+          (al.metadata->>'lost_reason') IS NOT NULL
+          OR lower(COALESCE(al.metadata->>'formalization_status', '')) IN ('lost', 'cancelled', 'declined', 'recusado', 'desistente')
+          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined')
+          OR lower(COALESCE(al.status, '')) IN ('denied', 'recusado', 'reprovado')
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%não conseguimos%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%nao conseguimos%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%reprovad%'
+          OR lower(COALESCE(al.metadata->>'fiserv_external_status', '')) ILIKE '%recusad%'
+        )
+      ) AS m_em_analise,
+
+      -- 8. Simularam (Com proposta calculada de parcelas/juros)
       COUNT(al.id) FILTER (
         WHERE NOT (
           (al.metadata->>'lost_reason') IS NOT NULL
@@ -244,7 +291,7 @@ BEGIN
         )
       ) AS m_simularam,
 
-      -- 8. Ok Agente (Aceite da Proposta Simulada)
+      -- 9. Ok Agente (Aceite da Proposta Simulada)
       COUNT(al.id) FILTER (
         WHERE NOT (
           (al.metadata->>'lost_reason') IS NOT NULL
@@ -262,7 +309,7 @@ BEGIN
 
       -- Bloco 3: Funil de Formalização (Opção A: Inclui Transbordos Iniciais e Solicitações de Especialista)
       
-      -- 9. Aguardando Contato:
+      -- 10. Aguardando Contato:
       -- Aceitou proposta OU solicitou especialista/handoff, ainda não iniciado atendimento humano
       COUNT(al.id) FILTER (
         WHERE (
@@ -294,7 +341,7 @@ BEGIN
         )
       ) AS m_aguar_contato,
 
-      -- 10. Em Atendimento:
+      -- 11. Em Atendimento:
       -- Aceitou proposta OU solicitou especialista e está ativamente em contato com operador
       COUNT(al.id) FILTER (
         WHERE (
@@ -326,7 +373,7 @@ BEGIN
         )
       ) AS m_em_atendimento,
 
-      -- 11. Formalizado:
+      -- 12. Formalizado:
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true
@@ -350,7 +397,7 @@ BEGIN
         )
       ) AS m_formalizado,
 
-      -- 12. Desistência: Exclusivo para o FIM DO FUNIL (formalização)
+      -- 13. Desistência: Exclusivo para o FIM DO FUNIL (formalização)
       COUNT(al.id) FILTER (
         WHERE (
           (al.metadata->>'simulation_accepted')::boolean = true
@@ -389,6 +436,7 @@ BEGIN
     COALESCE(lm.m_faturamento, 0) AS faturamento,
     COALESCE(lm.m_valor_inicial, 0) AS valor_inicial,
     COALESCE(lm.m_opt_in, 0) AS opt_in,
+    COALESCE(lm.m_em_analise, 0) AS em_analise,
     COALESCE(lm.m_aprovados, 0) AS aprovados,
     COALESCE(lm.m_recusados, 0) AS recusados,
     COALESCE(lm.m_simularam, 0) AS simularam,
@@ -403,3 +451,8 @@ BEGIN
   ORDER BY oq.cstart_date DESC;
 END;
 $$;
+
+-- Permissões explícitas de execução
+GRANT EXECUTE ON FUNCTION get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION get_credit_campaign_funnel_stats(UUID, UUID[], TIMESTAMP WITH TIME ZONE, UUID) TO anon;

@@ -1385,24 +1385,236 @@ app.post('/v1/zenvia/webhook', async (c) => {
     return response;
 });
 
+// Rastreamento temporário de status de mensagens Zenvia em memória para validação imediata
+const zenviaMessageStatuses = new Map<string, {
+    code: string;
+    description?: string;
+    causes?: any[];
+    updatedAt: number;
+}>();
 
 /**
  * Zenvia Status Webhook
- * Recebe confirmação de entrega da Zenvia (SENT/DELIVERED/READ/FAILED)
+ * Recebe confirmação de entrega da Zenvia (SENT/DELIVERED/READ/FAILED/REJECTED)
  */
 app.post('/v1/zenvia/status', async (c) => {
     const body = await c.req.json();
     const code = body.messageStatus?.code;
+    const description = body.messageStatus?.description || body.messageStatus?.causes?.[0]?.reason || null;
+    const causes = body.messageStatus?.causes || [];
     const messageId = body.messageId;
-    console.log(`[ZENVIA] 📦 Status: ${code} para msgId: ${messageId}`);
+    console.log(`[ZENVIA] 📦 Status: ${code} para msgId: ${messageId}${description ? ` (${description})` : ''}`);
+
+    if (messageId && code) {
+        zenviaMessageStatuses.set(messageId, {
+            code,
+            description: description || undefined,
+            causes,
+            updatedAt: Date.now()
+        });
+        // Limpeza simples para evitar crescimento infinito do Map
+        if (zenviaMessageStatuses.size > 500) {
+            const oldestKey = zenviaMessageStatuses.keys().next().value;
+            if (oldestKey) zenviaMessageStatuses.delete(oldestKey);
+        }
+    }
+
     // Atualiza outbound_queue se existir o external_message_id
-    if (code === 'FAILED' && messageId) {
+    if ((code === 'FAILED' || code === 'REJECTED') && messageId) {
         await supabaseAdmin
             .from('outbound_queue')
-            .update({ status: 'failed' })
+            .update({ status: 'failed', error_message: description || `Zenvia status: ${code}` })
             .eq('external_message_id', messageId);
     }
     return c.json({ ok: true });
+});
+
+/**
+ * Valida um WhatsApp Flow ID e detecta automaticamente seu status (draft vs published)
+ * disparando uma sonda via Zenvia API v2 e aguardando o callback da Meta/Zenvia.
+ */
+app.post('/v1/zenvia/validate-flow', async (c) => {
+    try {
+        const body = await c.req.json();
+        const flowId = String(body.flow_id || '').trim();
+        const screenId = String(body.screen_id || 'SIMULACAO_SCREEN').trim() || 'SIMULACAO_SCREEN';
+        const ctaText = String(body.cta_text || 'Simular Crédito').trim().slice(0, 20) || 'Simular Crédito';
+        const preferredMode: 'draft' | 'published' = body.flow_mode === 'published' ? 'published' : 'draft';
+        const testPhone = String(body.test_phone || '').replace(/\D/g, '');
+        let zenviaToken = String(body.zenvia_api_token || '').trim();
+        let zenviaChannel = String(body.zenvia_channel_id || '').trim();
+        const agentId = body.agent_id ? String(body.agent_id).trim() : '';
+
+        // 1. Validação estática do formato numérico da Meta
+        if (!/^\d{10,25}$/.test(flowId)) {
+            return c.json({
+                valid: false,
+                stage: 'format',
+                message: 'O Flow ID da Meta deve conter apenas números (10 a 25 dígitos).'
+            }, 400);
+        }
+
+        // Busca credenciais Zenvia do agente no banco caso não tenham vindo completas no body
+        if ((!zenviaToken || !zenviaChannel) && agentId) {
+            const { data: ag } = await supabaseAdmin
+                .from('agents')
+                .select('zenvia_api_token, zenvia_channel_id, zenvia_aliases')
+                .eq('id', agentId)
+                .maybeSingle();
+            if (ag) {
+                if (!zenviaToken) zenviaToken = ag.zenvia_api_token || '';
+                if (!zenviaChannel) zenviaChannel = ag.zenvia_channel_id || ag.zenvia_aliases?.[0] || '';
+            }
+        }
+
+        if (!zenviaToken || !zenviaChannel) {
+            return c.json({
+                valid: false,
+                stage: 'credentials',
+                message: 'Preencha o Channel ID e o API Token da Zenvia no agente para validar o Flow.'
+            }, 400);
+        }
+
+        if (!testPhone || testPhone.length < 10) {
+            return c.json({
+                valid: false,
+                stage: 'phone',
+                message: 'Informe um número de WhatsApp de teste válido (com DDI + DDD, ex: 5511999999999) para validar o Flow na Zenvia.'
+            }, 400);
+        }
+
+        const sendProbe = async (modeToTest: 'draft' | 'published') => {
+            const zenviaPayload = {
+                from: zenviaChannel,
+                to: testPhone,
+                contents: [
+                    {
+                        type: 'flow',
+                        header: { type: 'text', text: 'Teste de Validação Flow' },
+                        body: `Validação automática do WhatsApp Flow (${flowId}) em modo ${modeToTest.toUpperCase()}.`,
+                        footer: 'Parceria Ticket & Fiserv',
+                        flow: {
+                            mode: modeToTest,
+                            token: `probe_${Date.now()}`,
+                            id: flowId,
+                            buttonText: ctaText,
+                            action: {
+                                type: 'navigate',
+                                screen: screenId
+                            }
+                        }
+                    }
+                ]
+            };
+
+            const res = await fetch('https://api.zenvia.com/v2/channels/whatsapp/messages', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-TOKEN': zenviaToken
+                },
+                body: JSON.stringify(zenviaPayload)
+            });
+
+            const data: any = await res.json().catch(() => ({}));
+            if (!res.ok || !data?.id) {
+                return {
+                    httpOk: false,
+                    status: 'HTTP_ERROR',
+                    messageId: null,
+                    errorDetail: data?.message || data?.details?.[0]?.message || `HTTP ${res.status}`
+                };
+            }
+
+            const msgId = String(data.id);
+            // Aguarda até 4.5s pelo webhook assíncrono /v1/zenvia/status da Meta/Zenvia
+            const start = Date.now();
+            while (Date.now() - start < 4500) {
+                const st = zenviaMessageStatuses.get(msgId);
+                if (st) {
+                    if (st.code === 'SENT' || st.code === 'DELIVERED' || st.code === 'READ') {
+                        return { httpOk: true, status: 'CONFIRMED', code: st.code, messageId: msgId };
+                    }
+                    if (st.code === 'REJECTED' || st.code === 'FAILED') {
+                        return {
+                            httpOk: true,
+                            status: 'REJECTED',
+                            code: st.code,
+                            messageId: msgId,
+                            errorDetail: st.description || JSON.stringify(st.causes || [])
+                        };
+                    }
+                }
+                await new Promise(r => setTimeout(r, 400));
+            }
+
+            return { httpOk: true, status: 'DISPATCHED_PENDING_CALLBACK', messageId: msgId };
+        };
+
+        // 2. Testa primeiro no modo selecionado pelo usuário; se a Meta rejeitar, testa automaticamente o modo oposto!
+        const firstMode = preferredMode;
+        const secondMode: 'draft' | 'published' = preferredMode === 'draft' ? 'published' : 'draft';
+
+        const firstAttempt = await sendProbe(firstMode);
+
+        if (firstAttempt.status === 'CONFIRMED') {
+            return c.json({
+                valid: true,
+                detected_mode: firstMode,
+                verification: 'meta_confirmed',
+                message_id: firstAttempt.messageId,
+                message: `Flow ID ${flowId} validado com sucesso na Meta/Zenvia! Status confirmado: ${firstMode === 'published' ? 'PUBLICADO (Published)' : 'RASCUNHO (Draft)'}.`
+            });
+        }
+
+        if (firstAttempt.status === 'REJECTED') {
+            console.log(`[ZENVIA-FLOW-VALIDATOR] ⚠️ Modo ${firstMode} rejeitado (${firstAttempt.errorDetail}). Testando modo ${secondMode}...`);
+            const secondAttempt = await sendProbe(secondMode);
+
+            if (secondAttempt.status === 'CONFIRMED') {
+                return c.json({
+                    valid: true,
+                    detected_mode: secondMode,
+                    mode_switched: true,
+                    verification: 'meta_confirmed',
+                    message_id: secondAttempt.messageId,
+                    message: `Flow ID válido! A Meta rejeitou como "${firstMode}", mas aceitou como "${secondMode.toUpperCase()}". O status foi ajustado automaticamente!`
+                });
+            }
+
+            return c.json({
+                valid: false,
+                stage: 'meta_rejected',
+                error_first_mode: firstAttempt.errorDetail,
+                error_second_mode: secondAttempt.errorDetail,
+                message: `A Meta/Zenvia rejeitou o Flow ID ${flowId} tanto em Rascunho quanto em Publicado. Detalhe: ${firstAttempt.errorDetail || secondAttempt.errorDetail || 'Verifique se o Flow ID pertence a esta WABA e se a tela SIMULACAO_SCREEN existe.'}`
+            }, 422);
+        }
+
+        if (!firstAttempt.httpOk) {
+            return c.json({
+                valid: false,
+                stage: 'zenvia_http',
+                message: `Erro ao comunicar com a Zenvia: ${firstAttempt.errorDetail}`
+            }, 400);
+        }
+
+        // Caso a Zenvia tenha aceitado o HTTP 200 mas o callback demore mais de 4.5s
+        return c.json({
+            valid: true,
+            detected_mode: firstMode,
+            verification: 'zenvia_accepted',
+            message_id: firstAttempt.messageId,
+            message: `Disparo aceito pela Zenvia (ID: ${firstAttempt.messageId}) no modo ${firstMode.toUpperCase()}. Verifique no WhatsApp (${testPhone}) se o botão do Flow chegou!`
+        });
+    } catch (err: any) {
+        console.error('[ZENVIA-FLOW-VALIDATOR] ❌ Erro:', err);
+        return c.json({
+            valid: false,
+            stage: 'exception',
+            message: err?.message || 'Erro interno ao validar Flow.'
+        }, 500);
+    }
 });
 
 // --- QUEUE MANAGEMENT (ELITE SYSTEM_ROLE BYPASS) ---

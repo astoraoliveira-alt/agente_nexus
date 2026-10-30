@@ -44,6 +44,7 @@ import { AgentEvolutionTab } from '@/components/agents/AgentEvolutionTab';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { agentsService } from '@/services/agents.service';
+import { porteiro } from '@/services/porteiro.service';
 
 export default function Agents() {
   const { openSlideOver, currentTenant, currentUser, hasPermission } = useApp();
@@ -74,6 +75,126 @@ export default function Agents() {
 
   // Blueprint state
   const [blueprintRaw, setBlueprintRaw] = useState('');
+  const [whatsappFlowConfig, setWhatsappFlowConfig] = useState<{
+    enabled: boolean;
+    flow_id: string;
+    flow_mode: 'draft' | 'published';
+    screen_id: string;
+    cta_text: string;
+    header: string;
+    footer: string;
+  }>({
+    enabled: false,
+    flow_id: '',
+    flow_mode: 'draft',
+    screen_id: 'SIMULACAO_SCREEN',
+    cta_text: 'Simular Crédito',
+    header: 'Reforço de Caixa Ticket',
+    footer: 'Parceria Ticket & Fiserv'
+  });
+  const [flowTestPhone, setFlowTestPhone] = useState('');
+  const [validatingFlow, setValidatingFlow] = useState(false);
+  const [flowValidationResult, setFlowValidationResult] = useState<{
+    valid: boolean;
+    message: string;
+    detected_mode?: 'draft' | 'published';
+    mode_switched?: boolean;
+  } | null>(null);
+
+  const isFlowIdFormatValid = (id: string) => /^\d{10,25}$/.test(String(id || '').trim());
+
+  const updateWhatsappFlowField = (updates: Partial<typeof whatsappFlowConfig>) => {
+    if (updates.flow_id !== undefined) {
+      setFlowValidationResult(null);
+    }
+    setWhatsappFlowConfig(prev => {
+      const next = { ...prev, ...updates };
+      try {
+        const baseObj = blueprintRaw.trim() ? JSON.parse(blueprintRaw) : { initial_step: 'start', steps: {} };
+        baseObj.whatsapp_flow = next;
+        setBlueprintRaw(JSON.stringify(baseObj, null, 2));
+      } catch {
+        // Mantém blueprintRaw intacto se usuário estiver editando JSON manualmente com sintaxe incompleta
+      }
+      return next;
+    });
+  };
+
+  const handleValidateWhatsappFlow = async () => {
+    const cleanFlowId = String(whatsappFlowConfig.flow_id || '').trim();
+    if (!isFlowIdFormatValid(cleanFlowId)) {
+      const msg = 'Formato inválido: o Flow ID da Meta deve conter apenas números (10 a 25 dígitos).';
+      setFlowValidationResult({ valid: false, message: msg });
+      toast.error(msg);
+      return;
+    }
+
+    const cleanPhone = String(flowTestPhone || '').replace(/\D/g, '');
+    if (cleanPhone.length < 10) {
+      toast.error('Informe um número de WhatsApp de teste (com DDI 55 + DDD) para validar o disparo na Zenvia.');
+      return;
+    }
+
+    const zenviaToken = String(formData.zenvia_api_token || editingAgent?.zenvia_api_token || '').trim();
+    const zenviaChannel = String(
+      formData.zenvia_channel_id ||
+      editingAgent?.zenvia_channel_id ||
+      formData.zenvia_aliases?.[0] ||
+      ''
+    ).trim();
+
+    if (!zenviaToken || !zenviaChannel) {
+      toast.error('Configure o Channel ID e o API Token da Zenvia neste agente antes de validar o Flow.');
+      return;
+    }
+
+    setValidatingFlow(true);
+    setFlowValidationResult(null);
+
+    try {
+      const data = await porteiro.validateWhatsappFlow({
+        agent_id: editingAgent?.id,
+        flow_id: cleanFlowId,
+        flow_mode: whatsappFlowConfig.flow_mode,
+        screen_id: whatsappFlowConfig.screen_id || 'SIMULACAO_SCREEN',
+        cta_text: whatsappFlowConfig.cta_text || 'Simular Crédito',
+        test_phone: cleanPhone,
+        zenvia_api_token: zenviaToken,
+        zenvia_channel_id: zenviaChannel
+      });
+
+      if (data && typeof data.valid === 'boolean') {
+        if (data.valid && data.detected_mode) {
+          updateWhatsappFlowField({ flow_mode: data.detected_mode });
+        }
+        setFlowValidationResult({
+          valid: data.valid,
+          message: data.message,
+          detected_mode: data.detected_mode,
+          mode_switched: data.mode_switched
+        });
+        if (data.valid) {
+          toast.success(data.message);
+        } else {
+          toast.error(data.message);
+        }
+        return;
+      }
+
+      const errMsg = data?.message || 'Resposta inesperada ao validar o Flow.';
+      setFlowValidationResult({ valid: false, message: errMsg });
+      toast.error(errMsg);
+    } catch (err: any) {
+      const msg = `Falha de conexão ao validar Flow (${err?.message || 'Erro de rede'}).`;
+      setFlowValidationResult({
+        valid: false,
+        message: msg
+      });
+      toast.error(msg);
+    } finally {
+      setValidatingFlow(false);
+    }
+  };
 
   // Sub-agent dialog state
   const [isSubAgentDialogOpen, setIsSubAgentDialogOpen] = useState(false);
@@ -214,6 +335,16 @@ export default function Agents() {
       setEditingAgent(agent);
       setFormData(agent);
       setBlueprintRaw(agent.workflow_blueprint ? JSON.stringify(agent.workflow_blueprint, null, 2) : '');
+      const wfFlow = agent.workflow_blueprint?.whatsapp_flow;
+      setWhatsappFlowConfig({
+        enabled: Boolean(wfFlow?.enabled === true && wfFlow?.flow_id?.trim()),
+        flow_id: wfFlow?.flow_id || '',
+        flow_mode: wfFlow?.flow_mode === 'published' ? 'published' : 'draft',
+        screen_id: wfFlow?.screen_id || 'SIMULACAO_SCREEN',
+        cta_text: wfFlow?.cta_text || 'Simular Crédito',
+        header: wfFlow?.header || 'Reforço de Caixa Ticket',
+        footer: wfFlow?.footer || 'Parceria Ticket & Fiserv'
+      });
     } else {
       setEditingAgent(null);
       setFormData({
@@ -247,7 +378,17 @@ export default function Agents() {
         funnel_followup_max_attempts: 1
       });
       setBlueprintRaw('');
+      setWhatsappFlowConfig({
+        enabled: false,
+        flow_id: '',
+        flow_mode: 'draft',
+        screen_id: 'SIMULACAO_SCREEN',
+        cta_text: 'Simular Crédito',
+        header: 'Reforço de Caixa Ticket',
+        footer: 'Parceria Ticket & Fiserv'
+      });
     }
+    setFlowValidationResult(null);
     setIsDialogOpen(true);
   };
 
@@ -265,7 +406,7 @@ export default function Agents() {
     }
 
     // Parse Blueprint JSON
-    let parsedBlueprint = undefined;
+    let parsedBlueprint: any = undefined;
     if (blueprintRaw.trim()) {
       try {
         parsedBlueprint = JSON.parse(blueprintRaw);
@@ -278,6 +419,42 @@ export default function Agents() {
         toast.error('Erro no Blueprint: JSON inválido.');
         return;
       }
+    }
+
+    // 🛡️ Guardrail de Segurança para WhatsApp Flow:
+    // Por padrão, enabled = false. Se tentarem ativar sem Flow ID preenchido ou com formato inválido, bloqueia a ativação e mantém false para não quebrar o funil.
+    const cleanFlowId = String(whatsappFlowConfig.flow_id || '').trim();
+    const validFlowIdFormat = isFlowIdFormatValid(cleanFlowId);
+    const safeFlowEnabled = Boolean(whatsappFlowConfig.enabled && validFlowIdFormat);
+    if (whatsappFlowConfig.enabled && !cleanFlowId) {
+      toast.warning('Flow ID ainda não preenchido: o WhatsApp Flow foi mantido DESATIVADO por segurança para preservar o funil de texto atual.');
+      setWhatsappFlowConfig(prev => ({ ...prev, enabled: false }));
+    } else if (whatsappFlowConfig.enabled && !validFlowIdFormat) {
+      toast.warning('Flow ID inválido (deve conter de 10 a 25 dígitos numéricos): o WhatsApp Flow foi mantido DESATIVADO por segurança.');
+      setWhatsappFlowConfig(prev => ({ ...prev, enabled: false }));
+    }
+
+    const sanitizedFlowConfig = {
+      enabled: safeFlowEnabled,
+      flow_id: cleanFlowId,
+      flow_mode: whatsappFlowConfig.flow_mode === 'published' ? 'published' : 'draft',
+      screen_id: String(whatsappFlowConfig.screen_id || 'SIMULACAO_SCREEN').trim(),
+      cta_text: String(whatsappFlowConfig.cta_text || 'Simular Crédito').trim().slice(0, 20),
+      header: String(whatsappFlowConfig.header || 'Reforço de Caixa Ticket').trim(),
+      footer: String(whatsappFlowConfig.footer || 'Parceria Ticket & Fiserv').trim()
+    };
+
+    if (parsedBlueprint) {
+      parsedBlueprint = {
+        ...parsedBlueprint,
+        whatsapp_flow: sanitizedFlowConfig
+      };
+    } else if (safeFlowEnabled || cleanFlowId.length > 0) {
+      parsedBlueprint = {
+        initial_step: 'start',
+        steps: {},
+        whatsapp_flow: sanitizedFlowConfig
+      };
     }
 
     try {
@@ -1254,6 +1431,183 @@ export default function Agents() {
                               </div>
                             </div>
                           )}
+                        </div>
+
+                        {/* WhatsApp Flow Nativo (Simulação v2 vs Funil de Perguntas) */}
+                        <div className="space-y-4 pt-3 border-t border-border/30 mt-4 animate-in slide-in-from-top-1">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <Label className="text-xs font-bold text-accent">WhatsApp Flow Nativo (Simulação v2)</Label>
+                                <span className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded-full font-medium border",
+                                  whatsappFlowConfig.enabled && whatsappFlowConfig.flow_id.trim()
+                                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                    : "bg-muted text-muted-foreground border-border"
+                                )}>
+                                  {whatsappFlowConfig.enabled && whatsappFlowConfig.flow_id.trim() ? 'Flow Ativo' : 'Desativado (Funil Texto)'}
+                                </span>
+                              </div>
+                              <p className="text-[9px] text-muted-foreground">
+                                Quando ativado, substitui as 3 perguntas em texto (Valor, Faturamento e Opt-in) pelo formulário interativo do WhatsApp após o clique em &quot;Quero Simular&quot;.
+                              </p>
+                            </div>
+                            <Switch
+                              checked={whatsappFlowConfig.enabled}
+                              onCheckedChange={(checked) => {
+                                if (checked && !whatsappFlowConfig.flow_id.trim()) {
+                                  toast.info('Preencha o Flow ID abaixo antes de ativar o WhatsApp Flow.');
+                                }
+                                updateWhatsappFlowField({ enabled: checked });
+                              }}
+                            />
+                          </div>
+
+                          <div className="space-y-3 p-3 rounded-lg bg-muted/20 border border-border/40">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between h-5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Flow ID (Meta / Zenvia)
+                                  </Label>
+                                  {whatsappFlowConfig.flow_id.trim().length > 0 && (
+                                    <span className={cn(
+                                      "text-[8.5px] px-1.5 py-0.5 rounded font-medium leading-none",
+                                      isFlowIdFormatValid(whatsappFlowConfig.flow_id)
+                                        ? "bg-emerald-500/10 text-emerald-400"
+                                        : "bg-destructive/15 text-destructive"
+                                    )}>
+                                      {isFlowIdFormatValid(whatsappFlowConfig.flow_id) ? '✓ Formato Numérico OK' : '✕ Apenas números (10-25 dígitos)'}
+                                    </span>
+                                  )}
+                                </div>
+                                <Input
+                                  type="text"
+                                  placeholder="Ex: 123456789012345"
+                                  className="bg-muted/30 font-mono text-xs h-8"
+                                  value={whatsappFlowConfig.flow_id}
+                                  onChange={(e) => updateWhatsappFlowField({ flow_id: e.target.value.replace(/\s+/g, '') })}
+                                />
+                                <p className="text-[8px] text-muted-foreground leading-normal">ID numérico gerado no WhatsApp Manager.</p>
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between h-5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Status do Flow na Meta
+                                  </Label>
+                                </div>
+                                <Select
+                                  value={whatsappFlowConfig.flow_mode}
+                                  onValueChange={(val: 'draft' | 'published') => updateWhatsappFlowField({ flow_mode: val })}
+                                >
+                                  <SelectTrigger className="bg-muted/30 text-xs h-8">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="draft">Rascunho (Draft - Testes)</SelectItem>
+                                    <SelectItem value="published">Publicado (Published - Produção)</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <p className="text-[8px] text-muted-foreground leading-normal">Mude para Publicado quando aprovarem na Meta.</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                              <div className="space-y-1.5">
+                                <div className="flex items-center h-5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Tela Inicial (Screen ID)
+                                  </Label>
+                                </div>
+                                <Input
+                                  type="text"
+                                  placeholder="SIMULACAO_SCREEN"
+                                  className="bg-muted/30 font-mono text-xs h-8"
+                                  value={whatsappFlowConfig.screen_id}
+                                  onChange={(e) => updateWhatsappFlowField({ screen_id: e.target.value })}
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <div className="flex items-center h-5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Texto do Botão (Máx 20 chars)
+                                  </Label>
+                                </div>
+                                <Input
+                                  type="text"
+                                  maxLength={20}
+                                  placeholder="Simular Crédito"
+                                  className="bg-muted/30 text-xs h-8"
+                                  value={whatsappFlowConfig.cta_text}
+                                  onChange={(e) => updateWhatsappFlowField({ cta_text: e.target.value.slice(0, 20) })}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Validador de Flow ID e Status via Zenvia */}
+                            <div className="pt-2 border-t border-border/30 space-y-2">
+                              <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                                <Play className="h-3 w-3 text-accent" /> Validar Flow ID e Detectar Status (Via Zenvia)
+                              </Label>
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <Input
+                                  type="text"
+                                  placeholder="WhatsApp de teste (Ex: 5511999999999)"
+                                  className="bg-muted/30 font-mono text-xs h-8 flex-1"
+                                  value={flowTestPhone}
+                                  onChange={(e) => setFlowTestPhone(e.target.value)}
+                                />
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={validatingFlow || !whatsappFlowConfig.flow_id.trim()}
+                                  onClick={handleValidateWhatsappFlow}
+                                  className="h-8 text-xs border-accent/40 hover:bg-accent/10 shrink-0"
+                                >
+                                  {validatingFlow ? 'Validando na Zenvia...' : 'Validar e Testar Flow'}
+                                </Button>
+                              </div>
+                              <p className="text-[8px] text-muted-foreground">
+                                Dispara uma sonda usando o token Zenvia do agente, verifica o retorno da Meta (<code className="font-mono">SENT</code> vs <code className="font-mono">REJECTED</code>) e ajusta automaticamente entre <strong>Rascunho</strong> e <strong>Publicado</strong>.
+                              </p>
+
+                              {flowValidationResult && (
+                                <div className={cn(
+                                  "p-2 rounded border text-[9.5px] flex items-start gap-2 animate-in fade-in",
+                                  flowValidationResult.valid
+                                    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                                    : "bg-destructive/10 border-destructive/30 text-destructive"
+                                )}>
+                                  {flowValidationResult.valid ? (
+                                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                                  ) : (
+                                    <AlertCircle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                                  )}
+                                  <div className="space-y-0.5">
+                                    <p className="font-medium leading-snug">{flowValidationResult.message}</p>
+                                    {flowValidationResult.detected_mode && (
+                                      <p className="text-[8.5px] opacity-90">
+                                        Status detectado: <strong>{flowValidationResult.detected_mode === 'published' ? 'Publicado (Published)' : 'Rascunho (Draft)'}</strong>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="text-[9px] text-muted-foreground/90 bg-background/50 p-2.5 rounded border border-border/30 space-y-1">
+                              <p className="font-semibold text-foreground/80 flex items-center gap-1.5">
+                                <ShieldCheck className="h-3 w-3 text-emerald-400 inline shrink-0" /> Chaveamento Instantâneo (Sem Deploy):
+                              </p>
+                              <ul className="list-disc list-inside space-y-0.5 text-[8.5px] text-muted-foreground pl-1">
+                                <li><strong>Desativado (Padrão):</strong> Opera 100% no funil conversacional atual (Valor → Faturamento → Botão de Opt-in).</li>
+                                <li><strong>Ativado:</strong> Envia o botão do Flow <code className="font-mono">{whatsappFlowConfig.screen_id || 'SIMULACAO_SCREEN'}</code> e, se o cliente digitar no chat em vez de abrir o Flow, aceita o texto normalmente como fallback.</li>
+                              </ul>
+                            </div>
+                          </div>
                         </div>
 
                         {formData.type === 'whatsapp' && (

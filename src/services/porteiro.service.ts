@@ -81,6 +81,65 @@ export const porteiro = {
     },
 
     /**
+     * Valida um WhatsApp Flow na Meta via Porteiro / Zenvia
+     */
+    async validateWhatsappFlow(payload: {
+        agent_id?: string;
+        flow_id: string;
+        flow_mode: 'draft' | 'published';
+        screen_id?: string;
+        cta_text?: string;
+        test_phone: string;
+        zenvia_api_token?: string;
+        zenvia_channel_id?: string;
+    }) {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        if (session?.access_token) {
+            headers['Authorization'] = `Bearer ${session.access_token}`;
+        }
+
+        try {
+            const response = await fetch(`${PORTEIRO_URL}/v1/zenvia/validate-flow`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json().catch(() => ({}));
+
+            if (typeof data?.valid === 'boolean') {
+                return data;
+            }
+
+            if (response.status === 404) {
+                return {
+                    valid: false,
+                    message: 'O endpoint de validação do Flow está pendente de deploy/restart no servidor Porteiro da VPS. A configuração do Flow ID segue salva e funcional para o n8n.'
+                };
+            }
+
+            if (!response.ok) {
+                return {
+                    valid: false,
+                    message: data?.message || data?.error || `Erro HTTP ${response.status} ao validar Flow no Porteiro.`
+                };
+            }
+
+            return data;
+        } catch (err: any) {
+            console.warn('[Porteiro] Flow validation fetch failed:', err);
+            return {
+                valid: false,
+                message: `Não foi possível conectar ao servidor do Porteiro (${err?.message || 'Erro de rede'}).`
+            };
+        }
+    },
+
+    /**
      * Basic health check for the gateway
      */
     async healthCheck() {

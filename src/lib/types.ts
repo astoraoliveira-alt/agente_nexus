@@ -477,6 +477,15 @@ export interface Agent {
       rules: string;
       allowed_next: string[];
     }>;
+    whatsapp_flow?: {
+      enabled: boolean;
+      flow_id: string;
+      flow_mode?: 'draft' | 'published';
+      screen_id?: string;
+      cta_text?: string;
+      header?: string;
+      footer?: string;
+    };
   };
 }
 
@@ -1120,6 +1129,7 @@ export interface CreditCampaignFunnelStat {
   faturamento: number;
   valorInicial: number;
   optIn: number;
+  emAnalise: number;
   aprovados: number;
   recusados: number;
   simularam: number;
@@ -1198,6 +1208,7 @@ export interface ReengagementFunnelRow {
   faturamento: number;
   valorInicial: number;
   optIn: number;
+  emAnalise: number;
   aprovados: number;
   recusados: number;
   simularam: number;
