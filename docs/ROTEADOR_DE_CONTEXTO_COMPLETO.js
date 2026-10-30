@@ -2211,11 +2211,7 @@ try {
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && !requested_installments) {
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
         const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
-        if (isWhatsappFlowEnabled) {
-            forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nClique no botão abaixo para preencher o valor e prazo desejados:`;
-        } else {
-            forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nQual valor deseja simular e em quantas parcelas (de 6 a ${maxTerm}x)?`;
-        }
+        forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nQual valor deseja simular e em quantas parcelas (de 6 a ${maxTerm}x)?`;
         mode = 'parrot';
     } else if (nextStep === 'confirmacao_cliente' && isSofiaAtDisposalAck) {
         forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
@@ -2595,13 +2591,13 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             opcoes: ["Sim", "Não"],
             pre_message: null
         };
-    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt) {
+    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt && !isRestartSimulation) {
         interactive_buttons = {
             tipo: "flow",
             flow_id: whatsappFlowId,
             flow_mode: whatsappFlowMode,
             screen_id: whatsappFlowScreen,
-            button_text: isRestartSimulation ? "Simular Novo Valor" : whatsappFlowCta,
+            button_text: whatsappFlowCta,
             header: whatsappFlowHeader,
             footer: whatsappFlowFooter,
             flow_token: `fiserv_${leadInfo.id || rpcData.conversation?.id || rpcData.p_conversation_id || Date.now()}`,
@@ -2617,18 +2613,6 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
                 url: FISERV_TERM_PDF_URL,
                 nome_arquivo: "Termo de autorizacao.pdf"
             }
-        };
-    } else if (nextStep === 'apresenta_ofertas' && isWhatsappFlowEnabled && isRestartSimulation) {
-        interactive_buttons = {
-            tipo: "flow",
-            flow_id: whatsappFlowId,
-            flow_mode: whatsappFlowMode,
-            screen_id: whatsappFlowScreen,
-            button_text: "Simular Novo Valor",
-            header: whatsappFlowHeader,
-            footer: whatsappFlowFooter,
-            flow_token: `fiserv_resim_${leadInfo.id || rpcData.conversation?.id || rpcData.p_conversation_id || Date.now()}`,
-            pre_message: null
         };
     } else if (nextStep === 'confirmacao_cliente') {
         interactive_buttons = isSofiaAtDisposalAck ? null : {
