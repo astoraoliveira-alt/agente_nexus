@@ -2099,22 +2099,22 @@ try {
                 forcedText = `O valor mínimo para solicitação de crédito é de *R$ 10.000,00* (e até R$ 500 mil).\n\nQual valor você gostaria de solicitar nessa análise?`;
             } else if (loanNum !== null && loanNum > 500000) {
                 forcedText = `O valor máximo disponível para essa linha é de *R$ 500.000,00*.\n\nQual valor até esse limite você gostaria de solicitar?`;
+            } else if (isWhatsappFlowEnabled) {
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
             } else if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
                 forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
-            } else if (isWhatsappFlowEnabled) {
-                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
             } else if (lastSofiaMsg.includes("faturamento médio mensal") || lastSofiaMsg.includes("valor que deseja solicitar") || lastSofiaMsg.includes("valor desejado")) {
                 forcedText = `Por favor, me informe o *valor desejado?*`;
             } else {
                 forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
             }
         } else {
-            if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
+            if (isWhatsappFlowEnabled) {
+                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
+            } else if (revenue && revenue > 0 && (!requested_amount || requested_amount <= 0)) {
                 const revFmt = Number(revenue).toLocaleString('pt-BR');
                 forcedText = `Perfeito! Registrei o faturamento de *R$ ${revFmt}* da sua empresa.\n\nAgora, por favor, me informe o *valor desejado?*`;
-            } else if (isWhatsappFlowEnabled) {
-                forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, clique no botão abaixo e preencha os dados da sua simulação:`;
             } else {
                 // 🎯 V31.2 Oficial Ticket: Pergunta 1 da jornada
                 forcedText = `Perfeito! Para avaliarmos a melhor condição disponível para sua empresa, me informe o *valor desejado?*`;
@@ -2197,7 +2197,11 @@ try {
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && !requested_installments) {
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
         const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
-        forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nQual valor deseja simular e em quantas parcelas (de 6 a ${maxTerm}x)?`;
+        if (isWhatsappFlowEnabled) {
+            forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nClique no botão abaixo para preencher o valor e prazo desejados:`;
+        } else {
+            forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nQual valor deseja simular e em quantas parcelas (de 6 a ${maxTerm}x)?`;
+        }
         mode = 'parrot';
     } else if (nextStep === 'confirmacao_cliente' && isSofiaAtDisposalAck) {
         forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
@@ -2577,13 +2581,13 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             opcoes: ["Sim", "Não"],
             pre_message: null
         };
-    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt && (!revenue || revenue <= 0)) {
+    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt) {
         interactive_buttons = {
             tipo: "flow",
             flow_id: whatsappFlowId,
             flow_mode: whatsappFlowMode,
             screen_id: whatsappFlowScreen,
-            button_text: whatsappFlowCta,
+            button_text: isRestartSimulation ? "Simular Novo Valor" : whatsappFlowCta,
             header: whatsappFlowHeader,
             footer: whatsappFlowFooter,
             flow_token: `fiserv_${leadInfo.id || rpcData.conversation?.id || rpcData.p_conversation_id || Date.now()}`,
