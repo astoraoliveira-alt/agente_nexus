@@ -2197,7 +2197,8 @@ try {
     } else if (nextStep === 'apresenta_ofertas' && !requested_amount && !requested_installments) {
         const maxTerm = leadInfo.max_installments || leadInfo.approved_installments || leadInfo.installments || 24;
         const limiteTxt = approvedLimit > 0 ? ` (seu limite pré-aprovado é de até *R$ ${formatPtBrMoney(approvedLimit)}*)` : '';
-        forcedText = `Perfeito! Vamos fazer uma nova simulação.\n\nPor favor, informe qual valor deseja simular${limiteTxt} e em quantas parcelas (de 6 a ${maxTerm} parcelas).`;
+        forcedText = `Perfeito! Vamos fazer uma nova simulação${limiteTxt}.\n\nQual valor deseja simular e em quantas parcelas (de 6 a ${maxTerm}x)?`;
+        mode = 'parrot';
     } else if (nextStep === 'confirmacao_cliente' && isSofiaAtDisposalAck) {
         forcedText = `Combinado! Tenha um ótimo dia e fico por aqui à disposição se precisar de algo. 👍`;
         mode = "parrot";
@@ -2598,6 +2599,18 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
                 url: FISERV_TERM_PDF_URL,
                 nome_arquivo: "Termo de autorizacao.pdf"
             }
+        };
+    } else if (nextStep === 'apresenta_ofertas' && isWhatsappFlowEnabled && isRestartSimulation) {
+        interactive_buttons = {
+            tipo: "flow",
+            flow_id: whatsappFlowId,
+            flow_mode: whatsappFlowMode,
+            screen_id: whatsappFlowScreen,
+            button_text: "Simular Novo Valor",
+            header: whatsappFlowHeader,
+            footer: whatsappFlowFooter,
+            flow_token: `fiserv_resim_${leadInfo.id || rpcData.conversation?.id || rpcData.p_conversation_id || Date.now()}`,
+            pre_message: null
         };
     } else if (nextStep === 'confirmacao_cliente') {
         interactive_buttons = isSofiaAtDisposalAck ? null : {
