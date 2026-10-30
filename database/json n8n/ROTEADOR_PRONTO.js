@@ -1236,7 +1236,7 @@ try {
             ctx?.raw_payload?.interactive?.nfm_reply?.response_json ||
             null;
 
-        if (!rawFlowObj && (currentMsg.includes('valor_simulacao') || currentMsg.includes('faturamento_medio'))) {
+        if (!rawFlowObj && (currentMsg.includes('valor_simulacao') || currentMsg.includes('faturamento_medio') || currentMsg.includes('quantidade_parcelas') || currentMsg.includes('parcelas'))) {
             const firstBrace = currentMsg.indexOf('{');
             const lastBrace = currentMsg.lastIndexOf('}');
             if (firstBrace >= 0 && lastBrace > firstBrace) {
@@ -1257,6 +1257,7 @@ try {
         if (rawFlowObj && typeof rawFlowObj === 'object') {
             const rawVal = rawFlowObj.valor_simulacao ?? rawFlowObj.requested_amount ?? rawFlowObj.valor ?? null;
             const rawRev = rawFlowObj.faturamento_medio ?? rawFlowObj.revenue ?? rawFlowObj.faturamento ?? null;
+            const rawInst = rawFlowObj.quantidade_parcelas ?? rawFlowObj.parcelas ?? rawFlowObj.requested_installments ?? rawFlowObj.installments ?? null;
             const rawConsent = rawFlowObj.consentimento ?? rawFlowObj.opt_in ?? rawFlowObj.optin ?? false;
 
             const parsedFlowVal = rawVal !== null && rawVal !== undefined && String(rawVal).trim() !== ''
@@ -1275,6 +1276,13 @@ try {
                     parsedFlowRev = parseSingleValue(strRev) || parseNumber(strRev);
                 }
             }
+            let parsedFlowInst = null;
+            if (rawInst !== null && rawInst !== undefined && String(rawInst).trim() !== '') {
+                const parsedInt = parseInt(String(rawInst).replace(/\D/g, ''), 10);
+                if (!isNaN(parsedInt) && parsedInt >= 1 && parsedInt <= 48) {
+                    parsedFlowInst = parsedInt;
+                }
+            }
             const parsedFlowConsent = Boolean(
                 rawConsent === true ||
                 (Array.isArray(rawConsent) && (rawConsent.includes(true) || rawConsent.includes('true') || rawConsent.length > 0)) ||
@@ -1283,22 +1291,25 @@ try {
                 String(rawConsent).toLowerCase().trim() === '1'
             );
 
-            if (parsedFlowVal !== null || parsedFlowRev !== null || parsedFlowConsent) {
+            if (parsedFlowVal !== null || parsedFlowRev !== null || parsedFlowInst !== null || parsedFlowConsent) {
                 flowSubmissionData = {
                     isFlow: true,
                     amount: parsedFlowVal,
                     revenue: parsedFlowRev,
+                    installments: parsedFlowInst,
                     consent: parsedFlowConsent
                 };
             }
         } else if (lastUserLower.includes('[whatsapp_flow]')) {
             const mVal = currentMsg.match(/solicito\s*r\$\s*([\d.,]+)/i);
             const mRev = currentMsg.match(/faturamento\s*r\$\s*([\d.,]+)/i);
+            const mInst = currentMsg.match(/parcelas?\s*:\s*(\d{1,2})/i);
             const hasFlowConsent = /sim,\s*autorizo|autorizo/i.test(currentMsg);
             flowSubmissionData = {
                 isFlow: true,
                 amount: mVal ? (parseSingleValue(mVal[1]) || parseNumber(mVal[1])) : null,
                 revenue: mRev ? (parseSingleValue(mRev[1]) || parseNumber(mRev[1])) : null,
+                installments: mInst ? parseInt(mInst[1], 10) : null,
                 consent: hasFlowConsent
             };
         }
@@ -1309,6 +1320,7 @@ try {
     const unifiedExtraction = extractLoanAndRevenue(lastUserLower);
     if (flowSubmissionData.isFlow && flowSubmissionData.amount !== null && flowSubmissionData.amount > 0) {
         extractedAmount = flowSubmissionData.amount;
+        requested_amount = flowSubmissionData.amount;
     } else if (unifiedExtraction.requestedAmount) {
         extractedAmount = unifiedExtraction.requestedAmount;
     }
@@ -1316,6 +1328,10 @@ try {
         revenue = flowSubmissionData.revenue;
     } else if (unifiedExtraction.revenue) {
         revenue = unifiedExtraction.revenue;
+    }
+    if (flowSubmissionData.isFlow && flowSubmissionData.installments !== null && flowSubmissionData.installments > 0) {
+        extractedInstallments = flowSubmissionData.installments;
+        requested_installments = flowSubmissionData.installments;
     }
 
     if (!revenue && leadInfo.revenue) {
