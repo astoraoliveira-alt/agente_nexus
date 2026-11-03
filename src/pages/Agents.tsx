@@ -163,6 +163,8 @@ export default function Agents() {
         flow_mode: whatsappFlowConfig.flow_mode,
         screen_id: whatsappFlowConfig.screen_id || 'SIMULACAO_SCREEN',
         cta_text: whatsappFlowConfig.cta_text || 'Simular Crédito',
+        header: whatsappFlowConfig.header || 'Reforço de Caixa Ticket',
+        footer: whatsappFlowConfig.footer || 'Parceria Ticket & Fiserv',
         test_phone: cleanPhone,
         zenvia_api_token: zenviaToken,
         zenvia_channel_id: zenviaChannel

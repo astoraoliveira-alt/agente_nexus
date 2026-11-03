@@ -1459,6 +1459,8 @@ app.post('/v1/zenvia/validate-flow', async (c) => {
         const flowId = String(body.flow_id || '').trim();
         const screenId = String(body.screen_id || 'SIMULACAO_SCREEN').trim() || 'SIMULACAO_SCREEN';
         const ctaText = String(body.cta_text || 'Simular Crédito').trim().slice(0, 20) || 'Simular Crédito';
+        const headerText = String(body.header || 'Reforço de Caixa Ticket').trim().slice(0, 60) || 'Reforço de Caixa Ticket';
+        const footerText = String(body.footer || 'Parceria Ticket & Fiserv').trim().slice(0, 60) || 'Parceria Ticket & Fiserv';
         const preferredMode: 'draft' | 'published' = body.flow_mode === 'published' ? 'published' : 'draft';
         const testPhone = String(body.test_phone || '').replace(/\D/g, '');
         let zenviaToken = String(body.zenvia_api_token || '').trim();
@@ -1510,9 +1512,9 @@ app.post('/v1/zenvia/validate-flow', async (c) => {
                 contents: [
                     {
                         type: 'flow',
-                        header: { type: 'text', text: 'Teste de Validação Flow' },
+                        header: headerText,
                         body: `Validação automática do WhatsApp Flow (${flowId}) em modo ${modeToTest.toUpperCase()}.`,
-                        footer: 'Parceria Ticket & Fiserv',
+                        footer: footerText,
                         flow: {
                             mode: modeToTest,
                             token: `probe_${Date.now()}`,

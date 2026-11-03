@@ -89,6 +89,8 @@ export const porteiro = {
         flow_mode: 'draft' | 'published';
         screen_id?: string;
         cta_text?: string;
+        header?: string;
+        footer?: string;
         test_phone: string;
         zenvia_api_token?: string;
         zenvia_channel_id?: string;
