@@ -188,9 +188,12 @@ try {
         : {};
     const whatsappFlowId = String(wfFlowConfig.flow_id || '').trim();
     const contactPhoneDigits = String(rpcData.payload?.phone || leadInfo.phone || ctx.payload?.phone || rpcData.user_identifier || '').replace(/\D/g, '');
-    const isPhoneAllowedForFlow = Array.isArray(wfFlowConfig.allowed_phones) && wfFlowConfig.allowed_phones.length > 0
-        ? wfFlowConfig.allowed_phones.some(p => String(p).replace(/\D/g, '') === contactPhoneDigits)
-        : true;
+    const isGlobalRollout = Boolean(wfFlowConfig.global_rollout === true);
+    const isPhoneAllowedForFlow = isGlobalRollout || (
+        Array.isArray(wfFlowConfig.allowed_phones) && wfFlowConfig.allowed_phones.length > 0
+            ? wfFlowConfig.allowed_phones.some(p => String(p).replace(/\D/g, '') === contactPhoneDigits)
+            : false
+    );
     const isWhatsappFlowEnabled = Boolean(
         wfFlowConfig.enabled === true &&
         whatsappFlowId.length > 0 &&
@@ -445,12 +448,18 @@ try {
 
     // 🔘 P1: Botões oficiais da campanha (Ticket / Fiserv) & Submissão de WhatsApp Flow
     const isFlowSubmissionEarly = Boolean(
+        rpcData?.payload?.flow_data ||
+        ctx?.raw_payload?.flow_data ||
         rpcData?.payload?.flow_response ||
         ctx?.raw_payload?.flow_response ||
+        rpcData?.payload?.is_flow_response ||
+        ctx?.raw_payload?.is_flow_response ||
         rpcData?.payload?.raw_content?.type === 'flow_response' ||
         ctx?.raw_payload?.raw_content?.type === 'flow_response' ||
         rpcData?.message?.interactive?.type === 'nfm_reply' ||
         lastUserLower.includes('[whatsapp_flow]') ||
+        lastUserLower.includes('formulário de simulação') ||
+        lastUserLower.includes('formulario de simulacao') ||
         (lastUserLower.includes('valor_simulacao') && lastUserLower.includes('faturamento_medio'))
     );
 
@@ -1233,6 +1242,8 @@ try {
     let flowSubmissionData = { isFlow: false, amount: null, revenue: null, consent: false };
     try {
         let rawFlowObj =
+            rpcData?.payload?.flow_data ||
+            ctx?.raw_payload?.flow_data ||
             rpcData?.payload?.flow_response ||
             ctx?.raw_payload?.flow_response ||
             rpcData?.payload?.raw_content?.data ||
@@ -1310,6 +1321,18 @@ try {
             const mRev = currentMsg.match(/faturamento\s*r\$\s*([\d.,]+)/i);
             const mInst = currentMsg.match(/parcelas?\s*:\s*(\d{1,2})/i);
             const hasFlowConsent = /sim,\s*autorizo|autorizo/i.test(currentMsg);
+            flowSubmissionData = {
+                isFlow: true,
+                amount: mVal ? (parseSingleValue(mVal[1]) || parseNumber(mVal[1])) : null,
+                revenue: mRev ? (parseSingleValue(mRev[1]) || parseNumber(mRev[1])) : null,
+                installments: mInst ? parseInt(mInst[1], 10) : null,
+                consent: hasFlowConsent
+            };
+        } else if (lastUserLower.includes('formulário de simulação') || lastUserLower.includes('formulario de simulacao')) {
+            const mVal = currentMsg.match(/•?\s*valor desejado:\s*r\$\s*([\d.,]+)/i) || currentMsg.match(/valor desejado:\s*r\$\s*([\d.,]+)/i);
+            const mRev = currentMsg.match(/•?\s*faturamento médio:\s*r\$\s*([\d.,]+)/i) || currentMsg.match(/faturamento médio:\s*r\$\s*([\d.,]+)/i) || currentMsg.match(/faturamento:\s*r\$\s*([\d.,]+)/i);
+            const mInst = currentMsg.match(/•?\s*prazo:\s*(\d{1,2})/i) || currentMsg.match(/prazo:\s*(\d{1,2})/i);
+            const hasFlowConsent = /termo bacen:\s*autorizado|autorizo/i.test(currentMsg);
             flowSubmissionData = {
                 isFlow: true,
                 amount: mVal ? (parseSingleValue(mVal[1]) || parseNumber(mVal[1])) : null,

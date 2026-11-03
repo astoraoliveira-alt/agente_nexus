@@ -83,6 +83,8 @@ export default function Agents() {
     cta_text: string;
     header: string;
     footer: string;
+    global_rollout?: boolean;
+    allowed_phones?: string[];
   }>({
     enabled: false,
     flow_id: '',
@@ -90,8 +92,11 @@ export default function Agents() {
     screen_id: 'SIMULACAO_SCREEN',
     cta_text: 'Simular Crédito',
     header: 'Reforço de Caixa Ticket',
-    footer: 'Parceria Ticket & Fiserv'
+    footer: 'Parceria Ticket & Fiserv',
+    global_rollout: false,
+    allowed_phones: []
   });
+  const [allowedPhonesRaw, setAllowedPhonesRaw] = useState('');
   const [flowTestPhone, setFlowTestPhone] = useState('');
   const [validatingFlow, setValidatingFlow] = useState(false);
   const [flowValidationResult, setFlowValidationResult] = useState<{
@@ -336,6 +341,7 @@ export default function Agents() {
       setFormData(agent);
       setBlueprintRaw(agent.workflow_blueprint ? JSON.stringify(agent.workflow_blueprint, null, 2) : '');
       const wfFlow = agent.workflow_blueprint?.whatsapp_flow;
+      const phones = Array.isArray(wfFlow?.allowed_phones) ? wfFlow.allowed_phones : [];
       setWhatsappFlowConfig({
         enabled: Boolean(wfFlow?.enabled === true && wfFlow?.flow_id?.trim()),
         flow_id: wfFlow?.flow_id || '',
@@ -343,8 +349,13 @@ export default function Agents() {
         screen_id: wfFlow?.screen_id || 'SIMULACAO_SCREEN',
         cta_text: wfFlow?.cta_text || 'Simular Crédito',
         header: wfFlow?.header || 'Reforço de Caixa Ticket',
-        footer: wfFlow?.footer || 'Parceria Ticket & Fiserv'
+        footer: wfFlow?.footer || 'Parceria Ticket & Fiserv',
+        global_rollout: Boolean(wfFlow?.global_rollout === true),
+        allowed_phones: phones
       });
+      setAllowedPhonesRaw(phones.join(', '));
+      setFlowTestPhone(phones[0] || (agent.phone || ''));
+      setFlowValidationResult(null);
     } else {
       setEditingAgent(null);
       setFormData({
@@ -385,8 +396,11 @@ export default function Agents() {
         screen_id: 'SIMULACAO_SCREEN',
         cta_text: 'Simular Crédito',
         header: 'Reforço de Caixa Ticket',
-        footer: 'Parceria Ticket & Fiserv'
+        footer: 'Parceria Ticket & Fiserv',
+        global_rollout: false,
+        allowed_phones: []
       });
+      setAllowedPhonesRaw('');
     }
     setFlowValidationResult(null);
     setIsDialogOpen(true);
@@ -434,6 +448,11 @@ export default function Agents() {
       setWhatsappFlowConfig(prev => ({ ...prev, enabled: false }));
     }
 
+    const parsedPhones = allowedPhonesRaw
+      .split(/[\n,;]+/)
+      .map(p => p.replace(/\D/g, '').trim())
+      .filter(p => p.length >= 10);
+
     const sanitizedFlowConfig = {
       enabled: safeFlowEnabled,
       flow_id: cleanFlowId,
@@ -441,7 +460,9 @@ export default function Agents() {
       screen_id: String(whatsappFlowConfig.screen_id || 'SIMULACAO_SCREEN').trim(),
       cta_text: String(whatsappFlowConfig.cta_text || 'Simular Crédito').trim().slice(0, 20),
       header: String(whatsappFlowConfig.header || 'Reforço de Caixa Ticket').trim(),
-      footer: String(whatsappFlowConfig.footer || 'Parceria Ticket & Fiserv').trim()
+      footer: String(whatsappFlowConfig.footer || 'Parceria Ticket & Fiserv').trim(),
+      global_rollout: Boolean(whatsappFlowConfig.global_rollout === true),
+      allowed_phones: parsedPhones
     };
 
     if (parsedBlueprint) {
@@ -1543,6 +1564,58 @@ export default function Agents() {
                                   value={whatsappFlowConfig.cta_text}
                                   onChange={(e) => updateWhatsappFlowField({ cta_text: e.target.value.slice(0, 20) })}
                                 />
+                              </div>
+                            </div>
+
+                            {/* 🚀 Rollout Geral e Telefones de Teste (Canary) */}
+                            <div className="pt-3 border-t border-border/30 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <Label className="text-xs font-bold text-accent">Rollout Geral (Liberar para 100% dos Leads)</Label>
+                                    <span className={cn(
+                                      "text-[9px] px-1.5 py-0.5 rounded-full font-medium border",
+                                      whatsappFlowConfig.global_rollout
+                                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                        : "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                    )}>
+                                      {whatsappFlowConfig.global_rollout ? "Liberado Geral (Todos os Leads)" : "Restrito a Telefones de Teste"}
+                                    </span>
+                                  </div>
+                                  <p className="text-[9px] text-muted-foreground">
+                                    Enquanto desligado, apenas os telefones cadastrados abaixo receberão o Flow. Ao ativar, todos os leads da campanha recebem o Flow no botão &quot;Quero Simular&quot;.
+                                  </p>
+                                </div>
+                                <Switch
+                                  checked={Boolean(whatsappFlowConfig.global_rollout)}
+                                  onCheckedChange={(checked) => updateWhatsappFlowField({ global_rollout: checked })}
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between h-5">
+                                  <Label className="text-[10px] font-bold secondary-text text-muted-foreground uppercase tracking-wider">
+                                    Telefones Liberados para Teste (Canary)
+                                  </Label>
+                                  <span className="text-[8.5px] text-muted-foreground">Separados por vírgula</span>
+                                </div>
+                                <Input
+                                  type="text"
+                                  placeholder="5511944941125, 5511981948599, 5511995269671, 5511993434870"
+                                  className="bg-muted/30 font-mono text-xs h-8"
+                                  value={allowedPhonesRaw}
+                                  onChange={(e) => {
+                                    setAllowedPhonesRaw(e.target.value);
+                                    const parsed = e.target.value
+                                      .split(/[\n,;]+/)
+                                      .map(p => p.replace(/\D/g, '').trim())
+                                      .filter(p => p.length >= 10);
+                                    updateWhatsappFlowField({ allowed_phones: parsed });
+                                  }}
+                                />
+                                <p className="text-[8px] text-muted-foreground leading-normal">
+                                  DDI 55 + DDD + Número. Enquanto o Rollout Geral estiver desligado, apenas estes telefones receberão o botão do Flow no WhatsApp.
+                                </p>
                               </div>
                             </div>
 
