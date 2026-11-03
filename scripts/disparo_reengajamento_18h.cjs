@@ -36,7 +36,22 @@ const FLOW_ID = '1326442755259970';
 // Template Black Friday Oficial (Hoje)
 const TEMPLATE_BF_ID = '7f109fd6-f6ad-4f4c-926b-2e8403f68647';
 const TEMPLATE_BF_IMG = 'https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/a2aeb397ae4dd04e213736a206c26b67385ab709ae421b01d0ab73d04cda1bc1.bin';
-const TEMPLATE_BF_LOG = 'Oferta Ticket Friday - [Solicitar análise]';
+const TEMPLATE_BF_TEXT = `Olá.
+
+Chegou a ajuda que você precisava para investir no seu negócio neste fim de ano! 🖤
+
+A Ticket, em parceria com a Fiserv, tem uma condição especial de Ticket Friday para o seu estabelecimento:
+
+👉 Solicite crédito em novembro e pague só em 2027!
+
+E aproveite os benefícios exclusivos da Ticket:
+
+-Crédito de R$ 10 mil a R$ 500 mil
+-Taxas a partir de 1,89% ao mês
+-Liberação em até 24 horas
+-Use apenas seus recebíveis Ticket como garantia
+
+📲 Solicite sua análise agora!`;
 
 // Argumentos CLI
 const args = process.argv.slice(2);
@@ -303,7 +318,7 @@ async function executeDispatch18h() {
           await supabase.from('messages').insert({
             conversation_id: queue.conversation_id,
             tenant_id: TENANT_ID,
-            content: TEMPLATE_BF_LOG,
+            content: TEMPLATE_BF_TEXT,
             sender_type: 'ai',
             sender_name: 'Sofia',
             direction: 'outbound',
