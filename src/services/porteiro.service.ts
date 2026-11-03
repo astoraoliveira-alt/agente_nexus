@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 
-const PORTEIRO_URL = import.meta.env.VITE_PORTEIRO_URL || 'http://localhost:3001';
+const PORTEIRO_URL = import.meta.env.VITE_PORTEIRO_URL || 'https://api.davosconsulting.com.br';
 
 export const porteiro = {
     /**
