@@ -68,33 +68,46 @@ function extractFirstName(rawName) {
   return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
 }
 
-async function sendZenviaMessage(toPhone, contents) {
+async function sendZenviaMessage(toPhone, contents, maxRetries = 3) {
   if (IS_DRY_RUN) {
     return { ok: true, status: 200, data: { dry_run: true } };
   }
 
   const zenviaUrl = 'https://api.zenvia.com/v2/channels/whatsapp/messages';
-  const res = await fetch(zenviaUrl, {
-    method: 'POST',
-    headers: {
-      'X-API-TOKEN': ZENVIA_TOKEN,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      from: ZENVIA_CHANNEL,
-      to: toPhone,
-      contents: contents
-    })
-  });
 
-  const text = await res.text();
-  let json;
-  try {
-    json = JSON.parse(text);
-  } catch (e) {
-    json = { raw: text };
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(zenviaUrl, {
+        method: 'POST',
+        headers: {
+          'X-API-TOKEN': ZENVIA_TOKEN,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: ZENVIA_CHANNEL,
+          to: toPhone,
+          contents: contents
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        json = { raw: text };
+      }
+      return { ok: res.ok, status: res.status, data: json };
+    } catch (err) {
+      if (attempt < maxRetries) {
+        console.log(`    ⚠️ Tentativa ${attempt} falhou para ${toPhone} (${err.message}). Retentando em 1.5s...`);
+        await sleep(1500);
+      } else {
+        return { ok: false, status: 0, error: err.message };
+      }
+    }
   }
-  return { ok: res.ok, status: res.status, data: json };
 }
 
 async function executeReengagement() {
@@ -142,6 +155,7 @@ async function executeReengagement() {
 
   for (const item of queueItems) {
     if (completedPhones.has(item.contact_phone)) continue;
+    if (item.reengagement_attempt_count > 0) continue; // Pula se já recebeu reengajamento hoje
 
     const lead = leads.find(l => l.whatsapp === item.contact_phone || (l.whatsapp && item.contact_phone && l.whatsapp.slice(-8) === item.contact_phone.slice(-8)));
     const buttonClicked = Boolean(lead?.metadata?.identity_confirmed || lead?.metadata?.button_clicked);
@@ -187,6 +201,21 @@ async function executeReengagement() {
   for (let i = 0; i < waitingFormTargets.length; i++) {
     const { queue, lead } = waitingFormTargets[i];
     const firstName = extractFirstName(lead?.name || queue.contact_name);
+
+    if (queue.conversation_id) {
+      const { data: recentMsgs } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', queue.conversation_id)
+        .eq('sender_type', 'ai')
+        .gte('created_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+        .limit(1);
+      if (recentMsgs && recentMsgs.length > 0) {
+        console.log(`  ⏭️ [${i + 1}/${waitingFormTargets.length}] ${queue.contact_phone} (${firstName}) já recebeu mensagem recentemente. Pulando.`);
+        wfSuccess++;
+        continue;
+      }
+    }
 
     const bodyMsg = `Olá, *${firstName}*! Vi que você pediu a simulação da Ticket Friday para o seu estabelecimento.\n\nPara liberarmos os valores (de R$ 10 mil a R$ 500 mil) e taxas em até 24h, basta clicar no botão abaixo e preencher em menos de 1 minuto:`;
     const payload = [
@@ -238,6 +267,21 @@ async function executeReengagement() {
   for (let i = 0; i < textOnlyTargets.length; i++) {
     const { queue, lead } = textOnlyTargets[i];
     const firstName = extractFirstName(lead?.name || queue.contact_name);
+
+    if (queue.conversation_id) {
+      const { data: recentMsgs } = await supabase
+        .from('messages')
+        .select('id')
+        .eq('conversation_id', queue.conversation_id)
+        .eq('sender_type', 'ai')
+        .gte('created_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+        .limit(1);
+      if (recentMsgs && recentMsgs.length > 0) {
+        console.log(`  ⏭️ [${i + 1}/${textOnlyTargets.length}] ${queue.contact_phone} (${firstName}) já recebeu mensagem recentemente. Pulando.`);
+        toSuccess++;
+        continue;
+      }
+    }
 
     const bodyMsg = `Olá, *${firstName}*! Passando para te lembrar que na condição especial da Ticket Friday você solicita crédito em novembro e começa a pagar só em 2027! 🖤\n\nQuer ver quanto está liberado para o seu CNPJ? Clique no botão abaixo para simular sem compromisso:`;
     const payload = [
