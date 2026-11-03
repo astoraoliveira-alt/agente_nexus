@@ -56,10 +56,10 @@ const TEMPLATES = {
 // Argumentos CLI
 const args = process.argv.slice(2);
 const IS_DRY_RUN = args.includes('--dry-run');
-const TEMPLATE_KEY = (args.find(a => a.startsWith('--template=')) || '--template=v2').split('=')[1].toLowerCase();
+const TEMPLATE_KEY = (args.find(a => a.startsWith('--template=')) || '--template=blackfriday').split('=')[1].toLowerCase();
 const SCHEDULE_ARG = args.find(a => a.startsWith('--schedule-at='));
 
-const activeTemplate = TEMPLATES[TEMPLATE_KEY] || TEMPLATES.v2;
+const activeTemplate = TEMPLATES[TEMPLATE_KEY] || TEMPLATES.blackfriday;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -290,3 +290,4 @@ if (SCHEDULE_ARG) {
 } else {
   executeDispatch18h();
 }
+
