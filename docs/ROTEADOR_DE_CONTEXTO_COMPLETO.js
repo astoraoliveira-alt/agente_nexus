@@ -979,7 +979,9 @@ try {
     }
 
     // 🔄 DETECÇÃO CRÍTICA DE REINÍCIO DE SIMULAÇÃO
-    const isRestartSimulation = /\b(nova simula[çc][ãa]o|outra simula[çc][ãa]o|recome[çc]ar|simular de novo)\b/i.test(lastUserLower) || lastUserLower.includes("nova simulação");
+    // 🛡️ V31.3: Clique explícito em botão de simulação ("Quero simular!", "Nova simulação", etc.)
+    const isSimulationButtonClick = /^(quero simular!?|simular|simulação!?|simulacao!?|nova simulação!?|nova simulacao!?)$/i.test(lastUserLower.trim());
+    const isRestartSimulation = isSimulationButtonClick || /\b(nova simula[çc][ãa]o|outra simula[çc][ãa]o|recome[çc]ar|simular de novo)\b/i.test(lastUserLower) || lastUserLower.includes("nova simulação");
 
     if (isRestartSimulation) {
         semanticAmount = null;
@@ -1663,6 +1665,22 @@ try {
     // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv)
     if (flowSubmissionData.isFlow && (flowSubmissionData.consent || isOptInAccepted)) {
         nextStep = (hasActiveLoan && isApprovedFiserv) ? 'apresenta_ofertas' : 'criar_lead';
+        transitionApplied = true;
+    } else if (isSimulationButtonClick && !userTypedNewNumbers) {
+        // 🎯 PRIORIDADE 0: CLIQUE EM "QUERO SIMULAR!" (Início de Nova Simulação ou Início de Campanha)
+        // Se o cliente clica no botão "Quero simular!" sem ter digitado valores na mensagem atual,
+        // inicia/reinicia a jornada limpa sem herdar valores ou faturamentos residuais do passado.
+        extractedAmount = null;
+        extractedInstallments = null;
+        requested_amount = null;
+        requested_installments = null;
+        revenue = null;
+        if (leadInfo) {
+            leadInfo.requested_amount = null;
+            leadInfo.requested_installments = null;
+            leadInfo.revenue = null;
+        }
+        nextStep = 'coleta_valor';
         transitionApplied = true;
     } else if (isTalkToSpecialist && hasEligibilityForSpecialist) {
         nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';
@@ -2619,7 +2637,7 @@ Estas informações são OBRIGATÓRIAS e NUNCA podem ser omitidas quando o assun
             opcoes: ["Sim", "Não"],
             pre_message: null
         };
-    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt && !isRestartSimulation) {
+    } else if (nextStep === 'coleta_valor' && isWhatsappFlowEnabled && !isDoubt) {
         interactive_buttons = {
             tipo: "flow",
             flow_id: whatsappFlowId,
