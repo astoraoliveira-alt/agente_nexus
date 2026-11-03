@@ -465,6 +465,7 @@ try {
 
     const isExactButtonClick = [
         'quero simular!', 'quero simular', 
+        'solicitar análise', 'solicitar analise', 'solicitar análise!', 'solicitar analise!', 
         'falar com um agente!', 'falar com um agente', 
         'simular', 'simulação', 'simulacao', 'simulação!', 'simulacao!',
         'quero uma simulação', 'quero uma simulacao', 'quero simulacao', 'quero simulação',
@@ -980,7 +981,7 @@ try {
 
     // 🔄 DETECÇÃO CRÍTICA DE REINÍCIO DE SIMULAÇÃO
     // 🛡️ V31.3: Clique explícito em botão de simulação ("Quero simular!", "Nova simulação", etc.)
-    const isSimulationButtonClick = /^(quero simular!?|simular|simulação!?|simulacao!?|nova simulação!?|nova simulacao!?)$/i.test(lastUserLower.trim());
+    const isSimulationButtonClick = /^(quero simular!?|solicitar an[áa]lise!?|solicitar analise!?|simular|simulação!?|simulacao!?|nova simulação!?|nova simulacao!?)$/i.test(lastUserLower.trim());
     const isRestartSimulation = isSimulationButtonClick || /\b(nova simula[çc][ãa]o|outra simula[çc][ãa]o|recome[çc]ar|simular de novo)\b/i.test(lastUserLower) || lastUserLower.includes("nova simulação");
 
     if (isRestartSimulation) {
