@@ -117,7 +117,8 @@ async function run() {
       if (!IS_DRY_RUN) {
         const nowIso = new Date().toISOString();
         await supabase.from('outbound_queue').update({
-          status: 'sent', // Volta para sent aguardando confirmação de entrega da Zenvia
+          // Mantém 'not_delivered' até que haja recibo real de entrega ou interação
+          status: 'not_delivered',
           last_attempt_at: nowIso,
           sent_at: nowIso,
           retry_count: (item.retry_count || 0) + 1,
@@ -145,3 +146,4 @@ async function run() {
 }
 
 run();
+
