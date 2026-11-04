@@ -1040,6 +1040,68 @@ export const coreService = {
 
         if (error) throw error;
 
+        // 1.1 Se o operador assumiu a conversa (Takeover), sincronizar com agent_leads:
+        // Caso o lead tenha sido aprovado pelo comitê Fiserv ou esteja em atendimento,
+        // garantimos que ele seja promovido formalmente para o Cockpit de Vendas.
+        if (operatorId) {
+            try {
+                const { data: convFull } = await supabase
+                    .from('conversations')
+                    .select('user_identifier, tenant_id, campaign_id')
+                    .eq('id', conversationId)
+                    .single();
+
+                if (convFull?.user_identifier) {
+                    const cleanPhone = String(convFull.user_identifier).replace(/\D/g, '');
+                    const phoneVariants = [
+                        convFull.user_identifier,
+                        cleanPhone,
+                        cleanPhone.startsWith('55') ? cleanPhone.slice(2) : `55${cleanPhone}`,
+                        cleanPhone.length >= 10 ? cleanPhone.slice(-11) : cleanPhone
+                    ];
+
+                    const { data: matchedLeads } = await supabase
+                        .from('agent_leads')
+                        .select('id, metadata, status')
+                        .eq('tenant_id', convFull.tenant_id)
+                        .in('whatsapp', phoneVariants)
+                        .limit(5);
+
+                    if (matchedLeads && matchedLeads.length > 0) {
+                        for (const lead of matchedLeads) {
+                            const meta = lead.metadata || {};
+                            const fiservStatus = String(meta.fiserv_status || '').toLowerCase();
+                            const isApproved = (
+                                ['comite_approved', 'approved', 'pre_approved'].includes(fiservStatus) ||
+                                meta.fiserv_is_approved === true ||
+                                (meta.fiserv_amount_approved && Number(meta.fiserv_amount_approved) > 0) ||
+                                String(meta.fiserv_external_status || '').toLowerCase().includes('aprovado')
+                            );
+
+                            // Atualiza os metadados do lead com operador e estágio do funil
+                            const updatedMeta = {
+                                ...meta,
+                                formalization_status: 'in_service',
+                                operator_assigned_at: meta.operator_assigned_at || new Date().toISOString(),
+                                operator_id: operatorId,
+                                operator_name: operatorName || meta.operator_name || 'Operador',
+                                pipeline_stage: meta.pipeline_stage || 'in_contact',
+                                // Se o lead já foi aprovado na esteira Fiserv, habilita a exibição imediata no Cockpit de Vendas
+                                ...(isApproved ? { simulation_accepted: true, ok_agente: true } : {})
+                            };
+
+                            await supabase
+                                .from('agent_leads')
+                                .update({ metadata: updatedMeta })
+                                .eq('id', lead.id);
+                        }
+                    }
+                }
+            } catch (syncErr) {
+                console.warn('⚠️ Erro não bloqueante ao sincronizar takeover com agent_leads:', syncErr);
+            }
+        }
+
         // 2. Log Audit (Fire and forget)
         if (operatorName && operatorId) {
             // If returning to AI, actor is still the operator who clicked the button

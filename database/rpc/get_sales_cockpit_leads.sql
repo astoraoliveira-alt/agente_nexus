@@ -1,8 +1,9 @@
 -- ====================================================================
 -- RPC: get_sales_cockpit_leads
 -- Descrição: RPC oficial para o Cockpit de Vendas.
--- Baseado 100% no critério da coluna "OK Agente" do Dashboard Executivo
--- (simulation_accepted = true OU ok_agente = true OU accepted_proposal IS NOT NULL).
+-- Baseado no critério da coluna "OK Agente" do Dashboard Executivo
+-- (simulation_accepted = true OU ok_agente = true OU accepted_proposal IS NOT NULL),
+-- OU lead aprovado pelo comitê Fiserv cujo atendimento foi assumido por operador humano.
 -- Retorna os dados cadastrais, proposta aceita, operador e o histórico completo de mensagens (JSONB).
 -- ====================================================================
 
@@ -64,11 +65,40 @@ BEGIN
     FROM agent_leads al
     JOIN campaigns camp ON camp.id = al.campaign_id
     WHERE al.tenant_id = p_tenant_id
-      -- 🎯 CRITÉRIO OFICIAL "OK AGENTE" DO DASHBOARD:
+      -- 🎯 CRITÉRIO OFICIAL DE QUALIFICAÇÃO PARA O COCKPIT DE VENDAS:
+      -- 1. Aceite formal do cliente (clicou em simular/falar com especialista): simulation_accepted OU ok_agente OU accepted_proposal
+      -- 2. OU lead com aprovação/limite Fiserv cujo atendimento foi assumido por operador humano (in_service, operator_assigned_at ou conversa human_active)
       AND (
           (al.metadata->>'simulation_accepted')::boolean = true
           OR (al.metadata->>'ok_agente')::boolean = true
           OR al.metadata->'accepted_proposal' IS NOT NULL
+          OR (
+              (
+                COALESCE(al.metadata->>'fiserv_status', '') IN ('comite_approved', 'approved', 'pre_approved')
+                OR (al.metadata->>'fiserv_is_approved')::boolean = true
+                OR (
+                  (al.metadata->>'fiserv_amount_approved') IS NOT NULL 
+                  AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$' 
+                  AND (al.metadata->>'fiserv_amount_approved')::numeric > 0
+                )
+                OR COALESCE(al.metadata->>'fiserv_external_status', '') ILIKE '%aprovado%'
+              )
+              AND (
+                COALESCE(al.metadata->>'formalization_status', '') IN ('in_service', 'em_atendimento', 'in_progress', 'formalization')
+                OR al.metadata->>'operator_assigned_at' IS NOT NULL
+                OR EXISTS (
+                  SELECT 1 FROM conversations c_chk
+                  WHERE c_chk.tenant_id = al.tenant_id
+                    AND c_chk.user_identifier IN (
+                        al.whatsapp,
+                        regexp_replace(al.whatsapp, '\D', '', 'g'),
+                        '55' || regexp_replace(al.whatsapp, '\D', '', 'g'),
+                        RIGHT(regexp_replace(al.whatsapp, '\D', '', 'g'), 11)
+                    )
+                    AND (c_chk.assigned_operator_id IS NOT NULL OR c_chk.status = 'human_active')
+                )
+              )
+          )
       )
       -- 🛡️ EXCLUSÃO ESTRITA DE LEADS REPROVADOS / NEGADOS PELO COMITÊ FISERV:
       -- Leads recusados por política de crédito ou mesa Fiserv não devem ir para a fila de fechamento comercial
@@ -243,3 +273,5 @@ BEGIN
   ORDER BY last_message_time DESC;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT) TO authenticated, service_role, anon;
