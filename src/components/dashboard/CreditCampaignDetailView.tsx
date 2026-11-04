@@ -819,7 +819,7 @@ export function CreditCampaignDetailView({
       return lead.status === 'Simulou';
     }
     if (status === 'Aprovado') {
-      return lead.status === 'Aprovado';
+      return lead.status === 'Aprovado' || Boolean(lead.stages?.isAprovado);
     }
     if (status === 'Recusado') {
       return lead.status === 'Recusado';
@@ -849,8 +849,8 @@ export function CreditCampaignDetailView({
     if (leads.some(l => l.status === 'Opt-in' || l.stages?.hasOptIn)) list.push('Opt-in');
     if (leads.some(l => l.status === 'Em Análise' || l.stages?.isEmAnalise)) list.push('Em Análise');
     if (leads.some(l => l.status === 'Simulou')) list.push('Simulou');
-    if (leads.some(l => l.status === 'Aprovado')) list.push('Aprovado');
-    if (leads.some(l => l.status === 'Recusado')) list.push('Recusado');
+    if (leads.some(l => l.status === 'Aprovado' || l.stages?.isAprovado)) list.push('Aprovado');
+    if (leads.some(l => l.status === 'Recusado' || l.stages?.isRecusado)) list.push('Recusado');
     if (leads.some(l => l.status === 'Aguardando Contato')) list.push('Aguardando Contato');
     if (leads.some(l => l.status === 'Em Atendimento')) list.push('Em Atendimento');
     if (leads.some(l => l.status === 'Formalizado')) list.push('Formalizado');
