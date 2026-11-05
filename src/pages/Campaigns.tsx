@@ -390,6 +390,51 @@ export default function Campaigns() {
         }
 
         // Fast-path for known official templates
+        if (cleanId === "7f109fd6-f6ad-4f4c-926b-2e8403f68647") {
+            const templateText = "Olá.\n\nChegou a ajuda que você precisava para investir no seu negócio neste fim de ano! 🖤\n\nA Ticket, em parceria com a Fiserv, tem uma condição especial de Ticket Friday para o seu estabelecimento:\n\n👉 Solicite crédito em novembro e pague só em 2027!\n\nE aproveite os benefícios exclusivos da Ticket:\n\n-Crédito de R$ 10 mil a R$ 500 mil\n-Taxas a partir de 1,89% ao mês\n-Liberação em até 24 horas\n-Use apenas seus recebíveis Ticket como garantia\n\n📲 Solicite sua análise agora!";
+            setTemplateValidation({
+                isValidating: false,
+                isValid: true,
+                status: 'APPROVED',
+                message: 'Template homologado na Meta WhatsApp (Ticket Friday)',
+                details: {
+                    name: "Template Ticket Friday Completo",
+                    category: "MARKETING",
+                    text: templateText,
+                    buttons: [
+                        { text: "Solicitar análise" }
+                    ]
+                }
+            });
+            setNewCampaign(prev => ({
+                ...prev,
+                initialMessage: templateText,
+                zenviaImageUrl: prev.zenviaImageUrl || "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/a2aeb397ae4dd04e213736a206c26b67385ab709ae421b01d0ab73d04cda1bc1.bin"
+            }));
+            return;
+        }
+
+        if (cleanId === "ba5c8112-bd53-4608-bed6-4562cfca1834") {
+            const templateText = "Oi! Tudo bem? Conseguiu ver a mensagem que te mandei mais cedo?";
+            setTemplateValidation({
+                isValidating: false,
+                isValid: true,
+                status: 'APPROVED',
+                message: 'Template homologado na Meta WhatsApp (Reengajamento Resumido)',
+                details: {
+                    name: "Template Reengajamento Resumido",
+                    category: "MARKETING",
+                    text: templateText,
+                    buttons: []
+                }
+            });
+            setNewCampaign(prev => ({
+                ...prev,
+                initialMessage: templateText
+            }));
+            return;
+        }
+
         if (cleanId === "7372e865-f647-411c-8d22-e234f4b87ef6") {
             const templateText = "A gente sabe como o seu negócio merece crescer. E para isso, você pode contar com a parceria Ticket & Fiserv para dar o próximo passo.\n\nTenha acesso a crédito com mais agilidade e menos burocracia, para investir e organizar o futuro do seu estabelecimento.\n\n*Vantagens do nosso crédito:*\n✅ Crédito de R$10 mil a R$ 500 mil\n✅ Dinheiro na conta em até 24h\n✅ Taxas que cabem no seu bolso\n\nCom a nossa parceria você ainda usa os seus recebíveis da Ticket como garantia, tornando tudo mais simples para acompanhar a sua rotina.\n\nFaça uma simulação sem compromisso!";
             setTemplateValidation({
