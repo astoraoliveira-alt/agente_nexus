@@ -4,6 +4,7 @@ import { api } from '@/services/api';
 import { AuthService } from '@/services/auth';
 import { supabase } from '@/lib/supabase';
 import { getDefaultPermissionsForRole } from '@/lib/permissions';
+import { salesCockpitService } from '@/services/salesCockpit.service';
 import { toast } from "sonner";
 
 export type SlideOverContentType =
@@ -77,6 +78,8 @@ interface AppContextType {
   isLoading: boolean;
   awaitingReplyCount: number;
   refreshAwaitingReplyCount: () => Promise<void>;
+  salesCockpitAwaitingCount: number;
+  refreshSalesCockpitAwaitingCount: () => Promise<void>;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -117,6 +120,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [maskingEnabled, setMaskingEnabled] = useState(true); // Default to true for safety
   const [handoffRequests, setHandoffRequests] = useState<any[]>([]);
   const [awaitingReplyCount, setAwaitingReplyCount] = useState<number>(0);
+  const [salesCockpitAwaitingCount, setSalesCockpitAwaitingCount] = useState<number>(0);
 
   const toggleMasking = () => setMaskingEnabled(prev => !prev);
 
@@ -406,6 +410,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTenant?.id]);
 
+  const refreshSalesCockpitAwaitingCount = useCallback(async () => {
+    const tenantId = currentTenant?.id || currentUser?.tenantId;
+    if (!tenantId || !currentUser) {
+      setSalesCockpitAwaitingCount(0);
+      return;
+    }
+    try {
+      const count = await salesCockpitService.getSalesCockpitAwaitingReplyCount(
+        tenantId,
+        currentUser.id,
+        currentUser.name,
+        currentUser.role
+      );
+      setSalesCockpitAwaitingCount(count);
+    } catch (e) {
+      console.warn("Failed to refresh sales cockpit awaiting reply count:", e);
+    }
+  }, [currentTenant?.id, currentUser?.tenantId, currentUser?.id, currentUser?.name, currentUser?.role]);
+
+  // Carrega e atualiza periodicamente o contador do Cockpit de Vendas
+  useEffect(() => {
+    refreshSalesCockpitAwaitingCount();
+    const interval = setInterval(refreshSalesCockpitAwaitingCount, 30000); // a cada 30s
+    return () => clearInterval(interval);
+  }, [refreshSalesCockpitAwaitingCount]);
+
   // Keep ref in sync
   useEffect(() => { loadConversationsListRef.current = loadConversationsList; }, [loadConversationsList]);
 
@@ -457,6 +487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
        refreshTimeout = setTimeout(() => {
           refreshTimeout = null;
           loadConversationsListRef.current();
+          refreshSalesCockpitAwaitingCount();
        }, 10000); // 10000ms throttle para suportar envios em massa sem travar o painel
     };
 
@@ -998,6 +1029,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshHandoffs: loadHandoffs,
         awaitingReplyCount,
         refreshAwaitingReplyCount,
+        salesCockpitAwaitingCount,
+        refreshSalesCockpitAwaitingCount,
         maskingEnabled,
         toggleMasking,
       }}

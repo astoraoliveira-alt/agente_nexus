@@ -1300,5 +1300,59 @@ export const salesCockpitService = {
       console.error('❌ Erro ao registrar desistência do lead:', e);
       return false;
     }
+  },
+
+  /**
+   * Retorna a quantidade de leads do Cockpit de Vendas atribuídos ao usuário logado
+   * cuja ÚLTIMA mensagem foi enviada pelo cliente (inbound / user), indicando que
+   * o cliente respondeu e aguarda retorno do atendente humano.
+   */
+  async getSalesCockpitAwaitingReplyCount(
+    tenantId: string,
+    userId?: string | null,
+    userName?: string | null,
+    userRole?: string | null
+  ): Promise<number> {
+    try {
+      if (!tenantId) return 0;
+      const leads = await this.getSalesCockpitLeads(tenantId, userId, userRole);
+      if (!leads || leads.length === 0) return 0;
+
+      const myId = userId ? String(userId).trim().toLowerCase() : null;
+      const myName = userName ? userName.trim().toLowerCase() : null;
+
+      let count = 0;
+      for (const lead of leads) {
+        // Verificar se este lead está atribuído ao usuário atual
+        const leadOpId = lead.assignedOperatorId ? String(lead.assignedOperatorId).trim().toLowerCase() : null;
+        const leadOpName = lead.assignedOperator ? lead.assignedOperator.trim().toLowerCase() : null;
+
+        const isMine = Boolean(
+          (myId && leadOpId && leadOpId === myId) ||
+          (myName && leadOpName && (leadOpName.includes(myName) || myName.includes(leadOpName)))
+        );
+
+        if (!isMine) continue;
+
+        // Verificar a última mensagem do lead
+        const msgs = lead.conversation?.messages;
+        if (!msgs || msgs.length === 0) continue;
+
+        const lastMsg = msgs[msgs.length - 1];
+        const isClientLast =
+          lastMsg.sender === 'user' ||
+          (lastMsg as any).sender_type === 'user' ||
+          (lastMsg as any).direction === 'inbound';
+
+        if (isClientLast) {
+          count++;
+        }
+      }
+
+      return count;
+    } catch (err) {
+      console.warn('⚠️ Erro ao calcular getSalesCockpitAwaitingReplyCount:', err);
+      return 0;
+    }
   }
 };

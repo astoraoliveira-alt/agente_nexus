@@ -64,7 +64,18 @@ const platformNavItems = [
 ];
 
 export function AppSidebar() {
-  const { isDarkMode, toggleDarkMode, currentUser, currentTenant, openSlideOver, hasPermission, conversations, handoffRequests, awaitingReplyCount } = useApp();
+  const { 
+    isDarkMode, 
+    toggleDarkMode, 
+    currentUser, 
+    currentTenant, 
+    openSlideOver, 
+    hasPermission, 
+    conversations, 
+    handoffRequests, 
+    awaitingReplyCount,
+    salesCockpitAwaitingCount
+  } = useApp();
   const [collapsed, setCollapsed] = useState(false);
   const { onlineUsers } = useTenantPresence(currentUser, currentTenant);
   const unreadAlerts = mockAlerts.filter(a => !a.read).length;
@@ -84,7 +95,13 @@ export function AppSidebar() {
     { title: 'Dashboard', url: '/', icon: LayoutDashboard, permission: 'dashboard.view' },
     { title: 'Consumo', url: '/consumption', icon: BarChart3, permission: 'consumption.view' },
     { title: 'Conversas', url: '/conversations', icon: MessageSquare, permission: 'conversations.view', badge: activeConversationsCount > 0 ? activeConversationsCount : undefined },
-    { title: 'Cockpit de Vendas', url: '/sales-cockpit', icon: Zap, permission: 'sales_cockpit.view', badge: 'Fiserv' },
+    { 
+      title: 'Cockpit de Vendas', 
+      url: '/sales-cockpit', 
+      icon: Zap, 
+      permission: 'sales_cockpit.view', 
+      badge: salesCockpitAwaitingCount > 0 ? salesCockpitAwaitingCount : undefined 
+    },
     { title: 'Contatos', url: '/contacts', icon: Users, permission: 'contacts.view' },
     { title: 'Agentes', url: '/agents', icon: Bot, permission: 'agents.view' },
     { title: 'Campanhas', url: '/campaigns', icon: Megaphone, permission: 'campaigns.view' },
