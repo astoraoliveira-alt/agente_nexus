@@ -433,6 +433,103 @@ export const coreService = {
         return 0;
     },
 
+    async getMyConversations(tenantId: string, operatorId?: string, operatorName?: string): Promise<Conversation[]> {
+        if (!tenantId || (!operatorId && !operatorName)) return [];
+
+        const filters: string[] = [];
+        if (operatorId) filters.push(`assigned_operator_id.eq.${operatorId}`);
+        if (operatorName) filters.push(`metadata->>operator_name.ilike.%${operatorName.trim()}%`);
+
+        let query = supabase
+            .from('conversations')
+            .select('*, agents:agent_id(name, type)')
+            .eq('tenant_id', tenantId);
+
+        if (filters.length > 0) {
+            query = query.or(filters.join(','));
+        }
+
+        const [convResult, countsResult] = await Promise.all([
+            query.order('last_message_at', { ascending: false, nullsFirst: false }).limit(300),
+            supabase.rpc('get_conversation_message_counts', { p_tenant_id: tenantId })
+        ]);
+
+        let { data, error } = convResult;
+        if (error) {
+            console.error('Error fetching my conversations:', error);
+            return [];
+        }
+
+        const countsMap = new Map<string, number>();
+        if (!countsResult.error && countsResult.data) {
+            for (const row of countsResult.data as any[]) {
+                countsMap.set(row.conversation_id, Number(row.message_count));
+            }
+        }
+
+        const userIdentifiers = Array.from(new Set((data as any[]).map(c => c.user_identifier).filter(Boolean)));
+        let contactsMap = new Map<string, string>();
+        const establishmentMap = new Map<string, string>();
+        if (userIdentifiers.length > 0) {
+            const [contactsResult, rpcEstablishmentsResult] = await Promise.all([
+                supabase
+                    .from('contacts')
+                    .select('identifier, status')
+                    .eq('tenant_id', tenantId)
+                    .in('identifier', userIdentifiers),
+                supabase.rpc('get_conversation_establishments', {
+                    p_tenant_id: tenantId,
+                    p_user_identifiers: userIdentifiers
+                })
+            ]);
+
+            if (contactsResult.data) {
+                contactsMap = new Map(contactsResult.data.map(c => [c.identifier, c.status]));
+            }
+
+            if (!rpcEstablishmentsResult.error && rpcEstablishmentsResult.data) {
+                for (const row of rpcEstablishmentsResult.data as any[]) {
+                    const establishmentName = String(row.establishment_name || '').trim();
+                    if (!establishmentName) continue;
+                    for (const variant of this.getPhoneVariants(row.user_identifier)) {
+                        if (!establishmentMap.has(variant)) {
+                            establishmentMap.set(variant, establishmentName);
+                        }
+                    }
+                }
+            }
+        }
+
+        return (data as any[]).map(c => ({
+            id: c.id,
+            tenantId: c.tenant_id,
+            agentId: c.agent_id,
+            agentName: c.agents?.name || 'Agente Desconhecido',
+            agentType: c.agents?.type as any,
+            userId: c.user_identifier,
+            userName: c.user_name || 'Cliente Sem Nome',
+            establishmentName: this.getPhoneVariants(c.user_identifier)
+                .map(variant => establishmentMap.get(variant))
+                .find(Boolean),
+            userStatus: contactsMap.get(c.user_identifier) || 'active',
+            channel: c.channel,
+            status: c.status,
+            assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? (operatorName || 'Carlos Silva') : undefined),
+            assigned_operator_id: c.assigned_operator_id,
+            lastMessage: '',
+            lastMessageTime: new Date(c.last_message_at),
+            unreadCount: 0,
+            complianceScore: c.compliance_score,
+            messageCount: countsMap.get(c.id) ?? 0,
+            sentiment: c.sentiment ?? null,
+            messages: [],
+            createdAt: new Date(c.created_at),
+            lastMessageSender: c.last_message_sender_type,
+            lastMessageDirection: c.last_message_direction,
+            isAwaitingReply: c.status !== 'closed' && (c.last_message_direction === 'inbound' || c.last_message_sender_type === 'user')
+        })) as unknown as Conversation[];
+    },
+
     async getAwaitingReplyConversations(tenantId: string): Promise<Conversation[]> {
         const [convResult, countsResult] = await Promise.all([
             supabase
@@ -507,6 +604,7 @@ export const coreService = {
             channel: c.channel,
             status: c.status,
             assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
+            assigned_operator_id: c.assigned_operator_id,
             lastMessage: '',
             lastMessageTime: new Date(c.last_message_at),
             unreadCount: 0,
@@ -667,6 +765,7 @@ export const coreService = {
             channel: c.channel,
             status: c.status,
             assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
+            assigned_operator_id: c.assigned_operator_id,
             lastMessage: '',
             lastMessageTime: new Date(c.last_message_at),
             unreadCount: 0,
