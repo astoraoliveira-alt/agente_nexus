@@ -1,11 +1,8 @@
--- ==========================================================
--- DAVOS NEXUS - SECURE LEAD FETCH (V69.5 - JSON NULL POISON FIX)
--- Protege contra disparos duplicados e flood de contatos.
--- Restaura Lógica de Reengajamento e Exclusão de Convertidos,
--- Mantendo correções de fuso horário e wildcard de sent_at.
--- Fix para NULL no campo metadata e Join do Agent_ID.
--- Fix críto para ANY(NULL) e JSON NULL poison (converted)
--- ==========================================================
+-- RPC: get_next_leads_secure
+-- Retorna os próximos leads prontos para envio no n8n com trava FOR UPDATE SKIP LOCKED
+-- Atualizado em 08/11/2026: Restrição estrita de reengajamento para DIAS ÚTEIS (Segunda a Sexta, EXTRACT(ISODOW) <= 5).
+
+DROP FUNCTION IF EXISTS public.get_next_leads_secure(uuid, uuid, int);
 
 CREATE OR REPLACE FUNCTION public.get_next_leads_secure(
     p_tenant_id uuid,
@@ -84,7 +81,7 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 3. Buscar e TRAVAR os leads (Com Reengajamento, Scheduled_at e Exclusão de Convertidos)
+    -- 3. Buscar e TRAVAR os leads (Com Reengajamento em Dias Úteis, Scheduled_at e Exclusão de Convertidos)
     RETURN QUERY
     WITH selected_leads AS (
         UPDATE public.outbound_queue q
@@ -111,7 +108,10 @@ BEGIN
                   OR 
                   (
                       camp.reengagement_enabled = true
-                      AND oq.status IN ('sent', 'delivered', 'read')
+                      -- [REQUISITO COMERCIAL]: Reengajamento APENAS em dias úteis (Segunda a Sexta, bloqueia Sábado 6 e Domingo 7)
+                      AND EXTRACT(ISODOW FROM (NOW() AT TIME ZONE 'America/Sao_Paulo')) <= 5
+                      -- [REQUISITO]: Reengajamento APENAS para mensagens LIDAS
+                      AND oq.status = 'read'
                       AND oq.response_detected = false
                       AND oq.reengagement_attempt_count < camp.reengagement_max_attempts
                       AND NOW() >= (
@@ -122,14 +122,15 @@ BEGIN
                       AND NOW() <= (
                           oq.sent_at 
                           + (COALESCE(camp.reengagement_max_attempts, 1) * COALESCE(camp.reengagement_wait_hours, 24) * INTERVAL '1 hour')
-                          + INTERVAL '3 days'
+                          + INTERVAL '5 days'
                       )
                   )
-                 -- [FREQUÊNCIA CAPPING HIERÁRQUICO]
+              )
+              -- [FREQUÊNCIA CAPPING HIERÁRQUICO]
               AND (
                   (v_capping->>'override_for_incidents')::boolean = true -- Emergência ignora capping
                   OR
-                  (oq.status != 'pending') -- [FIX]: Reengajamento ignora a trava de cooldown do Capping Global para respeitar estritamente o tempo configurado na campanha
+                  (oq.status != 'pending') -- Reengajamento ignora a trava de cooldown do Capping Global para respeitar estritamente o tempo configurado na campanha
                   OR
                   (COALESCE((oq.metadata->>'is_funnel_followup')::boolean, false) = true) -- Follow-up de funil em andamento ignora capping global
                   OR
@@ -178,6 +179,16 @@ BEGIN
                       )
                   )
               )
+              -- [EXCLUSÃO DE LEADS FISERV: RECUSADOS, APROVADOS OU EM ANDAMENTO]
+              AND NOT EXISTS (
+                  SELECT 1 FROM public.agent_leads al
+                  WHERE al.campaign_id = oq.campaign_id
+                    AND (al.whatsapp = oq.contact_phone OR al.identifier = oq.metadata->>'cnpj')
+                    AND (
+                        al.metadata->>'fiserv_status' IN ('comite_approved', 'approved', 'denied', 'in_progress')
+                        OR al.status IN ('converted', 'rejected', 'completed')
+                    )
+              )
               -- [ANTI-COLISÃO ORIGINAL ATUALIZADO]
               AND NOT EXISTS (
                   SELECT 1 FROM public.outbound_queue oq_check
@@ -211,7 +222,7 @@ BEGIN
         sl.tenant_id,
         CASE 
             WHEN (sl.metadata->>'is_funnel_followup')::boolean = true THEN (sl.metadata->>'content')::text
-            WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(c.reengagement_message, c.initial_message)
+            WHEN sl.reengagement_attempt_count > 0 THEN COALESCE(NULLIF(c.reengagement_message, ''), c.initial_message)
             ELSE COALESCE(sl.metadata->>'content', c.initial_message)
         END::text as message,
         COALESCE(ag.whatsapp_provider, 'evolution')::text as provider,
@@ -236,3 +247,7 @@ BEGIN
     JOIN public.agents ag ON ag.id = c.agent_id;
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO service_role;
+GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO anon;
