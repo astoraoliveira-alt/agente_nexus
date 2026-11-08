@@ -290,5 +290,47 @@ export const conversationsService = {
         }
 
         return Number(data || 0);
+    },
+
+    /**
+     * Busca uma conversa por ID ou cria/resolve os metadados necessários
+     */
+    async getConversationById(conversationId: string): Promise<Conversation | null> {
+        try {
+            const { data, error } = await supabase
+                .from('conversations')
+                .select('*, agents:agent_id(name, type)')
+                .eq('id', conversationId)
+                .maybeSingle();
+
+            if (error || !data) {
+                console.warn('⚠️ getConversationById falhou ou não encontrou conversa:', error);
+                return null;
+            }
+
+            const messages = await this.getConversationMessages(data.id);
+
+            return {
+                id: data.id,
+                tenantId: data.tenant_id,
+                tenantSlug: '',
+                agentId: data.agent_id,
+                agentName: (data.agents as any)?.name || 'Agente IA',
+                agentType: (data.agents as any)?.type,
+                userId: data.user_identifier,
+                userName: data.user_name || 'Cliente',
+                channel: data.channel || 'whatsapp',
+                status: data.status,
+                assignedOperator: data.assigned_operator_id ? 'Operador Humano' : (data.metadata?.operator_name || undefined),
+                lastMessage: messages.length > 0 ? messages[messages.length - 1].content : '',
+                lastMessageTime: new Date(data.last_message_at || data.created_at),
+                unreadCount: 0,
+                messages: messages,
+                createdAt: new Date(data.created_at)
+            };
+        } catch (e) {
+            console.warn('⚠️ Erro ao buscar getConversationById:', e);
+            return null;
+        }
     }
 };

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ConversationList } from '@/components/conversations/ConversationList';
@@ -6,11 +7,14 @@ import { ChatArea } from '@/components/conversations/ChatArea';
 import { useApp } from '@/contexts/AppContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { api } from '@/services/api';
 
 export default function Conversations() {
   const { conversations, selectedConversation, setSelectedConversation, setConversations, fetchMessages } = useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isListCollapsed, setIsListCollapsed] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const handledParamRef = useRef<string | null>(null);
 
   const handleSelect = (conv: any) => {
     const cached = conversations.find(c => c.id === conv.id);
@@ -32,6 +36,51 @@ export default function Conversations() {
     setSelectedConversation(fullConv);
     fetchMessages(conv.id, true);
   };
+
+  // Suporte a abertura direta de conversa via URL params (?id=... ou ?phone=...)
+  useEffect(() => {
+    const targetId = searchParams.get('id') || searchParams.get('conversationId');
+    const targetPhone = searchParams.get('phone');
+    const paramKey = `${targetId || ''}:${targetPhone || ''}`;
+
+    if ((targetId || targetPhone) && handledParamRef.current !== paramKey) {
+      handledParamRef.current = paramKey;
+
+      const resolveAndSelect = async () => {
+        // 1. Procurar nas conversas já carregadas na lista
+        let found = conversations.find(c => {
+          if (targetId && c.id === targetId) return true;
+          if (targetPhone) {
+            const cleanTarget = targetPhone.replace(/\D/g, '');
+            const cleanUser = String(c.userId || '').replace(/\D/g, '');
+            return cleanUser.includes(cleanTarget) || cleanTarget.includes(cleanUser);
+          }
+          return false;
+        });
+
+        // 2. Se não estiver na lista em memória, buscar do banco de dados pelo ID
+        if (!found && targetId) {
+          try {
+            const conv = await api.getConversationById(targetId);
+            if (conv) {
+              found = conv;
+            }
+          } catch (e) {
+            console.warn('Erro ao carregar conversa por ID via param:', e);
+          }
+        }
+
+        if (found) {
+          handleSelect(found);
+        } else if (targetPhone) {
+          // Se não encontrou a conversa mas veio o telefone, pré-popula a busca para o operador
+          setSearchTerm(targetPhone);
+        }
+      };
+
+      resolveAndSelect();
+    }
+  }, [searchParams, conversations]);
 
   return (
     <MainLayout>

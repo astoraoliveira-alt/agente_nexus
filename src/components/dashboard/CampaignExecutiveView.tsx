@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { 
   Users, 
@@ -32,7 +33,8 @@ import {
   Check,
   ArrowLeft,
   Download,
-  Search
+  Search,
+  ExternalLink
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
@@ -603,11 +605,13 @@ interface CampaignDetailViewProps {
 
 function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }: CampaignDetailViewProps) {
   const { currentTenant } = useApp();
+  const navigate = useNavigate();
   const [stats, setStats] = useState<CampaignStats | null>(null);
   const [leads, setLeads] = useState<LeadResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadResult | null>(null);
+  const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [isMessagesLoading, setIsMessagesLoading] = useState(false);
   const [messagesCache, setMessagesCache] = useState<Record<string, Message[] | null>>({});
@@ -712,9 +716,11 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
     const cacheKey = `${selectedLead.id}:${selectedLead.whatsapp}`;
     if (cacheKey in messagesCache) {
       setMessages(messagesCache[cacheKey]);
+      setResolvedConvId(selectedLead.conversationId || null);
       return;
     }
 
+    setResolvedConvId(selectedLead.conversationId || null);
     let active = true;
     setIsMessagesLoading(true);
 
@@ -738,6 +744,7 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
         }
 
         console.log('DEBUG fetchMessages final convId:', convId);
+        if (active) setResolvedConvId(convId);
 
         if (!active) return;
 
@@ -1429,14 +1436,34 @@ function CampaignDetailView({ campaignId, campaigns, agents, onSelect, onBack }:
                         </h4>
                         <p className="text-xs text-slate-500">{selectedLead.whatsapp}</p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSelectedLead(null)}
-                        className="h-9 w-9 rounded-full border border-slate-200"
-                      >
-                        <X className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => {
+                            const targetParam = resolvedConvId 
+                              ? `id=${encodeURIComponent(resolvedConvId)}` 
+                              : selectedLead.whatsapp 
+                                ? `phone=${encodeURIComponent(selectedLead.whatsapp.replace(/\D/g, ''))}` 
+                                : '';
+                            navigate(`/conversations${targetParam ? `?${targetParam}` : ''}`);
+                          }}
+                          className="h-8 gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 text-xs font-bold shadow-sm transition-all"
+                          title="Abrir na tela de conversas para responder"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Abrir Chat</span>
+                          <ExternalLink className="w-3 h-3 opacity-75" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setSelectedLead(null)}
+                          className="h-9 w-9 rounded-full border border-slate-200"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="flex-1 overflow-hidden flex flex-col bg-slate-50/50">
