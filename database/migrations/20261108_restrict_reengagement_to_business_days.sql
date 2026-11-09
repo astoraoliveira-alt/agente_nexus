@@ -258,3 +258,4 @@ GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO servi
 GRANT EXECUTE ON FUNCTION public.get_next_leads_secure(uuid, uuid, int) TO anon;
 
 COMMIT;
+
