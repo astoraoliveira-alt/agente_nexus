@@ -296,7 +296,8 @@ export default function Campaigns() {
         const dynamicCtaLink = latest?.metadata?.zenvia_cta_link?.trim() || "";
         const dynamicAgentId = latest?.agentId || defaultAgent;
         const dynamicInitialMessage = latest?.initialMessage || defaultInitialMessage;
-        const dynamicReengagementTemplateId = latest?.reengagementTemplateId || "";
+        const dynamicReengagementMessage = latest?.reengagementMessage || dynamicInitialMessage;
+        const dynamicReengagementTemplateId = latest?.reengagementTemplateId || dynamicTemplateId || "";
 
         return {
             id: "",
@@ -318,7 +319,7 @@ export default function Campaigns() {
             reengagementEnabled: latest?.reengagementEnabled ?? false,
             reengagementWaitHours: latest?.reengagementWaitHours || 24,
             reengagementMaxAttempts: latest?.reengagementMaxAttempts || 1,
-            reengagementMessage: latest?.reengagementMessage || "",
+            reengagementMessage: dynamicReengagementMessage,
             reengagementTemplateId: dynamicReengagementTemplateId
         };
     };
@@ -409,6 +410,8 @@ export default function Campaigns() {
             setNewCampaign(prev => ({
                 ...prev,
                 initialMessage: templateText,
+                reengagementMessage: prev.reengagementMessage || templateText,
+                reengagementTemplateId: prev.reengagementTemplateId || cleanId,
                 zenviaImageUrl: prev.zenviaImageUrl || "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/a2aeb397ae4dd04e213736a206c26b67385ab709ae421b01d0ab73d04cda1bc1.bin"
             }));
             return;
@@ -430,7 +433,9 @@ export default function Campaigns() {
             });
             setNewCampaign(prev => ({
                 ...prev,
-                initialMessage: templateText
+                initialMessage: templateText,
+                reengagementMessage: prev.reengagementMessage || templateText,
+                reengagementTemplateId: prev.reengagementTemplateId || cleanId
             }));
             return;
         }
@@ -454,6 +459,8 @@ export default function Campaigns() {
             setNewCampaign(prev => ({
                 ...prev,
                 initialMessage: templateText,
+                reengagementMessage: prev.reengagementMessage || templateText,
+                reengagementTemplateId: prev.reengagementTemplateId || cleanId,
                 zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/e6c2addc40e7c257e6cb44a155a00f2e2ea11194aaa291eaa29dcb0c81b1453c.bin"
             }));
             return;
@@ -479,6 +486,8 @@ export default function Campaigns() {
             setNewCampaign(prev => ({
                 ...prev,
                 initialMessage: templateText,
+                reengagementMessage: prev.reengagementMessage || templateText,
+                reengagementTemplateId: prev.reengagementTemplateId || cleanId,
                 zenviaImageUrl: "https://chat.zenvia.com/storage/folders/a1af1ec136a1e60cf8cb8fa102edd9d872805851206df67904e5ed0cf7043296/files/63656eb2ca6d6daf9ec20aca6bb4ddda82c7e86bd24cdf6349d7f0bced2c9bce.bin"
             }));
             return;
@@ -503,7 +512,9 @@ export default function Campaigns() {
             });
             setNewCampaign(prev => ({
                 ...prev,
-                initialMessage: templateText
+                initialMessage: templateText,
+                reengagementMessage: prev.reengagementMessage || templateText,
+                reengagementTemplateId: prev.reengagementTemplateId || cleanId
             }));
             return;
         }
@@ -571,9 +582,15 @@ export default function Campaigns() {
                     });
                 }
 
-                // Sincroniza a mensagem inicial diretamente com o texto aprovado do template
+                // Sincroniza a mensagem inicial diretamente com o texto aprovado do template,
+                // e define por padrão a mensagem e template de reengajamento com o mesmo texto
                 if (bodyText) {
-                    setNewCampaign(prev => ({ ...prev, initialMessage: bodyText }));
+                    setNewCampaign(prev => ({ 
+                        ...prev, 
+                        initialMessage: bodyText,
+                        reengagementMessage: prev.reengagementMessage || bodyText,
+                        reengagementTemplateId: prev.reengagementTemplateId || cleanId
+                    }));
                 }
 
                 if (!silent) {
