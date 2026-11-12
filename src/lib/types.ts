@@ -1013,6 +1013,9 @@ export interface Campaign {
   reengagementMaxAttempts?: number;
   reengagementMessage?: string;
   reengagementTemplateId?: string;
+  reengagementApprovedEnabled?: boolean;
+  reengagementApprovedTemplateId?: string;
+  reengagementApprovedMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }

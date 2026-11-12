@@ -532,6 +532,9 @@ async getOutboundQueue(tenantId: string, agentId?: string, campaignId?: string):
             reengagementMaxAttempts: c.reengagement_max_attempts,
             reengagementMessage: c.reengagement_message,
             reengagementTemplateId: c.reengagement_template_id,
+            reengagementApprovedEnabled: c.metadata?.reengagement_approved_enabled ?? false,
+            reengagementApprovedTemplateId: c.metadata?.reengagement_approved_template_id || '',
+            reengagementApprovedMessage: c.metadata?.reengagement_approved_message || '',
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
         }));
@@ -584,6 +587,9 @@ async getCampaigns(tenantId: string, useReplica: boolean = false): Promise<impor
             reengagementMaxAttempts: c.reengagement_max_attempts,
             reengagementMessage: c.reengagement_message,
             reengagementTemplateId: c.reengagement_template_id,
+            reengagementApprovedEnabled: c.metadata?.reengagement_approved_enabled ?? false,
+            reengagementApprovedTemplateId: c.metadata?.reengagement_approved_template_id || '',
+            reengagementApprovedMessage: c.metadata?.reengagement_approved_message || '',
             createdAt: new Date(c.created_at),
             updatedAt: new Date(c.updated_at)
         }));
@@ -656,7 +662,10 @@ async createCampaign(campaign: Partial<import('@/lib/types').Campaign>): Promise
             success_link_filter: campaign.successLinkFilter,
             metadata: {
                 ...(campaign.metadata || {}),
-                ...(campaign.campaignType ? { campaign_type: campaign.campaignType } : {})
+                ...(campaign.campaignType ? { campaign_type: campaign.campaignType } : {}),
+                ...(campaign.reengagementApprovedEnabled !== undefined ? { reengagement_approved_enabled: campaign.reengagementApprovedEnabled } : {}),
+                ...(campaign.reengagementApprovedTemplateId !== undefined ? { reengagement_approved_template_id: campaign.reengagementApprovedTemplateId } : {}),
+                ...(campaign.reengagementApprovedMessage !== undefined ? { reengagement_approved_message: campaign.reengagementApprovedMessage } : {})
             },
             reengagement_enabled: campaign.reengagementEnabled || false,
             reengagement_wait_hours: campaign.reengagementWaitHours || 24,
@@ -714,10 +723,19 @@ async updateCampaign(id: string, updates: Partial<import('@/lib/types').Campaign
         if (updates.initialMessage) dbPayload.initial_message = updates.initialMessage;
         if (updates.successCriteria) dbPayload.success_criteria = updates.successCriteria;
         if (updates.successLinkFilter !== undefined) dbPayload.success_link_filter = updates.successLinkFilter;
-        if (updates.metadata || updates.campaignType) {
+        if (updates.metadata || updates.campaignType || updates.reengagementApprovedEnabled !== undefined || updates.reengagementApprovedTemplateId !== undefined || updates.reengagementApprovedMessage !== undefined) {
             const meta = { ...(updates.metadata || {}) };
             if (updates.campaignType) {
                 meta.campaign_type = updates.campaignType;
+            }
+            if (updates.reengagementApprovedEnabled !== undefined) {
+                meta.reengagement_approved_enabled = updates.reengagementApprovedEnabled;
+            }
+            if (updates.reengagementApprovedTemplateId !== undefined) {
+                meta.reengagement_approved_template_id = updates.reengagementApprovedTemplateId;
+            }
+            if (updates.reengagementApprovedMessage !== undefined) {
+                meta.reengagement_approved_message = updates.reengagementApprovedMessage;
             }
             dbPayload.metadata = meta;
         }

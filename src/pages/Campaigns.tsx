@@ -299,6 +299,9 @@ export default function Campaigns() {
         const dynamicReengagementMessage = latest?.reengagementMessage || dynamicInitialMessage;
         const dynamicReengagementTemplateId = latest?.reengagementTemplateId || dynamicTemplateId || "";
 
+        const dynamicReengagementApprovedMessage = latest?.reengagementApprovedMessage || latest?.metadata?.reengagement_approved_message || "Olá estabelecimento!\n\nA Ticket tem uma *boa notícia* para você: *seu crédito foi liberado* e pode ser usado agora mesmo!\n\nSua análise foi concluída e você possui um *valor pré-aprovado* para o seu CNPJ, mas ainda *não conseguimos falar com você* para te passar mais detalhes.\n\nEssa condição é *válida por tempo limitado,* fale agora com um de nossos agentes para dar continuidade na sua solicitação.";
+        const dynamicReengagementApprovedTemplateId = latest?.reengagementApprovedTemplateId || latest?.metadata?.reengagement_approved_template_id || "9084129b-8031-4af4-82be-71ce8c26637a";
+
         return {
             id: "",
             name: "",
@@ -320,7 +323,10 @@ export default function Campaigns() {
             reengagementWaitHours: latest?.reengagementWaitHours || 24,
             reengagementMaxAttempts: latest?.reengagementMaxAttempts || 1,
             reengagementMessage: dynamicReengagementMessage,
-            reengagementTemplateId: dynamicReengagementTemplateId
+            reengagementTemplateId: dynamicReengagementTemplateId,
+            reengagementApprovedEnabled: latest?.reengagementApprovedEnabled ?? latest?.metadata?.reengagement_approved_enabled ?? false,
+            reengagementApprovedTemplateId: dynamicReengagementApprovedTemplateId,
+            reengagementApprovedMessage: dynamicReengagementApprovedMessage
         };
     };
 
@@ -346,7 +352,10 @@ export default function Campaigns() {
         reengagementWaitHours: 24,
         reengagementMaxAttempts: 1,
         reengagementMessage: "",
-        reengagementTemplateId: ""
+        reengagementTemplateId: "",
+        reengagementApprovedEnabled: false,
+        reengagementApprovedTemplateId: "9084129b-8031-4af4-82be-71ce8c26637a",
+        reengagementApprovedMessage: "Olá estabelecimento!\n\nA Ticket tem uma *boa notícia* para você: *seu crédito foi liberado* e pode ser usado agora mesmo!\n\nSua análise foi concluída e você possui um *valor pré-aprovado* para o seu CNPJ, mas ainda *não conseguimos falar com você* para te passar mais detalhes.\n\nEssa condição é *válida por tempo limitado,* fale agora com um de nossos agentes para dar continuidade na sua solicitação."
     });
 
     const handleOpenCreate = () => {
@@ -391,6 +400,25 @@ export default function Campaigns() {
         }
 
         // Fast-path for known official templates
+        if (cleanId === "8ea3c2b0-5f3b-4ef4-895a-5f8b54524622") {
+            const templateText = "Olá! A Ticket tem uma excelente notícia para você: a análise de crédito da sua empresa foi concluída e o limite solicitado está pré-aprovado! 🎉\n\nIdentificamos que ainda não conseguimos falar com você para apresentar as condições e tirar dúvidas sobre a contratação.\n\nEssa condição é válida por tempo limitado. Para falar diretamente com nossa equipe e dar andamento, clique no botão abaixo:";
+            setTemplateValidation({
+                isValidating: false,
+                isValid: true,
+                status: 'APPROVED',
+                message: 'Template homologado na Meta WhatsApp (Reaquecimento Aprovados)',
+                details: {
+                    name: "reaquecimento_credito_aprovado_v1",
+                    category: "MARKETING",
+                    text: templateText,
+                    buttons: [
+                        { text: "Falar Especialista" }
+                    ]
+                }
+            });
+            return;
+        }
+
         if (cleanId === "7f109fd6-f6ad-4f4c-926b-2e8403f68647") {
             const templateText = "Olá.\n\nChegou a ajuda que você precisava para investir no seu negócio neste fim de ano! 🖤\n\nA Ticket, em parceria com a Fiserv, tem uma condição especial de Ticket Friday para o seu estabelecimento:\n\n👉 Solicite crédito em novembro e pague só em 2027!\n\nE aproveite os benefícios exclusivos da Ticket:\n\n-Crédito de R$ 10 mil a R$ 500 mil\n-Taxas a partir de 1,89% ao mês\n-Liberação em até 24 horas\n-Use apenas seus recebíveis Ticket como garantia\n\n📲 Solicite sua análise agora!";
             setTemplateValidation({
@@ -834,6 +862,9 @@ export default function Campaigns() {
                 reengagementMaxAttempts: newCampaign.reengagementMaxAttempts,
                 reengagementMessage: newCampaign.reengagementMessage,
                 reengagementTemplateId: newCampaign.reengagementTemplateId || undefined,
+                reengagementApprovedEnabled: newCampaign.reengagementApprovedEnabled,
+                reengagementApprovedTemplateId: newCampaign.reengagementApprovedTemplateId || undefined,
+                reengagementApprovedMessage: newCampaign.reengagementApprovedMessage || undefined,
             };
 
             let createdCampaign: Campaign | null = null;
@@ -1656,7 +1687,10 @@ export default function Campaigns() {
             reengagementWaitHours: campaign.reengagementWaitHours || 24,
             reengagementMaxAttempts: campaign.reengagementMaxAttempts || 1,
             reengagementMessage: campaign.reengagementMessage || "",
-            reengagementTemplateId: campaign.reengagementTemplateId || ""
+            reengagementTemplateId: campaign.reengagementTemplateId || "",
+            reengagementApprovedEnabled: campaign.reengagementApprovedEnabled ?? campaign.metadata?.reengagement_approved_enabled ?? false,
+            reengagementApprovedTemplateId: campaign.reengagementApprovedTemplateId || campaign.metadata?.reengagement_approved_template_id || "9084129b-8031-4af4-82be-71ce8c26637a",
+            reengagementApprovedMessage: campaign.reengagementApprovedMessage || campaign.metadata?.reengagement_approved_message || "Olá estabelecimento!\n\nA Ticket tem uma *boa notícia* para você: *seu crédito foi liberado* e pode ser usado agora mesmo!\n\nSua análise foi concluída e você possui um *valor pré-aprovado* para o seu CNPJ, mas ainda *não conseguimos falar com você* para te passar mais detalhes.\n\nEssa condição é *válida por tempo limitado,* fale agora com um de nossos agentes para dar continuidade na sua solicitação."
         });
         setIsCreateOpen(true);
     };
@@ -2094,6 +2128,59 @@ export default function Campaigns() {
                                                                 </p>
                                                             </div>
                                                         )}
+
+                                                        {/* 3. Reaquecimento Exclusivo para Leads Aprovados */}
+                                                        <div className="p-4 border border-emerald-200/80 bg-emerald-50/40 rounded-sm space-y-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                                                    <Label className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                                                                        Reaquecer Aprovados sem Atendimento Humano
+                                                                    </Label>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[10px] font-bold uppercase text-slate-400">Status:</span>
+                                                                    <div 
+                                                                        className={cn(
+                                                                            "w-10 h-5 rounded-full p-1 cursor-pointer transition-all",
+                                                                            newCampaign.reengagementApprovedEnabled ? "bg-emerald-600" : "bg-slate-200"
+                                                                        )}
+                                                                        onClick={() => setNewCampaign({ ...newCampaign, reengagementApprovedEnabled: !newCampaign.reengagementApprovedEnabled })}
+                                                                    >
+                                                                        <div className={cn("w-3 h-3 bg-white rounded-full transition-all", newCampaign.reengagementApprovedEnabled ? "ml-5" : "ml-0")} />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <p className="text-[11px] text-slate-600 leading-snug">
+                                                                Envia após o prazo configurado uma mensagem de reaquecimento exclusivamente para quem teve crédito aprovado no comitê Fiserv, mas não deu OK ou ainda não recebeu contato humano de um especialista.
+                                                            </p>
+
+                                                            {newCampaign.reengagementApprovedEnabled && (
+                                                                <div className="space-y-3 pt-2 border-t border-emerald-100 animate-in fade-in duration-200">
+                                                                    <div className="space-y-1.5">
+                                                                        <Label className="text-[10px] uppercase font-bold text-emerald-900">ID do Template de Aprovados (Zenvia)</Label>
+                                                                        <Input
+                                                                            placeholder="9084129b-8031-4af4-82be-71ce8c26637a"
+                                                                            className="h-9 border-emerald-200 focus:ring-emerald-500 rounded-none bg-white text-xs font-mono"
+                                                                            value={newCampaign.reengagementApprovedTemplateId}
+                                                                            onChange={(e) => setNewCampaign({ ...newCampaign, reengagementApprovedTemplateId: e.target.value })}
+                                                                        />
+                                                                        <p className="text-[9px] text-slate-500">
+                                                                            Template padrão: <strong>Fiserv - Aprovados sem sucesso no contato</strong> (Botão único: Falar com um agente). Se deixado em branco, utiliza o template da campanha.
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="space-y-1.5">
+                                                                        <Label className="text-[10px] uppercase font-bold text-emerald-900">Texto da Mensagem para Aprovados</Label>
+                                                                        <textarea
+                                                                            className="flex min-h-[110px] w-full border border-emerald-200 bg-white px-3 py-2 text-xs focus:ring-1 focus:ring-emerald-500 outline-none transition-all rounded-none"
+                                                                            value={newCampaign.reengagementApprovedMessage}
+                                                                            onChange={(e) => setNewCampaign({ ...newCampaign, reengagementApprovedMessage: e.target.value })}
+                                                                            placeholder="Olá! Seu crédito foi liberado..."
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                         <div className="p-3 bg-slate-50 border border-slate-100 space-y-2">
                                                             <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase">
                                                                 <Megaphone className="w-3 h-3" /> Preview de Conversa
