@@ -2004,11 +2004,25 @@ async deleteCampaign(id: string): Promise<void> {
             const cIds = camps.map(c => c.id);
             if (cIds.length === 0) return [];
 
-            // Buscar métricas da outbound_queue
-            const { data: oqRows } = await supabase
-                .from('outbound_queue')
-                .select('campaign_id, status, response_detected, sent_at, metadata')
-                .in('campaign_id', cIds);
+            // Buscar métricas da outbound_queue em chunks com paginação para nunca bater no limite de linhas da API
+            const oqRows: any[] = [];
+            const oqChunkSize = 3;
+            for (let i = 0; i < cIds.length; i += oqChunkSize) {
+                const chunk = cIds.slice(i, i + oqChunkSize);
+                let page = 0;
+                const pageSize = 5000;
+                while (true) {
+                    const { data: chunkOq } = await supabase
+                        .from('outbound_queue')
+                        .select('campaign_id, status, response_detected, sent_at, metadata')
+                        .in('campaign_id', chunk)
+                        .range(page * pageSize, (page + 1) * pageSize - 1);
+                    if (!chunkOq || chunkOq.length === 0) break;
+                    oqRows.push(...chunkOq);
+                    if (chunkOq.length < pageSize) break;
+                    page++;
+                }
+            }
 
             // Buscar leads e metadados com chunking para não estourar o limite de 10.000 linhas da API
             const leadRows: any[] = [];
@@ -2033,13 +2047,25 @@ async deleteCampaign(id: string): Promise<void> {
                 const m = oqMap.get(r.campaign_id)!;
                 m.carregados++;
                 const st = (r.status || '').toLowerCase().trim();
-                const isSent = !['queued', 'pending', 'scheduled', 'draft'].includes(st) || !!r.sent_at || r.response_detected;
+                const isSent = !['queued', 'pending', 'scheduled', 'draft'].includes(st) || !!r.sent_at || r.response_detected || st === 'converted' || r.metadata?.converted === 'true';
                 if (isSent) m.enviados++;
-                if (['sent', 'delivered', 'read', 'respondida', 'interagiu'].includes(st) || r.response_detected) m.entregues++;
-                if (['read', 'respondida', 'interagiu'].includes(st)) m.lidas++;
+                if (['sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || r.response_detected || r.metadata?.converted === 'true') m.entregues++;
+                if (['read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || r.response_detected || r.metadata?.converted === 'true') m.lidas++;
                 
-                const isAutoReply = (r as any).is_auto_reply === true || r.metadata?.is_auto_reply === true || r.metadata?.is_auto_reply === 'true' || r.metadata?.is_bot === true || r.metadata?.circuit_breaker === true || r.metadata?.stop_flow === true || (r.metadata?.human_interaction === false && r.metadata?.button_clicked === false);
-                if ((r.response_detected || ['respondida', 'interagiu'].includes(st)) && !isAutoReply) {
+                const isAutoReply = (
+                    (r as any).is_auto_reply === true ||
+                    r.metadata?.is_auto_reply === true ||
+                    r.metadata?.is_auto_reply === 'true' ||
+                    r.metadata?.is_bot === true
+                ) && r.metadata?.human_interaction !== true;
+                const hasHumanSignal = Boolean(
+                    r.response_detected ||
+                    r.metadata?.responded === 'true' ||
+                    r.metadata?.responded === true ||
+                    ['respondida', 'interagiu'].includes(st) ||
+                    r.metadata?.human_interaction === true
+                );
+                if (hasHumanSignal && !isAutoReply) {
                     m.interagiram++;
                 }
             }

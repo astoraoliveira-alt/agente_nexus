@@ -121,6 +121,67 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                         }
                     }
                 });
+            } else {
+                // Fallback leve quando a RPC geral excede statement timeout (57014): consulta apenas campanhas no período e agrega outbound_queue
+                const { data: campsData } = await supabaseReader
+                    .from('campaigns')
+                    .select('id, name, start_date, created_at')
+                    .eq('tenant_id', tenantId)
+                    .gte('created_at', new Date(startDate.getTime() - 5 * 86400000).toISOString());
+
+                const eligibleCamps = (campsData || []).filter((c: any) => {
+                    if (campaignId && c.id !== campaignId) return false;
+                    const dateKey = parseDateKey(c.start_date || c.created_at, c.name);
+                    return dateKey >= startStr && dateKey <= endStr;
+                });
+
+                if (eligibleCamps.length > 0) {
+                    const campById = new Map<string, any>();
+                    eligibleCamps.forEach((c: any) => campById.set(c.id, c));
+
+                    const { data: oqInit } = await supabaseReader
+                        .from('outbound_queue')
+                        .select('campaign_id, status, sent_at, response_detected')
+                        .eq('tenant_id', tenantId)
+                        .in('campaign_id', eligibleCamps.map((c: any) => c.id))
+                        .range(0, 19999);
+
+                    (oqInit || []).forEach((q: any) => {
+                        const c = campById.get(q.campaign_id);
+                        if (!c) return;
+                        const st = String(q.status || '').trim().toLowerCase();
+                        const isSent = !['queued', 'pending', 'scheduled', 'draft'].includes(st) || Boolean(q.response_detected) || Boolean(q.sent_at);
+                        if (!isSent) return;
+
+                        const dateKey = parseDateKey(c.start_date || c.created_at, c.name);
+                        const mapKey = `${dateKey}_campaign_initial`;
+                        if (!aggMap.has(mapKey)) {
+                            aggMap.set(mapKey, {
+                                dispatchDate: dateKey,
+                                dispatchType: 'campaign_initial',
+                                dispatchTypeLabel: 'Campanhas (Envio Inicial)',
+                                attemptedCount: 0,
+                                deliveredCount: 0,
+                                readCount: 0,
+                                repliedCount: 0,
+                                failedCount: 0
+                            });
+                        }
+                        const item = aggMap.get(mapKey)!;
+                        item.attemptedCount++;
+                        if (['sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || q.response_detected) {
+                            item.deliveredCount++;
+                        } else if (['failed', 'error', 'undelivered'].includes(st)) {
+                            item.failedCount++;
+                        }
+                        if (['read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || q.response_detected) {
+                            item.readCount++;
+                        }
+                        if (q.response_detected || ['respondida', 'interagiu'].includes(st)) {
+                            item.repliedCount++;
+                        }
+                    });
+                }
             }
 
             // 2. Reengajamento: consultas paginadas na outbound_queue dentro da faixa de datas ordenando por data decrescente
