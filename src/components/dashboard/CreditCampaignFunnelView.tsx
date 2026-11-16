@@ -50,7 +50,7 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
   const [funnelData, setFunnelData] = useState<CreditCampaignFunnelStat[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '90days' | 'all'>('all');
+  const [timeFilter, setTimeFilter] = useState<'15days' | '30days' | '45days' | '60days' | '90days' | 'all'>('30days');
   const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'all'>('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string>('all');
@@ -119,14 +119,17 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
     setIsLoading(true);
     try {
       const now = new Date();
-      let startDate: Date | undefined;
-      if (timeFilter === '15days') {
-        startDate = new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000);
-      } else if (timeFilter === '30days') {
-        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      } else if (timeFilter === '90days') {
-        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-      }
+      const filterDaysMap: Record<string, number> = {
+        '15days': 15,
+        '30days': 30,
+        '45days': 45,
+        '60days': 60,
+        '90days': 90
+      };
+      const days = filterDaysMap[timeFilter];
+      const startDate: Date | undefined = days
+        ? new Date(now.getTime() - days * 24 * 60 * 60 * 1000)
+        : undefined;
 
       const agentFilterParam = selectedAgentId && selectedAgentId !== 'all' ? selectedAgentId : undefined;
 
@@ -797,38 +800,29 @@ export function CreditCampaignFunnelView({ onSelectCampaign }: CreditCampaignFun
 
         {/* Filtro de Tempo */}
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg self-end lg:self-auto shrink-0">
-          <Button
-            variant={timeFilter === '15days' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setTimeFilter('15days')}
-            className={cn("h-7 px-3 text-xs font-medium rounded shadow-none", timeFilter === '15days' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
-          >
-            15 Dias
-          </Button>
-          <Button
-            variant={timeFilter === '30days' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setTimeFilter('30days')}
-            className={cn("h-7 px-3 text-xs font-medium rounded shadow-none", timeFilter === '30days' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
-          >
-            30 Dias
-          </Button>
-          <Button
-            variant={timeFilter === '90days' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setTimeFilter('90days')}
-            className={cn("h-7 px-3 text-xs font-medium rounded shadow-none", timeFilter === '90days' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
-          >
-            90 Dias
-          </Button>
-          <Button
-            variant={timeFilter === 'all' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setTimeFilter('all')}
-            className={cn("h-7 px-3 text-xs font-medium rounded shadow-none", timeFilter === 'all' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900")}
-          >
-            Tudo
-          </Button>
+          {(
+            [
+              { key: '15days', label: '15 Dias' },
+              { key: '30days', label: '30 Dias' },
+              { key: '45days', label: '45 Dias' },
+              { key: '60days', label: '60 Dias' },
+              { key: '90days', label: '90 Dias' },
+              { key: 'all', label: 'Tudo' }
+            ] as const
+          ).map(({ key, label }) => (
+            <Button
+              key={key}
+              variant={timeFilter === key ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setTimeFilter(key)}
+              className={cn(
+                "h-7 px-3 text-xs font-medium rounded shadow-none",
+                timeFilter === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-900"
+              )}
+            >
+              {label}
+            </Button>
+          ))}
         </div>
       </div>
 
