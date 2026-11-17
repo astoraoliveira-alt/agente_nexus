@@ -141,42 +141,26 @@ BEGIN
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_confirmaram,
 
-      -- 2. Valor Inicial
+      -- 2. Valor Inicial (vinculado à submissão do formulário / Opt-in para evitar contaminação de URA/cardápio)
       COUNT(al.id) FILTER (
-        WHERE (
-          (
-            (al.metadata->>'requested_amount') ~ '^[0-9]+(\.[0-9]+)?$' 
-            AND length(regexp_replace(al.metadata->>'requested_amount', '\..*$', '')) <= 6
-            AND (al.metadata->>'requested_amount')::numeric BETWEEN 10000 AND 500000
-          )
-          OR (
-            (al.metadata->>'valor_inicial') ~ '^[0-9]+(\.[0-9]+)?$' 
-            AND length(regexp_replace(al.metadata->>'valor_inicial', '\..*$', '')) <= 6
-            AND (al.metadata->>'valor_inicial')::numeric BETWEEN 10000 AND 500000
-          )
-          OR (al.metadata->'simulation_data'->>'amount') IS NOT NULL
-          OR NULLIF(al.metadata->>'fiserv_amount_approved', '') IS NOT NULL
-          OR (al.metadata->>'revenue') IS NOT NULL 
-          OR (al.metadata->>'faturamento') IS NOT NULL
-          OR (al.metadata->>'opt_in')::boolean = true
-          OR (al.metadata->>'optin')::boolean = true
-          OR (al.metadata->'consent'->>'opt_in')::boolean = true
-          OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
-          OR (al.metadata->>'loan_request_id') IS NOT NULL
-          OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
-          OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
-        )
-      ) AS m_valor_inicial,
-
-      -- 3. Faturamento
-      COUNT(al.id) FILTER (
-        WHERE (al.metadata->>'revenue') IS NOT NULL 
-           OR (al.metadata->>'faturamento') IS NOT NULL
-           OR (al.metadata->>'opt_in')::boolean = true
+        WHERE (al.metadata->>'opt_in')::boolean = true
            OR (al.metadata->>'optin')::boolean = true
            OR (al.metadata->'consent'->>'opt_in')::boolean = true
            OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
            OR (al.metadata->>'loan_request_id') IS NOT NULL
+           OR (al.metadata->>'fiserv_loan_request_id') IS NOT NULL
+           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
+           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
+      ) AS m_valor_inicial,
+
+      -- 3. Faturamento (vinculado à submissão do formulário / Opt-in)
+      COUNT(al.id) FILTER (
+        WHERE (al.metadata->>'opt_in')::boolean = true
+           OR (al.metadata->>'optin')::boolean = true
+           OR (al.metadata->'consent'->>'opt_in')::boolean = true
+           OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
+           OR (al.metadata->>'loan_request_id') IS NOT NULL
+           OR (al.metadata->>'fiserv_loan_request_id') IS NOT NULL
            OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_faturamento,
@@ -188,6 +172,7 @@ BEGIN
            OR (al.metadata->'consent'->>'opt_in')::boolean = true
            OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
            OR (al.metadata->>'loan_request_id') IS NOT NULL
+           OR (al.metadata->>'fiserv_loan_request_id') IS NOT NULL
            OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
            OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
       ) AS m_opt_in,
@@ -233,6 +218,7 @@ BEGIN
           OR (al.metadata->'consent'->>'opt_in')::boolean = true
           OR (al.metadata->>'fiserv_requested_at') IS NOT NULL
           OR (al.metadata->>'loan_request_id') IS NOT NULL
+          OR (al.metadata->>'fiserv_loan_request_id') IS NOT NULL
           OR lower(COALESCE(al.metadata->>'fiserv_status', '')) IN ('approved', 'in_quoting', 'comite_approved', 'denied', 'fails_to_process', 'lost', 'cancelled')
           OR lower(COALESCE(al.status, '')) IN ('approved', 'aprovado', 'denied', 'recusado', 'reprovado')
         )

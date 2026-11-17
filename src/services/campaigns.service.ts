@@ -2145,24 +2145,16 @@ async deleteCampaign(id: string): Promise<void> {
                     meta.consent?.opt_in === true ||
                     meta.fiserv_requested_at || 
                     meta.loan_request_id ||
+                    meta.fiserv_loan_request_id ||
                     ['approved', 'in_quoting', 'comite_approved', 'aprovado'].includes(fiservStatus) ||
                     ['denied', 'fails_to_process', 'lost', 'cancelled', 'recusado', 'reprovado', 'declined'].includes(fiservStatus) ||
                     ['approved', 'aprovado', 'denied', 'recusado', 'reprovado'].includes(leadStatus)
                 );
 
-                const hasFaturamentoLead = !isBot && Boolean(
-                    meta.revenue || 
-                    meta.faturamento || 
-                    hasOptInLead
-                );
-
-                const hasValorInicialLead = !isBot && Boolean(
-                    meta.requested_amount || 
-                    meta.valor_inicial || 
-                    meta.simulation_data?.amount || 
-                    meta.fiserv_amount_approved ||
-                    hasFaturamentoLead
-                );
+                // No fluxo de formulário único, Valor Inicial, Faturamento e Opt-in são enviados juntos.
+                // Exigir hasOptInLead evita que números soltos de URA/cardápio gravados pelo bot contaminem o funil.
+                const hasFaturamentoLead = hasOptInLead;
+                const hasValorInicialLead = hasOptInLead;
 
                 const isAprovadoLead = Boolean(
                     (
