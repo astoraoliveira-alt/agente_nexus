@@ -394,7 +394,7 @@ export function CreditCampaignDetailView({
           leadMeta.fiserv_status || 
           matchedLead?.status === 'approved' || 
           matchedLead?.status === 'denied' ||
-          ['Opt-in', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(displayStatus)
+          ['Opt-in', 'Em Análise', 'Aprovado', 'Recusado', 'Formalizado', 'Em Atendimento', 'Aguardando Contato'].includes(displayStatus)
         );
 
         const hasInteracted = !isAutoReply && (hasAdvancedInFunnel || isResponded);
@@ -1575,13 +1575,21 @@ export function CreditCampaignDetailView({
       desistencia: 0
     };
 
-    if (leads.length === 0) return base;
+    const emAnaliseResidual = Math.max(0, (base.optIn || 0) - (base.aprovados || 0) - (base.recusados || 0));
+
+    if (leads.length === 0) {
+      return {
+        ...base,
+        emAnalise: Math.max(base.emAnalise || 0, emAnaliseResidual)
+      };
+    }
 
     const interactedCount = leads.filter(l => matchesStatusFilter(l, 'Conversas Iniciadas')).length;
+    const emAnaliseCount = leads.filter(l => matchesStatusFilter(l, 'Em Análise')).length;
 
     return {
       ...base,
-      emAnalise: base.emAnalise ?? Math.max(0, (base.optIn || 0) - (base.aprovados || 0) - (base.recusados || 0)),
+      emAnalise: Math.max(base.emAnalise || 0, emAnaliseCount, emAnaliseResidual),
       interagiram: Math.max(base.interagiram, interactedCount)
     };
   }, [currentStat, leads, campaignId, selectedCampaign]);

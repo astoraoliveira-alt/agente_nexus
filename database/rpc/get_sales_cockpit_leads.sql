@@ -1,15 +1,15 @@
 -- ====================================================================
 -- RPC: get_sales_cockpit_leads
--- Descrição: RPC oficial para o Cockpit de Vendas.
+-- Descrição: RPC oficial para o Cockpit de Vendas (otimizada).
 -- Baseado no critério da coluna "OK Agente" do Dashboard Executivo
 -- (simulation_accepted = true OU ok_agente = true OU accepted_proposal IS NOT NULL),
 -- OU lead aprovado pelo comitê Fiserv cujo atendimento foi assumido por operador humano.
 -- Retorna os dados cadastrais, proposta aceita, operador e o histórico completo de mensagens (JSONB).
 -- ====================================================================
 
-DROP FUNCTION IF EXISTS get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.get_sales_cockpit_leads(UUID, UUID, UUID, UUID, TEXT, TEXT);
 
-CREATE OR REPLACE FUNCTION get_sales_cockpit_leads(
+CREATE OR REPLACE FUNCTION public.get_sales_cockpit_leads(
   p_tenant_id UUID,
   p_agent_id UUID DEFAULT NULL,
   p_campaign_id UUID DEFAULT NULL,
@@ -65,9 +65,6 @@ BEGIN
     FROM agent_leads al
     JOIN campaigns camp ON camp.id = al.campaign_id
     WHERE al.tenant_id = p_tenant_id
-      -- 🎯 CRITÉRIO OFICIAL DE QUALIFICAÇÃO PARA O COCKPIT DE VENDAS:
-      -- 1. Aceite formal do cliente (clicou em simular/falar com especialista): simulation_accepted OU ok_agente OU accepted_proposal
-      -- 2. OU lead com aprovação/limite Fiserv cujo atendimento foi assumido por operador humano (in_service, operator_assigned_at ou conversa human_active)
       AND (
           (al.metadata->>'simulation_accepted')::boolean = true
           OR (al.metadata->>'ok_agente')::boolean = true
@@ -77,8 +74,8 @@ BEGIN
                 COALESCE(al.metadata->>'fiserv_status', '') IN ('comite_approved', 'approved', 'pre_approved')
                 OR (al.metadata->>'fiserv_is_approved')::boolean = true
                 OR (
-                  (al.metadata->>'fiserv_amount_approved') IS NOT NULL 
-                  AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$' 
+                  (al.metadata->>'fiserv_amount_approved') IS NOT NULL
+                  AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$'
                   AND (al.metadata->>'fiserv_amount_approved')::numeric > 0
                 )
                 OR COALESCE(al.metadata->>'fiserv_external_status', '') ILIKE '%aprovado%'
@@ -100,14 +97,12 @@ BEGIN
               )
           )
       )
-      -- 🛡️ EXCLUSÃO ESTRITA DE LEADS REPROVADOS / NEGADOS PELO COMITÊ FISERV:
-      -- Leads recusados por política de crédito ou mesa Fiserv não devem ir para a fila de fechamento comercial
       AND COALESCE(al.metadata->>'fiserv_status', '') NOT IN ('denied', 'lost', 'cancelled', 'fails_to_process', 'rejected')
       AND (
           COALESCE(al.metadata->>'fiserv_status', '') IN ('comite_approved', 'approved', 'pre_approved', 'in_quoting')
           OR (
-            (al.metadata->>'fiserv_amount_approved') IS NOT NULL 
-            AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$' 
+            (al.metadata->>'fiserv_amount_approved') IS NOT NULL
+            AND (al.metadata->>'fiserv_amount_approved') ~ '^[0-9]+(\.[0-9]+)?$'
             AND (al.metadata->>'fiserv_amount_approved')::numeric > 0
           )
           OR COALESCE(al.metadata->>'fiserv_external_status', '') ILIKE '%aprovado%'
@@ -119,14 +114,13 @@ BEGIN
       AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%não conseguimos%'
       AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%nao conseguimos%'
       AND COALESCE(al.metadata->>'fiserv_external_status', '') NOT ILIKE '%reprovad%'
-      -- Validações de integridade da campanha
       AND camp.tenant_id = p_tenant_id
       AND camp.status IN ('active', 'completed')
       AND (p_agent_id IS NULL OR camp.agent_id = p_agent_id)
       AND (p_campaign_id IS NULL OR camp.id = p_campaign_id)
     ORDER BY clean_phone, al.created_at DESC
   )
-  SELECT 
+  SELECT
     ql.q_lead_id AS lead_id,
     conv.id AS conversation_id,
     COALESCE(ql.q_name, conv.user_name, 'Cliente')::text AS name,
@@ -166,26 +160,26 @@ BEGIN
     COALESCE(
         conv.metadata->>'pipeline_stage',
         ql.q_metadata->>'pipeline_stage',
-        CASE 
-            WHEN conv.assigned_operator_id IS NOT NULL OR conv.status = 'human_active' THEN 'in_contact' 
-            ELSE 'pending_contact' 
+        CASE
+            WHEN conv.assigned_operator_id IS NOT NULL OR conv.status = 'human_active' THEN 'in_contact'
+            ELSE 'pending_contact'
         END
     )::text AS pipeline_stage,
     COALESCE(conv.assigned_operator_id, (ql.q_metadata->>'operator_id')::uuid) AS assigned_operator_id,
     COALESCE(
-        u.full_name, 
-        conv.metadata->>'operator_name', 
+        u.full_name,
+        conv.metadata->>'operator_name',
         ql.q_metadata->>'operator_name',
         ql.q_metadata->>'assigned_operator'
     )::text AS assigned_operator,
     conv.status::text AS conversation_status,
-    COALESCE(conv.total_messages, 0)::bigint AS total_messages,
-    conv.last_message_content::text AS last_message_content,
+    COALESCE(msg_stats.total_messages, 0)::bigint AS total_messages,
+    msg_stats.last_message_content::text AS last_message_content,
     COALESCE(conv.last_message_at, ql.q_created_at) AS last_message_time,
-    COALESCE(conv.messages_agg, '[]'::jsonb) AS messages
+    COALESCE(msg_stats.messages_agg, '[]'::jsonb) AS messages
   FROM qualified_leads ql
   LEFT JOIN LATERAL (
-    SELECT 
+    SELECT
       c.id,
       c.status,
       c.assigned_operator_id,
@@ -193,46 +187,7 @@ BEGIN
       c.last_message_at,
       c.created_at,
       c.user_identifier,
-      c.user_name,
-      (
-        SELECT m.content 
-        FROM messages m 
-        WHERE m.conversation_id = c.id 
-        ORDER BY m.created_at DESC 
-        LIMIT 1
-      ) AS last_message_content,
-      (
-        SELECT count(*) 
-        FROM messages m 
-        WHERE m.conversation_id = c.id
-      ) AS total_messages,
-      (
-        SELECT COALESCE(
-          jsonb_agg(
-            jsonb_build_object(
-              'id', m_sub.id,
-              'conversation_id', m_sub.conversation_id,
-              'tenant_id', m_sub.tenant_id,
-              'content', m_sub.content,
-              'direction', m_sub.direction,
-              'sender_type', m_sub.sender_type,
-              'sender_name', m_sub.sender_name,
-              'message_type', m_sub.message_type,
-              'status', m_sub.status,
-              'audio_url', m_sub.audio_url,
-              'created_at', m_sub.created_at
-            ) ORDER BY m_sub.created_at ASC
-          ),
-          '[]'::jsonb
-        )
-        FROM (
-          SELECT *
-          FROM messages m_inner
-          WHERE m_inner.conversation_id = c.id
-          ORDER BY m_inner.created_at ASC
-          LIMIT 100
-        ) m_sub
-      ) AS messages_agg
+      c.user_name
     FROM conversations c
     WHERE c.tenant_id = ql.q_tenant_id
       AND c.user_identifier IN (
@@ -242,17 +197,56 @@ BEGIN
           RIGHT(ql.clean_phone, 11),
           '55' || RIGHT(ql.clean_phone, 11)
       )
-    ORDER BY 
+    ORDER BY
       CASE WHEN c.campaign_id = ql.q_camp_id THEN 1 ELSE 2 END,
       CASE WHEN c.status = 'human_active' THEN 1 WHEN c.status = 'ai_active' THEN 2 ELSE 3 END,
-      (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) DESC,
       c.last_message_at DESC NULLS LAST,
       c.created_at DESC
     LIMIT 1
   ) conv ON true
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(*)::bigint AS total_messages,
+      (ARRAY_AGG(m_sub.content ORDER BY m_sub.created_at DESC))[1] AS last_message_content,
+      COALESCE(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', m_sub.id,
+            'conversation_id', m_sub.conversation_id,
+            'tenant_id', m_sub.tenant_id,
+            'content', m_sub.content,
+            'direction', m_sub.direction,
+            'sender_type', m_sub.sender_type,
+            'sender_name', m_sub.sender_name,
+            'message_type', m_sub.message_type,
+            'status', m_sub.status,
+            'audio_url', m_sub.audio_url,
+            'created_at', m_sub.created_at
+          ) ORDER BY m_sub.created_at ASC
+        ),
+        '[]'::jsonb
+      ) AS messages_agg
+    FROM (
+      SELECT
+        m_inner.id,
+        m_inner.conversation_id,
+        m_inner.tenant_id,
+        m_inner.content,
+        m_inner.direction,
+        m_inner.sender_type,
+        m_inner.sender_name,
+        m_inner.message_type,
+        m_inner.status,
+        m_inner.audio_url,
+        m_inner.created_at
+      FROM messages m_inner
+      WHERE m_inner.conversation_id = conv.id
+      ORDER BY m_inner.created_at DESC
+      LIMIT 100
+    ) m_sub
+  ) msg_stats ON conv.id IS NOT NULL
   LEFT JOIN users u ON u.id = COALESCE(conv.assigned_operator_id, (ql.q_metadata->>'operator_id')::uuid)
-  WHERE 
-    -- RBAC: Administradores e Super Admins veem tudo; operadores veem livres ou atribuídos a eles
+  WHERE
     (
         p_user_role IN ('super_admin', 'admin', 'tenant_admin', 'administrador')
         OR (
@@ -261,7 +255,6 @@ BEGIN
             OR (ql.q_metadata->>'operator_id')::uuid = p_user_id
         )
     )
-    -- Filtro de etapa do funil
     AND (
         p_stage_filter = 'all'
         OR COALESCE(

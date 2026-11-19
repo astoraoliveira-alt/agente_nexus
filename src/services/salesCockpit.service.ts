@@ -1310,41 +1310,44 @@ export const salesCockpitService = {
   async getSalesCockpitAwaitingReplyCount(
     tenantId: string,
     userId?: string | null,
-    userName?: string | null,
-    userRole?: string | null
+    _userName?: string | null,
+    _userRole?: string | null
   ): Promise<number> {
     try {
-      if (!tenantId) return 0;
-      const leads = await this.getSalesCockpitLeads(tenantId, userId, userRole);
-      if (!leads || leads.length === 0) return 0;
+      if (!tenantId || !userId) return 0;
 
-      const myId = userId ? String(userId).trim().toLowerCase() : null;
-      const myName = userName ? userName.trim().toLowerCase() : null;
+      // Consulta leve apenas nas conversas atribuídas ao operador logado,
+      // evitando chamar get_sales_cockpit_leads no polling global do AppContext.
+      const { data: convs, error: convErr } = await supabaseReader
+        .from('conversations')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('assigned_operator_id', userId)
+        .in('status', ['human_active', 'ai_active', 'pending_handoff'])
+        .limit(200);
+
+      if (convErr || !convs || convs.length === 0) return 0;
+
+      const convIds = convs.map((c: any) => c.id);
+      const { data: recentMsgs, error: msgErr } = await supabaseReader
+        .from('messages')
+        .select('conversation_id, sender_type, direction, created_at')
+        .in('conversation_id', convIds)
+        .order('created_at', { ascending: false })
+        .limit(Math.min(1000, convIds.length * 4));
+
+      if (msgErr || !recentMsgs || recentMsgs.length === 0) return 0;
+
+      const latestByConv = new Map<string, any>();
+      for (const m of recentMsgs) {
+        if (!latestByConv.has(m.conversation_id)) {
+          latestByConv.set(m.conversation_id, m);
+        }
+      }
 
       let count = 0;
-      for (const lead of leads) {
-        // Verificar se este lead está atribuído ao usuário atual
-        const leadOpId = lead.assignedOperatorId ? String(lead.assignedOperatorId).trim().toLowerCase() : null;
-        const leadOpName = lead.assignedOperator ? lead.assignedOperator.trim().toLowerCase() : null;
-
-        const isMine = Boolean(
-          (myId && leadOpId && leadOpId === myId) ||
-          (myName && leadOpName && (leadOpName.includes(myName) || myName.includes(leadOpName)))
-        );
-
-        if (!isMine) continue;
-
-        // Verificar a última mensagem do lead
-        const msgs = lead.conversation?.messages;
-        if (!msgs || msgs.length === 0) continue;
-
-        const lastMsg = msgs[msgs.length - 1];
-        const isClientLast =
-          lastMsg.sender === 'user' ||
-          (lastMsg as any).sender_type === 'user' ||
-          (lastMsg as any).direction === 'inbound';
-
-        if (isClientLast) {
+      for (const lastMsg of latestByConv.values()) {
+        if (lastMsg.sender_type === 'user' || lastMsg.direction === 'inbound') {
           count++;
         }
       }

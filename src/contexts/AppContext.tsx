@@ -429,11 +429,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTenant?.id, currentUser?.tenantId, currentUser?.id, currentUser?.name, currentUser?.role]);
 
-  // Carrega e atualiza periodicamente o contador do Cockpit de Vendas
+  // Carrega e atualiza periodicamente o contador do Cockpit de Vendas (deferido para não competir com o carregamento inicial)
   useEffect(() => {
-    refreshSalesCockpitAwaitingCount();
-    const interval = setInterval(refreshSalesCockpitAwaitingCount, 30000); // a cada 30s
-    return () => clearInterval(interval);
+    const initialTimer = setTimeout(() => {
+      refreshSalesCockpitAwaitingCount();
+    }, 3000);
+    const interval = setInterval(refreshSalesCockpitAwaitingCount, 60000); // a cada 60s
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
   }, [refreshSalesCockpitAwaitingCount]);
 
   // Keep ref in sync

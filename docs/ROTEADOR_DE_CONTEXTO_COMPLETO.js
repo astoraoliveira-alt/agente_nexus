@@ -1663,25 +1663,42 @@ try {
         ['apresenta_ofertas', 'confirmacao_cliente', 'solicitar_simulacao', 'reforco_condicoes'].includes(currentStep)
     );
 
-    // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv)
+    // 🎯 PRIORIDADE WHATSAPP FLOW (Submissão Completa -> criar_lead e disparo Fiserv, ou solicitar_simulacao se já aprovado)
     if (flowSubmissionData.isFlow && (flowSubmissionData.consent || isOptInAccepted)) {
-        nextStep = (hasActiveLoan && isApprovedFiserv) ? 'apresenta_ofertas' : 'criar_lead';
+        if (hasActiveLoan && isApprovedFiserv) {
+            if (!requested_installments) {
+                requested_installments = leadInfo.requested_installments || leadInfo.max_installments || leadInfo.approved_installments || 24;
+            }
+            if (approvedLimit > 0 && requested_amount && requested_amount > approvedLimit) {
+                nextStep = 'apresenta_ofertas';
+            } else if (requested_amount && requested_installments) {
+                nextStep = 'solicitar_simulacao';
+            } else {
+                nextStep = 'apresenta_ofertas';
+            }
+        } else {
+            nextStep = 'criar_lead';
+        }
         transitionApplied = true;
     } else if (isSimulationButtonClick && !userTypedNewNumbers) {
-        // 🎯 PRIORIDADE 0: CLIQUE EM "QUERO SIMULAR!" (Início de Nova Simulação ou Início de Campanha)
-        // Se o cliente clica no botão "Quero simular!" sem ter digitado valores na mensagem atual,
-        // inicia/reinicia a jornada limpa sem herdar valores ou faturamentos residuais do passado.
+        // 🎯 PRIORIDADE 0: CLIQUE EM "QUERO SIMULAR!" / "NOVA SIMULAÇÃO"
+        // Se o lead JÁ está aprovado na Fiserv (hasActiveLoan && isApprovedFiserv), não reabre WhatsApp Flow/opt-in:
+        // vai direto para apresenta_ofertas perguntando novo valor e prazo para simular na hora.
         extractedAmount = null;
         extractedInstallments = null;
         requested_amount = null;
         requested_installments = null;
-        revenue = null;
-        if (leadInfo) {
-            leadInfo.requested_amount = null;
-            leadInfo.requested_installments = null;
-            leadInfo.revenue = null;
+        if (hasActiveLoan && isApprovedFiserv) {
+            nextStep = 'apresenta_ofertas';
+        } else {
+            revenue = null;
+            if (leadInfo) {
+                leadInfo.requested_amount = null;
+                leadInfo.requested_installments = null;
+                leadInfo.revenue = null;
+            }
+            nextStep = 'coleta_valor';
         }
-        nextStep = 'coleta_valor';
         transitionApplied = true;
     } else if (isTalkToSpecialist && hasEligibilityForSpecialist) {
         nextStep = (currentStep === 'reforco_condicoes') ? 'finalizacao_sucesso' : 'reforco_condicoes';

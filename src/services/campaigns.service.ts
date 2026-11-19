@@ -1659,6 +1659,7 @@ async deleteCampaign(id: string): Promise<void> {
                 faturamento: 0,
                 valorInicial: 0,
                 optIn: 0,
+                emAnalise: 0,
                 aprovados: 0,
                 recusados: 0,
                 simularam: 0,
@@ -1679,6 +1680,7 @@ async deleteCampaign(id: string): Promise<void> {
                 faturamento: 0,
                 valorInicial: 0,
                 optIn: 0,
+                emAnalise: 0,
                 aprovados: 0,
                 recusados: 0,
                 simularam: 0,
@@ -1721,6 +1723,10 @@ async deleteCampaign(id: string): Promise<void> {
                         faturamento: Number(campStat.faturamento || 0),
                         valorInicial: Number(campStat.valorInicial || 0),
                         optIn: Number(campStat.optIn || 0),
+                        emAnalise: Math.max(
+                            Number(campStat.emAnalise || 0),
+                            Math.max(0, Number(campStat.optIn || 0) - Number(campStat.aprovados || 0) - Number(campStat.recusados || 0))
+                        ),
                         aprovados: Number(campStat.aprovados || 0),
                         recusados: Number(campStat.recusados || 0),
                         simularam: Number(campStat.simularam || 0),
@@ -1947,7 +1953,7 @@ async deleteCampaign(id: string): Promise<void> {
             };
 
             const { data, error } = await supabase.rpc('get_credit_campaign_funnel_stats', rpcArgs);
-            if (!error && Array.isArray(data) && (data.length === 0 || ('desistencia' in data[0]))) {
+            if (!error && Array.isArray(data)) {
                 return data.map((row: any) => ({
                     campaignId: row.campaign_id,
                     campaignName: row.campaign_name || 'Campanha',
@@ -1962,7 +1968,10 @@ async deleteCampaign(id: string): Promise<void> {
                     faturamento: Number(row.faturamento || 0),
                     valorInicial: Number(row.valor_inicial || 0),
                     optIn: Number(row.opt_in || 0),
-                    emAnalise: Number(row.em_analise ?? (row.opt_in ? Math.max(0, Number(row.opt_in || 0) - Number(row.aprovados || 0) - Number(row.recusados || 0)) : 0)),
+                    emAnalise: Math.max(
+                        Number(row.em_analise || 0),
+                        Math.max(0, Number(row.opt_in || 0) - Number(row.aprovados || 0) - Number(row.recusados || 0))
+                    ),
                     aprovados: Number(row.aprovados || 0),
                     recusados: Number(row.recusados || 0),
                     simularam: Number(row.simularam || 0),
@@ -2075,6 +2084,7 @@ async deleteCampaign(id: string): Promise<void> {
                 faturamento: number;
                 valorInicial: number;
                 optIn: number;
+                emAnalise: number;
                 aprovados: number;
                 recusados: number;
                 simularam: number;
@@ -2255,6 +2265,7 @@ async deleteCampaign(id: string): Promise<void> {
                     faturamento: 0,
                     valorInicial: 0,
                     optIn: 0,
+                    emAnalise: 0,
                     aprovados: 0,
                     recusados: 0,
                     simularam: 0,
@@ -2279,7 +2290,7 @@ async deleteCampaign(id: string): Promise<void> {
                     faturamento: lm.faturamento,
                     valorInicial: lm.valorInicial,
                     optIn: lm.optIn,
-                    emAnalise: lm.emAnalise ?? Math.max(0, lm.optIn - lm.aprovados - lm.recusados),
+                    emAnalise: Math.max(lm.emAnalise || 0, Math.max(0, lm.optIn - lm.aprovados - lm.recusados)),
                     aprovados: lm.aprovados,
                     recusados: lm.recusados,
                     simularam: lm.simularam,
