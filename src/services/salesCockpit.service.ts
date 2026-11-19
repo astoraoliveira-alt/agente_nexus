@@ -1323,7 +1323,7 @@ export const salesCockpitService = {
         .select('id')
         .eq('tenant_id', tenantId)
         .eq('assigned_operator_id', userId)
-        .in('status', ['human_active', 'ai_active', 'pending_handoff'])
+        .in('status', ['human_active', 'ai_active'])
         .limit(200);
 
       if (convErr || !convs || convs.length === 0) return 0;
