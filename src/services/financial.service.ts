@@ -90,7 +90,8 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
             const { data: funnelStats, error: fErr } = await supabaseReader.rpc('get_credit_campaign_funnel_stats', {
                 p_tenant_id: tenantId,
                 p_campaign_ids: campaignId ? [campaignId] : null,
-                p_start_date: startDate.toISOString()
+                p_start_date: startDate.toISOString(),
+                p_agent_id: null
             });
 
             if (!fErr && Array.isArray(funnelStats)) {
@@ -122,12 +123,12 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                     }
                 });
             } else {
-                // Fallback leve quando a RPC geral excede statement timeout (57014): consulta apenas campanhas no período e agrega outbound_queue
+                // Fallback paginado (1000 em 1000 - limite max_rows do PostgREST) quando a RPC excede statement timeout (57014)
                 const { data: campsData } = await supabaseReader
                     .from('campaigns')
                     .select('id, name, start_date, created_at')
                     .eq('tenant_id', tenantId)
-                    .gte('created_at', new Date(startDate.getTime() - 5 * 86400000).toISOString());
+                    .gte('created_at', new Date(startDate.getTime() - 10 * 86400000).toISOString());
 
                 const eligibleCamps = (campsData || []).filter((c: any) => {
                     if (campaignId && c.id !== campaignId) return false;
@@ -138,15 +139,29 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 if (eligibleCamps.length > 0) {
                     const campById = new Map<string, any>();
                     eligibleCamps.forEach((c: any) => campById.set(c.id, c));
+                    const eligibleCampIds = eligibleCamps.map((c: any) => c.id);
 
-                    const { data: oqInit } = await supabaseReader
-                        .from('outbound_queue')
-                        .select('campaign_id, status, sent_at, response_detected')
-                        .eq('tenant_id', tenantId)
-                        .in('campaign_id', eligibleCamps.map((c: any) => c.id))
-                        .range(0, 19999);
+                    const oqInit: any[] = [];
+                    const initPageSize = 1000;
+                    for (let i = 0; i < eligibleCampIds.length; i += 10) {
+                        const campChunk = eligibleCampIds.slice(i, i + 10);
+                        let page = 0;
+                        while (true) {
+                            const { data: pageData, error: pageErr } = await supabaseReader
+                                .from('outbound_queue')
+                                .select('campaign_id, status, sent_at, response_detected')
+                                .eq('tenant_id', tenantId)
+                                .in('campaign_id', campChunk)
+                                .range(page * initPageSize, (page + 1) * initPageSize - 1);
 
-                    (oqInit || []).forEach((q: any) => {
+                            if (pageErr || !pageData || pageData.length === 0) break;
+                            oqInit.push(...pageData);
+                            if (pageData.length < initPageSize) break;
+                            page++;
+                        }
+                    }
+
+                    oqInit.forEach((q: any) => {
                         const c = campById.get(q.campaign_id);
                         if (!c) return;
                         const st = String(q.status || '').trim().toLowerCase();
@@ -169,9 +184,9 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                         }
                         const item = aggMap.get(mapKey)!;
                         item.attemptedCount++;
-                        if (['sent', 'enviada', 'delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || q.response_detected) {
+                        if (['delivered', 'read', 'respondida', 'convertida', 'entregue', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || q.response_detected) {
                             item.deliveredCount++;
-                        } else if (['failed', 'error', 'undelivered'].includes(st)) {
+                        } else if (['failed', 'error', 'undelivered', 'not_delivered', 'rejected'].includes(st)) {
                             item.failedCount++;
                         }
                         if (['read', 'respondida', 'convertida', 'lida', 'recebida', 'interagiu', 'converted'].includes(st) || q.response_detected) {
@@ -184,16 +199,16 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 }
             }
 
-            // 2. Reengajamento: consultas paginadas na outbound_queue dentro da faixa de datas ordenando por data decrescente
+            // 2. Reengajamento: consultas paginadas de 1000 em 1000 na outbound_queue dentro da faixa de datas
             const reengRows: any[] = [];
             let reengPage = 0;
-            const reengPageSize = 5000;
+            const reengPageSize = 1000;
             let hasMoreReeng = true;
 
             while (hasMoreReeng) {
                 let reengQuery = supabaseReader
                     .from('outbound_queue')
-                    .select('reengagement_last_sent_at, status')
+                    .select('reengagement_last_sent_at, status, response_detected')
                     .eq('tenant_id', tenantId)
                     .gt('reengagement_attempt_count', 0)
                     .gte('reengagement_last_sent_at', `${startStr}T00:00:00Z`)
@@ -241,22 +256,22 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 item.attemptedCount++;
 
                 const st = String(r.status || '').toLowerCase().trim();
-                const isDelivered = ['sent', 'enviada', 'delivered', 'read', 'respondida', 'interagiu'].includes(st);
+                const isDelivered = ['delivered', 'entregue', 'read', 'lida', 'recebida', 'respondida', 'interagiu', 'converted', 'convertida'].includes(st) || Boolean(r.response_detected);
                 if (isDelivered) item.deliveredCount++;
-                if (['read', 'respondida', 'interagiu'].includes(st)) item.readCount++;
-                if (['failed', 'error', 'undelivered'].includes(st)) item.failedCount++;
+                if (['read', 'lida', 'recebida', 'respondida', 'interagiu', 'converted', 'convertida'].includes(st) || Boolean(r.response_detected)) item.readCount++;
+                if (['failed', 'error', 'undelivered', 'not_delivered', 'rejected'].includes(st)) item.failedCount++;
             });
 
-            // 3. Aquecimento / Anti-Abandono de Funil
+            // 3. Aquecimento / Anti-Abandono de Funil (paginação de 1000 em 1000)
             const followupRows: any[] = [];
             let fupPage = 0;
-            const fupPageSize = 5000;
+            const fupPageSize = 1000;
             let hasMoreFup = true;
 
             while (hasMoreFup) {
                 let followupQuery = supabaseReader
                     .from('outbound_queue')
-                    .select('created_at, sent_at, status, metadata')
+                    .select('created_at, sent_at, status, response_detected, metadata')
                     .eq('tenant_id', tenantId)
                     .filter('metadata->>is_funnel_followup', 'eq', 'true')
                     .range(fupPage * fupPageSize, (fupPage + 1) * fupPageSize - 1);
@@ -302,10 +317,10 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 item.attemptedCount++;
 
                 const st = String(r.status || '').toLowerCase().trim();
-                const isDelivered = ['sent', 'enviada', 'delivered', 'read', 'respondida', 'interagiu'].includes(st);
+                const isDelivered = ['delivered', 'entregue', 'read', 'lida', 'recebida', 'respondida', 'interagiu', 'converted', 'convertida'].includes(st) || Boolean(r.response_detected);
                 if (isDelivered) item.deliveredCount++;
-                if (['read', 'respondida', 'interagiu'].includes(st)) item.readCount++;
-                if (['failed', 'error', 'undelivered'].includes(st)) item.failedCount++;
+                if (['read', 'lida', 'recebida', 'respondida', 'interagiu', 'converted', 'convertida'].includes(st) || Boolean(r.response_detected)) item.readCount++;
+                if (['failed', 'error', 'undelivered', 'not_delivered', 'rejected'].includes(st)) item.failedCount++;
             });
 
             // 4. Monta resultado final com taxas e valores
