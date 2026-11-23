@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   DollarSign, 
   Download, 
@@ -40,7 +40,7 @@ export function MetaBillingReportTab({
   startDate,
   endDate,
   campaignId,
-  contractUnitPrice = 1.05,
+  contractUnitPrice = 0.35,
   onDateChange,
   onUnitPriceChange
 }: MetaBillingReportTabProps) {
@@ -49,7 +49,11 @@ export function MetaBillingReportTab({
   const [items, setItems] = useState<MetaBillingDispatchItem[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [customPrice, setCustomPrice] = useState<number>(contractUnitPrice);
+  const requestSeqRef = useRef<number>(0);
   const billingBasis = 'delivered'; // Faturamento calculado sobre entregues no celular (onde a Meta de fato cobra)
+
+  const startKey = format(startDate, 'yyyy-MM-dd');
+  const endKey = format(endDate, 'yyyy-MM-dd');
 
   useEffect(() => {
     if (contractUnitPrice !== undefined) {
@@ -61,20 +65,25 @@ export function MetaBillingReportTab({
     if (tenantId) {
       loadReport();
     }
-  }, [tenantId, startDate, endDate, campaignId]);
+  }, [tenantId, startKey, endKey, campaignId]);
 
   const loadReport = async () => {
     if (!tenantId) return;
+    const reqId = ++requestSeqRef.current;
     setLoading(true);
     try {
+      const reqStart = new Date(`${startKey}T00:00:00`);
+      const reqEnd = new Date(`${endKey}T23:59:59`);
       const data = await api.getMetaBillingDispatchesReport(
         tenantId,
-        startDate,
-        endDate,
+        reqStart,
+        reqEnd,
         campaignId
       );
+      if (reqId !== requestSeqRef.current) return;
       setItems(data || []);
     } catch (err: any) {
+      if (reqId !== requestSeqRef.current) return;
       console.error('Erro ao buscar relatório de faturamento Meta:', err);
       toast({
         title: 'Erro ao carregar relatório',
@@ -82,7 +91,9 @@ export function MetaBillingReportTab({
         variant: 'destructive'
       });
     } finally {
-      setLoading(false);
+      if (reqId === requestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 

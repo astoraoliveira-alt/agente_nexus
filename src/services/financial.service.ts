@@ -149,9 +149,10 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                         while (true) {
                             const { data: pageData, error: pageErr } = await supabaseReader
                                 .from('outbound_queue')
-                                .select('campaign_id, status, sent_at, response_detected')
+                                .select('id, campaign_id, status, sent_at, response_detected')
                                 .eq('tenant_id', tenantId)
                                 .in('campaign_id', campChunk)
+                                .order('id', { ascending: true })
                                 .range(page * initPageSize, (page + 1) * initPageSize - 1);
 
                             if (pageErr || !pageData || pageData.length === 0) break;
@@ -208,12 +209,13 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
             while (hasMoreReeng) {
                 let reengQuery = supabaseReader
                     .from('outbound_queue')
-                    .select('reengagement_last_sent_at, status, response_detected')
+                    .select('id, reengagement_last_sent_at, status, response_detected')
                     .eq('tenant_id', tenantId)
                     .gt('reengagement_attempt_count', 0)
-                    .gte('reengagement_last_sent_at', `${startStr}T00:00:00Z`)
-                    .lte('reengagement_last_sent_at', `${endStr}T23:59:59Z`)
+                    .gte('reengagement_last_sent_at', `${startStr}T00:00:00-03:00`)
+                    .lte('reengagement_last_sent_at', `${endStr}T23:59:59-03:00`)
                     .order('reengagement_last_sent_at', { ascending: false })
+                    .order('id', { ascending: true })
                     .range(reengPage * reengPageSize, (reengPage + 1) * reengPageSize - 1);
 
                 if (campaignId) {
@@ -271,9 +273,10 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
             while (hasMoreFup) {
                 let followupQuery = supabaseReader
                     .from('outbound_queue')
-                    .select('created_at, sent_at, status, response_detected, metadata')
+                    .select('id, created_at, sent_at, status, response_detected, metadata')
                     .eq('tenant_id', tenantId)
                     .filter('metadata->>is_funnel_followup', 'eq', 'true')
+                    .order('id', { ascending: true })
                     .range(fupPage * fupPageSize, (fupPage + 1) * fupPageSize - 1);
 
                 if (campaignId) {
@@ -331,8 +334,8 @@ async getFinancialReport(month: number, year: number): Promise<import('@/lib/typ
                 return {
                     ...item,
                     deliveryRate,
-                    unitPrice: 1.05,
-                    totalCost: item.attemptedCount * 1.05
+                    unitPrice: 0.35,
+                    totalCost: item.deliveredCount * 0.35
                 };
             });
 

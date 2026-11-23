@@ -79,7 +79,7 @@ export default function Consumption() {
   const [realAgents, setRealAgents] = useState<any[]>([]);
   const [freshTenant, setFreshTenant] = useState<any>(null);
   const [activeTab, setActiveTab] = useState('timeline');
-  const [billingRate, setBillingRate] = useState<number>(1.05);
+  const [billingRate, setBillingRate] = useState<number>(0.35);
 
   const tenantToUse = freshTenant || currentTenant;
 
