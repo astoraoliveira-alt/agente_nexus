@@ -1488,7 +1488,8 @@ try {
     );
 
     const isAffirmative = ((/\b(s[ií]+m+|pode|manda|mande|envia|bora|aceito|ok|beleza|correto|certo|confirm[ao]|show|com certeza|isso|exato|exatamente|claro|positivo|verdade|de acordo|fechou|ok, entendi|entendi|falar\s+(?:com\s+)?(?:o\s+)?(?:um\s+)?especialista|falar especialista)\b/i.test(lastUserLower) || isLinkRequest) && !/\b(n[ãa]o|como|como assim)\b/i.test(lastUserLower) || ["VERIFY_IDENTITY"].includes(semanticIntent)) && !isRestartSimulation;
-    const isNegative = /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
+    const isHelpOrConfusion = /\b(n[aã]o\s+(sei|consigo|entendi|consegui|abriu|abre|aparece|funciona|deu)|me\s+ensina|como\s+fa[çc]o|como\s+funciona)\b/i.test(lastUserLower);
+    const isNegative = !isHelpOrConfusion && /\b(não|nao|negativo|parar|cancelar|não quero|nem pensar|jamais|agora não|agora nao|deixa pra depois|sem interesse|não tenho interesse|nao tenho interesse|não preciso|nao preciso|desisto|não vou querer|nao vou querer)\b/i.test(lastUserLower);
 
     // 🛡️ CORREÇÃO DEFINITIVA DE OPT-IN: O aceite legal do SCR/Fiserv só pode ser reconhecido se:
     // 1. O usuário estiver explicitamente no passo de consentimento (consentimento_optin); OU
