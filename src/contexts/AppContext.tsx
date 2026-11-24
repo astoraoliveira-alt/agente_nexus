@@ -772,8 +772,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           filter: `tenant_id=eq.${currentTenant.id}`
         },
         async (payload: any) => {
+          // Ignora atualizações causadas por disparo frio de campanha (outbound/agent) para evitar tempestade de refetch
+          const isColdCampaignOutbound =
+            payload.new?.last_message_direction === 'outbound' &&
+            payload.new?.last_message_sender_type === 'agent' &&
+            !payload.new?.assigned_operator_id;
+          if (isColdCampaignOutbound) {
+            return;
+          }
           console.log(`📡 Realtime Conversation Change [${payload.eventType}]`);
-          debouncedRefresh(); 
+          debouncedRefresh();
         }
       )
       .subscribe();
@@ -800,11 +808,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
               (fetchMessagesRef.current as any)(selectedConvIdRef.current, true);
            }
            
-           // 🔥 OTIMIZAÇÃO CRÍTICA: Se a mensagem for nossa (ex: disparo em massa da campanha),
-           // NÃO recarregamos a lista de conversas. Só recarregamos quando o LEAD responde!
-           // Isso impede que campanhas causem DDOS no Supabase e gerem Timeout (57014).
-           if (payload.new && (payload.new.from_me === true || payload.new.fromMe === true)) {
-               return; 
+           // 🔥 OTIMIZAÇÃO CRÍTICA: Ignora disparos/respostas outbound e updates de status (SENT/DELIVERED/READ)
+           // para impedir que campanhas/webhooks causem tempestade de refetch no Supabase.
+           const isOutboundOrStatusUpdate =
+             payload.eventType === 'UPDATE' ||
+             (payload.new && (
+               payload.new.direction === 'outbound' ||
+               payload.new.sender_type === 'agent' ||
+               payload.new.sender_type === 'ai' ||
+               payload.new.sender_type === 'operator' ||
+               payload.new.from_me === true ||
+               payload.new.fromMe === true
+             ));
+           if (isOutboundOrStatusUpdate) {
+               return;
            }
 
            // 🔔 Som de notificação EXCLUSIVO para conversas que o atendente logado assumiu para ele
