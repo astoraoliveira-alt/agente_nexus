@@ -657,9 +657,9 @@ export function ChatArea({
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 min-h-0 overflow-y-auto p-4"
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-2.5"
           >
-            <div className="messages-wrapper space-y-4">
+            <div className="messages-wrapper space-y-1.5">
               {conversation.messages.map((message) => (
                 <div
                   key={message.id}
@@ -688,7 +688,7 @@ export function ChatArea({
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1 px-1">
+                      <div className="flex items-center gap-2 mb-0.5 px-1">
                         {message.sender === 'human' && message.senderName && (
                           <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
                             {message.senderName.replace(/\s*\((operador|operator)\)/gi, '').trim()} (Operador)

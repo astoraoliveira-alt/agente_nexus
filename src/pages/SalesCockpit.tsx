@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/contexts/AppContext';
 import { api } from '@/services/api';
+import { supabase } from '@/lib/supabase';
 import { SalesCockpitLead, PipelineStage, formatPhoneBR, formatCNPJ, salesCockpitService } from '@/services/salesCockpit.service';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { ChatArea } from '@/components/conversations/ChatArea';
@@ -150,7 +151,7 @@ function getSlaAlertInfo(lastDate: Date, stage: PipelineStage) {
 }
 
 export default function SalesCockpit() {
-  const { currentTenant, currentUser, conversations, selectedConversation, setSelectedConversation, takeOverConversation, returnToAI, hasPermission, fetchMessages } = useApp();
+  const { currentTenant, currentUser, conversations, selectedConversation, setSelectedConversation, takeOverConversation, returnToAI, hasPermission, fetchMessages, unreadCounts, markConversationAsRead } = useApp();
   const [leads, setLeads] = useState<SalesCockpitLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -312,12 +313,10 @@ export default function SalesCockpit() {
       return;
     }
 
-    // 1. Se o lead já possui o objeto de conversa em memória
+    // 1. Se o lead já possui o objeto de conversa em memória, exibe e sempre busca mensagens novas em background
     if (activeLead.conversation) {
       setSelectedConversation(activeLead.conversation);
-      if (!activeLead.conversation.messages || activeLead.conversation.messages.length === 0) {
-        fetchMessages(activeLead.conversation.id);
-      }
+      fetchMessages(activeLead.conversation.id, true);
       return;
     }
 
@@ -326,9 +325,7 @@ export default function SalesCockpit() {
       const existingConv = conversations?.find(c => c.id === activeLead.conversationId);
       if (existingConv) {
         setSelectedConversation(existingConv);
-        if (!existingConv.messages || existingConv.messages.length === 0) {
-          fetchMessages(existingConv.id);
-        }
+        fetchMessages(existingConv.id, true);
         return;
       }
     }
@@ -339,24 +336,127 @@ export default function SalesCockpit() {
         if (conv && conv.id) {
           setLeads(prev => prev.map(l => l.id === activeLead.id ? { ...l, conversationId: conv.id, conversation: conv } : l));
           setSelectedConversation(conv);
-          if (!conv.messages || conv.messages.length === 0) {
-            fetchMessages(conv.id);
-          }
+          fetchMessages(conv.id, true);
         }
       }).catch(console.error);
     }
   }, [activeLead?.id, currentTenant?.id]);
 
+  // Refs para acesso atualizado dentro dos listeners Realtime / Polling
+  const activeConvIdRef = useRef<string | null>(null);
+  const leadsRef = useRef<SalesCockpitLead[]>([]);
+  useEffect(() => {
+    activeConvIdRef.current = selectedConversation?.id || activeLead?.conversationId || null;
+  }, [selectedConversation?.id, activeLead?.conversationId]);
+  useEffect(() => {
+    leadsRef.current = leads;
+  }, [leads]);
+
+  // 🔥 Realtime instantâneo + Fallback leve (4s) para mensagens do Cockpit de Vendas
+  useEffect(() => {
+    if (!currentTenant?.id) return;
+
+    const cockpitMsgChannel = supabase
+      .channel(`sales-cockpit-msgs-${currentTenant.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        (payload: any) => {
+          const newMsg = payload.new;
+          if (!newMsg?.conversation_id) return;
+
+          // 1. Se for da conversa atualmente aberta, atualiza imediatamente
+          if (activeConvIdRef.current === newMsg.conversation_id) {
+            fetchMessages(newMsg.conversation_id, true);
+          }
+
+          // 2. Atualiza prévia (última mensagem/horário) na fila lateral do Cockpit
+          if (payload.eventType === 'INSERT') {
+            setLeads(prev => {
+              let changed = false;
+              const next = prev.map(l => {
+                if (l.conversationId !== newMsg.conversation_id) return l;
+                changed = true;
+                const msgTime = newMsg.created_at ? new Date(newMsg.created_at) : new Date();
+                return {
+                  ...l,
+                  lastMessage: newMsg.content ?? l.lastMessage,
+                  lastMessageTime: msgTime,
+                  totalMessages: (l.totalMessages || 0) + 1
+                };
+              });
+              return changed ? next : prev;
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    const cockpitConvChannel = supabase
+      .channel(`sales-cockpit-convs-${currentTenant.id}`)
+      .on(
+        'postgres_changes' as any,
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'conversations',
+          filter: `tenant_id=eq.${currentTenant.id}`
+        },
+        (payload: any) => {
+          const updated = payload.new;
+          if (!updated?.id) return;
+          setLeads(prev => {
+            let changed = false;
+            const next = prev.map(l => {
+              if (l.conversationId !== updated.id) return l;
+              changed = true;
+              return {
+                ...l,
+                conversationStatus: updated.status || l.conversationStatus,
+                assignedOperatorId: updated.assigned_operator_id ?? l.assignedOperatorId,
+                conversation: l.conversation
+                  ? {
+                      ...l.conversation,
+                      status: updated.status || l.conversation.status,
+                      assigned_operator_id: updated.assigned_operator_id ?? l.conversation.assigned_operator_id
+                    }
+                  : l.conversation
+              };
+            });
+            return changed ? next : prev;
+          });
+        }
+      )
+      .subscribe();
+
+    // Fallback leve de polling a cada 4s apenas para a conversa aberta (protege contra queda silenciosa de WebSocket)
+    const fallbackPoll = setInterval(() => {
+      if (activeConvIdRef.current) {
+        fetchMessages(activeConvIdRef.current, true);
+      }
+    }, 4000);
+
+    return () => {
+      clearInterval(fallbackPoll);
+      supabase.removeChannel(cockpitMsgChannel);
+      supabase.removeChannel(cockpitConvChannel);
+    };
+  }, [currentTenant?.id, fetchMessages]);
+
   // Ao selecionar um lead da lista
   const handleSelectLead = async (lead: SalesCockpitLead) => {
     setActiveLeadId(lead.id);
 
-    // 1. Se já possui conversa válida mapeada em memória
+    // 1. Se já possui conversa válida mapeada em memória, exibe e sempre sincroniza mensagens recentes
     if (lead.conversation) {
       setSelectedConversation(lead.conversation);
-      if (!lead.conversation.messages || lead.conversation.messages.length === 0) {
-        fetchMessages(lead.conversation.id);
-      }
+      markConversationAsRead(lead.conversation.id);
+      fetchMessages(lead.conversation.id, true);
       return;
     }
 
@@ -365,9 +465,8 @@ export default function SalesCockpit() {
       const existingConv = conversations?.find(c => c.id === lead.conversationId);
       if (existingConv) {
         setSelectedConversation(existingConv);
-        if (!existingConv.messages || existingConv.messages.length === 0) {
-          fetchMessages(existingConv.id);
-        }
+        markConversationAsRead(existingConv.id);
+        fetchMessages(existingConv.id, true);
         return;
       }
     }
@@ -772,11 +871,19 @@ export default function SalesCockpit() {
                             : "hover:bg-slate-50 dark:hover:bg-card/70 border-slate-200 dark:border-slate-800"
                         )}
                       >
-                        {/* Topo do Card: Razão Social */}
+                        {/* Topo do Card: Razão Social + Contador Não Lidas */}
                         <div className="flex items-start justify-between gap-1 mb-0.5">
-                          <span className="font-bold text-[11px] leading-tight text-slate-900 dark:text-slate-100 truncate block w-full" title={lead.name}>
+                          <span className="font-bold text-[11px] leading-tight text-slate-900 dark:text-slate-100 truncate block flex-1" title={lead.name}>
                             {lead.name}
                           </span>
+                          {lead.conversationId && (unreadCounts[lead.conversationId] || 0) > 0 && (
+                            <span
+                              title={`${unreadCounts[lead.conversationId]} mensagem(ns) não lida(s)`}
+                              className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-600 text-white text-[10px] font-bold shrink-0 shadow-sm"
+                            >
+                              {unreadCounts[lead.conversationId]}
+                            </span>
+                          )}
                         </div>
 
                         {/* Telefone sem 55 e com máscara + CNPJ formatado */}

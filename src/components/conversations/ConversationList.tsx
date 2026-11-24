@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle, Building2, Loader2, UserCheck, Users } from 'lucide-react';
+import { MessageSquare, Phone, Bot, User, Filter, X, Smartphone, AlertTriangle, Building2, Loader2, UserCheck, Users, Pin } from 'lucide-react';
 import { Conversation } from '@/lib/types';
 import { cn, phoneticMatch } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -36,7 +36,8 @@ interface ConversationListProps {
 }
 
 export function ConversationList({ conversations, selectedId, onSelect, searchTerm, onSearchChange }: ConversationListProps) {
-  const { maskingEnabled, currentTenant, awaitingReplyCount, currentUser } = useApp();
+  const { maskingEnabled, currentTenant, awaitingReplyCount, currentUser, pinnedConversationIds, togglePinConversation, unreadCounts } = useApp();
+  const pinnedSet = useMemo(() => new Set(pinnedConversationIds), [pinnedConversationIds]);
   const [agentFilter, setAgentFilter] = useState<string | null>(null);
   const [awaitingOnlyFilter, setAwaitingOnlyFilter] = useState(false);
   const [awaitingConversations, setAwaitingConversations] = useState<Conversation[] | null>(null);
@@ -218,9 +219,12 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
         ? sourceConversations.filter(c => c.agentName === agentFilter)
         : sourceConversations;
 
-      return [...result].sort((a, b) =>
-        new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
-      );
+      return [...result].sort((a, b) => {
+        const aPin = pinnedSet.has(a.id) ? 1 : 0;
+        const bPin = pinnedSet.has(b.id) ? 1 : 0;
+        if (aPin !== bPin) return bPin - aPin;
+        return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+      });
     }
 
     // Local fast filter (instant, no network)
@@ -268,10 +272,13 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
       }
     }
 
-    return merged.sort((a, b) =>
-      new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime()
-    );
-  }, [sourceConversations, searchTerm, agentFilter, remoteResults]);
+    return merged.sort((a, b) => {
+      const aPin = pinnedSet.has(a.id) ? 1 : 0;
+      const bPin = pinnedSet.has(b.id) ? 1 : 0;
+      if (aPin !== bPin) return bPin - aPin;
+      return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+    });
+  }, [sourceConversations, searchTerm, agentFilter, remoteResults, pinnedSet]);
 
   const totalMessages = useMemo(() => {
     return filteredConversations.reduce((acc, curr) => acc + (curr.messages?.length || 0), 0);
@@ -410,7 +417,8 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                     : conv.status !== 'closed'
                       ? 'bg-emerald-500/15 border-l-emerald-600'
                       : 'bg-muted border-l-foreground/50'
-                )
+                ),
+                pinnedSet.has(conv.id) && "bg-amber-500/5 border-l-amber-500"
               )}
               onClick={() => onSelect(conv)}
             >
@@ -476,9 +484,37 @@ export function ConversationList({ conversations, selectedId, onSelect, searchTe
                       </div>
                     </div>
 
-                    <span className="text-[10px] text-muted-foreground flex-shrink-0 pt-0.5 text-right whitespace-nowrap">
-                      {formatDistanceToNow(conv.lastMessageTime, { addSuffix: false, locale: ptBR })}
-                    </span>
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0 pt-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePinConversation(conv.id);
+                          }}
+                          title={pinnedSet.has(conv.id) ? "Desafixar conversa do topo" : "Fixar conversa no topo (Pin)"}
+                          className={cn(
+                            "p-1 rounded transition-all",
+                            pinnedSet.has(conv.id)
+                              ? "text-amber-600 dark:text-amber-400 bg-amber-500/15 opacity-100"
+                              : "text-muted-foreground/60 hover:text-amber-600 hover:bg-muted opacity-0 group-hover:opacity-100"
+                          )}
+                        >
+                          <Pin className={cn("h-3.5 w-3.5", pinnedSet.has(conv.id) && "fill-current rotate-45")} />
+                        </button>
+                        <span className="text-[10px] text-muted-foreground text-right whitespace-nowrap">
+                          {formatDistanceToNow(conv.lastMessageTime, { addSuffix: false, locale: ptBR })}
+                        </span>
+                      </div>
+                      {(unreadCounts[conv.id] || 0) > 0 && (
+                        <span
+                          title={`${unreadCounts[conv.id]} mensagem(ns) não lida(s)`}
+                          className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold shadow-sm"
+                        >
+                          {unreadCounts[conv.id]}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className={cn("space-y-1.5", conv.lastMessage ? "mb-2" : "mb-0")}>

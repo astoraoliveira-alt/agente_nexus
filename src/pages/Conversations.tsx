@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { api } from '@/services/api';
 
 export default function Conversations() {
-  const { conversations, selectedConversation, setSelectedConversation, setConversations, fetchMessages } = useApp();
+  const { conversations, selectedConversation, setSelectedConversation, setConversations, fetchMessages, pinnedConversationIds, markConversationAsRead } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [isListCollapsed, setIsListCollapsed] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -34,6 +34,7 @@ export default function Conversations() {
     });
 
     setSelectedConversation(fullConv);
+    markConversationAsRead(conv.id);
     fetchMessages(conv.id, true);
   };
 
@@ -81,6 +82,50 @@ export default function Conversations() {
       resolveAndSelect();
     }
   }, [searchParams, conversations]);
+
+  // Fallback leve de polling (4s) apenas para conversas assumidas / em atendimento humano ou fixadas (pin) abertas na tela
+  useEffect(() => {
+    const convId = selectedConversation?.id;
+    const isPinned = Boolean(convId && pinnedConversationIds.includes(convId));
+    const isHumanChat = Boolean(
+      selectedConversation &&
+      (selectedConversation.status === 'human_active' || selectedConversation.assigned_operator_id || isPinned)
+    );
+    if (!convId || !isHumanChat) return;
+
+    const timer = setInterval(() => {
+      fetchMessages(convId, true);
+    }, 4000);
+
+    return () => clearInterval(timer);
+  }, [selectedConversation?.id, selectedConversation?.status, selectedConversation?.assigned_operator_id, pinnedConversationIds, fetchMessages]);
+
+  // Prioridade de refresh (10s) para conversas fixadas com Pin na lateral
+  useEffect(() => {
+    if (!pinnedConversationIds || pinnedConversationIds.length === 0) return;
+
+    const refreshPinned = async () => {
+      const targetIds = pinnedConversationIds.slice(0, 10);
+      const updatedList = await Promise.all(
+        targetIds.map(id => api.getConversationById(id).catch(() => null))
+      );
+      const valid = updatedList.filter((c): c is NonNullable<typeof c> => Boolean(c && c.id));
+      if (valid.length === 0) return;
+
+      setConversations(prev => {
+        const byId = new Map(prev.map(c => [c.id, c]));
+        for (const fresh of valid) {
+          const existing = byId.get(fresh.id);
+          byId.set(fresh.id, existing ? { ...fresh, messages: existing.messages?.length ? existing.messages : fresh.messages } : fresh);
+        }
+        return Array.from(byId.values());
+      });
+    };
+
+    refreshPinned();
+    const timer = setInterval(refreshPinned, 10000);
+    return () => clearInterval(timer);
+  }, [pinnedConversationIds, setConversations]);
 
   return (
     <MainLayout>

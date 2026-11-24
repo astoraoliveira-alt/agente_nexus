@@ -5,6 +5,7 @@ import { AuthService } from '@/services/auth';
 import { supabase } from '@/lib/supabase';
 import { getDefaultPermissionsForRole } from '@/lib/permissions';
 import { salesCockpitService } from '@/services/salesCockpit.service';
+import { initNotificationAudioUnlock, playNotificationSound } from '@/utils/notificationSound';
 import { toast } from "sonner";
 
 export type SlideOverContentType =
@@ -80,6 +81,10 @@ interface AppContextType {
   refreshAwaitingReplyCount: () => Promise<void>;
   salesCockpitAwaitingCount: number;
   refreshSalesCockpitAwaitingCount: () => Promise<void>;
+  pinnedConversationIds: string[];
+  togglePinConversation: (conversationId: string) => void;
+  unreadCounts: Record<string, number>;
+  markConversationAsRead: (conversationId: string) => void;
 }
 
 export const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -121,6 +126,106 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [handoffRequests, setHandoffRequests] = useState<any[]>([]);
   const [awaitingReplyCount, setAwaitingReplyCount] = useState<number>(0);
   const [salesCockpitAwaitingCount, setSalesCockpitAwaitingCount] = useState<number>(0);
+  const [pinnedConversationIds, setPinnedConversationIds] = useState<string[]>([]);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const countedUnreadMsgIdsRef = useRef<Set<string>>(new Set());
+
+  const pinStorageKey = currentTenant?.id
+    ? `davos_pinned_conversations_${currentTenant.id}_${currentUser?.id || 'anon'}`
+    : null;
+  const unreadStorageKey = currentTenant?.id
+    ? `davos_unread_counts_${currentTenant.id}_${currentUser?.id || 'anon'}`
+    : null;
+
+  useEffect(() => {
+    if (!unreadStorageKey) {
+      setUnreadCounts({});
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(unreadStorageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      setUnreadCounts(parsed && typeof parsed === 'object' ? parsed : {});
+    } catch {
+      setUnreadCounts({});
+    }
+  }, [unreadStorageKey]);
+
+  const markConversationAsRead = useCallback((conversationId: string) => {
+    if (!conversationId) return;
+    setUnreadCounts(prev => {
+      if (!prev[conversationId]) return prev;
+      const next = { ...prev };
+      delete next[conversationId];
+      if (unreadStorageKey) {
+        try {
+          localStorage.setItem(unreadStorageKey, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  }, [unreadStorageKey]);
+
+  const recordUnreadMessages = useCallback((conversationId: string, msgIds: string[]) => {
+    if (!conversationId || msgIds.length === 0) return;
+    // Se a conversa está aberta na tela e o navegador está visível/em foco, não acumula como não lida
+    const isCurrentlyViewing = selectedConvIdRef.current === conversationId && typeof document !== 'undefined' && !document.hidden;
+    if (isCurrentlyViewing) return;
+
+    let added = 0;
+    for (const id of msgIds) {
+      if (!id) continue;
+      if (!countedUnreadMsgIdsRef.current.has(id)) {
+        countedUnreadMsgIdsRef.current.add(id);
+        added++;
+      }
+    }
+    if (countedUnreadMsgIdsRef.current.size > 1000) {
+      const first = countedUnreadMsgIdsRef.current.values().next().value;
+      if (first) countedUnreadMsgIdsRef.current.delete(first);
+    }
+    if (added === 0) return;
+
+    setUnreadCounts(prev => {
+      const next = { ...prev, [conversationId]: (prev[conversationId] || 0) + added };
+      if (unreadStorageKey) {
+        try {
+          localStorage.setItem(unreadStorageKey, JSON.stringify(next));
+        } catch {}
+      }
+      return next;
+    });
+  }, [unreadStorageKey]);
+
+  useEffect(() => {
+    if (!pinStorageKey) {
+      setPinnedConversationIds([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(pinStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setPinnedConversationIds(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setPinnedConversationIds([]);
+    }
+  }, [pinStorageKey]);
+
+  const togglePinConversation = useCallback((conversationId: string) => {
+    if (!conversationId) return;
+    setPinnedConversationIds(prev => {
+      const exists = prev.includes(conversationId);
+      const next = exists ? prev.filter(id => id !== conversationId) : [conversationId, ...prev];
+      if (pinStorageKey) {
+        try {
+          localStorage.setItem(pinStorageKey, JSON.stringify(next));
+        } catch (err) {
+          console.error('Failed to save pinned conversations:', err);
+        }
+      }
+      return next;
+    });
+  }, [pinStorageKey]);
 
   const toggleMasking = () => setMaskingEnabled(prev => !prev);
 
@@ -319,6 +424,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     
     try {
       const messages = await api.getConversationMessages(activeId);
+
+      // Detecta nova mensagem do lead recebida via polling/refresh para tocar som se a conversa for do operador ou pinada
+      const cachedConv = conversationsRef.current.find(c => c.id === activeId);
+      const prevMsgs = cachedConv?.messages || [];
+      if (prevMsgs.length > 0 && messages.length > prevMsgs.length) {
+        const prevIds = new Set(prevMsgs.map(m => m.id));
+        const newlyArrivedUserMsgs = messages.filter(m => !prevIds.has(m.id) && m.sender === 'user');
+        if (newlyArrivedUserMsgs.length > 0) {
+          const user = currentUserRef.current;
+          const isMyAssigned = Boolean(
+            user && cachedConv && (
+              (cachedConv.assigned_operator_id && cachedConv.assigned_operator_id === user.id) ||
+              (!cachedConv.assigned_operator_id && cachedConv.assignedOperator && user.name && cachedConv.assignedOperator.toLowerCase().includes(user.name.toLowerCase()))
+            )
+          );
+          const isPinned = pinnedIdsRef.current.includes(activeId);
+          if (isMyAssigned || isPinned) {
+            playNotificationSound(newlyArrivedUserMsgs[newlyArrivedUserMsgs.length - 1].id);
+          }
+        }
+      }
       
       setSelectedConversation(prev => {
         if (convIdOverride || (prev?.id === activeId)) {
@@ -330,7 +456,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setConversations(prev => {
         const exists = prev.some(c => c.id === activeId);
         if (exists) {
-          return prev.map(c => c.id === activeId ? { ...c, messages: messages } : c);
+          const lastMsg = messages[messages.length - 1];
+          return prev.map(c => c.id === activeId ? {
+            ...c,
+            messages,
+            ...(lastMsg ? { lastMessage: lastMsg.content, lastMessageTime: lastMsg.timestamp, isAwaitingReply: lastMsg.sender === 'user' } : {})
+          } : c);
         }
         return prev;
       });
@@ -429,6 +560,111 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTenant?.id, currentUser?.tenantId, currentUser?.id, currentUser?.name, currentUser?.role]);
 
+  // Monitoramento global leve (5s) para conversas assumidas pelo atendente ou fixadas com Pin:
+  // garante som e atualização instantânea mesmo com outra conversa aberta ou navegador em segundo plano
+  const myConvsLastMsgMsRef = useRef<Map<string, number>>(new Map());
+  const myConvsMonitorInitRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const tenantId = currentTenant?.id;
+    const userId = currentUser?.id;
+    if (!tenantId || !userId) return;
+
+    const scopeKey = `${tenantId}:${userId}`;
+    if (myConvsMonitorInitRef.current !== scopeKey) {
+      myConvsLastMsgMsRef.current = new Map();
+      myConvsMonitorInitRef.current = null;
+    }
+
+    const pollMyConversations = async () => {
+      try {
+        const pinned = pinnedIdsRef.current;
+        const orFilter = pinned.length > 0
+          ? `assigned_operator_id.eq.${userId},id.in.(${pinned.join(',')})`
+          : `assigned_operator_id.eq.${userId}`;
+
+        const { data: rows, error } = await supabase
+          .from('conversations')
+          .select('id, last_message_at, status, assigned_operator_id')
+          .eq('tenant_id', tenantId)
+          .or(orFilter)
+          .limit(100);
+
+        if (error || !rows) return;
+
+        const isFirstRun = myConvsMonitorInitRef.current !== scopeKey;
+        if (isFirstRun) {
+          for (const r of rows) {
+            const ms = r.last_message_at ? new Date(r.last_message_at).getTime() : 0;
+            myConvsLastMsgMsRef.current.set(r.id, ms);
+          }
+          myConvsMonitorInitRef.current = scopeKey;
+          return;
+        }
+
+        const changedConvIds: string[] = [];
+        for (const r of rows) {
+          const newMs = r.last_message_at ? new Date(r.last_message_at).getTime() : 0;
+          const prevMs = myConvsLastMsgMsRef.current.get(r.id);
+          if (prevMs === undefined) {
+            myConvsLastMsgMsRef.current.set(r.id, newMs);
+            if (newMs > 0) changedConvIds.push(r.id);
+          } else if (newMs > prevMs) {
+            myConvsLastMsgMsRef.current.set(r.id, newMs);
+            changedConvIds.push(r.id);
+          }
+        }
+
+        if (changedConvIds.length === 0) return;
+
+        for (const convId of changedConvIds) {
+          const msgs = await api.getConversationMessages(convId).catch(() => null);
+          if (!msgs || msgs.length === 0) continue;
+
+          // Conta todas as novas mensagens do lead que chegaram desde o último timestamp conhecido
+          const prevCached = conversationsRef.current.find(c => c.id === convId);
+          const prevIds = new Set((prevCached?.messages || []).map(m => m.id));
+          const newUserMsgs = prevIds.size > 0
+            ? msgs.filter(m => !prevIds.has(m.id) && m.sender === 'user')
+            : [msgs[msgs.length - 1]].filter(m => m.sender === 'user');
+
+          if (newUserMsgs.length > 0) {
+            recordUnreadMessages(convId, newUserMsgs.map(m => m.id));
+            playNotificationSound(newUserMsgs[newUserMsgs.length - 1].id);
+          } else {
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg.sender === 'user') {
+              playNotificationSound(lastMsg.id);
+            }
+          }
+
+          const lastMsg = msgs[msgs.length - 1];
+
+          setSelectedConversation(prev => (prev?.id === convId ? { ...prev, messages: msgs } : prev));
+          setConversations(prev => {
+            const exists = prev.some(c => c.id === convId);
+            if (!exists) return prev;
+            return prev.map(c => c.id === convId ? {
+              ...c,
+              messages: msgs,
+              lastMessage: lastMsg.content,
+              lastMessageTime: lastMsg.timestamp,
+              isAwaitingReply: lastMsg.sender === 'user'
+            } : c);
+          });
+        }
+
+        refreshSalesCockpitAwaitingCount();
+      } catch {
+        // Silencioso em falhas transitórias de rede
+      }
+    };
+
+    pollMyConversations();
+    const interval = setInterval(pollMyConversations, 5000);
+    return () => clearInterval(interval);
+  }, [currentTenant?.id, currentUser?.id, refreshSalesCockpitAwaitingCount]);
+
   // Carrega e atualiza periodicamente o contador do Cockpit de Vendas (deferido para não competir com o carregamento inicial)
   useEffect(() => {
     const initialTimer = setTimeout(() => {
@@ -445,9 +681,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { loadConversationsListRef.current = loadConversationsList; }, [loadConversationsList]);
 
   // Keep ref updated for Realtime handlers to avoid stale closures
+  const conversationsRef = useRef<Conversation[]>([]);
+  const currentUserRef = useRef<User | null>(null);
+  const pinnedIdsRef = useRef<string[]>([]);
   useEffect(() => {
     selectedConvIdRef.current = selectedConversation?.id || null;
   }, [selectedConversation?.id]);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+  useEffect(() => {
+    pinnedIdsRef.current = pinnedConversationIds;
+  }, [pinnedConversationIds]);
+  useEffect(() => {
+    return initNotificationAudioUnlock();
+  }, []);
+  useEffect(() => {
+    const onFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && !document.hidden && selectedConvIdRef.current) {
+        markConversationAsRead(selectedConvIdRef.current);
+      }
+    };
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+    return () => {
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [markConversationAsRead]);
 
   // Stable callback for loading handoff requests
   const loadHandoffs = useCallback(async () => {
@@ -493,7 +757,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           refreshTimeout = null;
           loadConversationsListRef.current();
           refreshSalesCockpitAwaitingCount();
-       }, 10000); // 10000ms throttle para suportar envios em massa sem travar o painel
+       }, 2500); // 2500ms throttle para manter resposta rápida sem sobrecarregar o banco
     };
 
     // 1. Subscribe to Conversations (Update list automatically)
@@ -530,10 +794,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         async (payload: any) => {
            console.log('💬 Signal: New Message detected via Realtime.', payload.eventType);
            
-           // Apenas atualiza a conversa ABERTA se a mensagem for dela
+           // Apenas atualiza a conversa ABERTA se a mensagem for dela (com force=true para resposta instantânea)
            const newMsgConvId = payload.new?.conversation_id;
            if (selectedConvIdRef.current && newMsgConvId === selectedConvIdRef.current) {
-              fetchMessagesRef.current(selectedConvIdRef.current);
+              (fetchMessagesRef.current as any)(selectedConvIdRef.current, true);
            }
            
            // 🔥 OTIMIZAÇÃO CRÍTICA: Se a mensagem for nossa (ex: disparo em massa da campanha),
@@ -541,6 +805,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
            // Isso impede que campanhas causem DDOS no Supabase e gerem Timeout (57014).
            if (payload.new && (payload.new.from_me === true || payload.new.fromMe === true)) {
                return; 
+           }
+
+           // 🔔 Som de notificação EXCLUSIVO para conversas que o atendente logado assumiu para ele
+           const isInboundLeadMsg = payload.eventType === 'INSERT' && (
+             payload.new?.direction === 'inbound' ||
+             payload.new?.sender_type === 'user'
+           );
+           if (isInboundLeadMsg && newMsgConvId) {
+             const user = currentUserRef.current;
+             const conv = conversationsRef.current.find(c => c.id === newMsgConvId);
+             const isMyAssigned = Boolean(
+               user && conv && (
+                 (conv.assigned_operator_id && conv.assigned_operator_id === user.id) ||
+                 (!conv.assigned_operator_id && conv.assignedOperator && user.name && conv.assignedOperator.toLowerCase().includes(user.name.toLowerCase()))
+               )
+             );
+
+             const isPinned = pinnedIdsRef.current.includes(newMsgConvId);
+             if (isMyAssigned || isPinned) {
+               playNotificationSound(payload.new?.id);
+               refreshSalesCockpitAwaitingCount();
+               // Atualiza prévia na lista de conversas imediatamente
+               setConversations(prev => prev.map(c => c.id === newMsgConvId ? {
+                 ...c,
+                 lastMessage: payload.new?.content ?? c.lastMessage,
+                 lastMessageTime: payload.new?.created_at ? new Date(payload.new.created_at) : new Date(),
+                 isAwaitingReply: true
+               } : c));
+             } else if (!conv && user) {
+               // Caso a conversa ainda não esteja no cache local (ex: Cockpit de Vendas),
+               // verifica no banco se está atribuída exclusivamente ao operador logado
+               supabase
+                 .from('conversations')
+                 .select('assigned_operator_id, metadata')
+                 .eq('id', newMsgConvId)
+                 .single()
+                 .then(({ data: cData }) => {
+                   if (!cData) return;
+                   const opName = String(cData.metadata?.operator_name || '').toLowerCase();
+                   const isMineInDb = Boolean(
+                     (cData.assigned_operator_id && cData.assigned_operator_id === user.id) ||
+                     (!cData.assigned_operator_id && user.name && opName.includes(user.name.toLowerCase()))
+                   );
+                   if (isMineInDb) {
+                     playNotificationSound(payload.new?.id);
+                     refreshSalesCockpitAwaitingCount();
+                   }
+                 })
+                 .catch(() => {});
+             }
            }
            
            debouncedRefresh();
@@ -1036,6 +1350,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshAwaitingReplyCount,
         salesCockpitAwaitingCount,
         refreshSalesCockpitAwaitingCount,
+        pinnedConversationIds,
+        togglePinConversation,
+        unreadCounts,
+        markConversationAsRead,
         maskingEnabled,
         toggleMasking,
       }}
