@@ -657,57 +657,81 @@ export function ChatArea({
           <div
             ref={scrollContainerRef}
             onScroll={handleScroll}
-            className="flex-1 min-h-0 overflow-y-auto px-4 py-2.5"
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-2.5 whatsapp-chat-bg"
           >
-            <div className="messages-wrapper space-y-1.5">
-              {conversation.messages.map((message) => (
+            <div className="messages-wrapper space-y-1">
+              {conversation.messages.map((message, idx) => {
+                const msgDate = new Date(message.timestamp);
+                const prevMsg = idx > 0 ? conversation.messages[idx - 1] : null;
+                const prevDate = prevMsg ? new Date(prevMsg.timestamp) : null;
+                const showDateSeparator = !prevDate ||
+                  msgDate.getFullYear() !== prevDate.getFullYear() ||
+                  msgDate.getMonth() !== prevDate.getMonth() ||
+                  msgDate.getDate() !== prevDate.getDate();
+
+                const today = new Date();
+                const isToday =
+                  msgDate.getFullYear() === today.getFullYear() &&
+                  msgDate.getMonth() === today.getMonth() &&
+                  msgDate.getDate() === today.getDate();
+                const dateLabel = isToday ? 'Hoje' : format(msgDate, 'dd/MM/yyyy', { locale: ptBR });
+
+                return (
+                <React.Fragment key={message.id}>
+                  {showDateSeparator && (
+                    <div className="flex justify-center my-2">
+                      <span className="px-2.5 py-0.5 rounded-md bg-white/90 dark:bg-slate-800/90 text-[11px] font-medium text-slate-600 dark:text-slate-300 shadow-2xs border border-black/[0.05]">
+                        {dateLabel}
+                      </span>
+                    </div>
+                  )}
                 <div
-                  key={message.id}
                   className={cn(
                     'flex',
                     message.sender === 'user' ? 'justify-start' : 'justify-end'
                   )}
                 >
                   <div className={cn(
-                    "flex items-end gap-2 max-w-[80%]",
+                    "flex items-end gap-1.5 max-w-[78%]",
                     message.sender !== 'user' ? "flex-row-reverse" : "flex-row"
                   )}>
-                    {/* Avatar Logic */}
-                    <div className={cn(
-                      'w-8 h-8 flex items-center justify-center flex-shrink-0 rounded-full',
-                      message.sender === 'ai' ? 'bg-accent/10' :
-                        message.sender === 'human' ? 'bg-success/10' : 'bg-muted'
-                    )}>
-                      {message.sender === 'ai' ? (
-                        <Bot className="h-4 w-4 text-accent" />
-                      ) : message.sender === 'human' ? (
-                        <User className="h-4 w-4 text-success" />
-                      ) : (
-                        <User className="h-4 w-4 text-muted-foreground" />
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-0.5 px-1">
-                        {message.sender === 'human' && message.senderName && (
-                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-                            {message.senderName.replace(/\s*\((operador|operator)\)/gi, '').trim()} (Operador)
-                          </span>
-                        )}
-                        {message.sender === 'ai' && (
-                          <span className="text-[10px] text-accent font-bold uppercase tracking-wider ml-auto">Intelligence AI</span>
-                        )}
-                        {message.sender === 'user' && (
-                          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Cliente</span>
+                    {/* Avatar discreto apenas na 1ª mensagem de cada sequência do mesmo remetente */}
+                    {(!prevMsg || prevMsg.sender !== message.sender || showDateSeparator) ? (
+                      <div className={cn(
+                        'w-7 h-7 flex items-center justify-center flex-shrink-0 rounded-full',
+                        message.sender === 'ai' ? 'bg-accent/15' :
+                          message.sender === 'human' ? 'bg-emerald-600/15' : 'bg-white/80 border border-black/5'
+                      )}>
+                        {message.sender === 'ai' ? (
+                          <Bot className="h-3.5 w-3.5 text-accent" />
+                        ) : message.sender === 'human' ? (
+                          <User className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-400" />
+                        ) : (
+                          <User className="h-3.5 w-3.5 text-slate-500" />
                         )}
                       </div>
+                    ) : (
+                      <div className="w-7 flex-shrink-0" />
+                    )}
 
+                    <div className={cn("min-w-0 flex-1 flex flex-col", message.sender !== 'user' ? "items-end" : "items-start")}>
                       <div className={cn(
-                        'chat-bubble shadow-sm relative group/bubble',
-                        message.sender === 'user' ? 'chat-bubble-user rounded-bl-sm' :
-                          message.sender === 'human' ? 'chat-bubble-human rounded-br-sm' :
-                            'chat-bubble-ai rounded-br-sm'
+                        'chat-bubble relative group/bubble',
+                        message.sender === 'user' ? 'chat-bubble-user rounded-tl-none' :
+                          message.sender === 'human' ? 'chat-bubble-human rounded-tr-none' :
+                            'chat-bubble-ai rounded-tr-none'
                       )}>
+                        {/* Rótulo sutil dentro da bolha apenas para IA ou Operador quando muda o remetente */}
+                        {message.sender !== 'user' && (!prevMsg || prevMsg.sender !== message.sender || showDateSeparator) && (
+                          <div className={cn(
+                            "text-[10px] font-semibold leading-none mb-1",
+                            message.sender === 'ai' ? "text-white/85" : "text-emerald-800/80 dark:text-emerald-200/80"
+                          )}>
+                            {message.sender === 'ai'
+                              ? 'Intelligence AI'
+                              : `${(message.senderName || 'Operador').replace(/\s*\((operador|operator)\)/gi, '').trim()}`}
+                          </div>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -777,7 +801,7 @@ export function ChatArea({
                             )}
                           </div>
                         ) : (
-                          <p className="text-sm custom-markdown leading-relaxed">
+                          <p className="text-[13.5px] custom-markdown leading-snug">
                             {(!parseMessageContent(message.content) && !message.content?.trim()) ? (
                               <span className="italic opacity-60 text-xs">[Mensagem sem texto ou mídia não suportada]</span>
                             ) : (
@@ -785,44 +809,52 @@ export function ChatArea({
                             )}
                           </p>
                         )}
-                      </div>
 
-                      <div className={cn(
-                        "flex items-center gap-1 mt-1",
-                        message.sender !== 'user' ? "justify-end" : "justify-start"
-                      )}>
-                        <p className="text-[10px] text-muted-foreground/60">
-                          {format(message.timestamp, 'dd/MM/yyyy HH:mm:ss', { locale: ptBR })}
-                        </p>
-                        {message.sender !== 'user' && (
-                          <div className="flex items-center">
-                            {message.status === 'failed' || message.status === 'rejected' ? (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <AlertCircle className="h-3 w-3 text-destructive animate-pulse cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-[200px] text-[10px]">
-                                    {message.statusDescription || 'Erro no envio da mensagem pela Zenvia.'}
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            ) : message.status === 'read' ? (
-                              <CheckCheck className="h-3 w-3 text-info" />
-                            ) : message.status === 'delivered' ? (
-                              <CheckCheck className="h-3 w-3 text-muted-foreground/40" />
-                            ) : message.status === 'sent' ? (
-                              <Check className="h-3 w-3 text-muted-foreground/40" />
-                            ) : message.status === 'processing' || message.status === 'pending' ? (
-                              <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title="Processando..." />
-                            ) : null}
-                          </div>
-                        )}
+                        {/* Horário e status dentro da bolha (canto inferior direito, estilo WhatsApp) */}
+                        <div
+                          className={cn(
+                            "flex items-center justify-end gap-1 mt-0.5 select-none",
+                            message.sender === 'ai'
+                              ? "text-white/75"
+                              : "text-slate-500/80 dark:text-slate-300/75"
+                          )}
+                          title={format(msgDate, 'dd/MM/yyyy HH:mm:ss', { locale: ptBR })}
+                        >
+                          <span className="text-[10px] leading-none font-normal">
+                            {format(msgDate, 'HH:mm', { locale: ptBR })}
+                          </span>
+                          {message.sender !== 'user' && (
+                            <span className="inline-flex items-center">
+                              {message.status === 'failed' || message.status === 'rejected' ? (
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <AlertCircle className="h-3 w-3 text-destructive animate-pulse cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top" className="max-w-[200px] text-[10px]">
+                                      {message.statusDescription || 'Erro no envio da mensagem pela Zenvia.'}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              ) : message.status === 'read' ? (
+                                <CheckCheck className={cn("h-3.5 w-3.5", message.sender === 'ai' ? "text-sky-100" : "text-sky-500")} />
+                              ) : message.status === 'delivered' ? (
+                                <CheckCheck className="h-3.5 w-3.5 opacity-60" />
+                              ) : message.status === 'sent' ? (
+                                <Check className="h-3.5 w-3.5 opacity-60" />
+                              ) : message.status === 'processing' || message.status === 'pending' ? (
+                                <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title="Processando..." />
+                              ) : null}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              ))}
+                </React.Fragment>
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
           </div>
