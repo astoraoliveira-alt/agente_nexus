@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { User, Tenant, Conversation } from '@/lib/types'; // Using real types
 import { api } from '@/services/api';
+import { isClosingAckMessage, isAutoReplyMessage } from '@/services/core.service';
 import { AuthService } from '@/services/auth';
 import { supabase } from '@/lib/supabase';
 import { getDefaultPermissionsForRole } from '@/lib/permissions';
@@ -460,7 +461,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return prev.map(c => c.id === activeId ? {
             ...c,
             messages,
-            ...(lastMsg ? { lastMessage: lastMsg.content, lastMessageTime: lastMsg.timestamp, isAwaitingReply: lastMsg.sender === 'user' } : {})
+            ...(lastMsg ? {
+              lastMessage: lastMsg.content,
+              lastMessageTime: lastMsg.timestamp,
+              isAwaitingReply: c.isAwaitingReply === false ? false : (lastMsg.sender === 'user' && !isClosingAckMessage(lastMsg.content) && !isAutoReplyMessage(lastMsg.content))
+            } : {})
           } : c);
         }
         return prev;
@@ -649,7 +654,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               messages: msgs,
               lastMessage: lastMsg.content,
               lastMessageTime: lastMsg.timestamp,
-              isAwaitingReply: lastMsg.sender === 'user'
+              isAwaitingReply: c.isAwaitingReply === false ? false : (lastMsg.sender === 'user' && !isClosingAckMessage(lastMsg.content) && !isAutoReplyMessage(lastMsg.content))
             } : c);
           });
         }
@@ -848,7 +853,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                  ...c,
                  lastMessage: payload.new?.content ?? c.lastMessage,
                  lastMessageTime: payload.new?.created_at ? new Date(payload.new.created_at) : new Date(),
-                 isAwaitingReply: true
+                 isAwaitingReply: !isClosingAckMessage(payload.new?.content) && !isAutoReplyMessage(payload.new?.content)
                } : c));
              } else if (!conv && user) {
                // Caso a conversa ainda não esteja no cache local (ex: Cockpit de Vendas),
@@ -869,8 +874,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                      playNotificationSound(payload.new?.id);
                      refreshSalesCockpitAwaitingCount();
                    }
-                 })
-                 .catch(() => {});
+                 }, () => {});
              }
            }
            

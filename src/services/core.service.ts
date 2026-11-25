@@ -1,6 +1,85 @@
 import { supabase, supabaseReader } from '@/lib/supabase';
 import { Agent, Company, ConversationalFlow, User, Conversation, PlanCatalog, Contact, KnowledgeItem } from '@/lib/types';
 
+const TERMINAL_CONVERSATION_STEPS = new Set([
+    'recusa_analise',
+    'desistencia_cliente',
+    'optin_recusado',
+    'finalizacao_sucesso',
+    'stop_flow',
+]);
+
+const TERMINAL_FISERV_STATUSES = new Set([
+    'denied',
+    'fails_to_process',
+    'lost',
+    'won',
+    'formalization',
+    'recusado',
+    'reprovado',
+    'declined',
+    'cancelled',
+]);
+
+const CLOSING_ACK_REGEX = /^(?:muito\s+)?(?:obrigad[oa]|obg|valeu|vlw|ok|okay|certo|combinado|beleza|blz|perfeito|entendi|entendido|show|tranquilo|grato|grata|tchau|at[eé]\s+mais|tmj|👍|🙏|🤝|👌|✅|👏)(?:[\s!.,?🙏👍🤝👌✅👏\u{1F3FB}-\u{1F3FF}])*$/iu;
+
+const AUTO_REPLY_REGEX = /(agradece(mos)?\s+(a\s+prefer[eê]ncia|o\s+seu\s+contato|seu\s+contato|sua\s+mensagem)|hor[aá]rio\s+de\s+(atendimento|funcionamento)|fora\s+de\s+hor[aá]rio|estamos\s+fechados|fechado\s+no\s+momento|responderemos\s+assim\s+que\s+poss[ií]vel|retornaremos\s+(o\s+mais\s+breve|assim\s+que|em\s+breve)|n[aã]o\s+est(ou|amos)\s+(dispon[ií]ve|atendendo)|estarei\s+ausente|estou\s+ausente|reabre\s+hoje|reabrimos|mensagem\s+(?:[eé]\s+)?autom[aá]tica|resposta\s+autom[aá]tica|digite\s+seu\s+pedido|nosso\s+card[aá]pio|hora\s+de\s+pedir\s+seu\s+almo[cç]o|escolha\s+uma\s+das\s+op[çc][õo]es|seja\s+bem-vindo|bem-vindo\(a\)|instadelivery|cardapioweb|anota\.ai|ifood\.com\.br)/i;
+
+export function isClosingAckMessage(content?: string | null): boolean {
+    if (!content) return false;
+    const trimmed = content.trim();
+    if (!trimmed || trimmed.length > 40) return false;
+    return CLOSING_ACK_REGEX.test(trimmed);
+}
+
+export function isAutoReplyMessage(content?: string | null): boolean {
+    if (!content) return false;
+    return AUTO_REPLY_REGEX.test(content);
+}
+
+export function computeIsAwaitingReply(params: {
+    status?: string | null;
+    lastMessageDirection?: string | null;
+    lastMessageSender?: string | null;
+    metadata?: Record<string, any> | null;
+    contextState?: Record<string, any> | null;
+    leadFiservStatus?: string | null;
+    lastMessageContent?: string | null;
+}): boolean {
+    if (params.status === 'closed') return false;
+
+    const isInbound =
+        params.lastMessageDirection === 'inbound' ||
+        params.lastMessageSender === 'user';
+    if (!isInbound) return false;
+
+    const meta = params.metadata || {};
+    const ctx = params.contextState || {};
+    const ctxMeta = ctx.metadata || {};
+
+    if (meta.is_bot === true || meta.is_auto_reply === true || ctx.is_auto_reply === true) {
+        return false;
+    }
+
+    const step = String(ctx.current_step || '').toLowerCase().trim();
+    if (TERMINAL_CONVERSATION_STEPS.has(step)) {
+        return false;
+    }
+
+    const fiservStatus = String(
+        params.leadFiservStatus || meta.fiserv_status || ctxMeta.fiserv_status || ''
+    ).toLowerCase().trim();
+    if (TERMINAL_FISERV_STATUSES.has(fiservStatus)) {
+        return false;
+    }
+
+    if (isClosingAckMessage(params.lastMessageContent) || isAutoReplyMessage(params.lastMessageContent)) {
+        return false;
+    }
+
+    return true;
+}
+
 export const coreService = {
     normalizePhone(phone?: string | null): string {
         return String(phone || '').replace(/\D/g, '');
@@ -526,7 +605,13 @@ export const coreService = {
             createdAt: new Date(c.created_at),
             lastMessageSender: c.last_message_sender_type,
             lastMessageDirection: c.last_message_direction,
-            isAwaitingReply: c.status !== 'closed' && (c.last_message_direction === 'inbound' || c.last_message_sender_type === 'user')
+            isAwaitingReply: computeIsAwaitingReply({
+                status: c.status,
+                lastMessageDirection: c.last_message_direction,
+                lastMessageSender: c.last_message_sender_type,
+                metadata: c.metadata,
+                contextState: c.context_state,
+            })
         })) as unknown as Conversation[];
     },
 
@@ -589,34 +674,65 @@ export const coreService = {
             }
         }
 
-        return (data as any[]).map(c => ({
-            id: c.id,
-            tenantId: c.tenant_id,
-            agentId: c.agent_id,
-            agentName: c.agents?.name || 'Agente Desconhecido',
-            agentType: c.agents?.type as any,
-            userId: c.user_identifier,
-            userName: c.user_name || 'Cliente Sem Nome',
-            establishmentName: this.getPhoneVariants(c.user_identifier)
-                .map(variant => establishmentMap.get(variant))
-                .find(Boolean),
-            userStatus: contactsMap.get(c.user_identifier) || 'active',
-            channel: c.channel,
-            status: c.status,
-            assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
-            assigned_operator_id: c.assigned_operator_id,
-            lastMessage: '',
-            lastMessageTime: new Date(c.last_message_at),
-            unreadCount: 0,
-            complianceScore: c.compliance_score,
-            messageCount: countsMap.get(c.id) ?? 0,
-            sentiment: c.sentiment ?? null,
-            messages: [],
-            createdAt: new Date(c.created_at),
-            lastMessageSender: c.last_message_sender_type,
-            lastMessageDirection: c.last_message_direction,
-            isAwaitingReply: true
-        })) as unknown as Conversation[];
+        const leadFiservStatusMap = new Map<string, string>();
+        if (userIdentifiers.length > 0) {
+            const allVariants = Array.from(new Set(userIdentifiers.flatMap(id => this.getPhoneVariants(id))));
+            for (let i = 0; i < allVariants.length; i += 100) {
+                const { data: leadRows } = await supabase
+                    .from('agent_leads')
+                    .select('whatsapp, metadata')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', allVariants.slice(i, i + 100));
+                for (const lr of (leadRows || []) as any[]) {
+                    const fs = String(lr?.metadata?.fiserv_status || '').toLowerCase().trim();
+                    if (!fs) continue;
+                    for (const v of this.getPhoneVariants(lr.whatsapp)) {
+                        if (!leadFiservStatusMap.has(v)) leadFiservStatusMap.set(v, fs);
+                    }
+                }
+            }
+        }
+
+        return (data as any[]).map(c => {
+            const leadFiservStatus = this.getPhoneVariants(c.user_identifier)
+                .map(v => leadFiservStatusMap.get(v))
+                .find(Boolean);
+            return {
+                id: c.id,
+                tenantId: c.tenant_id,
+                agentId: c.agent_id,
+                agentName: c.agents?.name || 'Agente Desconhecido',
+                agentType: c.agents?.type as any,
+                userId: c.user_identifier,
+                userName: c.user_name || 'Cliente Sem Nome',
+                establishmentName: this.getPhoneVariants(c.user_identifier)
+                    .map(variant => establishmentMap.get(variant))
+                    .find(Boolean),
+                userStatus: contactsMap.get(c.user_identifier) || 'active',
+                channel: c.channel,
+                status: c.status,
+                assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
+                assigned_operator_id: c.assigned_operator_id,
+                lastMessage: '',
+                lastMessageTime: new Date(c.last_message_at),
+                unreadCount: 0,
+                complianceScore: c.compliance_score,
+                messageCount: countsMap.get(c.id) ?? 0,
+                sentiment: c.sentiment ?? null,
+                messages: [],
+                createdAt: new Date(c.created_at),
+                lastMessageSender: c.last_message_sender_type,
+                lastMessageDirection: c.last_message_direction,
+                isAwaitingReply: computeIsAwaitingReply({
+                    status: c.status,
+                    lastMessageDirection: c.last_message_direction,
+                    lastMessageSender: c.last_message_sender_type,
+                    metadata: c.metadata,
+                    contextState: c.context_state,
+                    leadFiservStatus,
+                })
+            };
+        }).filter(c => c.isAwaitingReply) as unknown as Conversation[];
     },
 
     async getConversationsOverview(tenantId: string): Promise<Conversation[]> {
@@ -749,35 +865,66 @@ export const coreService = {
             }
         }
 
-        return (data as any[]).map(c => ({
-            id: c.id,
-            tenantId: c.tenant_id,
-            agentId: c.agent_id,
-            agentName: c.agents?.name || 'Agente Desconhecido',
-            agentType: c.agents?.type as any,
-            userId: c.user_identifier,
-            userName: c.user_name || 'Cliente Sem Nome',
-            establishmentName: this.getPhoneVariants(c.user_identifier)
-                .map(variant => establishmentMap.get(variant))
-                .find(Boolean),
-            campaignName: campaignMap.get(c.user_identifier) || undefined,
-            userStatus: contactsMap.get(c.user_identifier) || 'active',
-            channel: c.channel,
-            status: c.status,
-            assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
-            assigned_operator_id: c.assigned_operator_id,
-            lastMessage: '',
-            lastMessageTime: new Date(c.last_message_at),
-            unreadCount: 0,
-            complianceScore: c.compliance_score,
-            messageCount: countsMap.get(c.id) ?? 0, // Real total — no pagination limit
-            sentiment: c.sentiment ?? null,
-            messages: [],
-            createdAt: new Date(c.created_at),
-            lastMessageSender: c.last_message_sender_type,
-            lastMessageDirection: c.last_message_direction,
-            isAwaitingReply: c.status !== 'closed' && (c.last_message_direction === 'inbound' || c.last_message_sender_type === 'user')
-        })) as unknown as Conversation[];
+        const leadFiservStatusMap = new Map<string, string>();
+        if (userIdentifiers.length > 0) {
+            const allVariants = Array.from(new Set(userIdentifiers.flatMap(id => this.getPhoneVariants(id))));
+            for (let i = 0; i < allVariants.length; i += 100) {
+                const { data: leadRows } = await supabase
+                    .from('agent_leads')
+                    .select('whatsapp, metadata')
+                    .eq('tenant_id', tenantId)
+                    .in('whatsapp', allVariants.slice(i, i + 100));
+                for (const lr of (leadRows || []) as any[]) {
+                    const fs = String(lr?.metadata?.fiserv_status || '').toLowerCase().trim();
+                    if (!fs) continue;
+                    for (const v of this.getPhoneVariants(lr.whatsapp)) {
+                        if (!leadFiservStatusMap.has(v)) leadFiservStatusMap.set(v, fs);
+                    }
+                }
+            }
+        }
+
+        return (data as any[]).map(c => {
+            const leadFiservStatus = this.getPhoneVariants(c.user_identifier)
+                .map(v => leadFiservStatusMap.get(v))
+                .find(Boolean);
+            return {
+                id: c.id,
+                tenantId: c.tenant_id,
+                agentId: c.agent_id,
+                agentName: c.agents?.name || 'Agente Desconhecido',
+                agentType: c.agents?.type as any,
+                userId: c.user_identifier,
+                userName: c.user_name || 'Cliente Sem Nome',
+                establishmentName: this.getPhoneVariants(c.user_identifier)
+                    .map(variant => establishmentMap.get(variant))
+                    .find(Boolean),
+                campaignName: campaignMap.get(c.user_identifier) || undefined,
+                userStatus: contactsMap.get(c.user_identifier) || 'active',
+                channel: c.channel,
+                status: c.status,
+                assignedOperator: c.metadata?.operator_name || (c.assigned_operator_id ? 'Carlos Silva' : undefined),
+                assigned_operator_id: c.assigned_operator_id,
+                lastMessage: '',
+                lastMessageTime: new Date(c.last_message_at),
+                unreadCount: 0,
+                complianceScore: c.compliance_score,
+                messageCount: countsMap.get(c.id) ?? 0, // Real total — no pagination limit
+                sentiment: c.sentiment ?? null,
+                messages: [],
+                createdAt: new Date(c.created_at),
+                lastMessageSender: c.last_message_sender_type,
+                lastMessageDirection: c.last_message_direction,
+                isAwaitingReply: computeIsAwaitingReply({
+                    status: c.status,
+                    lastMessageDirection: c.last_message_direction,
+                    lastMessageSender: c.last_message_sender_type,
+                    metadata: c.metadata,
+                    contextState: c.context_state,
+                    leadFiservStatus,
+                })
+            };
+        }) as unknown as Conversation[];
     },
 
     async searchConversations(tenantId: string, query: string, signal?: AbortSignal): Promise<Conversation[]> {
