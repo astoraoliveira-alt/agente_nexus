@@ -434,14 +434,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const newlyArrivedUserMsgs = messages.filter(m => !prevIds.has(m.id) && m.sender === 'user');
         if (newlyArrivedUserMsgs.length > 0) {
           const user = currentUserRef.current;
+          const isHumanNotAi = Boolean(cachedConv && cachedConv.status !== 'ai_active' && cachedConv.status !== 'closed');
           const isMyAssigned = Boolean(
-            user && cachedConv && (
+            user && cachedConv && isHumanNotAi && (
               (cachedConv.assigned_operator_id && cachedConv.assigned_operator_id === user.id) ||
               (!cachedConv.assigned_operator_id && cachedConv.assignedOperator && user.name && cachedConv.assignedOperator.toLowerCase().includes(user.name.toLowerCase()))
             )
           );
-          const isPinned = pinnedIdsRef.current.includes(activeId);
-          if (isMyAssigned || isPinned) {
+          if (isMyAssigned) {
             playNotificationSound(newlyArrivedUserMsgs[newlyArrivedUserMsgs.length - 1].id);
           }
         }
@@ -622,24 +622,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         if (changedConvIds.length === 0) return;
 
+        const rowsById = new Map(rows.map((r: any) => [r.id, r]));
         for (const convId of changedConvIds) {
+          const rowInfo = rowsById.get(convId);
+          const isMyHumanConv = Boolean(
+            rowInfo &&
+            rowInfo.status !== 'ai_active' &&
+            rowInfo.status !== 'closed' &&
+            rowInfo.assigned_operator_id === userId
+          );
+
           const msgs = await api.getConversationMessages(convId).catch(() => null);
           if (!msgs || msgs.length === 0) continue;
 
-          // Conta todas as novas mensagens do lead que chegaram desde o último timestamp conhecido
-          const prevCached = conversationsRef.current.find(c => c.id === convId);
-          const prevIds = new Set((prevCached?.messages || []).map(m => m.id));
-          const newUserMsgs = prevIds.size > 0
-            ? msgs.filter(m => !prevIds.has(m.id) && m.sender === 'user')
-            : [msgs[msgs.length - 1]].filter(m => m.sender === 'user');
+          // Som e contador de não lidas EXCLUSIVOS para conversas assumidas pelo operador logado (NUNCA quando a IA está atendendo)
+          if (isMyHumanConv) {
+            const prevCached = conversationsRef.current.find(c => c.id === convId);
+            const prevIds = new Set((prevCached?.messages || []).map(m => m.id));
+            const newUserMsgs = prevIds.size > 0
+              ? msgs.filter(m => !prevIds.has(m.id) && m.sender === 'user')
+              : [msgs[msgs.length - 1]].filter(m => m.sender === 'user');
 
-          if (newUserMsgs.length > 0) {
-            recordUnreadMessages(convId, newUserMsgs.map(m => m.id));
-            playNotificationSound(newUserMsgs[newUserMsgs.length - 1].id);
-          } else {
-            const lastMsg = msgs[msgs.length - 1];
-            if (lastMsg.sender === 'user') {
-              playNotificationSound(lastMsg.id);
+            if (newUserMsgs.length > 0) {
+              recordUnreadMessages(convId, newUserMsgs.map(m => m.id));
+              playNotificationSound(newUserMsgs[newUserMsgs.length - 1].id);
+            } else {
+              const lastMsg = msgs[msgs.length - 1];
+              if (lastMsg.sender === 'user') {
+                playNotificationSound(lastMsg.id);
+              }
             }
           }
 
@@ -829,7 +840,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
                return;
            }
 
-           // 🔔 Som de notificação EXCLUSIVO para conversas que o atendente logado assumiu para ele
+           // 🔔 Som de notificação EXCLUSIVO para conversas assumidas pelo atendente logado (NUNCA quando a IA está atendendo)
            const isInboundLeadMsg = payload.eventType === 'INSERT' && (
              payload.new?.direction === 'inbound' ||
              payload.new?.sender_type === 'user'
@@ -837,15 +848,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
            if (isInboundLeadMsg && newMsgConvId) {
              const user = currentUserRef.current;
              const conv = conversationsRef.current.find(c => c.id === newMsgConvId);
+             const isHumanNotAi = Boolean(conv && conv.status !== 'ai_active' && conv.status !== 'closed');
              const isMyAssigned = Boolean(
-               user && conv && (
+               user && conv && isHumanNotAi && (
                  (conv.assigned_operator_id && conv.assigned_operator_id === user.id) ||
                  (!conv.assigned_operator_id && conv.assignedOperator && user.name && conv.assignedOperator.toLowerCase().includes(user.name.toLowerCase()))
                )
              );
 
-             const isPinned = pinnedIdsRef.current.includes(newMsgConvId);
-             if (isMyAssigned || isPinned) {
+             if (isMyAssigned) {
                playNotificationSound(payload.new?.id);
                refreshSalesCockpitAwaitingCount();
                // Atualiza prévia na lista de conversas imediatamente
@@ -857,14 +868,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
                } : c));
              } else if (!conv && user) {
                // Caso a conversa ainda não esteja no cache local (ex: Cockpit de Vendas),
-               // verifica no banco se está atribuída exclusivamente ao operador logado
+               // verifica no banco se está em atendimento humano atribuído exclusivamente ao operador logado
                supabase
                  .from('conversations')
-                 .select('assigned_operator_id, metadata')
+                 .select('status, assigned_operator_id, metadata')
                  .eq('id', newMsgConvId)
                  .single()
                  .then(({ data: cData }) => {
-                   if (!cData) return;
+                   if (!cData || cData.status === 'ai_active' || cData.status === 'closed') return;
                    const opName = String(cData.metadata?.operator_name || '').toLowerCase();
                    const isMineInDb = Boolean(
                      (cData.assigned_operator_id && cData.assigned_operator_id === user.id) ||
