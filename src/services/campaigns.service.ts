@@ -1937,6 +1937,28 @@ async deleteCampaign(id: string): Promise<void> {
         }
     },
 
+    async getReheatingAndReengagementAnalytics(
+        tenantId: string,
+        campaignId?: string | null,
+        granularity: 'day' | 'week' | 'month' = 'day'
+    ): Promise<import('@/lib/types').ReheatingAndReengagementAnalytics | null> {
+        try {
+            const { data, error } = await supabaseReader.rpc('get_reheating_and_reengagement_analytics', {
+                p_tenant_id: tenantId,
+                p_campaign_id: campaignId && campaignId !== 'all' ? campaignId : null,
+                p_granularity: granularity,
+            });
+            if (error) {
+                console.error('Erro em get_reheating_and_reengagement_analytics:', error);
+                return null;
+            }
+            return data as import('@/lib/types').ReheatingAndReengagementAnalytics;
+        } catch (err) {
+            console.error('Erro em getReheatingAndReengagementAnalytics:', err);
+            return null;
+        }
+    },
+
     async getCreditCampaignFunnelStats(
         tenantId: string,
         campaignIds?: string[],

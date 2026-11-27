@@ -1266,6 +1266,81 @@ export interface ReengagementComparisonData {
   batches: any[];
 }
 
+export interface ReheatingAndReengagementAnalytics {
+  granularity: 'day' | 'week' | 'month';
+  reengagement: {
+    orig_sent: number;
+    orig_replied: number;
+    reeng_sent: number;
+    reeng_replied: number;
+    orig_reply_rate: number;
+    reeng_reply_rate: number;
+    uplift_pct: number;
+  };
+  preapproved_reheating: {
+    total_preapproved: number;
+    reheated: number;
+    replied: number;
+    simulated: number;
+    handoff: number;
+    formalized: number;
+    reply_rate: number;
+    total_reheated_value: number;
+    recovered_value: number;
+  };
+  timeline: Array<{
+    period_label: string;
+    orig_sent: number;
+    orig_replied: number;
+    orig_reply_rate: number;
+    react_sent: number;
+    react_replied: number;
+    react_reply_rate: number;
+    reeng_sent: number;
+    reeng_replied: number;
+    reeng_reply_rate: number;
+    reheat_sent: number;
+    reheat_replied: number;
+    reheat_reply_rate: number;
+    reheat_simulated: number;
+    reheat_handoff: number;
+    reheat_formalized: number;
+  }>;
+  time_of_day: {
+    slots: Array<{
+      slot: string;
+      sent: number;
+      replied: number;
+      reply_rate: number;
+      reeng_sent: number;
+      reeng_replied: number;
+      reheat_sent: number;
+      reheat_replied: number;
+    }>;
+    by_hour: Array<{
+      hour: number;
+      label: string;
+      sent: number;
+      replied: number;
+      reply_rate: number;
+    }>;
+    best_slot: { slot: string; sent: number; replied: number; reply_rate: number } | null;
+    best_hour: { hour: number; label: string; sent: number; replied: number; reply_rate: number } | null;
+  };
+  preapproved_leads: Array<{
+    lead_id: string;
+    conversation_id: string | null;
+    name: string;
+    cnpj: string;
+    whatsapp: string;
+    campaign_name: string | null;
+    approved_amount: number;
+    reheat_sent_at: string;
+    replied_at: string | null;
+    post_status: 'Formalizado' | 'Em Atendimento' | 'Simulou' | 'Respondeu' | 'Sem resposta';
+  }>;
+}
+
 export interface MetaBillingDispatchItem {
   dispatchDate: string; // YYYY-MM-DD
   dispatchType: 'campaign_initial' | 'reengagement' | 'funnel_followup' | string;
